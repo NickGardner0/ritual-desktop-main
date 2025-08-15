@@ -1,0 +1,361 @@
+{
+  "info": {
+    "name": "Ritual API",
+    "description": "Complete API collection for the Ritual self-tracking and habit management application",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/",
+          "host": ["{{base_url}}"],
+          "path": [""]
+        }
+      }
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "your-email@example.com",
+                  "description": "Email address"
+                },
+                {
+                  "key": "password",
+                  "value": "your-password",
+                  "description": "Password"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "token"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"securepassword123\",\n  \"full_name\": \"John Doe\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/",
+              "host": ["{{base_url}}"],
+              "path": ["users", ""]
+            }
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"preferences\": {\n    \"theme\": \"dark\",\n    \"notifications\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Habits",
+      "item": [
+        {
+          "name": "Get All Habits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habits/",
+              "host": ["{{base_url}}"],
+              "path": ["habits", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Habit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Daily Exercise\",\n  \"description\": \"30 minutes of exercise every day\",\n  \"category\": \"health\",\n  \"target_frequency\": 7,\n  \"target_value\": 30,\n  \"unit\": \"minutes\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/habits/",
+              "host": ["{{base_url}}"],
+              "path": ["habits", ""]
+            }
+          }
+        },
+        {
+          "name": "Get Habit by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habits/1",
+              "host": ["{{base_url}}"],
+              "path": ["habits", "1"]
+            }
+          }
+        },
+        {
+          "name": "Update Habit",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Exercise Routine\",\n  \"description\": \"45 minutes of exercise every day\",\n  \"target_value\": 45\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/habits/1",
+              "host": ["{{base_url}}"],
+              "path": ["habits", "1"]
+            }
+          }
+        },
+        {
+          "name": "Delete Habit",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habits/1",
+              "host": ["{{base_url}}"],
+              "path": ["habits", "1"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Habit Logs",
+      "item": [
+        {
+          "name": "Get Habit Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habit-logs/",
+              "host": ["{{base_url}}"],
+              "path": ["habit-logs", ""]
+            }
+          }
+        },
+        {
+          "name": "Create Habit Log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"habit_id\": 1,\n  \"value\": 30,\n  \"date\": \"2024-01-15\",\n  \"notes\": \"Great workout today!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/habit-logs/",
+              "host": ["{{base_url}}"],
+              "path": ["habit-logs", ""]
+            }
+          }
+        },
+        {
+          "name": "Get Logs by Habit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habit-logs/habit/1",
+              "host": ["{{base_url}}"],
+              "path": ["habit-logs", "habit", "1"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Predefined Habits",
+      "item": [
+        {
+          "name": "Get Predefined Habits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/predefined-habits/",
+              "host": ["{{base_url}}"],
+              "path": ["predefined-habits", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Habit Units",
+      "item": [
+        {
+          "name": "Get Habit Units",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habit-units/",
+              "host": ["{{base_url}}"],
+              "path": ["habit-units", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Subscriptions",
+      "item": [
+        {
+          "name": "Get User Subscription",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/subscriptions/me",
+              "host": ["{{base_url}}"],
+              "path": ["subscriptions", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Habit Data Integration",
+      "item": [
+        {
+          "name": "Get Integrations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/habit-data/",
+              "host": ["{{base_url}}"],
+              "path": ["habit-data", ""]
+            }
+          }
+        },
+        {
+          "name": "Connect Integration",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"whoop\",\n  \"access_token\": \"your-access-token\",\n  \"user_id\": \"whoop-user-id\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/habit-data/",
+              "host": ["{{base_url}}"],
+              "path": ["habit-data", ""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+} 

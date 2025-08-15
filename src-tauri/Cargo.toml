@@ -1,0 +1,27 @@
+[package]
+name = "app"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+license = ""
+repository = ""
+default-run = "app"
+edition = "2021"
+rust-version = "1.60"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "1.5.5", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+tauri = { version = "1.8.1", features = [ "protocol-all", "system-tray", "window-set-icon", "window-hide", "window-set-min-size", "window-maximize", "window-set-always-on-top", "window-unminimize", "window-set-cursor-icon", "window-set-cursor-visible", "window-set-max-size", "window-unmaximize", "window-set-resizable", "window-set-focus", "window-request-user-attention", "window-print", "window-center", "window-set-title", "window-create", "window-show", "window-set-ignore-cursor-events", "window-set-decorations", "window-set-skip-taskbar", "window-set-cursor-position", "window-set-fullscreen", "window-set-cursor-grab", "window-close", "window-start-dragging", "window-minimize", "window-set-size", "window-set-position", "dialog-all", "shell-open"] }
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
+# If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
+# DO NOT REMOVE!!
+custom-protocol = [ "tauri/custom-protocol" ]
