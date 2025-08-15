@@ -1,6 +1,6 @@
 # Ritual Desktop
 
-A desktop version of the Ritual habit tracking app built with Tauri and Next.js.
+A desktop version of the Ritual self-tracking application built with Tauri and Next.js.
 
 ## Prerequisites
 
