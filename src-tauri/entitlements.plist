@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- Disable app sandbox to ensure microphone access works -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    
+    <!-- Allow microphone access for voice recognition -->
+    <key>com.apple.security.device.microphone</key>
+    <true/>
+    
+    <!-- Allow network access for API calls -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    
+    <!-- Allow outgoing network connections -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    
+    <!-- Microphone usage description for Speech framework -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Ritual uses the microphone so you can log habits with your voice</string>
+    
+    <!-- Speech recognition usage description -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Ritual uses speech recognition to convert your voice to text for habit logging</string>
+  </dict>
+</plist>
