@@ -1,203 +1,32 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, lazy, Suspense, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import * as LucideIcons from 'lucide-react';
-import { ChevronDown, CheckCircle2 } from 'lucide-react';
-import IconPicker from './IconPicker';
+import { 
+  ChevronDown, 
+  CheckCircle2, 
+  X, 
+  Calendar, 
+  CheckSquare, 
+  BookCheck, 
+  Heart, 
+  Zap, 
+  Plus 
+} from 'lucide-react';
 import { HabitsService } from '../lib/habits-service';
-import { useHabits } from '@/hooks/useHabits';
-import { supabase } from '@/lib/supabase';
+import { useHabits } from '@/contexts/HabitsContext';
+import { useAuth } from '@clerk/nextjs';
+import MiniSearch from 'minisearch';
+import {
+  productivityHabits,
+  fitnessHealthHabits,
+  educationHabits,
+  experimentsHabits,
+  type Habit
+} from '../data/habits-data';
 
-// Define habit arrays locally
-const productivityHabits = [
-  { value: 'deep-work', label: 'Deep Work Sessions' },
-  { value: 'focus-sessions', label: 'Focus Sessions' },
-  { value: 'pomodoro-technique', label: 'Pomodoro Technique' },
-  { value: 'time-blocking', label: 'Time Blocking' },
-  { value: 'task-completion', label: 'Daily Task Completion' },
-  { value: 'priority-tasks', label: 'Priority Task Focus' },
-  { value: 'email-batching', label: 'Email Batching' },
-  { value: 'inbox-zero', label: 'Inbox Zero' },
-  { value: 'meeting-free-blocks', label: 'Meeting-Free Blocks' },
-  { value: 'calendar-review', label: 'Calendar Review' },
-  { value: 'daily-planning', label: 'Daily Planning' },
-  { value: 'weekly-planning', label: 'Weekly Planning' },
-  { value: 'monthly-review', label: 'Monthly Review' },
-  { value: 'goal-setting', label: 'Goal Setting' },
-  { value: 'habit-tracking', label: 'Habit Tracking' },
-  { value: 'reflection-journaling', label: 'Reflection Journaling' },
-  { value: 'gratitude-practice', label: 'Gratitude Practice' },
-  { value: 'morning-routine', label: 'Morning Routine' },
-  { value: 'evening-routine', label: 'Evening Routine' },
-  { value: 'workspace-organization', label: 'Workspace Organization' },
-  { value: 'digital-declutter', label: 'Digital Declutter' },
-  { value: 'notification-management', label: 'Notification Management' },
-  { value: 'distraction-free-time', label: 'Distraction-Free Time' },
-  { value: 'single-tasking', label: 'Single-Tasking' },
-  { value: 'breaks-taken', label: 'Regular Breaks' },
-  { value: 'standup-checkin', label: 'Daily Standup' },
-  { value: 'team-communication', label: 'Team Communication' },
-  { value: 'project-updates', label: 'Project Updates' },
-  { value: 'documentation', label: 'Documentation' },
-  { value: 'code-review', label: 'Code Review' },
-  { value: 'learning-hour', label: 'Learning Hour' },
-  { value: 'skill-development', label: 'Skill Development' },
-  { value: 'end-of-day-shutdown', label: 'End of Day Shutdown' },
-  { value: 'energy-management', label: 'Energy Management' },
-  { value: 'decision-logging', label: 'Decision Logging' }
-];
-
-const fitnessHealthHabits = [
-  { value: 'morning-workout', label: 'Morning Workout' },
-  { value: 'evening-workout', label: 'Evening Workout' },
-  { value: 'strength-training', label: 'Strength Training' },
-  { value: 'cardio-exercise', label: 'Cardio Exercise' },
-  { value: 'yoga-practice', label: 'Yoga Practice' },
-  { value: 'pilates', label: 'Pilates' },
-  { value: 'daily-walk', label: 'Daily Walk' },
-  { value: 'running', label: 'Running' },
-  { value: 'cycling', label: 'Cycling' },
-  { value: 'swimming', label: 'Swimming' },
-  { value: 'hiking', label: 'Hiking' },
-  { value: 'stretching', label: 'Stretching' },
-  { value: 'mobility-work', label: 'Mobility Work' },
-  { value: 'foam-rolling', label: 'Foam Rolling' },
-  { value: 'meditation', label: 'Meditation' },
-  { value: 'mindfulness', label: 'Mindfulness Practice' },
-  { value: 'breathing-exercises', label: 'Breathing Exercises' },
-  { value: 'cold-therapy', label: 'Cold Therapy' },
-  { value: 'sauna-session', label: 'Sauna Session' },
-  { value: 'hydration', label: 'Daily Hydration' },
-  { value: 'water-intake', label: 'Water Intake Tracking' },
-  { value: 'nutrition-logging', label: 'Nutrition Logging' },
-  { value: 'meal-prep', label: 'Meal Preparation' },
-  { value: 'healthy-snacking', label: 'Healthy Snacking' },
-  { value: 'vitamin-supplements', label: 'Vitamin Supplements' },
-  { value: 'sleep-schedule', label: 'Sleep Schedule' },
-  { value: 'sleep-hygiene', label: 'Sleep Hygiene' },
-  { value: 'bedtime-routine', label: 'Bedtime Routine' },
-  { value: 'wake-up-routine', label: 'Wake-up Routine' },
-  { value: 'screen-time-limit', label: 'Screen Time Limit' },
-  { value: 'posture-check', label: 'Posture Check' },
-  { value: 'eye-exercises', label: 'Eye Exercises' },
-  { value: 'dental-hygiene', label: 'Dental Hygiene' },
-  { value: 'skincare-routine', label: 'Skincare Routine' },
-  { value: 'stress-management', label: 'Stress Management' },
-  { value: 'mental-health-check', label: 'Mental Health Check-in' }
-];
-
-const educationHabits = [
-  { value: 'daily-reading', label: 'Daily Reading' },
-  { value: 'book-reading', label: 'Book Reading' },
-  { value: 'article-reading', label: 'Article Reading' },
-  { value: 'research-papers', label: 'Research Papers' },
-  { value: 'online-courses', label: 'Online Courses' },
-  { value: 'video-tutorials', label: 'Video Tutorials' },
-  { value: 'podcast-listening', label: 'Educational Podcasts' },
-  { value: 'audiobook-listening', label: 'Audiobook Listening' },
-  { value: 'language-study', label: 'Language Study' },
-  { value: 'vocabulary-building', label: 'Vocabulary Building' },
-  { value: 'flashcards', label: 'Flashcards/Spaced Repetition' },
-  { value: 'anki-reviews', label: 'Anki Reviews' },
-  { value: 'duolingo-practice', label: 'Duolingo Practice' },
-  { value: 'coding-practice', label: 'Coding Practice' },
-  { value: 'algorithm-study', label: 'Algorithm Study' },
-  { value: 'technical-skills', label: 'Technical Skills' },
-  { value: 'skill-practice', label: 'Skill Practice' },
-  { value: 'instrument-practice', label: 'Instrument Practice' },
-  { value: 'art-practice', label: 'Art Practice' },
-  { value: 'writing-practice', label: 'Writing Practice' },
-  { value: 'creative-writing', label: 'Creative Writing' },
-  { value: 'journaling', label: 'Learning Journal' },
-  { value: 'reflection-notes', label: 'Reflection Notes' },
-  { value: 'note-taking', label: 'Note Taking' },
-  { value: 'mind-mapping', label: 'Mind Mapping' },
-  { value: 'lecture-attendance', label: 'Lecture Attendance' },
-  { value: 'webinar-attendance', label: 'Webinar Attendance' },
-  { value: 'conference-sessions', label: 'Conference Sessions' },
-  { value: 'group-study', label: 'Group Study' },
-  { value: 'study-sessions', label: 'Study Sessions' },
-  { value: 'focused-learning', label: 'Focused Learning Time' },
-  { value: 'research-time', label: 'Research Time' },
-  { value: 'project-work', label: 'Project Work' },
-  { value: 'homework-completion', label: 'Homework Completion' },
-  { value: 'assignment-work', label: 'Assignment Work' },
-  { value: 'practice-tests', label: 'Practice Tests' },
-  { value: 'quiz-preparation', label: 'Quiz Preparation' },
-  { value: 'exam-study', label: 'Exam Study' },
-  { value: 'reading-summaries', label: 'Reading Summaries' },
-  { value: 'concept-review', label: 'Concept Review' },
-  { value: 'problem-solving', label: 'Problem Solving' },
-  { value: 'case-studies', label: 'Case Studies' },
-  { value: 'presentation-prep', label: 'Presentation Prep' },
-  { value: 'public-speaking', label: 'Public Speaking Practice' },
-  { value: 'study-breaks', label: 'Study Breaks' },
-  { value: 'learning-goals', label: 'Learning Goals Review' },
-  { value: 'progress-tracking', label: 'Learning Progress Tracking' }
-];
-
-const experimentsHabits = [
-  { value: 'new-recipes', label: 'Try New Recipes' },
-  { value: 'cooking-experiments', label: 'Cooking Experiments' },
-  { value: 'new-cuisines', label: 'Try New Cuisines' },
-  { value: 'meal-timing', label: 'Meal Timing Experiments' },
-  { value: 'intermittent-fasting', label: 'Intermittent Fasting' },
-  { value: 'diet-experiments', label: 'Diet Experiments' },
-  { value: 'no-caffeine', label: 'No Caffeine Challenge' },
-  { value: 'no-sugar', label: 'No Sugar Challenge' },
-  { value: 'no-alcohol', label: 'No Alcohol Challenge' },
-  { value: 'water-only', label: 'Water Only Days' },
-  { value: 'new-supplements', label: 'Try New Supplements' },
-  { value: 'supplement-cycling', label: 'Supplement Cycling' },
-  { value: 'cold-showers', label: 'Cold Showers' },
-  { value: 'ice-baths', label: 'Ice Baths' },
-  { value: 'heat-therapy', label: 'Heat Therapy' },
-  { value: 'breathing-techniques', label: 'New Breathing Techniques' },
-  { value: 'sleep-schedule-experiment', label: 'Sleep Schedule Experiments' },
-  { value: 'polyphasic-sleep', label: 'Polyphasic Sleep' },
-  { value: 'wake-up-times', label: 'Wake-up Time Experiments' },
-  { value: 'bedtime-experiments', label: 'Bedtime Experiments' },
-  { value: 'new-exercise', label: 'Try New Exercise' },
-  { value: 'workout-timing', label: 'Workout Timing Tests' },
-  { value: 'exercise-intensity', label: 'Exercise Intensity Tests' },
-  { value: 'movement-patterns', label: 'New Movement Patterns' },
-  { value: 'productivity-tests', label: 'Productivity Method Tests' },
-  { value: 'work-schedules', label: 'Work Schedule Experiments' },
-  { value: 'focus-techniques', label: 'Focus Technique Tests' },
-  { value: 'time-management', label: 'Time Management Tests' },
-  { value: 'habit-experiments', label: 'Habit Formation Tests' },
-  { value: 'habit-stacking', label: 'Habit Stacking Tests' },
-  { value: 'routine-experiments', label: 'Routine Experiments' },
-  { value: 'morning-routines', label: 'Morning Routine Tests' },
-  { value: 'evening-routines', label: 'Evening Routine Tests' },
-  { value: 'digital-detox', label: 'Digital Detox' },
-  { value: 'social-media-breaks', label: 'Social Media Breaks' },
-  { value: 'phone-free-time', label: 'Phone-Free Time' },
-  { value: 'screen-time-limits', label: 'Screen Time Limit Tests' },
-  { value: 'notification-experiments', label: 'Notification Experiments' },
-  { value: 'mindfulness-experiments', label: 'Mindfulness Experiments' },
-  { value: 'meditation-techniques', label: 'New Meditation Techniques' },
-  { value: 'gratitude-experiments', label: 'Gratitude Practice Tests' },
-  { value: 'journaling-methods', label: 'Journaling Method Tests' },
-  { value: 'creative-projects', label: 'Creative Projects' },
-  { value: 'art-experiments', label: 'Art Experiments' },
-  { value: 'writing-experiments', label: 'Writing Experiments' },
-  { value: 'music-experiments', label: 'Music Experiments' },
-  { value: 'skill-challenges', label: 'Skill Challenges' },
-  { value: 'learning-methods', label: 'Learning Method Tests' },
-  { value: 'memory-techniques', label: 'Memory Technique Tests' },
-  { value: 'social-experiments', label: 'Social Experiments' },
-  { value: 'communication-tests', label: 'Communication Tests' },
-  { value: 'relationship-experiments', label: 'Relationship Experiments' },
-  { value: 'wellness-trials', label: 'Wellness Trials' },
-  { value: 'stress-tests', label: 'Stress Management Tests' },
-  { value: 'energy-experiments', label: 'Energy Level Experiments' },
-  { value: 'mood-tracking', label: 'Mood Tracking Experiments' },
-  { value: 'early-wake-up', label: 'Early Wake Up Challenge' },
-  { value: 'late-wake-up', label: 'Late Wake Up Test' },
-  { value: 'nap-experiments', label: 'Nap Experiments' }
-];
+// Lazy load IconPicker to reduce initial bundle size
+const IconPicker = lazy(() => import('./IconPicker'));
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
@@ -216,8 +45,9 @@ const categoryMap: Record<string, string> = {
   'custom': 'Custom'
 };
 
-export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCreated, initialCategory = null }: HabitSelectionModalProps) {
+export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCreated, initialCategory = null }: HabitSelectionModalProps): React.ReactElement | null {
   const { createHabit } = useHabits(); // Add useHabits hook
+  const { getToken } = useAuth(); // Add Clerk auth hook
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(initialCategory);
   
   // Update category when initialCategory prop changes and modal opens
@@ -230,13 +60,156 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [isCreating, setIsCreating] = useState(false);
   const [showCustomization, setShowCustomization] = useState(false);
   // We store icon names in kebab-case to match lucide's `icons` map keys
-  const [selectedIcon, setSelectedIcon] = useState('target');
+  const [selectedIcon, setSelectedIcon] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('Count');
   const [isMetricDropdownOpen, setIsMetricDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(''); // Search state
+  const [customHabitName, setCustomHabitName] = useState(''); // For custom habit input
   const metricDropdownRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const floatingLayerRef = useRef<HTMLDivElement>(null);
   const metricBtnRef = useRef<HTMLButtonElement>(null);
+  
+  // Function to get habits for a category - MUST be defined before useMemo hooks
+  const getHabitsForCategory = (category: string) => {
+    switch (category) {
+      case 'applewatch':
+        return [
+          { value: 'steps', label: 'Steps' },
+          { value: 'workouts', label: 'Workouts' },
+          { value: 'heart-rate', label: 'Heart Rate' },
+          { value: 'calories', label: 'Calories Burned' }
+        ];
+      case 'oura':
+        return [
+          { value: 'sleep-score', label: 'Sleep Score' },
+          { value: 'readiness', label: 'Readiness Score' },
+          { value: 'activity', label: 'Activity Score' }
+        ];
+      case 'whoop':
+        return [
+          { value: 'recovery', label: 'Recovery Score' },
+          { value: 'sleep-duration', label: 'Sleep Duration' },
+          { value: 'sleep-performance', label: 'Sleep Performance' },
+          { value: 'bedtime', label: 'Bedtime' },
+          { value: 'wake-time', label: 'Wake Time' },
+          { value: 'strain', label: 'Daily Strain' },
+          { value: 'resting-hr', label: 'Resting Heart Rate' },
+          { value: 'hrv', label: 'Heart Rate Variability (HRV)' },
+          { value: 'steps', label: 'Daily Steps' }
+        ];
+      case 'fitbit':
+        return [
+          { value: 'steps', label: 'Daily Steps' },
+          { value: 'heart-rate', label: 'Heart Rate' },
+          { value: 'sleep', label: 'Sleep Duration' },
+          { value: 'active-minutes', label: 'Active Minutes' },
+          { value: 'calories', label: 'Calories Burned' },
+          { value: 'distance', label: 'Distance' }
+        ];
+      case 'garmin':
+        return [
+          { value: 'vo2-max', label: 'VO2 Max' },
+          { value: 'training-load', label: 'Training Load' },
+          { value: 'body-battery', label: 'Body Battery' }
+        ];
+      case 'productivity':
+        return productivityHabits || [];
+      case 'fitness':
+        return fitnessHealthHabits || [];
+      case 'education':
+        return educationHabits || [];
+      case 'experiments':
+        return experimentsHabits || [];
+      default:
+        return [];
+    }
+  };
+  
+  // Initialize MiniSearch for fuzzy search - memoized to only create once
+  const miniSearch = useMemo(() => {
+    try {
+      const instance = new MiniSearch<Habit & { id: number }>({
+        fields: ['label', 'category'],
+        storeFields: ['value', 'label', 'category'],
+        searchOptions: {
+          boost: { label: 2 },
+          fuzzy: 0.2,
+          prefix: true
+        }
+      });
+
+      // Index all habits
+      const allHabitsForSearch = [
+        ...(productivityHabits || []),
+        ...(fitnessHealthHabits || []),
+        ...(educationHabits || []),
+        ...(experimentsHabits || [])
+      ];
+
+      const indexedHabits = allHabitsForSearch.map((habit, index) => ({
+        id: index,
+        ...habit
+      }));
+
+      if (indexedHabits.length > 0) {
+        instance.addAll(indexedHabits);
+      }
+      
+      return instance;
+    } catch (error) {
+      console.error('Error initializing MiniSearch:', error);
+      // Return a minimal instance that won't crash
+      return new MiniSearch<Habit & { id: number }>({
+        fields: ['label', 'category'],
+        storeFields: ['value', 'label', 'category']
+      });
+    }
+  }, []); // Only initialize once
+  
+  // MiniSearch fuzzy search with fallback
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim() || !selectedCategory) return [];
+    
+    try {
+      const results = miniSearch.search(searchQuery, {
+        filter: (result) => {
+          const categoryMatch = {
+            'productivity': 'productivity',
+            'fitness': 'fitness',
+            'education': 'education',
+            'experiments': 'experiments'
+          };
+          return result.category === categoryMatch[selectedCategory];
+        }
+      });
+      
+      return results.map(result => ({
+        value: result.value,
+        label: result.label
+      }));
+    } catch (error) {
+      console.error('Error searching with MiniSearch:', error);
+      // Fallback to simple search if MiniSearch fails
+      const categoryHabits = getHabitsForCategory(selectedCategory);
+      const query = searchQuery.toLowerCase().trim();
+      return categoryHabits.filter(habit => 
+        habit.label.toLowerCase().includes(query) ||
+        habit.value.toLowerCase().includes(query)
+      );
+    }
+  }, [searchQuery, selectedCategory, miniSearch]);
+  
+  // Get habits for display (search results or all category habits)
+  const displayedHabits = useMemo(() => {
+    if (searchQuery.trim() && searchResults.length > 0) {
+      return searchResults;
+    }
+    if (searchQuery.trim() && searchResults.length === 0) {
+      return []; // Show "no results"
+    }
+    return getHabitsForCategory(selectedCategory || '');
+  }, [searchQuery, searchResults, selectedCategory]);
   
   // Floating positioning hook
   function useFloatingWithinCard(
@@ -346,28 +319,35 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopConnecting, setWhoopConnecting] = useState(false);
 
-  // Check if Whoop is connected on mount
+  // Check if Whoop is connected on mount and when modal opens
   useEffect(() => {
-    checkWhoopConnection();
-  }, []);
+    if (isOpen) {
+      checkWhoopConnection();
+    }
+  }, [isOpen]);
 
   async function checkWhoopConnection() {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) return;
-
-      const { data, error } = await supabase
-        .from('whoop_connections')
-        .select('is_active')
-        .eq('user_id', session.user.id)
-        .eq('is_active', true)
-        .single();
-
-      if (data && !error) {
-        setWhoopConnected(true);
+      const token = await getToken();
+      if (!token) {
+        setWhoopConnected(false);
+        return;
+      }
+      
+      const response = await fetch('http://127.0.0.1:8000/api/integrations/whoop/status', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setWhoopConnected(data.connected || false);
+        console.log('✅ Whoop connection status:', data.connected);
       }
     } catch (error) {
       console.error('Error checking Whoop connection:', error);
+      setWhoopConnected(false);
     }
   }
 
@@ -375,26 +355,10 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     try {
       setWhoopConnecting(true);
       
-      // Get current user session
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        console.error('No active session');
-        setWhoopConnecting(false);
-        return;
-      }
-      
-      // Store flag to show modal after OAuth redirect
-      sessionStorage.setItem('whoop_return_to_modal', 'true');
-      
-      // Get the authorization URL from our API with user ID
-      const response = await fetch(`/api/integrations/whoop/auth?userId=${session.user.id}`);
-      const data = await response.json();
-      
-      if (data.authUrl) {
-        console.log('🔗 Redirecting to Whoop authorization...');
-        // Redirect to Whoop authorization page
-        window.location.href = data.authUrl;
-      }
+      // TODO: Implement Whoop connection with new backend
+      console.log('🔍 Whoop connect - using new backend (not implemented yet)');
+      setWhoopConnecting(false);
+      return;
     } catch (error) {
       console.error('Error connecting to Whoop:', error);
       setWhoopConnecting(false);
@@ -402,22 +366,24 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   }
 
   const handleCategorySelect = (category: string) => {
-    // If Whoop is selected and not connected, trigger OAuth
-    if (category === 'whoop' && !whoopConnected) {
-      handleWhoopConnect();
-      return;
-    }
-    
-    // If Whoop is already connected, show metrics selection
     setSelectedCategory(category);
+    setSearchQuery(''); // Clear search when changing categories
+    
+    // For custom habits, skip the habit list and go directly to customization
+    if (category === 'custom') {
+      setShowCustomization(true);
+      setSelectedHabit({ label: '', value: '' }); // Placeholder for custom habit
+    }
   };
 
   const handleBack = () => {
     if (showCustomization) {
       setShowCustomization(false);
       setSelectedHabit(null);
+      setCustomHabitName(''); // Clear custom habit name
     } else {
       setSelectedCategory(null);
+      setSearchQuery(''); // Clear search when going back
     }
   };
 
@@ -442,8 +408,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   ];
 
   const handleCreateHabit = async () => {
-    if (!selectedHabit) {
-      console.error('❌ No habit selected');
+    // For custom habits, use customHabitName; for preset habits, use selectedHabit.label
+    const habitName = selectedCategory === 'custom' ? customHabitName : selectedHabit?.label;
+    
+    if (!habitName || habitName.trim() === '') {
+      console.error('❌ No habit name provided');
       return;
     }
     
@@ -451,12 +420,18 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     
     try {
       const newHabit = {
-        name: selectedHabit.label,
+        name: habitName,
         category: categoryMap[selectedCategory || 'productivity'] || 'manual',
-        is_custom: false,
+        is_custom: selectedCategory === 'custom',
         sensor_type: 'Manual',
-        icon: kebabToPascal(selectedIcon),
-        unit_type: selectedMetric
+        icon: selectedIcon ? kebabToPascal(selectedIcon) : 'Target',
+        unit_type: selectedMetric,
+        integration_source: selectedCategory === 'whoop' ? 'whoop' 
+                          : selectedCategory === 'applewatch' ? 'applewatch'
+                          : selectedCategory === 'oura' ? 'oura'
+                          : selectedCategory === 'fitbit' ? 'fitbit'
+                          : selectedCategory === 'garmin' ? 'garmin'
+                          : null
       };
       
       // Create habit using the useHabits hook
@@ -465,22 +440,9 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       console.log('✅ Habit created successfully in backend:', backendHabit);
 
       // If this is a Whoop habit, trigger automatic sync
+      // Skip Whoop sync for now - will implement with new backend later
       if (selectedCategory === 'whoop') {
-        console.log('🔄 Triggering automatic Whoop sync...');
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.user?.id) {
-            await fetch('/api/integrations/whoop/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: session.user.id }),
-            });
-            console.log('✅ Whoop sync completed');
-          }
-        } catch (syncError) {
-          console.error('⚠️ Failed to auto-sync Whoop data:', syncError);
-          // Don't block habit creation if sync fails
-        }
+        console.log('🔍 Whoop sync - using new backend (not implemented yet)');
       }
 
       // Update habits context if callback provided
@@ -504,8 +466,9 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setSelectedHabit(null);
       setSelectedCategory(null);
       setShowCustomization(false);
-      setSelectedIcon('target');
+      setSelectedIcon('');
       setSelectedMetric('Count');
+      setCustomHabitName('');
       onClose();
       
       console.log('✅ Habit creation process completed successfully');
@@ -526,68 +489,16 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setIsCreating(false);
     }
   };
-
-
-  const getHabitsForCategory = (category: string) => {
-    switch (category) {
-      case 'applewatch':
-        return [
-          { value: 'steps', label: 'Steps' },
-          { value: 'workouts', label: 'Workouts' },
-          { value: 'heart-rate', label: 'Heart Rate' },
-          { value: 'calories', label: 'Calories Burned' }
-        ];
-      case 'oura':
-        return [
-          { value: 'sleep-score', label: 'Sleep Score' },
-          { value: 'readiness', label: 'Readiness Score' },
-          { value: 'activity', label: 'Activity Score' }
-        ];
-      case 'whoop':
-        return [
-          { value: 'recovery', label: 'Recovery Score' },
-          { value: 'sleep-duration', label: 'Sleep Duration' },
-          { value: 'sleep-performance', label: 'Sleep Performance' },
-          { value: 'bedtime', label: 'Bedtime' },
-          { value: 'wake-time', label: 'Wake Time' },
-          { value: 'strain', label: 'Daily Strain' },
-          { value: 'resting-hr', label: 'Resting Heart Rate' },
-          { value: 'hrv', label: 'Heart Rate Variability (HRV)' },
-          { value: 'steps', label: 'Daily Steps' }
-        ];
-      case 'garmin':
-        return [
-          { value: 'vo2-max', label: 'VO2 Max' },
-          { value: 'training-load', label: 'Training Load' },
-          { value: 'body-battery', label: 'Body Battery' }
-        ];
-      case 'productivity':
-        return productivityHabits;
-      case 'fitness':
-        return fitnessHealthHabits;
-      case 'education':
-        return educationHabits;
-      case 'experiments':
-        return experimentsHabits;
-      default:
-        return [];
-    }
-  };
-
   if (!isOpen) return null;
 
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed' }}>
-      {/* Backdrop with blur */}
-      <div className="absolute inset-0 bg-black/10 backdrop-blur-sm" onClick={onClose} style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}></div>
+      {/* Backdrop - Midday exact style */}
+      <div className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80" onClick={onClose} style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}></div>
       
       <div 
         ref={cardRef}
-        className={`relative bg-white w-full flex flex-col shadow-lg border border-gray-300 z-10 transition-all duration-300 ${
-          showCustomization 
-            ? 'max-w-[700px] h-[550px]' // Optimal height for 7-row dropdowns
-            : 'max-w-[525px] max-h-[60vh]' // Original size for selection
-        }`}
+        className="relative bg-white w-[90vw] max-w-xl h-[600px] flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-none"
       >
         {/* floating layer that confines dropdowns to the card */}
         <div
@@ -596,7 +507,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         />
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-4 pb-2 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0">
           {showCustomization ? (
             <button
               onClick={handleBack}
@@ -619,7 +530,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 </button>
               )}
               <h2 className="text-lg font-semibold text-gray-900">
-                {selectedCategory ? `${selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} Habits` : 'Start tracking anything'}
+                {selectedCategory 
+                  ? selectedCategory === 'whoop' ? 'Whoop Habits' 
+                  : selectedCategory === 'fitness' ? 'Fitness & Health Habits'
+                  : `${selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} Habits` 
+                  : 'Start tracking anything'}
               </h2>
             </div>
           )}
@@ -627,15 +542,13 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
             >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-5 h-5" />
             </button>
         </div>
 
         {/* Description */}
         {!selectedCategory && (
-          <div className="px-6 pb-2 flex-shrink-0">
+          <div className="px-6 pb-3 flex-shrink-0">
             <p className="text-sm text-gray-600">
               Ritual works best when you connect and integrate your wearable devices with manual self tracking tools.
             </p>
@@ -643,50 +556,64 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         )}
 
         {/* Search Bar */}
-        <div className="px-8 py-2 flex items-center gap-4 flex-shrink-0">
+        <div className="px-6 pb-3 flex items-center gap-4 flex-shrink-0">
           {showCustomization ? (
             <div className="flex items-center gap-4 w-full">
               <label className="block text-sm font-medium text-gray-700 w-20 text-left">Title</label>
               <div className="flex-1 max-w-md">
                 <input
                   type="text"
-                  placeholder={selectedHabit?.label}
-                  value={selectedHabit?.label}
-                  readOnly={true}
-                  className="w-full px-4 py-3 border border-gray-300 bg-gray-50 text-sm text-gray-700 h-[48px]"
+                  placeholder={selectedCategory === 'custom' ? 'Enter habit name...' : selectedHabit?.label}
+                  value={selectedCategory === 'custom' ? customHabitName : (selectedHabit?.label || '')}
+                  onChange={(e) => {
+                    if (selectedCategory === 'custom') {
+                      setCustomHabitName(e.target.value);
+                    }
+                  }}
+                  readOnly={selectedCategory !== 'custom'}
+                  className={`w-full px-4 py-3 border border-gray-200 rounded-none text-sm text-gray-700 h-[48px] ${
+                    selectedCategory === 'custom' ? 'bg-white' : 'bg-gray-50'
+                  }`}
                 />
               </div>
             </div>
           ) : (
-            <div className="flex-1 max-w-md">
+            <div className="flex-1">
               <input
                 type="text"
                 placeholder="Search habits..."
-                value=""
-                className="w-full px-4 py-2 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-none focus:outline-none focus:border-gray-400 text-sm"
               />
             </div>
           )}
         </div>
 
         {/* Content Area - Scrollable */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1 overflow-y-auto px-6 pb-4">
           {showCustomization ? (
             // Habit Customization View - Larger Layout
-            <div className="px-8 pb-8 pt-4">
+            <div className="space-y-6">
               {/* Icon Selection - Raycast Style */}
               <div className="mb-8 flex items-center gap-4">
                 <label className="block text-sm font-medium text-gray-700 w-20 text-left">Icon</label>
                 <div className="flex-1 max-w-md">
-                  <IconPicker
-                    value={selectedIcon}
-                    onChange={(name) => setSelectedIcon(name)}
-                    anchorClassName="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
-                    portalRef={floatingLayerRef}
-                    withinCardRef={cardRef}
-                    minMenuHeight={260}
-                    desiredMenuWidth={384}
-                  />
+                  <Suspense fallback={
+                    <div className="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 h-[48px]">
+                      <span>Loading icons...</span>
+                    </div>
+                  }>
+                    <IconPicker
+                      value={selectedIcon}
+                      onChange={(name) => setSelectedIcon(name)}
+                      anchorClassName="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
+                      portalRef={floatingLayerRef}
+                      withinCardRef={cardRef}
+                      minMenuHeight={260}
+                      desiredMenuWidth={384}
+                    />
+                  </Suspense>
                 </div>
               </div>
 
@@ -698,7 +625,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     <button
                       ref={metricBtnRef}
                       onClick={() => setIsMetricDropdownOpen((v) => !v)}
-                      className="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
+                      className="flex items-center justify-between w-full px-4 py-3 border border-gray-200 rounded-none bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
                     >
                       <span>{selectedMetric}</span>
                       <ChevronDown className={`h-4 w-4 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
@@ -735,8 +662,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               <div className="mb-8 flex items-center gap-4">
                 <label className="block text-sm font-medium text-gray-700 w-20 text-left">Start Date</label>
                 <div className="flex-1 max-w-md">
-                  <div className="flex items-center gap-3 px-4 py-3 border border-gray-300 bg-gray-50 text-sm text-gray-700 h-[48px]">
-                    <LucideIcons.Calendar className="w-4 h-4" />
+                  <div className="flex items-center gap-3 px-4 py-3 border border-gray-200 rounded-none bg-gray-50 text-sm text-gray-700 h-[48px]">
+                    <Calendar className="w-4 h-4" />
                     <span>Today, {new Date().toLocaleDateString('en-US', { 
                       weekday: 'long', 
                       year: 'numeric', 
@@ -760,253 +687,271 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             </div>
           ) : !selectedCategory ? (
             // Category Selection
-            <div className="px-6 pb-3 pt-0">
-              <div className="space-y-0">
+            <div className="space-y-0.5">
                 
-                                {/* Wearables & Devices - Connect */}
-                <div className="flex justify-between items-center py-2">
+                                {/* Custom Habit - Manual */}
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex items-center justify-center mr-4">
-                      <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-8 h-8" onError={(e) => {
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
+                      <Plus className="w-4 h-4 text-gray-700" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium leading-none">Custom Habit</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleCategorySelect('custom')}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                  >
+                    Manual
+                  </button>
+                </div>
+
+                                {/* Wearables & Devices - Connect */}
+                <div className="flex justify-between items-center py-2 px-3">
+                  <div className="flex items-center">
+                    <div className="flex items-center justify-center mr-3">
+                      <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-7 h-7" onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
                         if (nextSibling) nextSibling.style.display = 'block';
                       }} />
-                      <svg className="w-7 h-7 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-6 h-6 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Screen Time</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('screentime')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <img src="/images/apple-logo.png" alt="Apple Watch" className="w-5 h-5" onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
-                        if (nextSibling) nextSibling.style.display = 'block';
-                      }} />
-                      <svg className="w-4 h-4 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                      <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
+                        <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/>
                       </svg>
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Apple Watch</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('applewatch')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <img src="/images/oura-logo.png" alt="Oura" className="w-5 h-5" onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
-                        if (nextSibling) nextSibling.style.display = 'block';
-                      }} />
-                      <svg className="w-4 h-4 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                      </svg>
+                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                      <img src="/images/oura.svg" alt="Oura Ring" className="h-28" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Oura Ring</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('oura')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex items-center justify-center mr-4">
-                      <img src="/images/whoop.svg" alt="Whoop" className="w-8 h-8" onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
-                        if (nextSibling) nextSibling.style.display = 'block';
-                      }} />
-                      <svg className="w-7 h-7 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                      </svg>
+                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                      <img src="/images/whoop.svg" alt="Whoop" className="h-6" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Whoop</p>
                     </div>
                   </div>
+                  {whoopConnected ? (
+                    <button 
+                      onClick={() => handleCategorySelect('whoop')}
+                      className="px-3 py-1.5 text-sm font-medium text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors"
+                    >
+                      Connected
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => handleCategorySelect('whoop')}
+                      disabled={whoopConnecting}
+                      className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                    >
+                      {whoopConnecting ? 'Connecting...' : 'Connect'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center py-2 px-3">
+                  <div className="flex items-center">
+                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                      <img src="/images/fitbit.svg" alt="Fitbit" className="h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium leading-none">Fitbit</p>
+                    </div>
+                  </div>
                   <button 
-                    onClick={() => handleCategorySelect('whoop')}
-                    disabled={whoopConnecting}
-                    className={`px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-                      whoopConnected 
-                        ? 'bg-lime-500 text-white hover:bg-lime-600 border-lime-500' 
-                        : 'text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3]'
-                    }`}
+                    onClick={() => handleCategorySelect('fitbit')}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
-                    {whoopConnecting ? 'Connecting...' : whoopConnected ? 'Connected' : 'Connect'}
+                    Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <img src="/images/garmin-logo.png" alt="Garmin" className="w-5 h-5" onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
-                        if (nextSibling) nextSibling.style.display = 'block';
-                      }} />
-                      <svg className="w-4 h-4 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
+                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                      <img src="/images/garmin.svg" alt="Garmin" className="h-6" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Garmin</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('garmin')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Connect
                   </button>
                 </div>
 
                                 {/* Manual Tracking Categories */}
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <LucideIcons.CheckSquare className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
+                      <CheckSquare className="w-4 h-4 text-gray-700" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Productivity</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('productivity')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <LucideIcons.BookCheck className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
+                      <BookCheck className="w-4 h-4 text-gray-700" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Education</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('education')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <LucideIcons.Heart className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
+                      <Heart className="w-4 h-4 text-gray-700" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Fitness & Health</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('fitness')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <LucideIcons.Zap className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
+                      <Zap className="w-4 h-4 text-gray-700" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Experiments</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('experiments')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-1.5">
+                <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-4">
-                      <LucideIcons.Plus className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
+                      <Plus className="w-4 h-4 text-gray-700" />
                     </div>
-                    <div>
+                    <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Custom Habits</p>
                     </div>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('custom')}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors"
+                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
                   >
                     Manual
                   </button>
                 </div>
-
-                  </div>
             </div>
           ) : (
             // Habit Selection for Category
-            <div className="px-6 pb-3 pt-0">
-              
-                            <div className="space-y-0 overflow-y-auto">
-                {getHabitsForCategory(selectedCategory).map((habit, index) => (
-                  <div key={habit.value} className="flex justify-between items-center py-1.5">
-                    <div className="flex items-center">
-                      <div>
-                        <p className="text-sm font-medium leading-none">{habit.label}</p>
+            <div className="space-y-0.5">
+                {displayedHabits.length > 0 ? (
+                  displayedHabits.map((habit, index) => (
+                    <div key={habit.value} className="flex justify-between items-center py-2 px-3">
+                      <div className="flex items-center">
+                        <div>
+                          <p className="text-sm font-medium leading-none">{habit.label}</p>
+                        </div>
                       </div>
+                      <button
+                        onClick={() => handleHabitClick(habit)}
+                        disabled={isCreating}
+                        className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                      >
+                        {isCreating ? 'Creating...' : 'Track'}
+                      </button>
                     </div>
-                    <button
-                      onClick={() => handleHabitClick(habit)}
-                      disabled={isCreating}
-                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
-                    >
-                      {isCreating ? 'Creating...' : 'Track'}
-                    </button>
+                  ))
+                ) : searchQuery.trim() ? (
+                  // No search results message
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="text-gray-400 mb-3">
+                      <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-gray-900 mb-1">No habits found</p>
+                    <p className="text-xs text-gray-500">Try a different search term</p>
                   </div>
-                ))}
-                  </div>
-                </div>
-              )}
-          </div>
-
-        
-                </div>
-          </div>
+                ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 
   // Use portal to render at document body level for full coverage

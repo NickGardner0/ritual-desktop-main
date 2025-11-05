@@ -1,11 +1,15 @@
 /* Tailwind CSS directives */
-@import url('/fonts/pp-neue-montreal-cufonfonts/NeueMontreal-Regular.otf');
-@import url('/fonts/pp-neue-montreal-cufonfonts/NeueMontreal-Medium.otf');
-@import url('/fonts/pp-neue-montreal-cufonfonts/ppneuemontreal-bold.otf');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Enable smooth view transitions for instant page navigation */
+@supports (view-transition-name: none) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0ms;
+  }
+}
 
 @layer base {
   @font-face {
@@ -20,6 +24,64 @@
     src: url('/fonts/pp-neue-montreal-cufonfonts/NeueMontreal-Medium.otf') format('opentype');
     font-weight: 500;
     font-style: normal;
+  }
+  
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('/fonts/DepartureMono-1.500/DepartureMono-Regular.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: block;
+  }
+  
+  @font-face {
+    font-family: 'Geist Mono';
+    src: url('/fonts/Geist_Mono/static/GeistMono-Medium.ttf') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: block;
+  }
+  
+  /* Ensure Departure Mono renders with crisp, pixelated edges for Tauri */
+  .departure-mono {
+    font-family: 'Departure Mono', 'Courier New', monospace;
+    -webkit-font-smoothing: antialiased;
+    font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+
+  /* Clerk component font overrides */
+  /* Headers use PP Neue Montreal */
+  .cl-headerTitle,
+  .cl-headerSubtitle {
+    font-family: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+  
+  /* All other elements use Inter */
+  .cl-rootBox,
+  .cl-card,
+  .cl-socialButtonsBlockButton,
+  .cl-socialButtonsBlockButtonText,
+  .cl-formButtonPrimary,
+  .cl-formFieldLabel,
+  .cl-formFieldInput,
+  .cl-footerActionText,
+  .cl-footerActionLink,
+  .cl-dividerText,
+  .cl-formFieldInputShowPasswordButton,
+  .cl-formFieldAction,
+  .cl-formFieldSuccessText,
+  .cl-formFieldErrorText,
+  .cl-alertText {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+
+  /* Clerk card border radius overrides for square corners */
+  .cl-card,
+  .cl-cardBox,
+  .cl-main,
+  .cl-rootBox {
+    border-radius: 0 !important;
   }
   
   @font-face {
@@ -171,8 +233,129 @@
     cursor: default !important;
   }
   
+  /* Override cursor for get started button */
+  .get-started-btn,
+  .get-started-btn:hover {
+    cursor: pointer !important;
+  }
+  
+  .get-started-btn:active {
+    cursor: pointer !important;
+  }
+  
+  /* Ensure pointer cursor works on desktop */
+  .desktop .get-started-btn,
+  .desktop .get-started-btn:hover {
+    cursor: pointer !important;
+  }
+  
+  .desktop .get-started-btn:active {
+    cursor: pointer !important;
+  }
+  
   /* Remove any remaining browser/system borders */
   ::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* Voice UI Animations */
+@layer utilities {
+  @keyframes voice-pulse {
+    0%, 100% {
+      height: 10px;
+      opacity: 0.8;
+    }
+    50% {
+      height: 18px;
+      opacity: 1;
+    }
+  }
+
+  @keyframes voice-ripple {
+    0% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1.5);
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes zoom-in {
+    from {
+      transform: scale(0.95);
+    }
+    to {
+      transform: scale(1);
+    }
+  }
+
+  .animate-voice-pulse {
+    animation: voice-pulse 0.6s ease-in-out infinite;
+  }
+
+  .animate-voice-ripple {
+    animation: voice-ripple 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  .animate-in {
+    animation: fade-in 0.2s ease-out;
+  }
+
+  .fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+
+  .zoom-in {
+    animation: zoom-in 0.2s ease-out;
+  }
+}
+
+/* Analytics checkbox styling - square and black */
+@layer components {
+  .analytics-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0 !important;
+    background-color: white;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .analytics-checkbox:checked {
+    background-color: #111827;
+    border-color: #111827;
+  }
+
+  .analytics-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  .analytics-checkbox:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.2);
   }
 }

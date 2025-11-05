@@ -3,8 +3,10 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { ArrowRight, ArrowUp, Loader2, Paperclip, Mic, Search, SlidersHorizontal, MessageSquare, List } from 'lucide-react';
 import { cn } from "@/lib/utils";
-import { supabase } from '@/lib/supabase';
-import { useHabits } from '@/hooks/useHabits';
+// Removed supabase import - now using Clerk + Python backend
+import { useHabits } from '@/contexts/HabitsContext'; // Updated to use Python backend
+import { useUser, useAuth } from '@clerk/nextjs';
+import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
 
 interface AIHabitChatProps {
   onHabitUpdate?: (habitData: any) => void;
@@ -17,11 +19,16 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastResponse, setLastResponse] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [mode, setMode] = useState<'log' | 'chat'>('log'); // New mode state
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<Array<{role: 'user' | 'assistant', content: string, timestamp: Date}>>([]);
   // Native speech recognition - no Web Speech API state needed
   const { habits } = useHabits(); // Get current habits for smart matching
+  const { user } = useUser(); // Get current Clerk user
+  const { getToken } = useAuth(); // Get Clerk auth token method
 
   // Initialize speech recognition
   // Speech recognition is now handled natively via Swift/Tauri
@@ -74,18 +81,24 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     }, 500);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Use Clerk user instead of Supabase session
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Get Clerk session token
+      const sessionToken = await getToken();
       
       // Process AI in background (don't wait for it)
       fetch('/api/chat/habits', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': session?.access_token ? `Bearer ${session.access_token}` : '',
+          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: transcript }],
-          userId: session?.user?.id
+          userId: user.id,
         }),
       }).then(async (response) => {
         if (!response.ok) {
@@ -123,29 +136,20 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     }
   };
 
-  // Start voice recognition
+  // Enhanced voice recognition with better UI
   const startVoiceRecognition = async () => {
     if (isListening) {
-      // Stop current recording
-      const mediaRecorder = (window as any).__mediaRecorder;
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-      }
-      setIsListening(false);
+      // Stop current recording (instant stop on click)
+      console.log('🛑 User clicked to stop recording');
+      stopVoiceRecording();
       return;
     }
 
-    // Tauri desktop app - use optimized approach
     try {
       setError(null);
+      setVoiceTranscript('');
       
-      // Debug: Check what formats are supported
-      console.log('🎤 Checking MediaRecorder support in Tauri webview...');
-      const testFormats = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/wav', 'audio/ogg'];
-      testFormats.forEach(format => {
-        console.log(`🎤 ${format}: ${MediaRecorder.isTypeSupported(format) ? '✅ Supported' : '❌ Not supported'}`);
-      });
-      
+      // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
@@ -155,7 +159,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         } 
       });
       
-      // Check what audio formats are supported in this Tauri webview
+      setAudioStream(stream);
+      
+      // Check supported audio formats
       let mimeType = '';
       const supportedTypes = [
         'audio/webm;codecs=opus',
@@ -169,47 +175,50 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       for (const type of supportedTypes) {
         if (MediaRecorder.isTypeSupported(type)) {
           mimeType = type;
-          console.log('🎤 Using supported audio format:', type);
+          console.log('🎤 Using audio format:', type);
           break;
         }
       }
       
-      // If no specific format is supported, let the browser choose
       const mediaRecorder = mimeType 
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
       
-      console.log('🎤 MediaRecorder created with format:', mimeType || 'default');
       const audioChunks: Blob[] = [];
           
       mediaRecorder.ondataavailable = (event) => {
-        audioChunks.push(event.data);
+        if (event.data.size > 0) {
+          audioChunks.push(event.data);
+        }
       };
       
       mediaRecorder.onstop = async () => {
         setIsListening(false);
+        setIsProcessingVoice(true);
+        
+        // Clean up audio stream
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+          setAudioStream(null);
+        }
         
         if (audioChunks.length === 0) {
           setError('No audio recorded. Please try again.');
-          stream.getTracks().forEach(track => track.stop());
+          setIsProcessingVoice(false);
           return;
         }
 
         const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/wav' });
         
-        // Show processing state
-        setIsLoading(true);
-        
         try {
-          // Send audio to our API route (which forwards to OpenAI Whisper)
+          // Send to Whisper API
           const formData = new FormData();
-          // Use appropriate file extension based on detected MIME type
           const getFileExtension = (mimeType: string) => {
             if (mimeType.includes('webm')) return 'webm';
             if (mimeType.includes('mp4')) return 'mp4';
             if (mimeType.includes('ogg')) return 'ogg';
             if (mimeType.includes('wav')) return 'wav';
-            return 'webm'; // default fallback
+            return 'webm';
           };
           
           const fileExtension = getFileExtension(mimeType || 'audio/wav');
@@ -227,59 +236,39 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
             
             if (!transcript.trim()) {
               setError('No speech detected. Please try again.');
+              setIsProcessingVoice(false);
               return;
             }
             
-            // Set the transcript as input
-            setInput(transcript);
+            setVoiceTranscript(transcript);
+            setIsProcessingVoice(false); // Stop showing waveform
+            setInput(transcript); // Show transcribed text in input box
             
-            // Immediately process with optimistic updates
-            setTimeout(async () => {
-              // Parse the input immediately for instant UI updates
-              const parsedHabit = parseHabitInput(transcript);
-              if (parsedHabit && onHabitUpdate) {
-                // INSTANT optimistic update - update UI immediately
-                onHabitUpdate({ 
-                  optimisticUpdate: {
-                    habitName: parsedHabit.habitName,
-                    amount: parsedHabit.amount,
-                    duration: parsedHabit.duration,
-                    unit: parsedHabit.unit,
-                    activity: `Voice: ${transcript}`,
-                    date: new Date().toISOString().split('T')[0]
-                  },
-                  playSound: true // Play success sound for voice input
-                });
-              }
-              
-              // Process with AI in background (for confirmation)
-              await handleVoiceSubmit(transcript);
-              
-              // Clear the input after processing
-              setTimeout(() => {
-                setInput('');
-              }, 2000);
-            }, 500); // Small delay to show transcript
+            // Focus the textarea so user can immediately press Enter to submit
+            setTimeout(() => {
+              textareaRef.current?.focus();
+            }, 100);
+            
+            // ✅ NO AUTO-SUBMIT - Let user review and manually submit
+            console.log('✅ Transcription complete. Waiting for manual submission...');
           } else {
             const errorText = await response.text();
             console.error('❌ Whisper API error:', response.status, errorText);
             setError('Failed to transcribe audio. Please try again.');
+            setIsProcessingVoice(false);
           }
         } catch (err) {
           console.error('❌ Error transcribing audio:', err);
           setError('Failed to process voice input. Please try again.');
-        } finally {
-          // Clean up
-          stream.getTracks().forEach(track => track.stop());
-          setIsLoading(false);
+          setIsProcessingVoice(false);
         }
       };
       
       // Start recording
-      mediaRecorder.start(100); // Collect data every 100ms
+      mediaRecorder.start(100);
       setIsListening(true);
       
-      // Auto-stop after 3 seconds of recording (shorter for better UX)
+      // Auto-stop after 3 seconds (faster like SuperWhisper)
       const autoStopTimer = setTimeout(() => {
         if (mediaRecorder.state === 'recording') {
           console.log('🎤 Auto-stopping recording after 3 seconds');
@@ -287,7 +276,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         }
       }, 3000);
       
-      // Store recorder and timer for manual stop
+      // Store for manual control
       (window as any).__mediaRecorder = mediaRecorder;
       (window as any).__autoStopTimer = autoStopTimer;
       
@@ -300,12 +289,34 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       } else if (err.name === 'NotSupportedError') {
         setError('Voice recording format not supported. Please try again.');
       } else if (err.name === 'NotReadableError') {
-        setError('Microphone is being used by another application. Please close other apps and try again.');
+        setError('Microphone is being used by another application.');
       } else {
         setError(`Microphone error: ${err.message || 'Unknown error'}`);
       }
       setIsListening(false);
+      setIsProcessingVoice(false);
     }
+  };
+
+  // Stop voice recording
+  const stopVoiceRecording = () => {
+    const mediaRecorder = (window as any).__mediaRecorder;
+    const autoStopTimer = (window as any).__autoStopTimer;
+    
+    if (autoStopTimer) {
+      clearTimeout(autoStopTimer);
+    }
+    
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    
+    if (audioStream) {
+      audioStream.getTracks().forEach(track => track.stop());
+      setAudioStream(null);
+    }
+    
+    setIsListening(false);
   };
 
   // Native speech recognition handles permissions automatically
@@ -350,6 +361,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         // For "walk/walked/walking" input, match with "Daily Walk"
         if ((searchTerms.includes('walk') || searchTerms.includes('walked') || searchTerms.includes('walking')) && habitName.includes('walk')) {
           console.log('✅ Matched walking habit:', habit.name);
+          return habit;
+        }
+        
+        // For "meditate/meditated/meditation" input, match with "Meditation"
+        if ((searchTerms.includes('meditat') || searchTerms.includes('meditation')) && habitName.includes('meditat')) {
+          console.log('✅ Matched meditation habit:', habit.name);
           return habit;
         }
         
@@ -424,14 +441,30 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     // INSTANT optimistic update - parse input immediately
     const parsedHabit = parseHabitInput(inputText);
     console.log('🔍 Parsing result for:', inputText, '→', parsedHabit);
+    console.log('🔍 Current habits in context:', habits.map(h => ({ id: h.id, name: h.name })));
+    
     if (parsedHabit && onHabitUpdate) {
-      console.log('🚀 Instant optimistic update:', parsedHabit);
-      onHabitUpdate({ 
-        success: true, 
-        refreshNeeded: false,
-        optimisticUpdate: parsedHabit,
-        playSound: true
-      });
+      // Find the matching habit ID
+      const matchingHabit = habits.find(h => 
+        h.name.toLowerCase() === parsedHabit.habitName.toLowerCase()
+      );
+      
+      if (matchingHabit) {
+        console.log('🚀 Instant optimistic update:', parsedHabit);
+        onHabitUpdate({ 
+          success: true, 
+          refreshNeeded: false,
+          optimisticUpdate: true,
+          playSound: true,
+          habitId: matchingHabit.id,
+          duration: parsedHabit.duration || 0,
+          amount: parsedHabit.amount || null,
+          unit: parsedHabit.unit,
+          notes: `Logged via AI: ${parsedHabit.activity}`
+        });
+      }
+    } else {
+      console.warn('⚠️ No parsed habit found for input:', inputText);
     }
 
     setInput(''); // Clear input immediately
@@ -442,12 +475,18 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     }, 500); // Short delay to show feedback
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      // Use Clerk user instead of Supabase session
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Get Clerk session token
+      const sessionToken = await getToken();
       
       console.log('🔍 Making API call to /api/chat/habits with:', {
-        userId: session?.user?.id,
+        userId: user.id,
         inputText,
-        hasAccessToken: !!session?.access_token
+        hasAccessToken: !!sessionToken
       });
       
       // Add to conversation history
@@ -459,21 +498,19 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': session?.access_token ? `Bearer ${session.access_token}` : '',
+          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
         },
         body: JSON.stringify({
-          messages: [
-            ...conversationHistory.slice(-4).map(msg => ({ role: msg.role, content: msg.content })), // Include last 4 messages for context
-            { role: 'user', content: inputText }
-          ],
-          userId: session?.user?.id
+          messages: [{ role: 'user', content: inputText }],
+          userId: user.id,
         }),
       }).then(async (response) => {
-        console.log('🔍 API response status:', response.status);
+        console.log('📡 API response status:', response.status);
         
         if (!response.ok) {
           const errorText = await response.text();
           console.error('❌ API response error:', { status: response.status, text: errorText });
+          setError(`Failed to log habit: ${errorText}`);
           return;
         }
 
@@ -486,12 +523,24 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           setConversationHistory(prev => [...prev, assistantMessage]);
           setLastResponse(result.message);
         }
+        
+        // If the API successfully logged something, trigger a refresh (matching original behavior)
+        if (result && (result.success || result.habitData)) {
+          console.log('🔄 API logged habit successfully, triggering refresh...');
+          if (onHabitUpdate) {
+            onHabitUpdate({ 
+              success: true, 
+              refreshNeeded: true, // Force refresh from database
+              message: result.message || 'Habit logged successfully!'
+            });
+          }
+        } else {
+          console.warn('⚠️ API did not return success - result:', result);
+        }
       }).catch((err) => {
         console.error('❌ Error submitting to AI:', err);
-        // Don't show error if optimistic update worked
-        if (!parsedHabit) {
-          setError('Failed to process your request. Please try again.');
-        }
+        console.error('❌ Error stack:', err.stack);
+        setError(`Failed to process your request: ${err.message}`);
       });
 
     } catch (err) {
@@ -547,7 +596,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   // Generate smart suggestions based on user's actual habits
   const generateSmartSuggestions = () => {
-    const suggestions = [];
+    const suggestions: string[] = [];
     
     // Add habit-specific suggestions
     habits.forEach(habit => {
@@ -627,24 +676,33 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           <div className="bg-white border border-gray-300 shadow-sm">
             <div className="px-5 py-4">
 
-              {/* Input Area */}
-              <div className="mb-2.5">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={handleInputChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder={
-                    isListening 
-                      ? "Listening... Speak now!" 
-                      : mode === 'log' 
+              {/* Input Area - Show waveform when recording, textarea otherwise */}
+              <div className="mb-2.5 h-[48px] flex items-center">
+                {(isListening || isProcessingVoice) ? (
+                  <div className="w-full flex items-center justify-center">
+                    {/* Waveform Visualization - Inline, Clean */}
+                    <VoiceWaveform 
+                      isActive={isListening} 
+                      audioStream={audioStream}
+                      className="h-12 w-full"
+                    />
+                  </div>
+                ) : (
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder={
+                      mode === 'log' 
                         ? "Log anything..." 
                         : "Ask Ritual a question..."
-                  }
-                  className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent min-h-[40px] max-h-[120px] font-normal leading-6 pl-0 pr-3"
-                  rows={1}
-                  disabled={isLoading}
-                />
+                    }
+                    className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent h-[48px] font-normal leading-6 pl-0 pr-3"
+                    rows={1}
+                    disabled={isLoading}
+                  />
+                )}
               </div>
 
 
@@ -714,30 +772,32 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     )}
                   </div>
 
-                  {/* Voice Mode */}
+                  {/* Enhanced Voice Mode Button */}
                   <div className="relative group">
-                    <div 
+                    <button
+                      type="button"
                       className={cn(
-                        "w-5 h-5 flex items-center justify-center cursor-pointer transition-all duration-200 relative",
-                        (isListening || isLoading) 
-                          ? "text-blue-600" 
-                          : "hover:text-gray-900 text-gray-600"
+                        "w-8 h-8 flex items-center justify-center rounded-full transition-all duration-300 relative overflow-hidden",
+                        isListening || isProcessingVoice
+                          ? "bg-gray-100 text-gray-900" 
+                          : "hover:bg-gray-100 text-gray-600 hover:text-gray-900"
                       )}
                       onClick={startVoiceRecognition}
+                      aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
                     >
-                      {/* Animated ring for recording/processing */}
-                      {(isListening || isLoading) && (
-                        <div className="absolute inset-0 rounded-full border-2 border-blue-300 animate-ping"></div>
+                      {/* Icon or waveform */}
+                      {isListening ? (
+                        <VoiceWaveformMini isActive={true} className="relative z-10" />
+                      ) : isProcessingVoice ? (
+                        <Loader2 className="w-4 h-4 animate-spin relative z-10" />
+                      ) : (
+                        <Mic className="w-4 h-4 relative z-10 transition-transform hover:scale-110" />
                       )}
-                      {/* Microphone icon */}
-                      <Mic className={cn(
-                        "w-4 h-4 relative z-10 transition-all duration-200",
-                        isListening && "animate-pulse",
-                        isLoading && "animate-spin"
-                      )} />
-                    </div>
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
-                      {isListening ? 'Recording...' : isLoading ? 'Processing...' : 'Voice Mode'}
+                    </button>
+                    
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
+                      {isListening ? 'Recording...' : isProcessingVoice ? 'Processing...' : 'Voice Mode'}
                     </div>
                   </div>
                   

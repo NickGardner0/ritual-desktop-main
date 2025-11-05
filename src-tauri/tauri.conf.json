@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "build": {
     "beforeBuildCommand": "npm run build",
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "",
     "devPath": "http://localhost:3000",
     "distDir": "../out"
   },
@@ -110,7 +110,7 @@
         "resizable": true,
         "title": "",
         "width": 1280,
-        "minHeight": 1000,
+        "minHeight": 600,
         "minWidth": 1200,
         "decorations": true,
         "transparent": true,

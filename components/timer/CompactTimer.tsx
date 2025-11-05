@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { useHabits } from '@/hooks/useHabits'
+import { useHabits } from '@/contexts/HabitsContext'
 import { Play, Pause, Square, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"

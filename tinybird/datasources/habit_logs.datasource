@@ -1,0 +1,27 @@
+DESCRIPTION >
+    Habit activity logs - all user habit tracking data
+    This is the main analytics table for habit completion, duration, and amounts
+
+SCHEMA >
+    `id` String `json:$.id`,
+    `habit_id` String `json:$.habit_id`,
+    `habit_name` String `json:$.habit_name`,
+    `user_id` String `json:$.user_id`,
+    `date` Date `json:$.date`,
+    `timestamp` DateTime `json:$.timestamp`,
+    `status` LowCardinality(String) `json:$.status`,
+    `duration` Int32 `json:$.duration`,
+    `amount` Float64 `json:$.amount`,
+    `unit` LowCardinality(String) `json:$.unit`,
+    `notes` String `json:$.notes`,
+    `source` LowCardinality(String) `json:$.source`,
+    `integration_id` String `json:$.integration_id`,
+    `whoop_metric_type` LowCardinality(String) `json:$.whoop_metric_type`,
+    `metadata` String `json:$.metadata`,
+    `created_at` DateTime `json:$.created_at`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(date)"
+ENGINE_SORTING_KEY "user_id, date, habit_id"
+ENGINE_TTL "date + INTERVAL 2 YEAR"
+

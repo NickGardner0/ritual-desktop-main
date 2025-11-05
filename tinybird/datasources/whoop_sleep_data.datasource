@@ -1,0 +1,25 @@
+DESCRIPTION >
+    Whoop sleep metrics - detailed sleep tracking data from Whoop integration
+
+SCHEMA >
+    `id` String `json:$.id`,
+    `user_id` String `json:$.user_id`,
+    `whoop_connection_id` String `json:$.whoop_connection_id`,
+    `sleep_id` String `json:$.sleep_id`,
+    `date` Date `json:$.date`,
+    `sleep_performance_percentage` Float32 `json:$.sleep_performance_percentage`,
+    `total_sleep_duration_minutes` Int32 `json:$.total_sleep_duration_minutes`,
+    `sleep_efficiency_percentage` Float32 `json:$.sleep_efficiency_percentage`,
+    `rem_sleep_minutes` Int32 `json:$.rem_sleep_minutes`,
+    `slow_wave_sleep_minutes` Int32 `json:$.slow_wave_sleep_minutes`,
+    `light_sleep_minutes` Int32 `json:$.light_sleep_minutes`,
+    `awake_minutes` Int32 `json:$.awake_minutes`,
+    `sleep_onset` DateTime `json:$.sleep_onset`,
+    `sleep_end` DateTime `json:$.sleep_end`,
+    `created_at` DateTime `json:$.created_at`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(date)"
+ENGINE_SORTING_KEY "user_id, date"
+ENGINE_TTL "date + INTERVAL 2 YEAR"
+

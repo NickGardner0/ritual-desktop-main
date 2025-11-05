@@ -1,0 +1,791 @@
+"use client"
+
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { 
+  Plus, X, Target, Brain, Heart, Dumbbell, Book, Coffee, Moon, Sun, 
+  Zap, Clock, Calendar as CalendarIcon, CheckCircle, Award, Star, Flame, Droplet
+} from 'lucide-react';
+import { DateRange } from 'react-day-picker';
+import { isWithinInterval, parseISO } from 'date-fns';
+import { DateRangePicker } from "@/components/date-range-picker";
+import { Spinner } from "@/components/ui/kibo-ui/spinner";
+import { useHabits } from '@/contexts/HabitsContext';
+import { useUser, useClerk, useAuth } from '@clerk/nextjs';
+import { useAI } from '@/contexts/AIContext';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+
+import { Button } from "@/components/ui/button";
+import type { Habit } from '@/contexts/HabitsContext';
+
+// Lazy load heavy components that are only shown when user clicks
+const HabitSelectionModal = lazy(() => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })));
+const AIHabitChat = lazy(() => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })));
+const DashboardLoadingSkeleton = lazy(() => import("@/components/dashboard-loading-skeleton").then(m => ({ default: m.DashboardLoadingSkeleton })));
+
+// Helper to convert various icon name formats to PascalCase
+const kebabToPascal = (str: string) => 
+  str.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join('');
+
+// Dynamic icon component with caching - supports ALL Lucide icons
+const iconCache: { [key: string]: React.ComponentType<any> } = {};
+
+const HabitIcon = ({ iconName }: { iconName: string }) => {
+  const [Icon, setIcon] = useState<React.ComponentType<any>>(Target);
+
+  useEffect(() => {
+    // If we already loaded this icon, use cached version
+    if (iconCache[iconName]) {
+      setIcon(() => iconCache[iconName]);
+      return;
+    }
+
+    // Dynamically import the specific icon
+    const pascalName = kebabToPascal(iconName);
+    import('lucide-react')
+      .then((icons) => {
+        const IconComponent = (icons as any)[pascalName];
+        if (IconComponent) {
+          iconCache[iconName] = IconComponent;
+          setIcon(() => IconComponent);
+        }
+      })
+      .catch(() => {
+        // Icon not found, use default
+        iconCache[iconName] = Target;
+      });
+  }, [iconName]);
+
+  return <Icon className="w-5 h-5 text-black" />;
+};
+
+// Habit icons mapping
+const getHabitIcon = (name: string, category: string) => {
+  const iconMap: { [key: string]: string } = {
+    'deep work': '🧠',
+    'lightning deep work': '⚡',
+    'meditation': '🧘',
+    'exercise': '💪',
+    'reading': '📚',
+    'journaling': '📝',
+    'sleep': '😴',
+    'water': '💧',
+    'learning': '🎓',
+    'coding': '💻',
+    'writing': '✍️',
+    'music': '🎵',
+    'research': '🔍',
+    'skill practice': '🎯',
+    'cold showers': '🚿',
+    'standup check-in': '📞'
+  };
+  
+  const key = name.toLowerCase().replace(/\s+/g, ' ');
+  return iconMap[key] || '📈';
+};
+
+
+export default function DashboardPage() {
+  const { user, isLoaded: userLoaded, isSignedIn } = useUser();
+  const { isLoaded, signOut } = useAuth();
+  const clerk = useClerk();
+  
+  // Debug Clerk authentication
+  useEffect(() => {
+    console.log('🔍 Clerk Auth Debug:', {
+      userLoaded,
+      isSignedIn,
+      userId: user?.id,
+      userEmail: user?.emailAddresses?.[0]?.emailAddress,
+      hasUser: !!user
+    });
+  }, [user, userLoaded, isSignedIn]);
+  
+  // Debug: Log current user info
+  React.useEffect(() => {
+    if (user) {
+      console.log('🔍 Current Clerk User:', {
+        id: user.id,
+        email: user.primaryEmailAddress?.emailAddress,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        fullName: user.fullName
+      });
+    }
+  }, [user]);
+  const { showAIChat } = useAI();
+  const { 
+    habits, 
+    habitLogs, 
+    isLoading, 
+    error,
+    fetchHabits,
+    fetchHabitLogs,
+    deleteHabit
+  } = useHabits();
+
+  // Debug: Log what habits the dashboard is receiving
+  useEffect(() => {
+    console.log('🎯 Dashboard received habits from context:', habits.map(h => ({ id: h.id, name: h.name })));
+  }, [habits]);
+  
+  // Local UI state only
+  const [showSelectionModal, setShowSelectionModal] = useState(false);
+  const [habitToDelete, setHabitToDelete] = useState<string | null>(null);
+  const [deletingHabit, setDeletingHabit] = useState<string | null>(null);
+  const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [optimisticLogs, setOptimisticLogs] = useState<any[]>([]); // Temporary logs for instant UI updates
+  const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
+
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
+  
+  // Merge optimistic logs with real logs for display
+  const displayLogs = React.useMemo(() => {
+    return [...habitLogs, ...optimisticLogs];
+  }, [habitLogs, optimisticLogs]);
+
+  // Initialize ordered habits from localStorage or use habits from context
+  useEffect(() => {
+    if (habits.length > 0) {
+      // Try to load saved order from localStorage
+      const savedOrder = localStorage.getItem(`habit-order-${user?.id}`);
+      if (savedOrder) {
+        try {
+          const orderArray: string[] = JSON.parse(savedOrder);
+          // Sort habits according to saved order
+          const sorted = [...habits].sort((a, b) => {
+            const aIndex = orderArray.indexOf(a.id || '');
+            const bIndex = orderArray.indexOf(b.id || '');
+            // If habit not in saved order, put it at the end
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+          });
+          setOrderedHabits(sorted);
+        } catch (e) {
+          // If parsing fails, just use habits as is
+          setOrderedHabits(habits);
+        }
+      } else {
+        // No saved order, use habits as is
+        setOrderedHabits(habits);
+      }
+    }
+  }, [habits, user?.id]);
+
+  // Handle drag end
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+
+    const items = Array.from(orderedHabits);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    setOrderedHabits(items);
+
+    // Save order to localStorage
+    const orderIds = items.map(h => h.id || '');
+    localStorage.setItem(`habit-order-${user?.id}`, JSON.stringify(orderIds));
+  };
+
+  // Close tooltip when clicking outside or pressing escape
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (activeTooltip) {
+        const target = event.target as Element;
+        if (!target.closest('.tooltip-container')) {
+          setActiveTooltip(null);
+        }
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && activeTooltip) {
+        setActiveTooltip(null);
+      }
+    };
+
+    if (activeTooltip) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscapeKey);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [activeTooltip]);
+
+  // Load habit logs when component mounts (only once per user)
+  const hasLoadedLogs = useRef(false);
+  useEffect(() => {
+    console.log('🔍 Checking if we should fetch habit logs:', {
+      user: !!user,
+      isLoading,
+      habitLogsLength: habitLogs.length,
+      hasLoadedLogs: hasLoadedLogs.current
+    });
+    
+    if (user && !isLoading && habitLogs.length === 0 && !hasLoadedLogs.current) {
+      console.log('🔄 Fetching habit logs on component mount...');
+      hasLoadedLogs.current = true;
+      fetchHabitLogs();
+    }
+  }, [user, isLoading, fetchHabitLogs]); // Add fetchHabitLogs dependency back
+  
+  // Debug effect to monitor habit logs
+  useEffect(() => {
+    console.log('📊 Habit logs updated:', {
+      count: habitLogs.length,
+      sample: habitLogs.slice(0, 3),
+      habits: habits.length
+    });
+  }, [habitLogs, habits]);
+
+  // Force fetch logs when habits are loaded (for debugging)
+  useEffect(() => {
+    if (habits.length > 0 && habitLogs.length === 0 && user) {
+      console.log('🔧 Force fetching habit logs since we have habits but no logs...');
+      fetchHabitLogs();
+    }
+  }, [habits.length, habitLogs.length, user, fetchHabitLogs]);
+
+  // Monitor for timer widget updates
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user) return;
+
+    let intervalId: NodeJS.Timeout;
+    let lastTimestamp = '';
+
+    const checkForTimerUpdates = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        const result = await invoke('check_dashboard_refresh_trigger') as string;
+        
+        if (result && result !== lastTimestamp) {
+          console.log('🔄 Timer widget update detected, refreshing dashboard...');
+          lastTimestamp = result;
+          
+          // Refresh both habits and logs
+          await Promise.all([
+            fetchHabits(),
+            fetchHabitLogs()
+          ]);
+          
+          console.log('✅ Dashboard refreshed after timer widget update');
+        }
+      } catch (error) {
+        // Silently ignore errors (likely not in Tauri environment)
+      }
+    };
+
+    // Check every 30 seconds for updates (reduced from 2 seconds to prevent excessive requests)
+    intervalId = setInterval(checkForTimerUpdates, 30000);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [user]); // Remove function dependencies to prevent loops
+
+
+  // Check onboarding status and prevent redirect if user has habits
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      if (!user || onboardingChecked) return;
+      
+      try {
+        // If user has habits, they've clearly completed onboarding
+        if (habits.length > 0) {
+          console.log('🎯 User has habits, skipping onboarding check');
+          setOnboardingChecked(true);
+          return;
+        }
+
+        console.log('🔍 Dashboard onboarding check - using new backend (skipping for now)');
+        
+        // For now, skip onboarding check since we're using Clerk + FastAPI backend
+        // if (profile?.onboarding_completed === false) {
+        //   router.push('/onboarding');
+        //   return;
+        // }
+        // if (profile?.onboarding_completed === false) {
+        //   console.log('🔄 Redirecting to onboarding from dashboard...');
+        //   window.location.href = '/onboarding';
+        // } else {
+        //   setOnboardingChecked(true);
+        // }
+      } catch (error) {
+        console.error('Error checking onboarding status in dashboard:', error);
+        setOnboardingChecked(true);
+      }
+    };
+
+    checkOnboardingStatus();
+  }, [user, habits.length, onboardingChecked]);
+
+  // Redirect to home page if user is not authenticated
+  useEffect(() => {
+    if (!!isLoaded && !user) {
+      console.log('🔐 No user found, redirecting to home page...');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+    }
+  }, [!isLoaded, user]);
+
+
+  // Get display text for habit metrics
+  const getHabitMetricDisplay = React.useCallback((habit: Habit): string => {
+    const unitType = habit.unit_type || 'sessions';
+    
+    // Debug logging to see what data we have
+    const thisHabitLogs = displayLogs.filter(log => log.habit_id === habit.id);
+    const completedLogs = displayLogs.filter(log => log.habit_id === habit.id && log.status === 'completed');
+    
+    console.log('🔍 Debug habit metrics for:', habit.name);
+    console.log('  - Habit ID:', habit.id);
+    console.log('  - Unit Type:', unitType);
+    console.log('  - Total habit logs:', displayLogs.length);
+    console.log('  - Logs for this habit:', thisHabitLogs.length);
+    console.log('  - Completed logs for this habit:', completedLogs.length);
+    console.log('  - Sample logs:', thisHabitLogs.slice(0, 2));
+    console.log('  - Sample completed logs:', completedLogs.slice(0, 2));
+    
+    // Debug logging for Morning Workout
+    if (habit.name === 'Morning Workout') {
+      const allLogs = displayLogs.filter(log => log.habit_id === habit.id);
+      const completedLogs = displayLogs.filter(log => log.habit_id === habit.id && log.status === 'completed');
+      
+      console.log('🔍 Morning Workout debug:');
+      console.log('  - Habit ID:', habit.id);
+      console.log('  - Unit Type:', unitType);
+      console.log('  - All logs count:', allLogs.length);
+      console.log('  - Completed logs count:', completedLogs.length);
+      console.log('  - All logs:', allLogs);
+      console.log('  - Completed logs:', completedLogs);
+      
+      // Show individual log details
+      completedLogs.forEach((log, index) => {
+        console.log(`  - Log ${index + 1}:`, {
+          id: log.id,
+          date: log.date,
+          duration: log.duration,
+          amount: log.amount,
+          unit: log.unit,
+          notes: log.notes
+        });
+      });
+    }
+    
+    // Filter logs based on date range - be more flexible with status
+    let filteredLogs = displayLogs.filter(log => {
+      const matchesHabit = log.habit_id === habit.id;
+      const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status; // Handle different status values
+      
+      // Removed excessive debug logging
+      
+      return matchesHabit && isCompleted;
+    });
+    
+    
+    // Apply date range filter if set
+    if (dateRange?.from) {
+      filteredLogs = filteredLogs.filter(log => {
+        // Parse the log date (format: "2025-09-26")
+        const logDate = parseISO(log.date);
+        let isInRange = false;
+        
+        if (dateRange.to) {
+          // For date ranges, use isWithinInterval
+          isInRange = isWithinInterval(logDate, { start: dateRange.from!, end: dateRange.to });
+        } else {
+          // For single date, compare just the date part (ignore time)
+          const logDateOnly = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate());
+          const filterDateOnly = new Date(dateRange.from!.getFullYear(), dateRange.from!.getMonth(), dateRange.from!.getDate());
+          isInRange = logDateOnly.getTime() === filterDateOnly.getTime(); // Use === for exact date match
+        }
+        
+        
+        return isInRange;
+      });
+      
+    }
+    
+    if (filteredLogs.length === 0) {
+      return `0 ${unitType}`;
+    }
+    
+    // For time-based habits (Hours, Minutes), show total duration
+    if (unitType.toLowerCase().includes('hour') || unitType.toLowerCase().includes('minute')) {
+      // Always prioritize duration field (stored in seconds) over amount
+      const totalDurationSeconds = filteredLogs.reduce((sum, log) => {
+        // Duration is stored in seconds, amount might be in different units
+        if (log.duration && log.duration > 0) {
+          return sum + log.duration;
+        } else if (log.amount && log.amount > 0) {
+          // If no duration but has amount, convert based on unit
+          if (log.unit === 'Hours' || log.unit === 'hours') {
+            return sum + (log.amount * 3600); // Convert hours to seconds
+          } else if (log.unit === 'Minutes' || log.unit === 'minutes') {
+            return sum + (log.amount * 60); // Convert minutes to seconds
+          } else {
+            return sum + log.amount; // Use amount directly for other units
+          }
+        }
+        return sum;
+      }, 0);
+      
+      // Convert to appropriate display unit based on habit's unit_type
+      if (unitType.toLowerCase().includes('hour')) {
+        const totalHours = Math.round((totalDurationSeconds / 3600) * 100) / 100;
+        return `${totalHours} Hours`;
+      } else {
+        const totalMinutes = Math.round(totalDurationSeconds / 60);
+        return `${totalMinutes} Minutes`;
+      }
+    }
+    
+    // For other units, show total sessions or amount
+    const totalAmount = filteredLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
+    return `${totalAmount} ${unitType}`;
+  }, [displayLogs, dateRange]);
+
+  // Handle habit creation
+  const handleHabitCreated = useCallback(async (newHabit: Habit) => {
+    console.log('New habit created:', newHabit);
+    // Refresh the habits list to show the new habit
+    try {
+      await fetchHabits();
+      console.log('✅ Habits list refreshed after creating new habit');
+    } catch (error) {
+      console.error('❌ Error refreshing habits list:', error);
+    }
+  }, [fetchHabits]);
+
+  // Handle habit deletion
+  const confirmDelete = (habitId: string) => {
+    setHabitToDelete(habitId);
+  };
+
+  const cancelDelete = () => {
+    setHabitToDelete(null);
+  };
+
+  const handleDeleteHabit = async (habitId: string) => {
+    setDeletingHabit(habitId);
+    try {
+      console.log('🗑️ Deleting habit:', habitId);
+      await deleteHabit(habitId);
+      console.log('✅ Habit deleted successfully');
+      setHabitToDelete(null);
+    } catch (error) {
+      console.error('❌ Failed to delete habit:', error);
+    } finally {
+      setDeletingHabit(null);
+    }
+  };
+
+  // Handle logout using AuthContext
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      console.log('✅ Logged out successfully');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  // Show skeleton while loading (instant render, feels faster!)
+  if (isLoading || !isLoaded || !user) {
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <Spinner className="w-8 h-8" />
+        </div>
+      }>
+        <DashboardLoadingSkeleton />
+      </Suspense>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header with view controls - matching web app layout */}
+      <div className="flex items-center justify-between mt-1">
+        <div className="flex items-center space-x-2">
+          {/* Empty left side */}
+        </div>
+        
+        <div className="flex items-center space-x-1">
+          {/* Add Habit button */}
+          <div className="relative group">
+            <button
+              onClick={() => setShowSelectionModal(true)}
+              className="p-2 border border-gray-300 bg-white text-gray-600 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-black bg-white border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
+              Add habit
+            </div>
+          </div>
+          
+          {/* Date Range Picker - compact version */}
+          <DateRangePicker 
+            className="w-auto"
+            onDateRangeChange={setDateRange}
+            initialDateRange={dateRange}
+          />
+        </div>
+      </div>
+
+      {/* Habits List */}
+      <div className="mt-6">
+        <div className="max-w-4xl mx-auto px-2 w-full">
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId="habits">
+              {(provided) => (
+                <div 
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  className="space-y-1"
+                >
+                  {orderedHabits.map((habit, index) => (
+                    <Draggable key={habit.id} draggableId={habit.id || ''} index={index}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          className={`w-full flex items-center py-1 group hover:bg-[#F3F3F3] bg-white transition-colors cursor-grab active:cursor-grabbing ${
+                            snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
+                          }`}
+                        >
+                          <div className="flex items-center flex-1 min-w-0 space-x-1">
+                            <span className="flex items-center justify-center" style={{ minWidth: 24 }}>
+                              {habit.icon ? (
+                                // Check if it's an emoji (contains emoji characters)
+                                /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
+                                  <span className="text-xl">{habit.icon}</span>
+                                ) : (
+                                  <HabitIcon iconName={habit.icon} />
+                                )
+                              ) : (
+                                <span className="text-xl">{getHabitIcon(habit.name, habit.category)}</span>
+                              )}
+                            </span>
+                            <span className="text-base font-normal truncate">{habit.name}</span>
+                          </div>
+                        <div
+                          className="flex items-center space-x-1 cursor-default relative ml-4 tooltip-container"
+                          onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
+                        >
+                          <span className="text-base font-normal select-none">
+                            {getHabitMetricDisplay(habit)}
+                          </span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id || ''); }}
+                            disabled={deletingHabit === habit.id}
+                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
+                            title="Delete habit"
+                          >
+                            {deletingHabit === habit.id ? (
+                              <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                              <X className="h-3 w-3" />
+                            )}
+                          </button>
+                          {activeTooltip === habit.id && (
+                            <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[180px] whitespace-nowrap">
+                              {/* Tooltip content here, matching table view */}
+                              <div className="space-y-2 text-base">
+                                <div className="flex items-center justify-between text-gray-700">
+                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Sum:</span>
+                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default">{getHabitMetricDisplay(habit)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-700">
+                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Average:</span>
+                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default"></span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-700">
+                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Min:</span>
+                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default">0</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-700">
+                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Max:</span>
+                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default"></span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        </div>
+      </div>
+
+      {/* Empty state when no habits */}
+      {habits.length === 0 && !isLoading && (
+        <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8">
+          <div className="text-xl mb-2 text-center" style={{ fontFamily: 'ppneuman, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 500 }}>
+            Connect your devices
+          </div>
+          <div className="text-sm font-normal mb-2 text-center max-w-xl leading-tight" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 400, color: '#9C9C9D' }}>
+            Connect your wearable devices to unlock personal insights.<br />Start tracking anything you want to get started.
+          </div>
+          <button
+            onClick={() => setShowSelectionModal(true)}
+            className="mt-2 px-3 py-2 bg-black text-white rounded-none text-sm font-normal hover:bg-gray-900 transition-colors shadow"
+            style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 400 }}
+          >
+            Start Tracking
+          </button>
+        </div>
+      )}
+
+      {/* Habit Selection Modal */}
+      {showSelectionModal && (
+        <Suspense fallback={null}>
+          <HabitSelectionModal
+            isOpen={showSelectionModal}
+            onClose={() => setShowSelectionModal(false)}
+            onHabitCreated={handleHabitCreated}
+          />
+        </Suspense>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {habitToDelete && (
+        <div className="fixed inset-0 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-none max-w-md w-full mx-4 shadow-lg border border-gray-300">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Delete Habit</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this habit? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <Button
+                variant="outline"
+                onClick={cancelDelete}
+                className="rounded-none px-4 py-2 text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => handleDeleteHabit(habitToDelete)}
+                disabled={deletingHabit === habitToDelete}
+                className="rounded-none bg-black hover:bg-gray-800 text-white px-4 py-2 text-sm"
+              >
+                {deletingHabit === habitToDelete ? (
+                  <Spinner className="w-4 h-4" />
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Habit Chat - Conditionally rendered */}
+      {showAIChat && (
+        <div className="fixed bottom-0 left-0 right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-12 pt-8 bg-gradient-to-t from-white via-white to-transparent">
+        <div className="w-full max-w-4xl">
+          <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
+            <AIHabitChat 
+            onHabitUpdate={async (habitData) => {
+              console.log('🎯 Habit update from AI:', habitData);
+              
+              if (habitData.optimisticUpdate) {
+                // Optimistic update: instantly add a temporary log to the UI
+                console.log('🚀 Optimistic update received, updating UI immediately...');
+                
+                // Create a temporary log entry for instant feedback
+                if (habitData.habitId && (habitData.duration !== undefined || habitData.amount !== undefined)) {
+                  const tempLog = {
+                    id: `temp-${Date.now()}`, // Temporary ID
+                    habit_id: habitData.habitId,
+                    duration: habitData.duration ? habitData.duration * 60 : 0, // Convert minutes to seconds
+                    amount: habitData.amount || null,
+                    date: new Date().toISOString().split('T')[0],
+                    completed_at: new Date().toISOString(),
+                    status: 'completed' as const,
+                    notes: habitData.notes || '',
+                    unit: habitData.unit || ''
+                  };
+                  
+                  // Add temporary log to local state for instant UI update
+                  setOptimisticLogs(prev => [...prev, tempLog]);
+                  console.log('✅ Added temporary log to UI:', tempLog);
+                }
+                
+                if (habitData.playSound) {
+                  try {
+                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                    if (audioContext.state === 'suspended') {
+                      await audioContext.resume();
+                    }
+                    
+                    const oscillator1 = audioContext.createOscillator();
+                    const oscillator2 = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator1.connect(gainNode);
+                    oscillator2.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
+                    oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
+                    
+                    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                    gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+                    
+                    oscillator1.type = 'sine';
+                    oscillator2.type = 'sine';
+                    
+                    oscillator1.start(audioContext.currentTime);
+                    oscillator2.start(audioContext.currentTime);
+                    oscillator1.stop(audioContext.currentTime + 0.6);
+                    oscillator2.stop(audioContext.currentTime + 0.6);
+                  } catch (e) {
+                    console.log('Sound playback failed:', e);
+                  }
+                }
+                
+                console.log('✅ Optimistic update complete, waiting for backend confirmation...');
+              } else if (habitData.refreshNeeded) {
+                // Backend confirmed - now refresh from database and clear optimistic logs
+                console.log('🔄 Backend confirmed success, refreshing from database...');
+                try {
+                  await Promise.all([
+                    fetchHabits(),
+                    fetchHabitLogs()
+                  ]);
+                  // Clear optimistic logs since we now have real data
+                  setOptimisticLogs([]);
+                  console.log('✅ Dashboard data refreshed after habit log, optimistic logs cleared');
+                } catch (error) {
+                  console.error('❌ Error refreshing dashboard data:', error);
+                }
+              }
+            }}
+          />
+          </Suspense>
+        </div>
+        </div>
+      )}
+    </div>
+  );
+}

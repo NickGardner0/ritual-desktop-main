@@ -589,88 +589,96 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     func createHabitLog(habitId: String, durationInSeconds: Int, completion: @escaping (Bool) -> Void) {
-        // Use Supabase REST API with proper authentication
-        let supabaseURL = "https://bvwgycgdmrozxfmyxpuy.supabase.co"
-        let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2d2d5Y2dkbXJvenhmbXl4cHV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzczNDEwMDIsImV4cCI6MjA1MjkxNzAwMn0.ENcTaG68l8hZS8jW8nne8gqQuSqtdknJ5gck-Pg5PCg"
-        
-        guard let url = URL(string: "\(supabaseURL)/rest/v1/habit_logs") else {
-            print("❌ Invalid Supabase URL for habit logs")
+        // Direct write to Tinybird (bypassing AI processing for speed)
+        guard let url = URL(string: "https://api.us-east.aws.tinybird.co/v0/events?name=habit_logs") else {
+            print("❌ Invalid Tinybird API URL")
             completion(false)
             return
         }
         
-        // Read auth token from file
-        let authToken = getAuthTokenFromFile()
-        guard let token = authToken else {
-            print("❌ No auth token available for habit log creation")
-            completion(false)
-            return
-        }
+        // Get Tinybird token from environment variable file
+        let tinybirdToken = "p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJjYjJlMTUwYi02YTg0LTQyMjgtYjdkZi1mYThkYjFhODEwMzQiLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.5wH8BHeMPTid8vpvameDP_6FuJF3npb2IcCtFVeaSGA"
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(anonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        request.setValue("Bearer \(tinybirdToken)", forHTTPHeaderField: "Authorization")
         
-        print("🔐 Using authentication token for Supabase habit log request")
+        print("🔐 Using Tinybird token for direct API request")
         
-        // Create the log data - include user_id for RLS policy
-        // Create ISO8601 formatter for the time field
+        let userId = "05cbe689-f7ec-487b-adb6-ad50c7dc767b"
+        let minutes = durationInSeconds / 60
+        let seconds = durationInSeconds % 60
+        
+        // Create ISO8601 formatter for timestamps
         let timeFormatter = ISO8601DateFormatter()
         timeFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let currentTimestamp = timeFormatter.string(from: Date())
+        let currentDate = String(currentTimestamp.prefix(10)) // YYYY-MM-DD
         
+        // Format data directly for Tinybird schema
+        // Avoid null values by using empty strings and zeros
         let logData: [String: Any] = [
+            "id": UUID().uuidString,
             "habit_id": habitId,
-            "habit_name": currentHabit, // Add habit name for easy identification
-            "user_id": "05cbe689-f7ec-487b-adb6-ad50c7dc767b", // Include user_id for RLS
-            "date": ISO8601DateFormatter().string(from: Date()).prefix(10), // YYYY-MM-DD format
-            "time": timeFormatter.string(from: Date()), // Add current timestamp
-            "duration": durationInSeconds,
-            "unit": "Minutes", // Add unit field for timer-based habits
+            "habit_name": currentHabit,
+            "user_id": userId,
+            "date": currentDate,
+            "timestamp": currentTimestamp,
             "status": "completed",
-            "notes": "Logged from native timer widget"
+            "duration": durationInSeconds,
+            "amount": 0,
+            "unit": "Minutes",
+            "notes": "Logged from native timer widget",
+            "source": "manual",
+            "integration_id": "",
+            "whoop_metric_type": "",
+            "metadata": "{}",
+            "created_at": currentTimestamp
         ]
         
-        print("🔍 Sending log data: \(logData)")
+        print("🔍 Sending direct to Tinybird: \(logData)")
         print("🔍 POST URL: \(url.absoluteString)")
         
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: logData)
             request.httpBody = jsonData
             
-                    let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("❌ Network error creating log: \(error)")
-                print("❌ Error details: \(error.localizedDescription)")
-                completion(false)
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("🔍 HTTP Response Status: \(httpResponse.statusCode)")
-                
-                if let data = data, let responseString = String(data: data, encoding: .utf8) {
-                    print("🔍 Response Body: \(responseString)")
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("❌ Network error creating log: \(error)")
+                    print("❌ Error details: \(error.localizedDescription)")
+                    completion(false)
+                    return
                 }
                 
-                if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
-                    print("✅ Successfully created habit log")
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("🔍 HTTP Response Status: \(httpResponse.statusCode)")
                     
-                    // Notify the dashboard to refresh by writing a trigger file
-                    self.notifyDashboardRefresh()
+                    if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                        print("🔍 Tinybird Response: \(responseString)")
+                    }
                     
-                    completion(true)
+                    // Tinybird returns 202 Accepted for successful event ingestion
+                    if httpResponse.statusCode == 202 {
+                        print("✅ Successfully logged habit directly to Tinybird")
+                        
+                        // Notify the dashboard to refresh by writing a trigger file
+                        self.notifyDashboardRefresh()
+                        
+                        // Clear metrics cache for immediate dashboard update
+                        self.clearMetricsCache()
+                        
+                        completion(true)
+                    } else {
+                        print("❌ Tinybird error: \(httpResponse.statusCode)")
+                        completion(false)
+                    }
                 } else {
-                    print("❌ HTTP error: \(httpResponse.statusCode)")
+                    print("❌ No HTTP response received")
                     completion(false)
                 }
-            } else {
-                print("❌ No HTTP response received")
-                completion(false)
             }
-        }
             
             task.resume()
             
@@ -693,6 +701,32 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             print("⚠️ Could not write dashboard refresh trigger: \(error)")
         }
+    }
+    
+    func clearMetricsCache() {
+        // Call the API endpoint to clear metrics cache for immediate dashboard update
+        guard let url = URL(string: "http://localhost:3000/api/clear-metrics-cache") else {
+            print("❌ Invalid URL for clearing metrics cache")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let task = URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                print("❌ Error clearing metrics cache: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                print("✅ Metrics cache cleared successfully")
+            } else {
+                print("⚠️ Unexpected response when clearing metrics cache")
+            }
+        }
+        
+        task.resume()
     }
     
     @objc func closeWidget() {

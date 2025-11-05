@@ -1,0 +1,14 @@
+{
+    "host": "https://api.us-east.aws.tinybird.co",
+    "id": "9c1044ba-3960-46d9-b1d9-02cd6979d5e9",
+    "name": "ritual_",
+    "scope": "user",
+    "token": "p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJmMWJjYzQ4Zi1mM2QxLTQ3YzgtODAwYi00MWU0ZTlhMzU5YjciLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.cIau5gLqIaohshuRL2Lr6MO_2UuXKwE49hyF3IUw5oA",
+    "tokens": {
+        "https://api.us-east.aws.tinybird.co": "p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJmMWJjYzQ4Zi1mM2QxLTQ3YzgtODAwYi00MWU0ZTlhMzU5YjciLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.cIau5gLqIaohshuRL2Lr6MO_2UuXKwE49hyF3IUw5oA"
+    },
+    "user_email": "nickgardner0651@gmail.com",
+    "user_id": "64bd7b6f-7182-4eae-bc83-95fa46bb0725",
+    "user_token": "p.eyJ1IjogIjY0YmQ3YjZmLTcxODItNGVhZS1iYzgzLTk1ZmE0NmJiMDcyNSIsICJpZCI6ICJkZjhjNDljMC05Mzk3LTQwZmEtYjkzOS1lZDNmNTE3ZTlhZjAiLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.4ji9RTnZTMa3aaepMQKYb-AvGv3mt765H5QY_hLaLbM",
+    "version": "0.0.1.dev305"
+}

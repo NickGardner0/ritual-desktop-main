@@ -1,9 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/types/supabase';
+/**
+ * Whoop OAuth Callback Handler
+ * 
+ * This is now a simple redirect handler that passes the OAuth code
+ * to the frontend, which will then send it to the Python backend.
+ * 
+ * Migration Note: No longer uses Supabase - all integration logic
+ * is now handled by the Python FastAPI backend.
+ */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,135 +17,83 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error');
     const state = searchParams.get('state');
 
+    // Decode state to check if request came from desktop app and get session ID
+    let source = 'web'; // default to web
+    let sessionId = null;
+    try {
+      if (state) {
+        const stateData = JSON.parse(atob(state));
+        source = stateData.source || 'web';
+        sessionId = stateData.sessionId || null;
+      }
+    } catch (e) {
+      console.warn('Could not decode state parameter:', e);
+    }
+
+    console.log(`📱 OAuth callback from: ${source}${sessionId ? ` (session: ${sessionId})` : ''}`);
+
     // Handle OAuth errors
     if (error) {
       console.error('❌ Whoop OAuth error:', error);
       const errorDescription = searchParams.get('error_description') || error;
+      
+      // For desktop app, redirect to success page with error
+      if (source === 'desktop') {
+        const errorUrl = new URL('/integrations/success', request.url);
+        errorUrl.searchParams.set('error', errorDescription);
+        if (sessionId) errorUrl.searchParams.set('sessionId', sessionId);
+        return NextResponse.redirect(errorUrl);
+      }
+      
       return NextResponse.redirect(
-        new URL(`/integrations?error=${encodeURIComponent(errorDescription)}`, request.url)
+        new URL(`/integrations?whoop_error=${encodeURIComponent(errorDescription)}`, request.url)
       );
     }
 
     if (!code) {
-      return NextResponse.redirect(
-        new URL('/integrations?error=no_code', request.url)
-      );
-    }
-
-    // Note: In a production app, you should validate the state parameter
-    // For now, we'll just log it
-    console.log('🔐 Received state:', state);
-    console.log('🔑 Received authorization code:', code);
-
-    const clientId = process.env.WHOOP_CLIENT_ID;
-    const clientSecret = process.env.WHOOP_CLIENT_SECRET;
-    const redirectUri = process.env.NEXT_PUBLIC_WHOOP_REDIRECT_URI;
-
-    if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error('Whoop configuration missing');
-    }
-
-    // Exchange authorization code for access token
-    const tokenResponse = await fetch('https://api.prod.whoop.com/oauth/oauth2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorData = await tokenResponse.text();
-      console.error('❌ Whoop token exchange failed:', errorData);
-      throw new Error('Failed to exchange authorization code');
-    }
-
-    const tokenData = await tokenResponse.json();
-    console.log('🔑 Token response:', JSON.stringify(tokenData, null, 2));
-    
-    const { access_token, refresh_token, expires_in } = tokenData;
-
-    if (!access_token) {
-      console.error('❌ No access token in response');
-      throw new Error('No access token received from Whoop');
-    }
-
-    // Calculate token expiration time (default to 1 hour if not provided)
-    const expiresAt = new Date(Date.now() + (expires_in || 3600) * 1000).toISOString();
-
-    // Get user info from Whoop API
-    const userInfoResponse = await fetch('https://api.prod.whoop.com/developer/v1/user/profile/basic', {
-      headers: {
-        'Authorization': `Bearer ${access_token}`,
-      },
-    });
-
-    let whoopUserId = null;
-    if (userInfoResponse.ok) {
-      const userInfo = await userInfoResponse.json();
-      whoopUserId = userInfo.user_id?.toString() || null;
-    }
-
-    // Extract user ID from the state parameter
-    // State format: randomString:userId
-    const supabase = createClient<Database>(supabaseUrl, supabaseServiceKey);
-    
-    let userId: string | null = null;
-    
-    if (state) {
-      const stateParts = state.split(':');
-      if (stateParts.length === 2) {
-        userId = stateParts[1];
-        console.log('✅ Extracted user ID from state:', userId);
+      console.error('❌ No authorization code received from Whoop');
+      
+      // For desktop app, redirect to success page with error
+      if (source === 'desktop') {
+        const errorUrl = new URL('/integrations/success', request.url);
+        errorUrl.searchParams.set('error', 'no_code');
+        if (sessionId) errorUrl.searchParams.set('sessionId', sessionId);
+        return NextResponse.redirect(errorUrl);
       }
-    }
-    
-    if (!userId) {
-      console.error('❌ No user ID found in state parameter');
+      
       return NextResponse.redirect(
-        new URL('/integrations?error=auth_failed', request.url)
+        new URL('/integrations?whoop_error=no_code', request.url)
       );
     }
 
-    // Store the connection in Supabase
-    const { data: connection, error: dbError } = await supabase
-      .from('whoop_connections')
-      .upsert({
-        user_id: userId,
-        access_token,
-        refresh_token: refresh_token || access_token, // Use access_token as fallback if no refresh_token
-        token_expires_at: expiresAt,
-        whoop_user_id: whoopUserId,
-        is_active: true,
-        last_synced_at: null,
-      }, {
-        onConflict: 'user_id',
-      })
-      .select()
-      .single();
+    console.log('✅ Whoop OAuth code received');
 
-    if (dbError) {
-      console.error('❌ Failed to store Whoop connection:', dbError);
-      throw new Error('Failed to save connection');
+    // For desktop app: Redirect to success page with code and session ID
+    // The success page will store the code, and the desktop app's polling will retrieve it
+    if (source === 'desktop') {
+      console.log('📱 Desktop source detected - redirecting to success page');
+      
+      const successUrl = new URL('/integrations/success', request.url);
+      successUrl.searchParams.set('code', code);
+      if (sessionId) {
+        successUrl.searchParams.set('sessionId', sessionId);
+        console.log(`🎫 Passing session ID to success page: ${sessionId}`);
+      }
+      
+      return NextResponse.redirect(successUrl);
     }
 
-    console.log('✅ Whoop connection saved successfully:', connection.id);
-
-    // Redirect back to integrations page with success message
+    // For web app: Redirect to integrations page with the code
+    // The frontend will handle exchanging it with the Python backend
+    console.log('🌐 Web source detected - redirecting to integrations page');
     return NextResponse.redirect(
-      new URL('/integrations?connected=whoop', request.url)
+      new URL(`/integrations?whoop_code=${code}`, request.url)
     );
+    
   } catch (error) {
     console.error('❌ Whoop callback error:', error);
     return NextResponse.redirect(
-      new URL('/integrations?error=callback_failed', request.url)
+      new URL(`/integrations?whoop_error=${encodeURIComponent(String(error))}`, request.url)
     );
   }
 }
-

@@ -1,0 +1,59 @@
+DESCRIPTION >
+    Comprehensive Whoop analytics - sleep, recovery, and workout correlations
+
+NODE sleep_stats
+SQL >
+    %
+    SELECT
+        AVG(sleep_performance_percentage) as avg_sleep_performance,
+        AVG(total_sleep_duration_minutes) as avg_sleep_duration_minutes,
+        AVG(sleep_efficiency_percentage) as avg_sleep_efficiency,
+        AVG(rem_sleep_minutes) as avg_rem_minutes,
+        AVG(slow_wave_sleep_minutes) as avg_deep_sleep_minutes,
+        COUNT(*) as total_sleep_records
+    FROM whoop_sleep_data
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+
+NODE recovery_stats
+SQL >
+    %
+    SELECT
+        AVG(recovery_score) as avg_recovery_score,
+        AVG(hrv_rmssd) as avg_hrv,
+        AVG(resting_heart_rate) as avg_rhr,
+        MIN(recovery_score) as min_recovery_score,
+        MAX(recovery_score) as max_recovery_score,
+        COUNT(*) as total_recovery_records
+    FROM whoop_recovery_data
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+
+NODE workout_stats
+SQL >
+    %
+    SELECT
+        COUNT(*) as total_workouts,
+        SUM(duration_minutes) as total_workout_minutes,
+        AVG(strain_score) as avg_strain,
+        AVG(average_heart_rate) as avg_heart_rate,
+        SUM(distance_meters) / 1000 as total_distance_km,
+        SUM(kilojoules) as total_kilojoules
+    FROM whoop_workout_data
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+
+NODE combined_analytics
+SQL >
+    %
+    SELECT
+        sleep_stats.*,
+        recovery_stats.* EXCEPT (total_recovery_records),
+        workout_stats.* EXCEPT (total_workouts),
+        workout_stats.total_workouts as total_workouts
+    FROM sleep_stats
+    CROSS JOIN recovery_stats
+    CROSS JOIN workout_stats
+
+TYPE ENDPOINT
+

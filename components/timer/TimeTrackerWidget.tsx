@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Play, Pause, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useHabits } from '@/hooks/useHabits'
+import { useHabits } from '@/contexts/HabitsContext'
 
 
 interface Props {

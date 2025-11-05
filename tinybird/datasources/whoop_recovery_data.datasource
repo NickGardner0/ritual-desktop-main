@@ -1,0 +1,21 @@
+DESCRIPTION >
+    Whoop recovery metrics - HRV, resting heart rate, recovery scores
+
+SCHEMA >
+    `id` String `json:$.id`,
+    `user_id` String `json:$.user_id`,
+    `whoop_connection_id` String `json:$.whoop_connection_id`,
+    `cycle_id` String `json:$.cycle_id`,
+    `date` Date `json:$.date`,
+    `recovery_score` Float32 `json:$.recovery_score`,
+    `hrv_rmssd` Float32 `json:$.hrv_rmssd`,
+    `resting_heart_rate` Int32 `json:$.resting_heart_rate`,
+    `spo2_percentage` Float32 `json:$.spo2_percentage`,
+    `skin_temp_celsius` Float32 `json:$.skin_temp_celsius`,
+    `created_at` DateTime `json:$.created_at`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(date)"
+ENGINE_SORTING_KEY "user_id, date"
+ENGINE_TTL "date + INTERVAL 2 YEAR"
+

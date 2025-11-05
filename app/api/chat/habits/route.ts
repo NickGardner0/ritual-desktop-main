@@ -2,39 +2,92 @@ import { generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { NextRequest } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/types/supabase';
+import { auth } from '@clerk/nextjs/server';
+import { logger } from '@/lib/logger';
 
-// Initialize Supabase client with service role for server-side operations
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Python backend API configuration
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, userId }: { messages: Array<{role: string, content: string}>, userId: string } = await req.json();
-    const lastMessage = messages[messages.length - 1]?.content;
-
-    // Using service role key - no session authentication needed
-    console.log('🔐 Using service role for database operations');
-
-    // Fetch user's current habits for better context
-    const { data: userHabits, error: habitsError } = await supabase
-      .from('habits')
-      .select('id, name, category, unit_type')
-      .eq('user_id', userId);
-
-    if (habitsError) {
-      console.error('Error fetching user habits:', habitsError);
+    // Try to get token from Authorization header first (sent by frontend)
+    const authHeader = req.headers.get('Authorization');
+    let token: string | null = null;
+    let clerkUserId: string | null = null;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7); // Remove 'Bearer ' prefix
+      logger.info('✅ Got token from Authorization header');
+    }
+    
+    // Try Clerk auth as fallback
+    try {
+      const authResult = await auth();
+      if (authResult.userId) {
+        clerkUserId = authResult.userId;
+        if (!token) {
+          token = await authResult.getToken();
+        }
+      }
+    } catch (authError) {
+      logger.error('⚠️ Clerk auth() error (using header token if available):', authError);
     }
 
-    const habitsList = userHabits || [];
+    const { messages, userId }: { messages: Array<{role: string, content: string}>, userId: string } = await req.json();
+    const lastMessage = messages[messages.length - 1]?.content;
+    
+    // Use userId from request if Clerk auth failed
+    const effectiveUserId = clerkUserId || userId;
+    const effectiveToken = token;
+    
+    logger.info('🔍 API /api/chat/habits called:', {
+      hasClerkUserId: !!clerkUserId,
+      hasToken: !!token,
+      // Don't log userId in production
+      effectiveUserId: process.env.NODE_ENV === 'development' ? effectiveUserId : '[REDACTED]',
+      messageLength: messages.length
+    });
+
+    logger.info('🔐 Fetching habits from Python backend with auth');
+
+    // Fetch user's current habits from Python backend with auth
+    let userHabits: any[] = [];
+    let habitsError = null;
+    
+    try {
+      const headers: Record<string, string> = {};
+      if (effectiveToken) {
+        headers['Authorization'] = `Bearer ${effectiveToken}`;
+      }
+      
+      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
+        headers
+      });
+      if (habitsResponse.ok) {
+        userHabits = await habitsResponse.json();
+        logger.info('✅ Fetched habits from Python backend:', userHabits.length);
+      } else {
+        logger.warn(`⚠️ Failed to fetch habits: ${habitsResponse.status} (continuing anyway)`);
+      }
+    } catch (error) {
+      logger.error('❌ Error fetching habits from Python backend:', error);
+      habitsError = error;
+    }
+
+    const habitsList: any[] = userHabits || [];
     const habitsContext = habitsList.length > 0 
       ? `\n\nUSER'S CURRENT HABITS:\n${habitsList.map(h => `- "${h.name}" (Category: ${h.category}${h.unit_type ? `, Unit: ${h.unit_type}` : ''})`).join('\n')}\n\nIMPORTANT: Always try to match user input to one of these existing habits first. Use the EXACT habit name from this list.`
       : '\n\nNote: User has no habits set up yet. You may suggest creating new habits if appropriate.';
 
-    const today = new Date().toISOString().split('T')[0];
+    // Get local date (not UTC) to avoid timezone issues
+    const getLocalDate = () => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    const today = getLocalDate();
     
     const systemPrompt = `You are a helpful habit tracking assistant. Your job is to parse natural language descriptions of activities and extract structured habit data.
 
@@ -90,8 +143,8 @@ Always use today's date (${today}) and be encouraging in your responses.`;
       success: z.boolean(),
       habitName: z.string().optional(),
       activity: z.string().optional(),
-      amount: z.number().optional(),
-      duration: z.number().optional(), // in minutes
+      amount: z.number().nullable().optional(),
+      duration: z.number().nullable().optional(), // in minutes
       unit: z.enum(['Miles', 'Pages', 'Minutes', 'Sessions', 'Hours', 'Reps', 'Sets', 'Glasses']).optional(),
       date: z.string().optional(),
       notes: z.string().optional(),
@@ -99,7 +152,7 @@ Always use today's date (${today}) and be encouraging in your responses.`;
     });
 
     const result = await generateObject({
-      model: openai('gpt-4o-mini'), // Use gpt-4o-mini which supports structured outputs
+      model: openai('gpt-4o-mini'),
       system: systemPrompt,
       messages: messages,
       schema: habitLogSchema,
@@ -111,14 +164,13 @@ Always use today's date (${today}) and be encouraging in your responses.`;
 
     // Process habit logging if successful
     if (habitData?.success) {
-      await processHabitLog(habitData, userId);
+      await processHabitLog(habitData, effectiveUserId, effectiveToken);
       responseMessage = `Great! I've logged your ${habitData.activity} activity. ${habitData.amount ? `${habitData.amount} ${habitData.unit}` : `${habitData.duration} minutes`} has been added to your ${habitData.habitName} habit.`;
       
-      // Return both message and habit data for optimistic updates
       return new Response(JSON.stringify({ 
         message: responseMessage,
         success: true,
-        habitData: habitData // Include parsed data for optimistic updates
+        habitData: habitData
       }), {
         headers: { 'Content-Type': 'application/json' },
       });
@@ -128,112 +180,117 @@ Always use today's date (${today}) and be encouraging in your responses.`;
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in chat API:', error);
+    logger.error('Error in chat API:', error);
     return new Response('Error processing request', { status: 500 });
   }
 }
 
-async function processHabitLog(habitData: any, userId: string) {
+async function processHabitLog(habitData: any, userId: string, token: string | null) {
   try {
-    console.log('🔍 Processing habit log:', { habitData, userId });
+    logger.info('🔍 Processing habit log via Python backend:', { 
+      habitData, 
+      // Don't log userId in production
+      userId: process.env.NODE_ENV === 'development' ? userId : '[REDACTED]', 
+      hasToken: !!token 
+    });
     
-    if (!userId) {
-      console.error('❌ No userId provided');
+    // Find the habit by exact name match first from Python backend
+    let habits = [];
+    
+    try {
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
+        headers
+      });
+      if (habitsResponse.ok) {
+        const allHabits = await habitsResponse.json();
+        // Find exact match first
+        habits = allHabits.filter((h: any) => h.name === habitData.habitName);
+        
+        // If no exact match, try partial match
+        if (habits.length === 0) {
+          habits = allHabits.filter((h: any) => 
+            h.name.toLowerCase().includes(habitData.habitName.toLowerCase())
+          );
+        }
+      } else {
+        throw new Error(`Failed to fetch habits: ${habitsResponse.status}`);
+      }
+    } catch (error) {
+      logger.error('❌ Error fetching habits from Python backend:', error);
       return;
     }
 
-    // Find matching habit by name - try exact match first, then partial
-    console.log('🔍 Searching for habit:', habitData.habitName);
-    
-    let { data: habits, error: habitsError } = await supabase
-      .from('habits')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('name', habitData.habitName);
-
-    // If no exact match, try partial match
     if (!habits || habits.length === 0) {
-      console.log('🔍 No exact match, trying partial match...');
-      const { data: partialHabits, error: partialError } = await supabase
-        .from('habits')
-        .select('*')
-        .eq('user_id', userId)
-        .ilike('name', `%${habitData.habitName}%`);
-      
-      habits = partialHabits;
-      habitsError = partialError;
-    }
-
-    if (habitsError) {
-      console.error('❌ Database error finding habits:', habitsError);
-      return;
-    }
-
-    if (!habits || habits.length === 0) {
-      console.error('❌ No matching habit found for:', habitData.habitName);
-      console.log('🔍 Available habits for user:', userId);
-      
-      // Debug: Show all habits for this user
-      const { data: allHabits } = await supabase
-        .from('habits')
-        .select('id, name')
-        .eq('user_id', userId);
-      console.log('Available habits:', allHabits);
+      logger.error('❌ No matching habit found for:', habitData.habitName);
       return;
     }
 
     const habit = habits[0];
-    console.log('✅ Found matching habit:', { id: habit.id, name: habit.name });
+    logger.info('✅ Found matching habit:', { id: habit.id, name: habit.name });
     
-    const today = new Date().toISOString().split('T')[0];
-    const currentTimestamp = new Date().toISOString(); // Full timestamp with date and time
-    
+    // Get local date (not UTC) to avoid timezone issues
+    const getLocalDate = () => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    const today = getLocalDate();
+    const currentTimestamp = new Date().toISOString();
 
-    // Always create separate logs instead of combining them
     let finalAmount = habitData.amount || null;
-    let finalDuration = habitData.duration ? habitData.duration * 60 : null; // Convert minutes to seconds
+    let finalDuration = habitData.duration || null; // AI returns in minutes, will convert to seconds below
     let finalNotes = habitData.notes || `Logged via AI: ${habitData.activity}`;
 
-    // Create habit log with quantitative data and time
+    // Create habit log data matching Python backend's HabitLogCreate model
+    // Backend expects duration in SECONDS, but AI returns it in MINUTES
     const logData = {
-      habit_id: habit.id,
-      habit_name: habit.name, // Add habit name for easy identification
-      user_id: userId,
-      date: today, // Always use today's date, ignore habitData.date
-      time: currentTimestamp,
-      status: 'completed' as const,
+      date: today,
+      duration: finalDuration ? Math.round(finalDuration * 60) : null, // Convert minutes to seconds
       amount: finalAmount,
-      duration: finalDuration,
-      unit: habitData.unit || null,
+      unit: habitData.unit || habit.unit_type || '',
+      status: 'completed',
       notes: finalNotes,
-      source: 'manual' as const,
+      completed_at: currentTimestamp
     };
 
-    console.log('🔍 Prepared log data:', {
-      inputAmount: habitData.amount,
-      inputDuration: habitData.duration,
-      finalAmount,
-      finalDuration,
-      logData
-    });
+    logger.info('🔍 Sending log data to Python backend');
 
-    // Always create a new log entry
-    console.log('➕ Creating new log');
-    const { data: insertResult, error: insertError } = await supabase
-      .from('habit_logs')
-      .insert(logData)
-      .select();
+    // Send to Python backend using correct endpoint: /api/habits/{habit_id}/logs
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const logResponse = await fetch(`${PYTHON_API_BASE}/api/habits/${habit.id}/logs`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(logData)
+      });
 
-    if (insertError) {
-      console.error('❌ Error creating log:', insertError);
-      console.error('❌ Failed log data:', logData);
-      return;
+      if (logResponse.ok) {
+        const result = await logResponse.json();
+        logger.info('✅ Habit log created in Python backend');
+        logger.info('📊 Data automatically synced to Tinybird via backend');
+      } else {
+        const errorText = await logResponse.text();
+        logger.error('❌ Failed to create habit log:', errorText);
+      }
+    } catch (error) {
+      logger.error('❌ Error sending log to Python backend:', error);
     }
     
-    console.log('✅ Log created successfully:', insertResult);
-    console.log('✅ Inserted log ID:', insertResult?.[0]?.id);
   } catch (error) {
-    console.error('❌ Error in processHabitLog:', error);
-    throw error; // Re-throw to see the error in the main handler
+    logger.error('❌ Error in processHabitLog:', error);
+    throw error;
   }
 }

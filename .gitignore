@@ -36,3 +36,39 @@ src-tauri/Cargo.lock
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts 
+# clerk configuration (can include secrets)
+/.clerk/
+
+# Trigger.dev
+.trigger/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist-python/
+build-python/
+*.egg
+
+# Python Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# Python Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite
+*.sqlite3
+test_*.db
+
+# Backup files
+*.backup
+*.bak
+*~

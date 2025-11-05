@@ -1,0 +1,25 @@
+# Core FastAPI and server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# Rate limiting
+slowapi>=0.1.9
+
+# Database
+sqlalchemy[asyncio]>=2.0.0
+aiosqlite>=0.19.0
+alembic>=1.12.0
+
+# Data validation
+pydantic>=2.8.0
+
+# Authentication - using PyJWT instead of python-jose to avoid conflicts
+PyJWT[crypto]>=2.8.0
+
+# HTTP and form handling
+python-multipart>=0.0.6
+httpx>=0.25.0
+
+# Configuration and WebSockets
+python-dotenv>=1.0.0
+websockets>=12.0

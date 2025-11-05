@@ -1,0 +1,17 @@
+# Tinybird
+.tinyb
+.env
+.env.local
+
+# Python
+python-service/venv/
+python-service/__pycache__/
+python-service/*.pyc
+python-service/.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+

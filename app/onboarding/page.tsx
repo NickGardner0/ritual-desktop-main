@@ -1,10 +1,11 @@
 "use client"
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Search } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/contexts/AuthContext';
+import { useUser, useAuth } from '@clerk/nextjs';
+
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 interface OnboardingData {
   name: string;
@@ -12,7 +13,7 @@ interface OnboardingData {
   gender: string;
   country: string;
   tracking_interests: string[];
-  wearable_devices: string;
+  wearable_devices: string[];
 }
 
 // List of all 195 countries
@@ -41,7 +42,8 @@ const countries = [
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user } = useUser();
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<OnboardingData>({
     name: '',
@@ -49,7 +51,7 @@ export default function OnboardingPage() {
     gender: '',
     country: '',
     tracking_interests: [],
-    wearable_devices: ''
+    wearable_devices: []
   });
 
   // Dropdown states
@@ -85,44 +87,48 @@ export default function OnboardingPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || loading) return; // Prevent double submission
 
     setLoading(true);
     try {
-      console.log('🔄 Saving onboarding data:', formData);
+      console.log('🔄 Submitting onboarding data:', formData);
       
-      // Update the user's profile with onboarding data
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: formData.name,
-          age_bracket: formData.age_bracket,
-          gender: formData.gender,
-          country: formData.country,
-          tracking_interests: formData.tracking_interests,
-          wearable_devices: [formData.wearable_devices],
-          onboarding_completed: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id);
+      // Get auth token from Clerk
+      const token = await getToken();
+      if (!token) {
+        console.error('❌ No auth token found');
+        throw new Error('Authentication required');
+      }
+      
+      // Send onboarding data to Python backend
+      const response = await fetch(`${PYTHON_API_BASE}/api/user/onboarding`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      });
 
-      if (error) {
-        console.error('❌ Supabase error:', error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to save onboarding data');
       }
 
-      console.log('✅ Profile updated successfully');
+      const userData = await response.json();
+      console.log('✅ Onboarding completed successfully:', userData);
       
-      // Redirect to dashboard
-      router.push('/dashboard');
+      // Use replace instead of push to avoid adding to history
+      // Use window.location for a hard redirect to avoid React re-renders
+      window.location.href = '/dashboard';
     } catch (error) {
-      console.error('❌ Error saving onboarding data:', error);
-    } finally {
+      console.error('❌ Error submitting onboarding:', error);
+      alert(`Error saving onboarding data: ${error instanceof Error ? error.message : String(error)}`);
       setLoading(false);
     }
   };
 
-  const isFormValid = formData.name && formData.age_bracket && formData.gender && formData.country && formData.tracking_interests.length > 0 && formData.wearable_devices;
+  const isFormValid = formData.name && formData.age_bracket && formData.gender && formData.country && formData.tracking_interests.length > 0 && formData.wearable_devices.length > 0;
 
   const handleDropdownSelect = (field: keyof OnboardingData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -138,41 +144,51 @@ export default function OnboardingPage() {
     }));
   };
 
+  const handleWearableDeviceToggle = (device: string) => {
+    setFormData(prev => ({
+      ...prev,
+      wearable_devices: prev.wearable_devices.includes(device)
+        ? prev.wearable_devices.filter(item => item !== device)
+        : [...prev.wearable_devices, device]
+    }));
+  };
+
   const toggleDropdown = (dropdownName: string) => {
     setOpenDropdown(openDropdown === dropdownName ? null : dropdownName);
   };
 
   return (
-    <div className="h-screen bg-white overflow-hidden flex flex-col">
+    <div className="h-screen bg-white flex flex-col">
       {/* Fixed Header with Logo and Drag Region */}
       <div 
         data-tauri-drag-region 
-        className="fixed top-0 left-0 w-full bg-white z-50 px-6 py-4"
+        className="fixed top-0 left-0 w-full bg-white border-b border-gray-200 z-50 px-6 py-4"
       >
         <img 
           src="/images/ritual.svg" 
           alt="Ritual Logo" 
-          className="h-8 w-auto"
+          className="h-6 w-auto"
         />
       </div>
 
       {/* Main content container */}
-      <div className="flex-1 flex items-center justify-center px-6 py-2 mt-14 overflow-hidden">
-        <div className="w-full max-w-sm">
-          <div className="text-center mb-6">
-            <h1 className="text-lg font-semibold text-gray-900 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
-              Setup your profile
+      <div className="flex-1 overflow-y-auto">
+        <div className="min-h-screen flex items-center justify-center px-6 py-8">
+          <div className="w-full max-w-md mt-16">
+          <div className="text-center mb-10">
+            <h1 className="text-2xl font-semibold text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+              Welcome to Ritual
             </h1>
-            <p className="text-xs text-gray-400" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
-              Add your information to personalize<br />your experience in Ritual.
+            <p className="text-sm text-gray-500" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+              Let's personalize your experience
             </p>
           </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-6">
           {/* Name */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
               Name
             </label>
             <input
@@ -180,36 +196,39 @@ export default function OnboardingPage() {
               value={formData.name}
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
               placeholder="Enter your name"
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-none focus:outline-none focus:ring-1 focus:ring-black focus:border-black"
-              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
+              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             />
           </div>
 
           {/* Age */}
           <div className="relative dropdown-container">
-            <label className="block text-xs font-medium text-gray-700 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
-              How old are you?
+            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+              Age
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('age')}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-black focus:border-transparent"
-              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
+              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
-              <span className={formData.age_bracket ? 'text-gray-900 text-sm' : 'text-gray-500 text-sm'}>
+              <span className={formData.age_bracket ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.age_bracket || 'Select age range'}
               </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
             {openDropdown === 'age' && (
-              <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-none shadow-lg max-h-32 overflow-y-auto">
+              <div 
+                className="absolute z-[100] w-full mt-2 bg-white border border-gray-300 rounded-none shadow-xl max-h-[200px] overflow-y-auto overscroll-contain"
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {ageBrackets.map((age) => (
                   <button
                     key={age}
                     type="button"
                     onClick={() => handleDropdownSelect('age_bracket', age)}
-                    className="w-full px-2 py-1 text-sm text-left hover:bg-gray-50"
-                    style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                    className="w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors"
+                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     {age}
                   </button>
@@ -220,29 +239,32 @@ export default function OnboardingPage() {
 
           {/* Gender */}
           <div className="relative dropdown-container">
-            <label className="block text-xs font-medium text-gray-700 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
               Gender
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('gender')}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-black focus:border-transparent"
-              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
+              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
-              <span className={formData.gender ? 'text-gray-900 text-sm' : 'text-gray-500 text-sm'}>
+              <span className={formData.gender ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.gender || 'Select gender'}
               </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
             {openDropdown === 'gender' && (
-              <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-none shadow-lg max-h-32 overflow-y-auto">
+              <div 
+                className="absolute z-[100] w-full mt-2 bg-white border border-gray-300 rounded-none shadow-xl max-h-[200px] overflow-y-auto overscroll-contain"
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {genderOptions.map((gender) => (
                   <button
                     key={gender}
                     type="button"
                     onClick={() => handleDropdownSelect('gender', gender)}
-                    className="w-full px-2 py-1 text-sm text-left hover:bg-gray-50"
-                    style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                    className="w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors"
+                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     {gender}
                   </button>
@@ -253,33 +275,38 @@ export default function OnboardingPage() {
 
           {/* Country */}
           <div className="relative dropdown-container">
-            <label className="block text-xs font-medium text-gray-700 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
               Country
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('country')}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-black focus:border-transparent"
-              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
+              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
-              <span className={formData.country ? 'text-gray-900 text-sm' : 'text-gray-500 text-sm'}>
+              <span className={formData.country ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.country || 'Select country'}
               </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
             {openDropdown === 'country' && (
-              <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-none shadow-lg">
-                <div className="p-1 border-b border-gray-200">
+              <div className="absolute z-[100] w-full mt-2 bg-white border border-gray-300 rounded-none shadow-xl">
+                <div className="p-2 border-b border-gray-200 sticky top-0 bg-white">
                   <input
                     type="text"
                     value={countrySearch}
                     onChange={(e) => setCountrySearch(e.target.value)}
                     placeholder="Search countries..."
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded-none focus:outline-none focus:ring-1 focus:ring-black focus:border-black"
-                    style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-none focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                    autoComplete="off"
                   />
                 </div>
-                <div className="max-h-32 overflow-y-auto">
+                <div 
+                  className="overflow-y-auto overscroll-contain"
+                  style={{ maxHeight: '294px' }}
+                  onWheel={(e) => e.stopPropagation()}
+                >
                   {filteredCountries.map((country) => (
                     <button
                       key={country}
@@ -288,8 +315,8 @@ export default function OnboardingPage() {
                         handleDropdownSelect('country', country);
                         setCountrySearch('');
                       }}
-                      className="w-full px-2 py-1 text-sm text-left hover:bg-gray-50"
-                      style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                      className="w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors"
+                      style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                     >
                       {country}
                     </button>
@@ -301,38 +328,58 @@ export default function OnboardingPage() {
 
           {/* Tracking Interests */}
           <div className="relative dropdown-container">
-            <label className="block text-xs font-medium text-gray-700 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
               What are you interested in tracking?
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('tracking')}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-black focus:border-transparent"
-              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
+              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
-              <span className={formData.tracking_interests.length > 0 ? 'text-gray-900 text-sm' : 'text-gray-500 text-sm'}>
+              <span className={formData.tracking_interests.length > 0 ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.tracking_interests.length > 0 
                   ? `${formData.tracking_interests.length} selected` 
-                  : 'Select tracking interests'
+                  : 'Select interests'
                 }
               </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
             {openDropdown === 'tracking' && (
-              <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-none shadow-lg max-h-32 overflow-y-auto">
+              <div 
+                className="absolute z-[100] w-full mt-2 bg-white border border-gray-300 rounded-none shadow-xl max-h-[200px] overflow-y-auto overscroll-contain"
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {trackingInterests.map((interest) => (
                   <label
                     key={interest}
-                    className="w-full px-2 py-1 text-left flex items-center space-x-2 hover:bg-gray-50"
-                    style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                    className="w-full px-3 py-2.5 text-left flex items-center space-x-2 hover:bg-gray-50 cursor-pointer transition-colors"
+                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     <input
                       type="checkbox"
                       checked={formData.tracking_interests.includes(interest)}
                       onChange={() => handleTrackingInterestToggle(interest)}
-                      className="w-3 h-3 accent-black bg-white border-gray-300 rounded-none focus:ring-1 focus:ring-black"
+                      className="cursor-pointer"
+                      style={{ 
+                        width: '16px',
+                        height: '16px',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        MozAppearance: 'none',
+                        border: '1px solid #D1D5DB',
+                        borderRadius: '0',
+                        backgroundColor: formData.tracking_interests.includes(interest) ? '#111827' : 'white',
+                        backgroundImage: formData.tracking_interests.includes(interest) 
+                          ? 'url("data:image/svg+xml,%3csvg viewBox=\'0 0 16 16\' fill=\'white\' xmlns=\'http://www.w3.org/2000/svg\'%3e%3cpath d=\'M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z\'/%3e%3c/svg%3e")'
+                          : 'none',
+                        backgroundSize: '100% 100%',
+                        backgroundPosition: 'center',
+                        backgroundRepeat: 'no-repeat',
+                        outline: 'none'
+                      }}
                     />
-                    <span className="text-xs">{interest}</span>
+                    <span className="text-sm">{interest}</span>
                   </label>
                 ))}
               </div>
@@ -341,35 +388,60 @@ export default function OnboardingPage() {
 
           {/* Devices */}
           <div className="relative dropdown-container">
-            <label className="block text-xs font-medium text-gray-700 mb-1" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
-              Which devices do you currently use for self-tracking?
+            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+              Which devices do you use for self-tracking?
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('devices')}
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-black focus:border-transparent"
-              style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+              className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
+              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
-              <span className={formData.wearable_devices ? 'text-gray-900 text-sm' : 'text-gray-500 text-sm'}>
-                {formData.wearable_devices 
-                  ? `${formData.wearable_devices}` 
-                  : 'Select device'
+              <span className={formData.wearable_devices.length > 0 ? 'text-gray-900' : 'text-gray-400'}>
+                {formData.wearable_devices.length > 0 
+                  ? `${formData.wearable_devices.length} selected` 
+                  : 'Select devices'
                 }
               </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
             {openDropdown === 'devices' && (
-              <div className="absolute z-40 w-full mt-1 bg-white border border-gray-300 rounded-none shadow-lg max-h-32 overflow-y-auto">
+              <div 
+                className="absolute z-[100] w-full mt-2 bg-white border border-gray-300 rounded-none shadow-xl overflow-y-auto overscroll-contain"
+                style={{ maxHeight: '210px' }}
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {wearableDevices.map((device) => (
-                  <button
+                  <label
                     key={device}
-                    type="button"
-                    onClick={() => handleDropdownSelect('wearable_devices', device)}
-                    className="w-full px-2 py-1 text-sm text-left hover:bg-gray-50"
-                    style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+                    className="w-full px-3 py-2.5 text-left flex items-center space-x-2 hover:bg-gray-50 cursor-pointer transition-colors"
+                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
-                    {device}
-                  </button>
+                    <input
+                      type="checkbox"
+                      checked={formData.wearable_devices.includes(device)}
+                      onChange={() => handleWearableDeviceToggle(device)}
+                      className="cursor-pointer"
+                      style={{ 
+                        width: '16px',
+                        height: '16px',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        MozAppearance: 'none',
+                        border: '1px solid #D1D5DB',
+                        borderRadius: '0',
+                        backgroundColor: formData.wearable_devices.includes(device) ? '#111827' : 'white',
+                        backgroundImage: formData.wearable_devices.includes(device) 
+                          ? 'url("data:image/svg+xml,%3csvg viewBox=\'0 0 16 16\' fill=\'white\' xmlns=\'http://www.w3.org/2000/svg\'%3e%3cpath d=\'M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z\'/%3e%3c/svg%3e")'
+                          : 'none',
+                        backgroundSize: '100% 100%',
+                        backgroundPosition: 'center',
+                        backgroundRepeat: 'no-repeat',
+                        outline: 'none'
+                      }}
+                    />
+                    <span className="text-sm">{device}</span>
+                  </label>
                 ))}
               </div>
             )}
@@ -378,13 +450,14 @@ export default function OnboardingPage() {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={!isFormValid}
-            className="w-full bg-black text-white py-1.5 px-3 text-sm rounded-none hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed mt-4"
-            style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}
+            disabled={!isFormValid || loading}
+            className="w-full bg-gray-900 text-white py-3 px-4 text-sm font-medium rounded-none hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:text-gray-500 transition-all mt-8"
+            style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
           >
-            Enter Dashboard
+            {loading ? 'Saving...' : 'Continue to Dashboard'}
           </button>
         </form>
+          </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUser, useClerk } from "@clerk/nextjs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +22,8 @@ interface TeamDropdownProps {
 }
 
 export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdownProps) {
-  const { user, signOut } = useAuth();
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [isActive, setActive] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -63,12 +64,14 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
   };
 
   const getUserInitials = () => {
-    if (!user?.email) return 'R';
-    return user.email.charAt(0).toUpperCase();
+    const email = user?.primaryEmailAddress?.emailAddress;
+    if (!email) return 'R';
+    return email.charAt(0).toUpperCase();
   };
 
   const getUserName = () => {
-    return user?.user_metadata?.name || user?.email?.split('@')[0] || 'Ritual User';
+    const email = user?.primaryEmailAddress?.emailAddress;
+    return user?.fullName || user?.firstName || email?.split('@')[0] || 'Ritual User';
   };
 
   // Header placement (top right)
@@ -78,7 +81,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-8 w-8 rounded-none hover:bg-transparent p-0">
             <Avatar className="h-8 w-8 rounded-none">
-              <AvatarImage src={user?.user_metadata?.picture} alt={getUserName()} />
+              <AvatarImage src={user?.imageUrl} alt={getUserName()} />
               <AvatarFallback className="text-xs rounded-none bg-[#6366F1] text-white">
                 {getUserInitials()}
               </AvatarFallback>
@@ -89,7 +92,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
           <div className="px-2.5 py-2">
             <p className="text-sm font-medium text-gray-900">{getUserName()}</p>
             <p className="text-xs text-gray-500">
-              {user?.email}
+              {user?.primaryEmailAddress?.emailAddress}
             </p>
           </div>
           
@@ -150,7 +153,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
           className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] dark:border-[#2C2C2C] cursor-pointer"
           onClick={() => setActive(!isActive)}
         >
-          <AvatarImage src={user?.user_metadata?.picture} />
+          <AvatarImage src={user?.imageUrl} />
           <AvatarFallback className="rounded-none w-[32px] h-[32px]">
             <span className="text-xs font-medium">
               {getUserInitials()}
@@ -176,7 +179,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         <div className="fixed left-[19px] bottom-[50px] w-56 bg-white dark:bg-gray-800 border border-[#DCDAD2] dark:border-[#2C2C2C] rounded-md shadow-lg z-50">
           <div className="p-2 border-b border-[#DCDAD2] dark:border-[#2C2C2C]">
             <p className="text-sm font-medium">{getUserName()}</p>
-            <p className="text-xs text-gray-500">{user?.email}</p>
+            <p className="text-xs text-gray-500">{user?.primaryEmailAddress?.emailAddress}</p>
           </div>
           
           <div className="p-1">

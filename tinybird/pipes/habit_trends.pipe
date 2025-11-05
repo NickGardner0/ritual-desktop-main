@@ -1,0 +1,51 @@
+DESCRIPTION >
+    Habit completion trends over time (daily, weekly, monthly aggregations)
+
+NODE daily_trends
+SQL >
+    %
+    SELECT
+        date,
+        habit_id,
+        habit_name,
+        COUNT(*) as logs_count,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+        SUM(duration) as total_duration,
+        SUM(amount) as total_amount,
+        any(unit) as unit
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    GROUP BY date, habit_id, habit_name
+    ORDER BY date DESC
+
+NODE weekly_aggregation
+SQL >
+    %
+    SELECT
+        toMonday(date) as week_start,
+        habit_id,
+        habit_name,
+        SUM(completed_count) as weekly_completions,
+        SUM(total_duration) as weekly_duration,
+        SUM(total_amount) as weekly_amount,
+        any(unit) as unit,
+        COUNT(DISTINCT date) as days_logged
+    FROM daily_trends
+    GROUP BY week_start, habit_id, habit_name
+    ORDER BY week_start DESC
+
+NODE return_by_period
+SQL >
+    %
+    {% if String(period, 'day') == 'day' %}
+        SELECT * FROM daily_trends
+    {% else %}
+        SELECT * FROM weekly_aggregation
+    {% end %}
+
+TYPE ENDPOINT
+

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useUser } from '@clerk/nextjs';
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -10,7 +10,7 @@ interface FeedbackModalProps {
 }
 
 export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
-  const { user } = useAuth();
+  const { user } = useUser();
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -26,7 +26,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
       // For now, we'll just log it
       console.log('Feedback submitted:', {
         user_id: user?.id,
-        email: user?.email,
+        email: user?.primaryEmailAddress?.emailAddress,
         message: message,
         timestamp: new Date().toISOString(),
       });
@@ -51,9 +51,9 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
+      {/* Backdrop - Midday style */}
       <div 
-        className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+        className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80"
         onClick={onClose}
       />
       
@@ -79,30 +79,30 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
           </div>
         ) : (
           <form onSubmit={handleSubmit}>
-            <h2 className="text-2xl font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, Inter, sans-serif' }}>
+            <h2 className="text-xl font-semibold text-gray-900 mb-3" style={{ fontFamily: 'PP Neue Montreal, Inter, sans-serif' }}>
               Send us Feedback
             </h2>
-            <p className="text-sm text-gray-400 mb-5" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <p className="text-sm text-gray-500 mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
               Help improve Ritual, a real human will respond within 24 hours.
             </p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+              <label className="block text-sm font-semibold text-gray-700 mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
                 Message <span className="text-red-500">*</span>
               </label>
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 placeholder="Tell us about your experience, bugs you've found, or features you'd like to see..."
-                className="w-full h-32 px-3 py-2 border border-gray-300 rounded-none focus:outline-none focus:border-gray-400 resize-none text-sm text-gray-900 placeholder-gray-400"
+                className="w-full h-32 px-3 py-3 border border-gray-300 rounded-none focus:outline-none focus:border-gray-500 resize-none text-sm text-gray-900 placeholder-gray-500"
                 style={{ fontFamily: 'Inter, sans-serif' }}
                 required
               />
             </div>
 
-            <p className="text-xs text-gray-500 mb-5" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <p className="text-xs text-gray-400 mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
               Something else on your mind? Email us at{' '}
-              <a href="mailto:support@ritual.app" className="text-gray-700 hover:text-gray-900">
+              <a href="mailto:support@ritual.app" className="text-gray-600 hover:text-gray-800 underline">
                 support@ritual.app
               </a>
             </p>
@@ -111,8 +111,8 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
               <button
                 type="submit"
                 disabled={submitting || !message.trim()}
-                className="px-4 py-2 text-white rounded-none text-sm font-normal hover:bg-gray-800 disabled:cursor-not-allowed transition-colors"
-                style={{ fontFamily: 'Inter, sans-serif', backgroundColor: '#000000', opacity: 1 }}
+                className="px-6 py-2.5 bg-black text-white rounded-none text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                style={{ fontFamily: 'Inter, sans-serif' }}
               >
                 {submitting ? 'Sending...' : 'Send Feedback'}
               </button>

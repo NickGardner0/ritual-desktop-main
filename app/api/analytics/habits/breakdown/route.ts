@@ -1,0 +1,66 @@
+/**
+ * Habit Breakdown by Category API - Uses SQLite
+ * GET /api/analytics/habits/breakdown?user_id=xxx&days_back=30
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+
+export async function GET(request: NextRequest) {
+  try {
+    // Get Clerk auth
+    const { userId: clerkUserId } = await auth();
+    if (!clerkUserId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const searchParams = request.nextUrl.searchParams;
+    const daysBack = parseInt(searchParams.get('days_back') || '30');
+
+    // Calculate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysBack);
+    
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    // Query Python backend for habit logs with category info
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+    const token = await auth().getToken();
+    
+    const response = await fetch(
+      `${backendUrl}/api/analytics/habits/breakdown?user_id=${clerkUserId}&start_date=${startDateStr}&end_date=${endDateStr}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Backend returned ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    return NextResponse.json({
+      success: true,
+      data: data.breakdown || [],
+      meta: {
+        user_id: clerkUserId,
+        days_back: daysBack,
+        start_date: startDateStr,
+        end_date: endDateStr,
+      }
+    });
+
+  } catch (error) {
+    console.error('Breakdown API error:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch habit breakdown' },
+      { status: 500 }
+    );
+  }
+}
+

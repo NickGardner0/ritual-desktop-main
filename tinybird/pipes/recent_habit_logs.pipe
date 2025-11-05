@@ -1,0 +1,30 @@
+DESCRIPTION >
+    Get recent habit logs for a user (for real-time dashboard updates)
+
+NODE get_recent_logs
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        timestamp,
+        status,
+        duration,
+        amount,
+        unit,
+        notes,
+        source,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 7)}} DAY
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    ORDER BY timestamp DESC
+    LIMIT {{Int32(limit, 100)}}
+
+TYPE ENDPOINT
+

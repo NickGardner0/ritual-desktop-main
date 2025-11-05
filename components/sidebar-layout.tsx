@@ -6,6 +6,7 @@ import { RitualLogo } from '@/components/ritual-logo';
 import { ChatAssistantWidget } from '@/components/chat-assistant';
 import { TimeTrackerWidget } from '@/components/timer/TimeTrackerWidget';
 import { HabitSelector } from '@/components/habit-selector';
+import Link from 'next/link';
 import {
   LineChart,
   Timer,
@@ -48,7 +49,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth as useAuthContext } from '@/contexts/AuthContext';
+import { useAuth } from '@clerk/nextjs';
 // Conditional import for Tauri API to prevent SSR errors
 // import { WebviewWindow } from '@tauri-apps/api/window';
 
@@ -96,7 +98,8 @@ interface SidebarLayoutProps {
 }
 
 export function SidebarLayout({ children }: SidebarLayoutProps) {
-  const { user, signOut } = useAuth();
+  const { user, signOut } = useAuthContext();
+  const { getToken } = useAuth(); // Clerk hook for getting tokens
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -132,12 +135,12 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
         const { invoke } = await import('@tauri-apps/api/tauri');
         
         // First, get the current auth token and write it to a file for Swift widget
-        const { supabase } = await import('@/lib/supabase');
-        const { data: { session } } = await supabase.auth.getSession();
+        // Use Clerk instead of Supabase
+        const token = await getToken();
         
-        if (session?.access_token) {
+        if (token) {
           console.log('🔐 Writing auth token for Swift widget...');
-          await invoke('write_auth_token_to_file', { token: session.access_token });
+          await invoke('write_auth_token_to_file', { token });
         } else {
           console.warn('⚠️ No auth token found - Swift widget may not work properly');
         }
@@ -338,20 +341,21 @@ export function SidebarLayout({ children }: SidebarLayoutProps) {
                 <TooltipProvider key={link.href}>
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger asChild>
-                      <button
+                      <Link
+                        href={link.href}
+                        prefetch={true}
                         className={cn(
                           "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
                           "hover:bg-accent hover:text-accent-foreground",
                           isActive && "bg-accent text-accent-foreground",
                           !isExpanded && "justify-center px-2"
                         )}
-                        onClick={() => router.push(link.href)}
                       >
                         <Icon className="h-4 w-4 flex-shrink-0" />
                         {isExpanded && (
                           <span className="truncate">{link.label}</span>
                         )}
-                      </button>
+                      </Link>
                     </TooltipTrigger>
                     {!isExpanded && (
                       <TooltipContent side="right" className="ml-1">

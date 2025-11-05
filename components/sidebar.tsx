@@ -5,11 +5,16 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useState } from "react";
 import { MainMenu } from "./main-menu";
+import { Button } from "@/components/ui/button";
+import { Command } from "lucide-react";
 
 
-interface SidebarProps {}
+interface SidebarProps {
+  onToggleChat?: () => void;
+  isChatOpen?: boolean;
+}
 
-export function Sidebar({}: SidebarProps = {}) {
+export function Sidebar({ onToggleChat, isChatOpen = false }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -40,10 +45,26 @@ export function Sidebar({}: SidebarProps = {}) {
 
       {/* Main Navigation */}
       <div className="flex flex-col w-full pt-[70px] flex-1">
-        <MainMenu isExpanded={isExpanded} />
+        <MainMenu 
+          isExpanded={isExpanded} 
+          onCloseSidebar={() => setIsExpanded(false)}
+        />
       </div>
 
-      
+      {/* AI Chat Toggle Button - Bottom of Sidebar */}
+      <div className="absolute bottom-4 left-[15px]">
+        <button
+          onClick={onToggleChat}
+          className={cn(
+            "w-10 h-10 flex items-center justify-center transition-colors duration-200",
+            isChatOpen 
+              ? "text-gray-900" 
+              : "text-gray-600 hover:text-gray-900"
+          )}
+        >
+          <Command className="w-5 h-5" />
+        </button>
+      </div>
     </aside>
   );
 }

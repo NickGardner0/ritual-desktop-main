@@ -1,245 +1,35 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import { Button } from '@/components/ui/button'
+import { useRouter } from 'next/navigation'
+import { useUser } from '@clerk/nextjs'
 
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState('Processing authentication...')
+  const router = useRouter()
+  const { user, isLoaded } = useUser()
 
   useEffect(() => {
     const handleCallback = async () => {
-      try {
-        console.log('🔐 Desktop auth callback page loaded');
-        if (typeof window !== 'undefined') {
-          console.log('🔍 Current URL:', window.location.href);
-          console.log('🔍 URL search params:', window.location.search);
-          console.log('🔍 URL hash:', window.location.hash);
-          console.log('🔍 Full URL object:', window.location);
-          console.log('🔍 All URL parameters:', Object.fromEntries(new URLSearchParams(window.location.search)));
+      // Clerk handles all OAuth callbacks now
+      // Just redirect to dashboard when user is loaded
+      if (isLoaded) {
+        if (user) {
+          console.log('✅ User authenticated via Clerk, redirecting to dashboard');
+          setStatus('Authentication successful! Redirecting...')
+          router.push('/dashboard');
+        } else {
+          console.log('❌ No user found, redirecting to home');
+          setStatus('Authentication failed. Redirecting...')
+          setTimeout(() => {
+            router.push('/');
+          }, 2000);
         }
-        setStatus('Processing authentication...')
-        
-        // Check for OAuth errors in URL params
-        if (typeof window !== 'undefined') {
-          const urlParams = new URLSearchParams(window.location.search)
-          const error = urlParams.get('error')
-          const errorDescription = urlParams.get('error_description')
-          const code = urlParams.get('code')
-          const state = urlParams.get('state')
-          
-          // Check for tokens in URL hash (implicit flow)
-          const hashParams = new URLSearchParams(window.location.hash.substring(1))
-          const accessToken = hashParams.get('access_token')
-          const refreshToken = hashParams.get('refresh_token')
-          const tokenType = hashParams.get('token_type')
-          
-          console.log('🔍 OAuth params:', { error, errorDescription, code: code ? 'present' : 'missing', state: state ? 'present' : 'missing' });
-          console.log('🔍 Hash params:', { accessToken: accessToken ? 'present' : 'missing', refreshToken: refreshToken ? 'present' : 'missing', tokenType });
-          
-          if (error) {
-            console.error('❌ OAuth error detected:', error, errorDescription);
-            setStatus(`Authentication failed: ${errorDescription || error}`)
-            
-            // Log additional debugging info
-            console.log('🔍 URL params:', Object.fromEntries(urlParams.entries()));
-            
-            setTimeout(() => {
-              if (typeof window !== 'undefined') {
-                window.location.href = '/'
-              }
-            }, 5000);
-            return;
-          }
-          
-          // Handle implicit flow (tokens in hash)
-          if (accessToken && refreshToken) {
-            console.log('✅ Tokens found in hash, setting session...');
-            setStatus('Setting up session...');
-            
-            // Set the session manually with the tokens
-            const { data, error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken
-            });
-            
-            if (sessionError) {
-              console.error('❌ Error setting session:', sessionError);
-              setStatus(`Authentication failed: ${sessionError.message}`);
-              setTimeout(() => {
-                if (typeof window !== 'undefined') {
-                  window.location.href = '/';
-                }
-              }, 3000);
-              return;
-            }
-            
-            if (data.session && data.session.user) {
-              console.log('✅ Session set successfully:', data.session.user.email);
-              setStatus('Authentication successful! Setting up profile...');
-              
-              // Wait a bit to ensure the session is properly set
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              
-              // Check if user profile exists, create if it doesn't
-              let { data: profile } = await supabase
-                .from('profiles')
-                .select('onboarding_completed')
-                .eq('id', data.session.user.id)
-                .single();
-              
-              if (!profile) {
-                console.log('🔄 Creating new profile for user:', data.session.user.email);
-                // Create profile for new user
-                const { error: profileError } = await supabase
-                  .from('profiles')
-                  .insert({
-                    id: data.session.user.id,
-                    email: data.session.user.email,
-                    full_name: data.session.user.user_metadata?.full_name || data.session.user.email?.split('@')[0],
-                    onboarding_completed: false
-                  });
-                
-                if (profileError) {
-                  console.error('❌ Error creating profile:', profileError);
-                } else {
-                  console.log('✅ Profile created successfully');
-                  profile = { onboarding_completed: false };
-                }
-              }
-              
-              // Navigate to onboarding or dashboard based on completion status
-              setTimeout(() => {
-                if (typeof window !== 'undefined') {
-                  const redirectUrl = profile?.onboarding_completed ? '/dashboard' : '/onboarding';
-                  console.log('🔄 Redirecting to:', redirectUrl);
-                  window.location.href = redirectUrl;
-                }
-              }, 1000);
-              return;
-            }
-          }
-          
-          // Handle authorization code flow
-          if (!code) {
-            console.error('❌ No authorization code found in URL');
-            setStatus('No authorization code found. Please try signing in again.');
-            setTimeout(() => {
-              if (typeof window !== 'undefined') {
-                window.location.href = '/'
-              }
-            }, 3000);
-            return;
-          }
-          
-          console.log('✅ Authorization code found, exchanging for session...');
-          setStatus('Exchanging code for session...');
-          
-          // Exchange the authorization code for a session
-          const { data: { session }, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
-          
-          if (sessionError) {
-            console.error('❌ Error exchanging code for session:', sessionError);
-            setStatus(`Authentication failed: ${sessionError.message}`)
-            setTimeout(() => {
-              if (typeof window !== 'undefined') {
-                window.location.href = '/'
-              }
-            }, 3000);
-            return;
-          }
-          
-          if (session && session.user) {
-            console.log('✅ Session created successfully:', session.user.email);
-            setStatus('Authentication successful! Communicating with desktop app...')
-            
-            // For desktop apps, redirect back to the main app with session tokens
-            console.log('🔐 Redirecting back to desktop app with session tokens...')
-            setStatus('Authentication successful! Redirecting back to app...')
-            
-            // Store session data in localStorage for desktop app to detect
-            const authData = {
-              access_token: session.access_token,
-              refresh_token: session.refresh_token,
-              user_email: session.user?.email
-            }
-            
-            console.log('🔐 Storing auth data in localStorage for desktop app...')
-            localStorage.setItem('supabase_auth_success', JSON.stringify(authData))
-            
-            // Try multiple communication methods for desktop app
-            if (window.opener) {
-              console.log('🔐 Sending postMessage to opener window...')
-              window.opener.postMessage({ 
-                type: 'SUPABASE_AUTH_SUCCESS', 
-                data: authData 
-              }, '*')
-            }
-            
-            // Also try to communicate via URL redirect to desktop app
-            console.log('🔐 Attempting to redirect to desktop app with auth data...')
-            const params = new URLSearchParams({
-              access_token: session.access_token,
-              refresh_token: session.refresh_token,
-              user_email: session.user?.email || ''
-            })
-            
-            // Display tokens for manual entry in desktop app
-            console.log('🔐 Displaying tokens for manual entry...')
-            setStatus(`✅ Authentication successful! 
-            
-Copy these tokens to your desktop app:
-
-Access Token: ${session.access_token}
-
-Refresh Token: ${session.refresh_token}
-
-Email: ${session.user?.email}
-
-You can now close this window and paste the tokens in the desktop app.`)
-            
-            // Also try the redirect as backup
-            setTimeout(() => {
-              try {
-                window.location.href = `http://localhost:3001/?auth_success=true&${params.toString()}`
-              } catch (e) {
-                console.log('🔐 Redirect failed, tokens displayed for manual entry')
-              }
-            }, 2000)
-            
-            // Show success message and close window
-            setStatus('✅ Authentication successful! You can close this window.')
-            
-            // Try to close the window after a short delay
-            setTimeout(() => {
-              console.log('🔐 Attempting to close auth window')
-              window.close()
-            }, 2000)
-            
-            return;
-          } else {
-            console.log('❌ No session created');
-            setStatus('Failed to create session. Please try signing in again.')
-            setTimeout(() => {
-              if (typeof window !== 'undefined') {
-                window.location.href = '/'
-              }
-            }, 3000);
-          }
-        }
-      } catch (error) {
-        console.error('💥 Exception in handleCallback:', error);
-        setStatus('Authentication error occurred')
-        setTimeout(() => {
-          if (typeof window !== 'undefined') {
-            window.location.href = '/'
-          }
-        }, 3000);
       }
     };
 
     handleCallback();
-  }, []);
+  }, [isLoaded, user, router]);
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">

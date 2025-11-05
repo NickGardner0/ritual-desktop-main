@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import { ThemeProvider } from '@/components/theme-provider'
-import { AuthProvider } from '@/contexts/AuthContext'
-import { HabitsProvider } from '@/contexts/HabitsContext'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
+import { RootProviders } from '@/components/root-providers'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -20,20 +18,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="desktop">
+      <head>
+        <meta name="view-transition" content="same-origin" />
+      </head>
       <body className={inter.className}>
         <ChunkErrorBoundary>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          >
-            <AuthProvider>
-              <HabitsProvider>
-                {children}
-              </HabitsProvider>
-            </AuthProvider>
-          </ThemeProvider>
+          <RootProviders>
+            {children}
+          </RootProviders>
         </ChunkErrorBoundary>
       </body>
     </html>

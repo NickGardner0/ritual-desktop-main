@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import {
   LineChart,
   Timer,
@@ -14,6 +14,10 @@ import {
   ChevronDown,
   LayoutDashboard,
 } from "lucide-react";
+import { usePrefetchDashboard, usePrefetchAnalytics, usePrefetchCalendar, usePrefetchTimer } from "@/hooks/use-prefetch";
+
+// Lazy load SettingsModal since it's only shown when clicked
+const SettingsModal = lazy(() => import("./settings-modal").then(m => ({ default: m.SettingsModal })));
 
 // Custom "I" letter icon component for Index
 const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -125,6 +129,7 @@ const ChildItem = ({
       href={child.path}
       onClick={() => onSelect?.()}
       className="block group/child"
+      prefetch={true}
     >
       <div className="relative">
         {/* Child item text */}
@@ -166,10 +171,28 @@ const Item = ({
   isItemExpanded,
   onToggle,
   onSelect,
-}: ItemProps) => {
+  onSettingsClick,
+}: ItemProps & { onSettingsClick?: () => void }) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
+  
+  // Prefetch data on hover (Midday-style optimization)
+  const prefetchDashboard = usePrefetchDashboard();
+  const prefetchAnalytics = usePrefetchAnalytics();
+  const prefetchCalendar = usePrefetchCalendar();
+  const prefetchTimer = usePrefetchTimer();
+  
+  // Get the right prefetch function for this item
+  const getPrefetchProps = () => {
+    switch (item.path) {
+      case '/dashboard': return prefetchDashboard;
+      case '/analytics': return prefetchAnalytics;
+      case '/calendar': return prefetchCalendar;
+      case '/timer': return prefetchTimer;
+      default: return {};
+    }
+  };
 
   // Children should be visible when: expanded sidebar AND this item is expanded
   const shouldShowChildren = isExpanded && isItemExpanded;
@@ -180,12 +203,23 @@ const Item = ({
     onToggle(item.path);
   };
 
+  const handleItemClick = (e: React.MouseEvent) => {
+    if (item.path === "/settings") {
+      e.preventDefault();
+      onSettingsClick?.();
+    } else {
+      onSelect?.();
+    }
+  };
+
   return (
     <div className="group">
       <Link
-        href={item.path}
-        onClick={() => onSelect?.()}
+        href={item.path === "/settings" ? "#" : item.path}
+        onClick={handleItemClick}
         className="group"
+        prefetch={true}
+        {...getPrefetchProps()}
       >
         <div className="relative">
           {/* Background that expands - only for active state */}
@@ -274,11 +308,13 @@ const Item = ({
 type Props = {
   onSelect?: () => void;
   isExpanded?: boolean;
+  onCloseSidebar?: () => void;
 };
 
-export function MainMenu({ onSelect, isExpanded = false }: Props) {
+export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props) {
   const pathname = usePathname();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
@@ -308,11 +344,23 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
                   setExpandedItem(expandedItem === path ? null : path);
                 }}
                 onSelect={onSelect}
+                onSettingsClick={() => setShowSettingsModal(true)}
               />
             );
           })}
         </div>
       </nav>
+      
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <Suspense fallback={null}>
+          <SettingsModal 
+            isOpen={showSettingsModal} 
+            onClose={() => setShowSettingsModal(false)}
+            onOpen={onCloseSidebar}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

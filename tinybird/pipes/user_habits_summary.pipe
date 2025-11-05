@@ -1,0 +1,25 @@
+DESCRIPTION >
+    Get user's habit summary with completion stats, streaks, and recent activity
+
+NODE habit_stats
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        COUNT(*) as total_logs,
+        countIf(status = 'completed') as completed_count,
+        countIf(status = 'skipped') as skipped_count,
+        SUM(duration) as total_duration_seconds,
+        SUM(amount) as total_amount,
+        MAX(date) as last_completed_date,
+        MIN(date) as first_log_date,
+        any(unit) as unit
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+    GROUP BY habit_id, habit_name
+    ORDER BY last_completed_date DESC
+
+TYPE ENDPOINT
+

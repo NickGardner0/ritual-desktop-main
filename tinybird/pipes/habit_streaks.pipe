@@ -1,0 +1,45 @@
+DESCRIPTION >
+    Calculate current streak and longest streak for a habit
+
+NODE daily_completion
+SQL >
+    %
+    SELECT
+        date,
+        MAX(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND habit_id = {{ String(habit_id, required=True) }}
+      AND date >= today() - INTERVAL 365 DAY
+    GROUP BY date
+    ORDER BY date DESC
+
+NODE calculate_streaks
+SQL >
+    %
+    WITH numbered_days AS (
+        SELECT
+            date,
+            completed,
+            toDate(date) - toIntervalDay(ROW_NUMBER() OVER (ORDER BY date)) as streak_group
+        FROM daily_completion
+        WHERE completed = 1
+    ),
+    streaks AS (
+        SELECT
+            MIN(date) as streak_start,
+            MAX(date) as streak_end,
+            COUNT(*) as streak_length
+        FROM numbered_days
+        GROUP BY streak_group
+    )
+    SELECT
+        MAX(CASE WHEN streak_end = today() OR streak_end = today() - INTERVAL 1 DAY 
+            THEN streak_length ELSE 0 END) as current_streak,
+        MAX(streak_length) as longest_streak,
+        SUM(CASE WHEN streak_length >= 7 THEN 1 ELSE 0 END) as weekly_streaks_count,
+        SUM(CASE WHEN streak_length >= 30 THEN 1 ELSE 0 END) as monthly_streaks_count
+    FROM streaks
+
+TYPE ENDPOINT
+

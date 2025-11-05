@@ -1,0 +1,25 @@
+DESCRIPTION >
+    Whoop workout/strain data - activity tracking, heart rate, strain scores
+
+SCHEMA >
+    `id` String `json:$.id`,
+    `user_id` String `json:$.user_id`,
+    `whoop_connection_id` String `json:$.whoop_connection_id`,
+    `workout_id` String `json:$.workout_id`,
+    `date` Date `json:$.date`,
+    `strain_score` Float32 `json:$.strain_score`,
+    `activity_name` String `json:$.activity_name`,
+    `duration_minutes` Int32 `json:$.duration_minutes`,
+    `average_heart_rate` Int32 `json:$.average_heart_rate`,
+    `max_heart_rate` Int32 `json:$.max_heart_rate`,
+    `kilojoules` Float32 `json:$.kilojoules`,
+    `distance_meters` Float32 `json:$.distance_meters`,
+    `started_at` DateTime `json:$.started_at`,
+    `ended_at` DateTime `json:$.ended_at`,
+    `created_at` DateTime `json:$.created_at`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(date)"
+ENGINE_SORTING_KEY "user_id, date"
+ENGINE_TTL "date + INTERVAL 2 YEAR"
+
