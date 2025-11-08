@@ -52,7 +52,7 @@ export default function AuthCallbackPage() {
           
           {/* Status */}
           <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-gray-900 mb-3" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <h1 className="text-2xl font-semibold text-gray-900 mb-3">
               OAuth Complete! ✨
             </h1>
             <p className="text-base text-gray-500 leading-relaxed">

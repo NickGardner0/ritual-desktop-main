@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
 import './globals.css'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
 import { RootProviders } from '@/components/root-providers'
-
-const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Ritual Desktop',
@@ -17,11 +15,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="desktop">
+    <html lang="en" className="desktop" style={{ fontFamily: GeistSans.style.fontFamily }}>
       <head>
         <meta name="view-transition" content="same-origin" />
       </head>
-      <body className={inter.className}>
+      <body className={GeistSans.className}>
         <ChunkErrorBoundary>
           <RootProviders>
             {children}

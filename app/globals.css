@@ -12,19 +12,7 @@
 }
 
 @layer base {
-  @font-face {
-    font-family: 'PP Neue Montreal';
-    src: url('/fonts/pp-neue-montreal-cufonfonts/NeueMontreal-Regular.otf') format('opentype');
-    font-weight: 400;
-    font-style: normal;
-  }
-  
-  @font-face {
-    font-family: 'PP Neue Montreal';
-    src: url('/fonts/pp-neue-montreal-cufonfonts/NeueMontreal-Medium.otf') format('opentype');
-    font-weight: 500;
-    font-style: normal;
-  }
+  /* Geist Sans is loaded via Next.js font optimization in layout.tsx */
   
   @font-face {
     font-family: 'Departure Mono';
@@ -50,14 +38,9 @@
     text-rendering: geometricPrecision;
   }
 
-  /* Clerk component font overrides */
-  /* Headers use PP Neue Montreal */
+  /* Clerk component font overrides - use Geist Sans */
   .cl-headerTitle,
-  .cl-headerSubtitle {
-    font-family: 'PP Neue Montreal', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-  }
-  
-  /* All other elements use Inter */
+  .cl-headerSubtitle,
   .cl-rootBox,
   .cl-card,
   .cl-socialButtonsBlockButton,
@@ -73,7 +56,7 @@
   .cl-formFieldSuccessText,
   .cl-formFieldErrorText,
   .cl-alertText {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    font-family: inherit !important;
   }
 
   /* Clerk card border radius overrides for square corners */
@@ -84,12 +67,6 @@
     border-radius: 0 !important;
   }
   
-  @font-face {
-    font-family: 'PP Neue Montreal';
-    src: url('/fonts/pp-neue-montreal-cufonfonts/ppneuemontreal-bold.otf') format('opentype');
-    font-weight: 700;
-    font-style: normal;
-  }
 
   :root {
     --background: 0 0% 100%;

@@ -36,7 +36,7 @@ export default function AuthPage() {
               socialButtonsPlacement: "top"
             },
             variables: {
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+              fontFamily: "inherit",
               fontSize: "14px",
               fontWeight: {
                 normal: 400,

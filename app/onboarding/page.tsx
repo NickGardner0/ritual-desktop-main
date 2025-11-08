@@ -176,10 +176,10 @@ export default function OnboardingPage() {
         <div className="min-h-screen flex items-center justify-center px-6 py-8">
           <div className="w-full max-w-md mt-16">
           <div className="text-center mb-10">
-            <h1 className="text-2xl font-semibold text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <h1 className="text-2xl font-semibold text-gray-900 mb-2">
               Welcome to Ritual
             </h1>
-            <p className="text-sm text-gray-500" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <p className="text-sm text-gray-500">
               Let's personalize your experience
             </p>
           </div>
@@ -188,7 +188,7 @@ export default function OnboardingPage() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
               Name
             </label>
             <input
@@ -197,20 +197,18 @@ export default function OnboardingPage() {
               onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
               placeholder="Enter your name"
               className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
-              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             />
           </div>
 
           {/* Age */}
           <div className="relative dropdown-container">
-            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
               Age
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('age')}
               className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
-              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
               <span className={formData.age_bracket ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.age_bracket || 'Select age range'}
@@ -228,7 +226,6 @@ export default function OnboardingPage() {
                     type="button"
                     onClick={() => handleDropdownSelect('age_bracket', age)}
                     className="w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors"
-                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     {age}
                   </button>
@@ -239,14 +236,13 @@ export default function OnboardingPage() {
 
           {/* Gender */}
           <div className="relative dropdown-container">
-            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
               Gender
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('gender')}
               className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
-              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
               <span className={formData.gender ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.gender || 'Select gender'}
@@ -264,7 +260,6 @@ export default function OnboardingPage() {
                     type="button"
                     onClick={() => handleDropdownSelect('gender', gender)}
                     className="w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors"
-                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     {gender}
                   </button>
@@ -275,14 +270,13 @@ export default function OnboardingPage() {
 
           {/* Country */}
           <div className="relative dropdown-container">
-            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
               Country
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('country')}
               className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
-              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
               <span className={formData.country ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.country || 'Select country'}
@@ -298,7 +292,6 @@ export default function OnboardingPage() {
                     onChange={(e) => setCountrySearch(e.target.value)}
                     placeholder="Search countries..."
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-none focus:outline-none focus:ring-2 focus:ring-gray-900"
-                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                     autoComplete="off"
                   />
                 </div>
@@ -316,7 +309,6 @@ export default function OnboardingPage() {
                         setCountrySearch('');
                       }}
                       className="w-full px-3 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors"
-                      style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                     >
                       {country}
                     </button>
@@ -328,14 +320,13 @@ export default function OnboardingPage() {
 
           {/* Tracking Interests */}
           <div className="relative dropdown-container">
-            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
               What are you interested in tracking?
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('tracking')}
               className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
-              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
               <span className={formData.tracking_interests.length > 0 ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.tracking_interests.length > 0 
@@ -354,7 +345,6 @@ export default function OnboardingPage() {
                   <label
                     key={interest}
                     className="w-full px-3 py-2.5 text-left flex items-center space-x-2 hover:bg-gray-50 cursor-pointer transition-colors"
-                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     <input
                       type="checkbox"
@@ -388,14 +378,13 @@ export default function OnboardingPage() {
 
           {/* Devices */}
           <div className="relative dropdown-container">
-            <label className="block text-sm font-medium text-gray-900 mb-2" style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+            <label className="block text-sm font-medium text-gray-900 mb-2">
               Which devices do you use for self-tracking?
             </label>
             <button
               type="button"
               onClick={() => toggleDropdown('devices')}
               className="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-none text-left flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all hover:border-gray-400"
-              style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
             >
               <span className={formData.wearable_devices.length > 0 ? 'text-gray-900' : 'text-gray-400'}>
                 {formData.wearable_devices.length > 0 
@@ -415,7 +404,6 @@ export default function OnboardingPage() {
                   <label
                     key={device}
                     className="w-full px-3 py-2.5 text-left flex items-center space-x-2 hover:bg-gray-50 cursor-pointer transition-colors"
-                    style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
                   >
                     <input
                       type="checkbox"
@@ -452,7 +440,6 @@ export default function OnboardingPage() {
             type="submit"
             disabled={!isFormValid || loading}
             className="w-full bg-gray-900 text-white py-3 px-4 text-sm font-medium rounded-none hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed disabled:text-gray-500 transition-all mt-8"
-            style={{ fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif' }}
           >
             {loading ? 'Saving...' : 'Continue to Dashboard'}
           </button>

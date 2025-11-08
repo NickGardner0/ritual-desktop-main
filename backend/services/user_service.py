@@ -4,6 +4,7 @@ User Service - Handles user profile and onboarding operations
 
 import json
 from typing import Optional, List
+from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
@@ -96,7 +97,17 @@ class UserService:
                 user = result.scalar_one_or_none()
                 
                 if user:
-                    print(f"✅ User already exists: {email}")
+                    # Update email if it's the fallback format and we have a real email
+                    if email and email != user.email and user.email.endswith("@clerk.user"):
+                        print(f"🔄 Updating email from fallback to: {email}")
+                        await session.execute(
+                            update(UserDB)
+                            .where(UserDB.id == user_id)
+                            .values(email=email, updated_at=datetime.utcnow())
+                        )
+                        await session.commit()
+                        await session.refresh(user)
+                    print(f"✅ User already exists: {user.email}")
                     return user
                 
                 # Create new user with defaults
@@ -108,8 +119,6 @@ class UserService:
                     default_name = email.split('@')[0]
                 elif not default_name:
                     default_name = f"User_{user_id[:8]}"
-                
-                from datetime import datetime
                 
                 new_user = UserDB(
                     id=user_id,

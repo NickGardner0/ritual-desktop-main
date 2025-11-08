@@ -42,6 +42,9 @@ next-env.d.ts
 # Trigger.dev
 .trigger/
 
+# Tinybird (contains API tokens)
+.tinyb
+
 # Python
 __pycache__/
 *.py[cod]

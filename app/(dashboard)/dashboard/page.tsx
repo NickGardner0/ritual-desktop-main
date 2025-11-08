@@ -639,16 +639,16 @@ export default function DashboardPage() {
       {/* Empty state when no habits */}
       {habits.length === 0 && !isLoading && (
         <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8">
-          <div className="text-xl mb-2 text-center" style={{ fontFamily: 'ppneuman, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 500 }}>
+          <div className="text-xl mb-2 text-center" style={{ fontWeight: 500 }}>
             Connect your devices
           </div>
-          <div className="text-sm font-normal mb-2 text-center max-w-xl leading-tight" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 400, color: '#9C9C9D' }}>
+          <div className="text-sm font-normal mb-2 text-center max-w-xl leading-tight" style={{ fontWeight: 400, color: '#9C9C9D' }}>
             Connect your wearable devices to unlock personal insights.<br />Start tracking anything you want to get started.
           </div>
           <button
             onClick={() => setShowSelectionModal(true)}
             className="mt-2 px-3 py-2 bg-black text-white rounded-none text-sm font-normal hover:bg-gray-900 transition-colors shadow"
-            style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', fontWeight: 400 }}
+            style={{ fontWeight: 400 }}
           >
             Start Tracking
           </button>

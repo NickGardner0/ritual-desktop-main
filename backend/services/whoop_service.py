@@ -61,7 +61,7 @@ class WhoopService:
             return response.json()
     
     async def get_whoop_user_info(self, access_token: str) -> Dict[str, Any]:
-        """Get user info from Whoop API"""
+        """Get user info from Whoop API (v1)"""
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{self.WHOOP_API_BASE}/developer/v1/user/profile/basic",
@@ -254,7 +254,7 @@ class WhoopService:
         
         async with httpx.AsyncClient() as client:
             try:
-                # Fetch recovery data
+                # Fetch recovery data (v1 API - v2 not available yet)
                 recovery_response = await client.get(
                     f"{self.WHOOP_API_BASE}/developer/v1/recovery",
                     headers={'Authorization': f'Bearer {access_token}'},
@@ -269,7 +269,7 @@ class WhoopService:
                     synced_data["recovery"] = len(recovery_data.get('records', []))
                     print(f"✅ Synced {synced_data['recovery']} recovery records")
                 
-                # Fetch sleep data
+                # Fetch sleep data (v1 API - v2 not available for all apps yet)
                 # Note: According to Whoop API docs, start/end filter by the END time of the sleep session
                 print(f"🔍 Fetching sleep data from {start_date.isoformat()}Z to {end_date.isoformat()}Z")
                 sleep_response = await client.get(
@@ -278,7 +278,7 @@ class WhoopService:
                     params={
                         'start': start_date.isoformat() + 'Z',
                         'end': end_date.isoformat() + 'Z',
-                        'limit': 25  # Ensure we get enough recent records
+                        'limit': 25
                     }
                 )
                 
@@ -298,7 +298,7 @@ class WhoopService:
                 else:
                     print(f"❌ Failed to fetch sleep data: {sleep_response.status_code} - {sleep_response.text}")
                 
-                # Fetch workout data
+                # Fetch workout data (v1 API - v2 not available yet)
                 workout_response = await client.get(
                     f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
                     headers={'Authorization': f'Bearer {access_token}'},
@@ -313,7 +313,7 @@ class WhoopService:
                     synced_data["workouts"] = len(workout_data.get('records', []))
                     print(f"✅ Synced {synced_data['workouts']} workout records")
                 
-                # Fetch cycle data (includes daily metrics like steps)
+                # Fetch cycle data (v1 API - includes daily metrics)
                 cycle_response = await client.get(
                     f"{self.WHOOP_API_BASE}/developer/v1/cycle",
                     headers={'Authorization': f'Bearer {access_token}'},
@@ -327,6 +327,12 @@ class WhoopService:
                     cycle_data = cycle_response.json()
                     synced_data["cycles"] = len(cycle_data.get('records', []))
                     print(f"✅ Synced {synced_data['cycles']} cycle records (daily metrics)")
+                    
+                    # Check if cycle records contain sleep data or sleep IDs
+                    if cycle_data.get('records'):
+                        sample = cycle_data['records'][0]
+                        print(f"🔍 Cycle record sample keys: {list(sample.keys())}")
+                        print(f"🔍 Cycle record sample: {sample}")
                 
                 # Store data in Tinybird for analytics
                 if self.tinybird_enabled:
@@ -342,7 +348,7 @@ class WhoopService:
                     except Exception as tb_error:
                         print(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
                 
-                # Store data in SQLite for dashboard display
+                # Store data in Turso database for dashboard display
                 try:
                     await self._sync_to_habit_logs(
                         user_id=user_id,
@@ -351,9 +357,9 @@ class WhoopService:
                         workout_data=workout_data if workout_response.is_success else None,
                         cycle_data=cycle_data if cycle_response.is_success else None
                     )
-                    print(f"✅ Whoop data synced to SQLite habit_logs for dashboard")
-                except Exception as sql_error:
-                    print(f"⚠️  SQLite sync failed (non-fatal): {str(sql_error)}")
+                    print(f"✅ Whoop data synced to Turso habit_logs for dashboard")
+                except Exception as db_error:
+                    print(f"⚠️  Database sync failed (non-fatal): {str(db_error)}")
                 
             except Exception as e:
                 print(f"⚠️  Error fetching Whoop data: {str(e)}")
@@ -509,7 +515,7 @@ class WhoopService:
         cycle_data: Optional[Dict[str, Any]] = None
     ) -> None:
         """
-        Sync Whoop data to SQLite habit_logs for dashboard display
+        Sync Whoop data to Turso database habit_logs for dashboard display
         Maps Whoop metrics to user's tracked Whoop habits
         """
         from database.models import HabitDB, HabitLogDB
@@ -686,7 +692,7 @@ class WhoopService:
                 # Steps tracking should be done manually or via other integrations (Apple Watch, Fitbit)
                 # Commit all changes
                 await session.commit()
-                print(f"💾 Created {logs_created} new habit logs in SQLite")
+                print(f"💾 Created {logs_created} new habit logs in Turso database")
                 
             except Exception as e:
                 await session.rollback()

@@ -14,7 +14,7 @@ if (!PYTHON_API_BASE) {
  * The Python backend handles:
  * - Token refresh
  * - Data fetching from Whoop API
- * - Storage in SQLite (habit_logs)
+ * - Storage in Turso database (habit_logs)
  * - Sending to Tinybird for analytics
  * 
  * GET /api/integrations/whoop/sync?days_back=7

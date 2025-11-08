@@ -229,6 +229,7 @@ export default function AnalyticsPage() {
   const { user } = useUser();
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [loadingHabits, setLoadingHabits] = useState(true); // Separate loading state for habits fetch
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [selectedHabits, setSelectedHabits] = useState<string[]>([]);
   const [availableHabits, setAvailableHabits] = useState<any[]>([]);
@@ -240,11 +241,12 @@ export default function AnalyticsPage() {
   // 🚀 Cache to prevent redundant API calls
   const [analyticsCache, setAnalyticsCache] = useState<Map<string, any>>(new Map());
 
-  // Fetch ALL habits from Python backend (SQLite)
+  // Fetch ALL habits from Python backend (Turso database)
   useEffect(() => {
     if (!user?.id) return;
 
     const fetchAllHabits = async () => {
+      setLoadingHabits(true);
       try {
         console.log('📊 [ANALYTICS] Fetching ALL habits from Python backend for user:', user.id);
         
@@ -255,7 +257,7 @@ export default function AnalyticsPage() {
           return;
         }
         
-        // Fetch all habits from Python backend (SQLite/ritual.db)
+        // Fetch all habits from Python backend (Turso database)
         const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_BASE || 'http://localhost:8000';
         const response = await fetch(`${PYTHON_API_BASE}/api/habits`, {
           headers: {
@@ -272,12 +274,12 @@ export default function AnalyticsPage() {
         const allHabits = await response.json();
         
         if (!allHabits || allHabits.length === 0) {
-          console.warn('⚠️ [ANALYTICS] No habits found in SQLite database');
+          console.warn('⚠️ [ANALYTICS] No habits found in database');
           setAvailableHabits([]);
           return;
         }
         
-        console.log('✅ [ANALYTICS] Found', allHabits.length, 'habits from SQLite');
+        console.log('✅ [ANALYTICS] Found', allHabits.length, 'habits from database');
         console.log('✅ [ANALYTICS] Habit names:', allHabits.map((h: any) => h.name));
         
         // Calculate days_back from date range for metrics
@@ -302,7 +304,7 @@ export default function AnalyticsPage() {
           console.warn('⚠️ [ANALYTICS] Failed to fetch metrics from Tinybird');
         }
         
-        // Merge SQLite habits with Tinybird metrics
+        // Merge database habits with Tinybird metrics
         const habitsWithMetrics = allHabits.map((habit: any) => {
           const metric = metrics.find((m: any) => m.habit_id === habit.id);
           return {
@@ -320,7 +322,7 @@ export default function AnalyticsPage() {
         });
         
         setAvailableHabits(habitsWithMetrics);
-        console.log('✅ [ANALYTICS] Merged SQLite habits with Tinybird metrics:', habitsWithMetrics.map((h: any) => `${h.habit_name} (${h.total_logs} logs)`));
+        console.log('✅ [ANALYTICS] Merged database habits with Tinybird metrics:', habitsWithMetrics.map((h: any) => `${h.habit_name} (${h.total_logs} logs)`));
         
         // Calculate summary metrics from Tinybird data
         const totalHabits = habitsWithMetrics.length;
@@ -348,6 +350,8 @@ export default function AnalyticsPage() {
         
       } catch (error) {
         console.error('❌ [ANALYTICS] Error fetching habits:', error);
+      } finally {
+        setLoadingHabits(false);
       }
     };
 
@@ -754,7 +758,7 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Habit Metrics Grid - Tinybird Style */}
-        {loading ? (
+        {loading || loadingHabits ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1, 2, 3, 4, 5, 6].map(i => (
               <div key={i} className="h-64 bg-white border border-gray-300 animate-pulse"></div>

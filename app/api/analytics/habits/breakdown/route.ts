@@ -1,5 +1,5 @@
 /**
- * Habit Breakdown by Category API - Uses SQLite
+ * Habit Breakdown by Category API - Uses Turso database
  * GET /api/analytics/habits/breakdown?user_id=xxx&days_back=30
  */
 

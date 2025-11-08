@@ -45,6 +45,7 @@ class AuthService:
     async def get_user_from_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
         Extract user information from Clerk JWT token
+        If email is not in token, fetch it from Clerk API
         """
         try:
             # First decode without verification to get the header
@@ -62,11 +63,17 @@ class AuthService:
                 print("❌ No user ID found in token")
                 return None
             
+            # If email is not in token, fetch from Clerk API
+            if not email:
+                print(f"⚠️  Email not in token, fetching from Clerk API for user: {user_id}")
+                email = await self._fetch_email_from_clerk(user_id)
+            
             print(f"✅ Extracted user from Clerk token: {user_id} ({email})")
             
             return {
                 "id": user_id,
                 "email": email,
+                "name": unverified_payload.get("name") or unverified_payload.get("full_name"),
                 "metadata": unverified_payload
             }
             
@@ -75,6 +82,48 @@ class AuthService:
             return None
         except Exception as e:
             print(f"❌ Error validating token: {e}")
+            return None
+    
+    async def _fetch_email_from_clerk(self, user_id: str) -> Optional[str]:
+        """
+        Fetch user email from Clerk API
+        """
+        if not self.clerk_secret_key:
+            print("⚠️  Clerk secret key not configured, cannot fetch email")
+            return None
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"https://api.clerk.com/v1/users/{user_id}",
+                    headers={
+                        "Authorization": f"Bearer {self.clerk_secret_key}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    user_data = response.json()
+                    # Clerk returns email_addresses array
+                    email_addresses = user_data.get("email_addresses", [])
+                    if email_addresses:
+                        # Get the primary email (first verified email, or first one)
+                        primary_email = next(
+                            (e.get("email_address") for e in email_addresses if e.get("verification", {}).get("status") == "verified"),
+                            email_addresses[0].get("email_address")
+                        )
+                        print(f"✅ Fetched email from Clerk API: {primary_email}")
+                        return primary_email
+                    else:
+                        print(f"⚠️  No email addresses found for user {user_id}")
+                        return None
+                else:
+                    print(f"⚠️  Failed to fetch user from Clerk API: {response.status_code}")
+                    return None
+                    
+        except Exception as e:
+            print(f"⚠️  Error fetching email from Clerk API: {e}")
             return None
     
     def extract_token_from_header(self, authorization_header: str) -> Optional[str]:

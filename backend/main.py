@@ -360,7 +360,7 @@ async def get_habits_breakdown(
     current_user = Depends(get_current_user)
 ):
     """
-    Get habit breakdown by category from SQLite
+    Get habit breakdown by category from Turso database
     Returns count of completed habits per category
     """
     try:
@@ -425,7 +425,7 @@ async def whoop_callback(
         print(f"🔍 Token data keys received from Whoop: {list(token_data.keys())}")
         print(f"🔍 Has refresh_token: {bool(token_data.get('refresh_token'))}")
         
-        # Get Whoop user info
+        # Get Whoop user info (v1 API)
         user_info = await whoop_service.get_whoop_user_info(token_data["access_token"])
         
         # Save integration

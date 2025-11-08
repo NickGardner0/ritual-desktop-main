@@ -3,6 +3,9 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 const isPublicRoute = createRouteMatcher([
   '/',
   '/auth(.*)',
+  '/api/integrations/whoop/callback(.*)', // Public for OAuth callback
+  '/api/integrations/whoop/store-code(.*)', // Public for OAuth polling
+  '/integrations/success(.*)', // Public for OAuth success page (closes browser)
   // Removed /api/chat/habits and /api/whisper from public routes
   // These routes now require authentication
 ]);

@@ -20,7 +20,12 @@ export function RootProviders({ children }: { children: ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <ClerkProvider>
+      <ClerkProvider
+        // Prevent infinite redirect loops by handling errors gracefully
+        afterSignOutUrl="/"
+        signInUrl="/auth"
+        signUpUrl="/auth"
+      >
         <QueryProvider>
           <HabitsProvider>
             {children}

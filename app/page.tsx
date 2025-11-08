@@ -99,7 +99,7 @@ export default function Home() {
           </div>
           
           <h1 className="text-gray-900 mb-6" style={{ 
-            fontFamily: 'PP Neue Montreal, -apple-system, BlinkMacSystemFont, sans-serif',
+            fontFamily: 'inherit',
             fontSize: '33px',
             lineHeight: '1.2',
             WebkitFontSmoothing: 'antialiased',

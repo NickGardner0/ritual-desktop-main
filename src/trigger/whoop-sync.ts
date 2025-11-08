@@ -66,16 +66,14 @@ export const syncWhoopData = task({
 
 /**
  * Scheduled task: Daily sync at 9 AM
- * The schedule is defined here and will appear in the Trigger.dev dashboard
+ * In Trigger.dev v3, schedules are attached to tasks using the `schedules` export
  */
-export const dailyWhoopSync = schedules.task({
+export const dailyWhoopSync = schedules.create({
   id: "daily-whoop-sync",
   // Run every day at 9 AM
   cron: "0 9 * * *",
-  // Reference the task to run
-  run: async (payload) => {
-    return await syncWhoopData.triggerAndWait({
-      daysBack: 2,
-    });
+  task: syncWhoopData,
+  payload: {
+    daysBack: 2,
   },
 });
