@@ -31,10 +31,11 @@ export function ClerkOAuthHandler() {
       console.log('🌐 window.open intercepted:', urlString);
 
       // Check if this is an OAuth URL (Google, Apple, etc.)
+      // Note: Only match external OAuth providers, NOT our own /auth routes
       const isOAuth = urlString.includes('accounts.google.com') ||
                      urlString.includes('appleid.apple.com') ||
-                     urlString.includes('oauth') ||
-                     urlString.includes('auth');
+                     urlString.includes('oauth.clerk.com') ||
+                     urlString.includes('accounts.dev'); // Clerk's OAuth domain
 
       if (isOAuth) {
         console.log('🔐 OAuth URL detected, opening in system browser');
@@ -63,7 +64,8 @@ export function ClerkOAuthHandler() {
         
         const isOAuth = newUrl.includes('accounts.google.com') ||
                        newUrl.includes('appleid.apple.com') ||
-                       newUrl.includes('oauth');
+                       newUrl.includes('oauth.clerk.com') ||
+                       newUrl.includes('accounts.dev');
         
         if (isOAuth) {
           console.log('🔐 OAuth navigation detected, opening in system browser');
@@ -112,7 +114,8 @@ export function ClerkOAuthHandler() {
       if (link?.href) {
         const isOAuth = link.href.includes('accounts.google.com') ||
                        link.href.includes('appleid.apple.com') ||
-                       link.href.includes('oauth');
+                       link.href.includes('oauth.clerk.com') ||
+                       link.href.includes('accounts.dev');
         
         if (isOAuth) {
           console.log('🔐 OAuth link clicked, opening in system browser:', link.href);

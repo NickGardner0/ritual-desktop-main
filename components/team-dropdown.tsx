@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Bot, Sun, Moon } from "lucide-react";
+import { LogOut, User, Bot } from "lucide-react";
 import { useState, useRef } from "react";
 import { useOnClickOutside } from "usehooks-ts";
 
@@ -24,7 +24,6 @@ interface TeamDropdownProps {
 export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdownProps) {
   const { user } = useUser();
   const { signOut } = useClerk();
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [isActive, setActive] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -55,11 +54,6 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
 
   const handleSupport = () => {
     console.log('Support clicked');
-    setActive(false);
-  };
-
-  const handleThemeClick = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
     setActive(false);
   };
 
@@ -113,21 +107,6 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
           <div className="h-px bg-gray-200 my-1" />
           
           <div className="py-0.5">
-            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-none hover:bg-[#F3F3F3] cursor-pointer" onClick={handleThemeClick}>
-              <span className="text-sm text-gray-700">Theme</span>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-none border border-gray-200 bg-white">
-                {theme === 'dark' ? (
-                  <><Moon className="h-3 w-3 text-gray-600" /><span className="text-xs text-gray-600">Dark</span></>
-                ) : (
-                  <><Sun className="h-3 w-3 text-gray-600" /><span className="text-xs text-gray-600">System</span></>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div className="h-px bg-gray-200 my-1" />
-          
-          <div className="py-0.5">
             <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] cursor-pointer">
               {isSigningOut ? (
                 <>
@@ -150,7 +129,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
       {/* Avatar - fixed position like Midday */}
       <div className="fixed left-[19px] bottom-4 w-[32px] h-[32px]">
         <Avatar
-          className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] dark:border-[#2C2C2C] cursor-pointer"
+          className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] cursor-pointer"
           onClick={() => setActive(!isActive)}
         >
           <AvatarImage src={user?.imageUrl} />
@@ -176,8 +155,8 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
 
       {/* Simple dropdown menu (not animated like Midday's team switcher) */}
       {isActive && (
-        <div className="fixed left-[19px] bottom-[50px] w-56 bg-white dark:bg-gray-800 border border-[#DCDAD2] dark:border-[#2C2C2C] rounded-md shadow-lg z-50">
-          <div className="p-2 border-b border-[#DCDAD2] dark:border-[#2C2C2C]">
+        <div className="fixed left-[19px] bottom-[50px] w-56 bg-white border border-[#DCDAD2] rounded-md shadow-lg z-50">
+          <div className="p-2 border-b border-[#DCDAD2]">
             <p className="text-sm font-medium">{getUserName()}</p>
             <p className="text-xs text-gray-500">{user?.primaryEmailAddress?.emailAddress}</p>
           </div>
@@ -185,7 +164,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
           <div className="p-1">
             <button
               onClick={handleAccount}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center cursor-pointer"
+              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
             >
               <User className="mr-2 h-4 w-4" />
               Profile
@@ -193,30 +172,18 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
             
             <button
               onClick={handleSupport}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center cursor-pointer"
+              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
             >
               <Bot className="mr-2 h-4 w-4" />
               Support
             </button>
-            
-            <button
-              onClick={handleThemeClick}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center cursor-pointer"
-            >
-              {theme === 'dark' ? (
-                <Sun className="mr-2 h-4 w-4" />
-              ) : (
-                <Moon className="mr-2 h-4 w-4" />
-              )}
-              Toggle theme
-            </button>
           </div>
           
-          <div className="border-t border-[#DCDAD2] dark:border-[#2C2C2C] p-1">
+          <div className="border-t border-[#DCDAD2] p-1">
             <button
               onClick={handleSignOut}
               disabled={isSigningOut}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center text-red-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center text-red-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSigningOut ? (
                 <>

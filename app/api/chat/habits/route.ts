@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       logger.error('⚠️ Clerk auth() error (using header token if available):', authError);
     }
 
-    const { messages, userId }: { messages: Array<{role: string, content: string}>, userId: string } = await req.json();
+    const { messages, userId, selectedDate }: { messages: Array<{role: string, content: string}>, userId: string, selectedDate?: string } = await req.json();
     const lastMessage = messages[messages.length - 1]?.content;
     
     // Use userId from request if Clerk auth failed
@@ -87,7 +87,8 @@ export async function POST(req: NextRequest) {
       const day = String(now.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
-    const today = getLocalDate();
+    // Use selectedDate from request if provided (from date picker), otherwise use today
+    const today = selectedDate || getLocalDate();
     
     const systemPrompt = `You are a helpful habit tracking assistant. Your job is to parse natural language descriptions of activities and extract structured habit data.
 
@@ -164,7 +165,8 @@ Always use today's date (${today}) and be encouraging in your responses.`;
 
     // Process habit logging if successful
     if (habitData?.success) {
-      await processHabitLog(habitData, effectiveUserId, effectiveToken);
+      // Pass already-fetched habits to avoid duplicate fetch
+      await processHabitLog(habitData, effectiveUserId, effectiveToken, userHabits, selectedDate);
       responseMessage = `Great! I've logged your ${habitData.activity} activity. ${habitData.amount ? `${habitData.amount} ${habitData.unit}` : `${habitData.duration} minutes`} has been added to your ${habitData.habitName} habit.`;
       
       return new Response(JSON.stringify({ 
@@ -185,7 +187,7 @@ Always use today's date (${today}) and be encouraging in your responses.`;
   }
 }
 
-async function processHabitLog(habitData: any, userId: string, token: string | null) {
+async function processHabitLog(habitData: any, userId: string, token: string | null, userHabits: any[] = [], selectedDate?: string) {
   try {
     logger.info('🔍 Processing habit log via Python backend:', { 
       habitData, 
@@ -194,9 +196,21 @@ async function processHabitLog(habitData: any, userId: string, token: string | n
       hasToken: !!token 
     });
     
-    // Find the habit by exact name match first from Python backend
+    // Use already-fetched habits if available, otherwise fetch
     let habits = [];
     
+    if (userHabits && userHabits.length > 0) {
+      // Use habits already fetched - much faster!
+      habits = userHabits.filter((h: any) => h.name === habitData.habitName);
+      
+      // If no exact match, try partial match
+      if (habits.length === 0) {
+        habits = userHabits.filter((h: any) => 
+          h.name.toLowerCase().includes(habitData.habitName.toLowerCase())
+        );
+      }
+    } else {
+      // Fallback: fetch habits if not provided (shouldn't happen in normal flow)
     try {
       const headers: Record<string, string> = {};
       if (token) {
@@ -223,6 +237,7 @@ async function processHabitLog(habitData: any, userId: string, token: string | n
     } catch (error) {
       logger.error('❌ Error fetching habits from Python backend:', error);
       return;
+      }
     }
 
     if (!habits || habits.length === 0) {
@@ -241,7 +256,8 @@ async function processHabitLog(habitData: any, userId: string, token: string | n
       const day = String(now.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
-    const today = getLocalDate();
+    // Use selectedDate from request if provided (from date picker), otherwise use today
+    const logDate = selectedDate || getLocalDate();
     const currentTimestamp = new Date().toISOString();
 
     let finalAmount = habitData.amount || null;
@@ -251,7 +267,7 @@ async function processHabitLog(habitData: any, userId: string, token: string | n
     // Create habit log data matching Python backend's HabitLogCreate model
     // Backend expects duration in SECONDS, but AI returns it in MINUTES
     const logData = {
-      date: today,
+      date: logDate, // Use the date from date picker or today
       duration: finalDuration ? Math.round(finalDuration * 60) : null, // Convert minutes to seconds
       amount: finalAmount,
       unit: habitData.unit || habit.unit_type || '',

@@ -15,7 +15,9 @@ export default function AuthPage() {
       />
       
       <div className="w-full max-w-md">
-        <SignIn 
+        <SignIn
+          routing="path"
+          path="/auth"
           appearance={{
             elements: {
               card: "shadow-lg border border-gray-200 rounded-none",
@@ -46,7 +48,6 @@ export default function AuthPage() {
               }
             }
           }}
-          redirectUrl="/auth/sso-callback"
         />
       </div>
     </div>

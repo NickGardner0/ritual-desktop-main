@@ -3,6 +3,9 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 const isPublicRoute = createRouteMatcher([
   '/',
   '/auth(.*)',
+  '/sign-in(.*)',
+  '/sign-up(.*)',
+  '/sso-callback(.*)',
   '/api/integrations/whoop/callback(.*)', // Public for OAuth callback
   '/api/integrations/whoop/store-code(.*)', // Public for OAuth polling
   '/integrations/success(.*)', // Public for OAuth success page (closes browser)
@@ -11,7 +14,11 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  if (!isPublicRoute(req)) await auth.protect();
+  // Only protect non-public routes
+  // Let Clerk handle its own redirects for token refresh
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+  }
 });
 
 export const config = {
