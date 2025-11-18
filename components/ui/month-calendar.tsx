@@ -3,7 +3,7 @@ import { format, startOfWeek, addDays, startOfMonth, endOfMonth, eachDayOfInterv
 import { useHotkeys } from 'react-hotkeys-hook';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, Search } from "@mui/icons-material";
 import { Input } from "@/components/ui/input";
 
 type CalendarEvent = {
@@ -308,7 +308,7 @@ export function MonthCalendar({
             onClick={prevMonth}
             className="p-2 rounded-none"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeftSharp sx={{ fontSize: 16 }} className="h-4 w-4" />
           </Button>
           <Button
             variant="outline"
@@ -316,7 +316,7 @@ export function MonthCalendar({
             onClick={nextMonth}
             className="p-2 rounded-none"
           >
-            <ChevronRight className="h-4 w-4" />
+            <ChevronRightSharp sx={{ fontSize: 16 }} className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -418,7 +418,7 @@ export function MonthCalendar({
               {format(selectedDate, 'MMMM d, yyyy')}
             </h3>
             <Button variant="ghost" size="icon" onClick={() => setIsDayPanelOpen(false)} className="text-gray-500 hover:text-gray-700">
-              <X className="h-5 w-5" />
+              <CloseSharp sx={{ fontSize: 16 }} className="h-5 w-5" />
             </Button>
           </div>
           {/* Display Duration */}

@@ -92,28 +92,53 @@ class TinybirdService:
         """
         Ingest a habit log to Tinybird
         """
+        from datetime import datetime
+        
+        # Helper to format datetime for Tinybird (remove 'Z', keep milliseconds)
+        def format_datetime(dt_string: str) -> str:
+            if not dt_string:
+                return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            # Remove 'Z' suffix if present, Tinybird prefers space-separated format
+            return dt_string.replace('Z', '').replace('T', ' ') if 'T' in dt_string else dt_string
+        
+        # Get timestamps - Use date field to maintain consistency
+        completed_at = log_data.get('completed_at')
+        log_date = log_data.get('date')
+        
+        # If we have a completed_at timestamp, use it but replace the date portion with log_date
+        # This ensures timestamp aligns with the intended log date, not UTC date
+        if completed_at and log_date:
+            # Extract time portion from completed_at (HH:MM:SS)
+            time_portion = completed_at.split('T')[1] if 'T' in completed_at else '12:00:00'
+            time_portion = time_portion.replace('Z', '').split('.')[0]  # Remove Z and milliseconds for simplicity
+            timestamp_str = f"{log_date} {time_portion}"
+        else:
+            # Fallback to current time with log_date
+            timestamp_str = f"{log_date} {datetime.utcnow().strftime('%H:%M:%S')}" if log_date else format_datetime(completed_at)
+        
         # Transform data for Tinybird schema
-        # Note: Tinybird schema requires non-null values for duration/amount
+        # CRITICAL: Tinybird converts empty strings to null and rejects them!
+        # Use 'none' instead of '' for LowCardinality fields
         event = {
-            'id': log_data.get('id'),
-            'habit_id': log_data.get('habit_id'),
-            'habit_name': log_data.get('habit_name', ''),
-            'user_id': log_data.get('user_id'),
-            'date': log_data.get('date'),
-            'timestamp': log_data.get('completed_at') or log_data.get('date'),
-            'status': log_data.get('status', 'completed'),
-            'duration': log_data.get('duration') or 0,  # Convert None to 0 for non-nullable column
-            'amount': log_data.get('amount') or 0,      # Convert None to 0 for non-nullable column
-            'unit': log_data.get('unit', ''),
-            'notes': log_data.get('notes', ''),
-            'source': 'manual',
-            'integration_id': '',
-            'whoop_metric_type': '',
-            'metadata': '{}',
-            'created_at': log_data.get('completed_at') or log_data.get('date')
+            'id': log_data.get('id') or 'unknown',
+            'habit_id': log_data.get('habit_id') or 'unknown',
+            'habit_name': log_data.get('habit_name') or 'Unknown Habit',
+            'user_id': log_data.get('user_id') or 'unknown',
+            'date': log_date or datetime.utcnow().strftime('%Y-%m-%d'),
+            'timestamp': timestamp_str,  # Use aligned timestamp (date + time)
+            'status': log_data.get('status') or 'completed',
+            'duration': int(log_data.get('duration') or 0),  # Ensure Int32, default 0
+            'amount': float(log_data.get('amount') or 0.0),  # Ensure Float64, default 0.0
+            'unit': log_data.get('unit') or 'none',  # Use 'none' instead of empty string
+            'notes': log_data.get('notes') or 'none',  # Use 'none' instead of empty string
+            'source': log_data.get('source') or 'manual',
+            'integration_id': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
+            'whoop_metric_type': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
+            'metadata': log_data.get('metadata') or '{}',
+            'created_at': timestamp_str  # Use same aligned timestamp
         }
         
-        print(f"🔍 Tinybird event data: {event}")
+        print(f"🔍 Tinybird event data (formatted): {event}")
         result = await self.ingest_events('habit_logs', [event])
         print(f"🔍 Tinybird ingest result: {result}")
         return result

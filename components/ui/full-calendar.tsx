@@ -38,7 +38,7 @@ import {
   useState,
 } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "@mui/icons-material";
 
 const monthEventVariants = cva('size-2 rounded-full', {
   variants: {
@@ -214,7 +214,7 @@ export function FullCalendar({
               onClick={prevMonth}
               className="p-2"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeftSharp sx={{ fontSize: 16 }} className="h-4 w-4" />
             </Button>
             <Button
               variant="outline"
@@ -222,7 +222,7 @@ export function FullCalendar({
               onClick={nextMonth}
               className="p-2"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRightSharp sx={{ fontSize: 16 }} className="h-4 w-4" />
             </Button>
           </div>
         </div>

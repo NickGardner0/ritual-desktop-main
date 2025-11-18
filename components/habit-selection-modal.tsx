@@ -1,19 +1,18 @@
 'use client';
 
-import React, { useState, useRef, useEffect, lazy, Suspense, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   ChevronDown, 
-  CheckCircle2, 
+  CheckCircle, 
   X, 
   Calendar, 
   CheckSquare, 
-  BookCheck, 
+  BookOpen, 
   Heart, 
   Zap, 
   Plus 
 } from 'lucide-react';
-import { HabitsService } from '../lib/habits-service';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAuth } from '@clerk/nextjs';
 import MiniSearch from 'minisearch';
@@ -24,9 +23,7 @@ import {
   experimentsHabits,
   type Habit
 } from '../data/habits-data';
-
-// Lazy load IconPicker to reduce initial bundle size
-const IconPicker = lazy(() => import('./IconPicker'));
+import IconPicker from './IconPicker';
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
@@ -174,7 +171,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     try {
       const results = miniSearch.search(searchQuery, {
         filter: (result) => {
-          const categoryMatch = {
+          const categoryMatch: { [key: string]: string } = {
             'productivity': 'productivity',
             'fitness': 'fitness',
             'education': 'education',
@@ -424,7 +421,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         category: categoryMap[selectedCategory || 'productivity'] || 'manual',
         is_custom: selectedCategory === 'custom',
         sensor_type: 'Manual',
-        icon: selectedIcon ? kebabToPascal(selectedIcon) : 'Target',
+        icon: selectedIcon || 'DashboardSharp', // Material UI icons are already in PascalCase
         unit_type: selectedMetric,
         integration_source: selectedCategory === 'whoop' ? 'whoop' 
                           : selectedCategory === 'applewatch' ? 'applewatch'
@@ -599,21 +596,15 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               <div className="mb-8 flex items-center gap-4">
                 <label className="block text-sm font-medium text-gray-700 w-20 text-left">Icon</label>
                 <div className="flex-1 max-w-md">
-                  <Suspense fallback={
-                    <div className="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 h-[48px]">
-                      <span>Loading icons...</span>
-                    </div>
-                  }>
-                    <IconPicker
-                      value={selectedIcon}
-                      onChange={(name) => setSelectedIcon(name)}
-                      anchorClassName="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
-                      portalRef={floatingLayerRef}
-                      withinCardRef={cardRef}
-                      minMenuHeight={260}
-                      desiredMenuWidth={384}
-                    />
-                  </Suspense>
+                  <IconPicker
+                    value={selectedIcon}
+                    onChange={(name) => setSelectedIcon(name)}
+                    anchorClassName="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
+                    portalRef={floatingLayerRef}
+                    withinCardRef={cardRef}
+                    minMenuHeight={260}
+                    desiredMenuWidth={384}
+                  />
                 </div>
               </div>
 
@@ -628,7 +619,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                       className="flex items-center justify-between w-full px-4 py-3 border border-gray-200 rounded-none bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
                     >
                       <span>{selectedMetric}</span>
-                      <ChevronDown className={`h-4 w-4 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
 
                     {isMetricDropdownOpen &&
@@ -850,7 +841,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 <div className="flex justify-between items-center py-2 px-3">
                   <div className="flex items-center">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <BookCheck className="w-4 h-4 text-gray-700" />
+                      <BookOpen className="w-4 h-4 text-gray-700" />
                     </div>
                     <div className="space-y-1">
                       <p className="text-sm font-medium leading-none">Education</p>

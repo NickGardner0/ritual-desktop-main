@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
+// Force dynamic rendering since this page uses useSearchParams
+export const dynamic = 'force-dynamic';
+
 /**
- * Success page shown in browser after completing OAuth in desktop app
- * Stores the OAuth code temporarily so the desktop app can retrieve it
+ * Success page content component (wrapped in Suspense)
  */
-export default function IntegrationSuccessPage() {
+function IntegrationSuccessContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -196,3 +198,30 @@ export default function IntegrationSuccessPage() {
   );
 }
 
+/**
+ * Main page component - wraps content in Suspense
+ */
+export default function IntegrationSuccessPage() {
+  return (
+    <Suspense 
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
+          <div className="max-w-md w-full mx-4">
+            <div className="bg-white rounded-lg shadow-xl p-8 text-center">
+              <div className="flex justify-center mb-6">
+                <div className="rounded-full bg-blue-100 p-4">
+                  <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+                </div>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-3">
+                Loading...
+              </h1>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <IntegrationSuccessContent />
+    </Suspense>
+  );
+}

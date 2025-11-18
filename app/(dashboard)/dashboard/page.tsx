@@ -1,10 +1,8 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { 
-  Plus, X, Target, Brain, Heart, Dumbbell, Book, Coffee, Moon, Sun, 
-  Zap, Clock, Calendar as CalendarIcon, CheckCircle, Award, Star, Flame, Droplet
-} from 'lucide-react';
+import { Plus, X, LayoutDashboard } from 'lucide-react';
+import * as Lucide from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO } from 'date-fns';
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -22,41 +20,48 @@ const HabitSelectionModal = lazy(() => import("@/components/habit-selection-moda
 const AIHabitChat = lazy(() => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })));
 const DashboardLoadingSkeleton = lazy(() => import("@/components/dashboard-loading-skeleton").then(m => ({ default: m.DashboardLoadingSkeleton })));
 
-// Helper to convert various icon name formats to PascalCase
-const kebabToPascal = (str: string) => 
-  str.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join('');
-
-// Dynamic icon component with caching - supports ALL Lucide icons
-const iconCache: { [key: string]: React.ComponentType<any> } = {};
+// Helper to convert kebab-case to PascalCase for Lucide icons
+const kebabToPascal = (k: string) => k.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
 
 const HabitIcon = ({ iconName }: { iconName: string }) => {
-  const [Icon, setIcon] = useState<React.ComponentType<any>>(Target);
+  // Handle Lucide icons (kebab-case names)
+  const IconComponent = (Lucide as any)[kebabToPascal(iconName)];
+  
+  if (IconComponent) {
+    return <IconComponent className="w-5 h-5 text-black" />;
+  }
+  
+  // Fallback to default icon
+  return <LayoutDashboard className="w-5 h-5 text-black" />;
+};
+
+// Old dynamic loading code (removed to fix 27,715 modules issue):
+/*
+const HabitIconOld = ({ iconName }: { iconName: string }) => {
+  const [Icon, setIcon] = useState<React.ComponentType<any>>(DashboardSharp);
 
   useEffect(() => {
-    // If we already loaded this icon, use cached version
-    if (iconCache[iconName]) {
-      setIcon(() => iconCache[iconName]);
-      return;
-    }
-
-    // Dynamically import the specific icon
-    const pascalName = kebabToPascal(iconName);
-    import('lucide-react')
+    // Dynamically import Material UI Sharp icon
+    import('@mui/icons-material')  // ❌ This imports ALL 2000+ icons!
       .then((icons) => {
-        const IconComponent = (icons as any)[pascalName];
+        const IconComponent = (icons as any)[iconName];
         if (IconComponent) {
           iconCache[iconName] = IconComponent;
           setIcon(() => IconComponent);
+        } else {
+          // Icon not found, use default
+          iconCache[iconName] = DashboardSharp;
+          setIcon(() => DashboardSharp);
         }
       })
       .catch(() => {
-        // Icon not found, use default
-        iconCache[iconName] = Target;
+        iconCache[iconName] = DashboardSharp;
+        setIcon(() => DashboardSharp);
       });
   }, [iconName]);
-
-  return <Icon className="w-5 h-5 text-black" />;
+  return <Icon sx={{ fontSize: 20, color: '#000' }} />;
 };
+*/
 
 // Habit icons mapping
 const getHabitIcon = (name: string, category: string) => {
@@ -88,30 +93,6 @@ export default function DashboardPage() {
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
   const { isLoaded, signOut } = useAuth();
   const clerk = useClerk();
-  
-  // Debug Clerk authentication
-  useEffect(() => {
-    console.log('🔍 Clerk Auth Debug:', {
-      userLoaded,
-      isSignedIn,
-      userId: user?.id,
-      userEmail: user?.emailAddresses?.[0]?.emailAddress,
-      hasUser: !!user
-    });
-  }, [user, userLoaded, isSignedIn]);
-  
-  // Debug: Log current user info
-  React.useEffect(() => {
-    if (user) {
-      console.log('🔍 Current Clerk User:', {
-        id: user.id,
-        email: user.primaryEmailAddress?.emailAddress,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        fullName: user.fullName
-      });
-    }
-  }, [user]);
   const { showAIChat } = useAI();
   const { 
     habits, 
@@ -122,11 +103,6 @@ export default function DashboardPage() {
     fetchHabitLogs,
     deleteHabit
   } = useHabits();
-
-  // Debug: Log what habits the dashboard is receiving
-  useEffect(() => {
-    console.log('🎯 Dashboard received habits from context:', habits.map(h => ({ id: h.id, name: h.name })));
-  }, [habits]);
   
   // Local UI state only
   const [showSelectionModal, setShowSelectionModal] = useState(false);
@@ -452,6 +428,65 @@ export default function DashboardPage() {
     return `${totalAmount} ${unitType}`;
   }, [displayLogs, dateRange]);
 
+  // Detailed stats for tooltip (sum/avg/min/max/variance)
+  const getHabitMetricStats = React.useCallback((habit: Habit) => {
+    const unitType = habit.unit_type || 'sessions';
+    let filteredLogs = displayLogs.filter(log => {
+      const matchesHabit = log.habit_id === habit.id;
+      const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
+      return matchesHabit && isCompleted;
+    });
+    if (dateRange?.from) {
+      filteredLogs = filteredLogs.filter(log => {
+        const logDate = parseISO(log.date);
+        if (dateRange.to) {
+          return isWithinInterval(logDate, { start: dateRange.from!, end: dateRange.to });
+        } else {
+          const logDateOnly = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate());
+          const filterDateOnly = new Date(dateRange.from!.getFullYear(), dateRange.from!.getMonth(), dateRange.from!.getDate());
+          return logDateOnly.getTime() === filterDateOnly.getTime();
+        }
+      });
+    }
+    const formatNum = (n: number) => {
+      const rounded = Math.round(n * 10) / 10;
+      return rounded.toLocaleString(undefined, { maximumFractionDigits: 1 });
+    };
+    // Build numeric series in the correct unit
+    let series: number[] = [];
+    if (unitType.toLowerCase().includes('hour') || unitType.toLowerCase().includes('minute')) {
+      const seconds = filteredLogs.map(log => {
+        if (log.duration && log.duration > 0) return log.duration;
+        if (log.amount && log.amount > 0) {
+          if (log.unit === 'Hours' || log.unit === 'hours') return log.amount * 3600;
+          if (log.unit === 'Minutes' || log.unit === 'minutes') return log.amount * 60;
+        }
+        return 0;
+      });
+      if (unitType.toLowerCase().includes('hour')) {
+        series = seconds.map(s => s / 3600);
+      } else {
+        series = seconds.map(s => s / 60);
+      }
+    } else {
+      series = filteredLogs.map(log => (log.amount != null ? Number(log.amount) : 1));
+    }
+    const sum = series.reduce((a, b) => a + (isFinite(b) ? b : 0), 0);
+    const avg = series.length ? sum / series.length : 0;
+    const min = series.length ? Math.min(...series) : 0;
+    const max = series.length ? Math.max(...series) : 0;
+    const variance = series.length ? series.reduce((acc, v) => acc + Math.pow(v - avg, 2), 0) / series.length : 0;
+    const unitLabel = unitType;
+    return {
+      unitLabel,
+      sumFormatted: `${formatNum(sum)} ${unitLabel}`,
+      avgFormatted: `${formatNum(avg)} ${unitLabel}`,
+      minFormatted: `${formatNum(min)} ${unitLabel}`,
+      maxFormatted: `${formatNum(max)} ${unitLabel}`,
+      varianceFormatted: `${formatNum(variance)} ${unitLabel}`,
+    };
+  }, [displayLogs, dateRange]);
+
   // Handle habit creation
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     console.log('New habit created:', newHabit);
@@ -526,9 +561,9 @@ export default function DashboardPage() {
           <div className="relative group">
             <button
               onClick={() => setShowSelectionModal(true)}
-              className="p-2 border border-gray-300 bg-white text-gray-600 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none"
+              className="h-9 px-3 py-2 border border-gray-300 bg-white text-gray-600 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="w-4 h-4" />
             </button>
             <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-black bg-white border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
               Add habit
@@ -567,7 +602,10 @@ export default function DashboardPage() {
                           }`}
                         >
                           <div className="flex items-center flex-1 min-w-0 space-x-1">
-                            <span className="flex items-center justify-center" style={{ minWidth: 24 }}>
+                            <span
+                              className="flex items-center justify-center"
+                              style={{ minWidth: 24 }}
+                            >
                               {habit.icon ? (
                                 // Check if it's an emoji (contains emoji characters)
                                 /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
@@ -597,30 +635,38 @@ export default function DashboardPage() {
                             {deletingHabit === habit.id ? (
                               <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
                             ) : (
-                              <X className="h-3 w-3" />
+                              <X className="w-3 h-3" />
                             )}
                           </button>
                           {activeTooltip === habit.id && (
-                            <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[180px] whitespace-nowrap">
-                              {/* Tooltip content here, matching table view */}
-                              <div className="space-y-2 text-base">
-                                <div className="flex items-center justify-between text-gray-700">
-                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Sum:</span>
-                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default">{getHabitMetricDisplay(habit)}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-gray-700">
-                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Average:</span>
-                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default"></span>
-                                </div>
-                                <div className="flex items-center justify-between text-gray-700">
-                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Min:</span>
-                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default">0</span>
-                                </div>
-                                <div className="flex items-center justify-between text-gray-700">
-                                  <span className="text-black hover:text-gray-900 transition-colors cursor-default">Max:</span>
-                                  <span className="text-gray-500 font-mono hover:text-black transition-colors cursor-default"></span>
-                                </div>
-                              </div>
+                            <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]">
+                              {(() => {
+                                const s = getHabitMetricStats(habit);
+                                return (
+                                  <div className="space-y-1.5 text-sm">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-900">Sum</span>
+                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-900">Average</span>
+                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-900">Min</span>
+                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-900">Max</span>
+                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-900">Variance</span>
+                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.varianceFormatted}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>

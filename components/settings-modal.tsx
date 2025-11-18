@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, User, Palette, Globe, Bell, Shield, Database, HelpCircle, LogOut, Import, Key, MessageSquare, Link, FileText, Settings } from 'lucide-react';
+import { X, User, Palette, Globe, Bell, Shield, Database, HelpCircle, LogOut, Upload, Key, MessageSquare, Link, FileText, Settings } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -32,7 +32,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
     },
     {
       id: 'import' as SettingsSection,
-      icon: Import,
+      icon: Upload,
       title: 'Import'
     },
     {

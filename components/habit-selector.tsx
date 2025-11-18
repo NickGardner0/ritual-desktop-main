@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Command } from "cmdk";
-import { FileSearch, Calendar, ListTodo, BarChart3, Wifi, Bot, Timer, Focus, Eye, FileText, TrendingUp, Download } from "lucide-react";
+import { FindInPageSharp, CalendarTodaySharp, FormatListBulletedSharp, BarChartSharp, WifiSharp, SmartToySharp, TimerSharp, CenterFocusStrongSharp, VisibilitySharp, DescriptionSharp, TrendingUpSharp, DownloadSharp } from "@mui/icons-material";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 import { cn } from "@/lib/utils";
@@ -19,22 +19,22 @@ interface QuickActionItem {
 
 const quickActionItems: QuickActionItem[] = [
   // Quick Actions section
-  { id: 'search-logs', name: 'Search logs', icon: <FileSearch className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
-  { id: 'calendar-view', name: 'Calendar view', icon: <Calendar className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
-  { id: 'create-task', name: 'Create task', icon: <ListTodo className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
-  { id: 'view-analytics', name: 'View analytics', icon: <BarChart3 className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
-  { id: 'connect-wearables', name: 'Connect wearables', icon: <Wifi className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
-  { id: 'ai-assistant', name: 'AI assistant', icon: <Bot className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
+  { id: 'search-logs', name: 'Search logs', icon: <FindInPageSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
+  { id: 'calendar-view', name: 'Calendar view', icon: <CalendarTodaySharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
+  { id: 'create-task', name: 'Create task', icon: <FormatListBulletedSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
+  { id: 'view-analytics', name: 'View analytics', icon: <BarChartSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
+  { id: 'connect-wearables', name: 'Connect wearables', icon: <WifiSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
+  { id: 'ai-assistant', name: 'AI assistant', icon: <SmartToySharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
   
   // Tracker section
-  { id: 'track-time', name: 'Track time', icon: <Timer className="h-4 w-4 text-gray-700" />, section: 'tracker' },
-  { id: 'start-focus-session', name: 'Start focus session', icon: <Focus className="h-4 w-4 text-gray-700" />, section: 'tracker' },
+  { id: 'track-time', name: 'Track time', icon: <TimerSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'tracker' },
+  { id: 'start-focus-session', name: 'Start focus session', icon: <CenterFocusStrongSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'tracker' },
   
   // Insights section
-  { id: 'view-today-summary', name: "View today's summary", icon: <Eye className="h-4 w-4 text-gray-700" />, section: 'insights' },
-  { id: 'weekly-activity-report', name: 'Weekly activity report', icon: <FileText className="h-4 w-4 text-gray-700" />, section: 'insights' },
-  { id: 'correlation-finder', name: 'Correlation finder', icon: <TrendingUp className="h-4 w-4 text-gray-700" />, section: 'insights' },
-  { id: 'export-data', name: 'Export data', icon: <Download className="h-4 w-4 text-gray-700" />, section: 'insights' },
+  { id: 'view-today-summary', name: "View today's summary", icon: <VisibilitySharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
+  { id: 'weekly-activity-report', name: 'Weekly activity report', icon: <DescriptionSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
+  { id: 'correlation-finder', name: 'Correlation finder', icon: <TrendingUpSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
+  { id: 'export-data', name: 'Export data', icon: <DownloadSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
 ];
 
 interface HabitSelectorProps {
@@ -88,7 +88,6 @@ export default function CommandPalette({ className, initialOpen = false, initial
       <DialogContent
         className="overflow-hidden p-0 max-w-full w-full md:max-w-[740px] h-[475px] m-0 select-text bg-transparent border-none"
         style={{ borderRadius: '0px' }}
-        hideClose
       >
         <div 
           className="bg-white shadow-lg border border-gray-300 overflow-hidden h-full flex flex-col" 

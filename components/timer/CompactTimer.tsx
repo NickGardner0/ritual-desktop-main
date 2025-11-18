@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useHabits } from '@/contexts/HabitsContext'
-import { Play, Pause, Square, Clock } from "lucide-react"
+import { PlayArrowSharp, PauseSharp, StopSharp, AccessTimeSharp } from "@mui/icons-material"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function CompactTimer({ onSessionComplete }: { onSessionComplete?: (sessionData: any) => void }) {
-  const { habits, logHabitCompletion, loading: habitsLoading } = useHabits();
+  const { habits, logHabit, isLoading: habitsLoading } = useHabits();
   const [selectedHabit, setSelectedHabit] = useState<string>("")
   const [time, setTime] = useState(0)
   const [isRunning, setIsRunning] = useState(false)
@@ -59,11 +59,11 @@ export default function CompactTimer({ onSessionComplete }: { onSessionComplete?
   const handleStop = async () => {
     setIsRunning(false)
     setIsPaused(false)
-    if (selectedHabitData && time > 0) {
+    if (selectedHabitData && selectedHabitData.id && time > 0) {
       try {
         console.log(`🕐 Saving timer session: ${formatTime(time)} for ${selectedHabitData.name}`);
         
-        await logHabitCompletion({
+        await logHabit({
           habit_id: selectedHabitData.id,
           date: new Date().toISOString().split('T')[0],
           duration: time,
@@ -121,8 +121,8 @@ export default function CompactTimer({ onSessionComplete }: { onSessionComplete?
             <SelectValue placeholder={habitsLoading ? 'Loading...' : 'Choose habit'} />
           </SelectTrigger>
           <SelectContent className="rounded-none bg-white border-gray-300">
-            {habits.map((habit) => (
-              <SelectItem key={habit.id} value={habit.id} className="text-gray-900 hover:bg-gray-100">
+            {habits.filter(h => h.id).map((habit) => (
+              <SelectItem key={habit.id} value={habit.id!} className="text-gray-900 hover:bg-gray-100">
                 {habit.icon ? `${habit.icon} ` : ''}{habit.name}
               </SelectItem>
             ))}
@@ -145,21 +145,21 @@ export default function CompactTimer({ onSessionComplete }: { onSessionComplete?
               disabled={!selectedHabit}
               className="px-1.5 py-0.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 transition-colors rounded-none text-xs h-6"
             >
-              <Play className="w-2 h-2 mr-1" />
+              <PlayArrowSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
               Start
             </Button>
             <Button
               disabled
               className="px-1.5 py-0.5 bg-gray-100 text-gray-400 font-medium cursor-not-allowed rounded-none text-xs h-6"
             >
-              <Pause className="w-2 h-2 mr-1" />
+              <PauseSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
               Pause
             </Button>
             <Button
               disabled
               className="px-1.5 py-0.5 bg-gray-100 text-gray-400 font-medium cursor-not-allowed rounded-none text-xs h-6"
             >
-              <Square className="w-2 h-2 mr-1" />
+              <StopSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
               Stop
             </Button>
           </>
@@ -169,21 +169,21 @@ export default function CompactTimer({ onSessionComplete }: { onSessionComplete?
               disabled={isPaused}
               className="px-1.5 py-0.5 bg-gray-100 text-gray-400 font-medium cursor-not-allowed rounded-none text-xs h-6"
             >
-              <Play className="w-2 h-2 mr-1" />
+              <PlayArrowSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
               Start
             </Button>
             <Button
               onClick={handlePause}
               className="px-1.5 py-0.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-50 transition-colors rounded-none text-xs h-6"
             >
-              <Pause className="w-2 h-2 mr-1" />
+              <PauseSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
               Pause
             </Button>
             <Button
               onClick={handleStop}
               className="px-1.5 py-0.5 bg-red-600 hover:bg-red-700 text-white font-medium transition-colors rounded-none text-xs h-6"
             >
-              <Square className="w-2 h-2 mr-1" />
+              <StopSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
               Stop
             </Button>
           </>

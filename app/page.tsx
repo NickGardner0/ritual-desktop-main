@@ -41,7 +41,7 @@ export default function Home() {
 
         if (response.ok) {
           const profile = await response.json();
-          
+
           // Route directly to the correct destination
           if (profile.onboarding_completed) {
             router.replace('/dashboard');
@@ -88,39 +88,41 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="relative z-30 flex flex-col items-center justify-center min-h-[calc(100vh-120px)] px-6 text-center" data-tauri-drag-region>
+      <main className="relative z-30 flex flex-col items-center justify-center min-h-[calc(100vh-120px)] px-6 text-center" data-tauri-drag-region style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
         <div className="max-w-2xl mx-auto">
           <div className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center mx-auto mb-8">
-            <img 
-              src="/images/ritual-logo1.svg" 
-              alt="Ritual Logo" 
+            <img
+              src="/images/ritual-logo1.svg"
+              alt="Ritual Logo"
               className="w-full h-full"
             />
           </div>
-          
-          <h1 className="text-gray-900 mb-6" style={{ 
-            fontFamily: 'inherit',
+
+          <h1 className="text-gray-900 mb-6" style={{
             fontSize: '33px',
             lineHeight: '1.2',
             WebkitFontSmoothing: 'antialiased',
             letterSpacing: '0.02em',
             fontWeight: 500,
-            WebkitTextStroke: '0.3px currentColor'
+            WebkitTextStroke: '0.3px currentColor',
+            fontFamily: "'FK Grotesk Neue', sans-serif"
           }}>
             Welcome to Ritual
           </h1>
-          
-          <p className="text-base text-gray-500 mb-12 leading-relaxed font-normal">
+
+          <p className="text-base text-gray-500 mb-12 leading-relaxed font-normal" style={{ fontFamily: "'FK Grotesk Neue', sans-serif", fontWeight: 400 }}>
             Ritual is the best way to track and quantify your behavior.
           </p>
-          
+
           <div className="flex justify-center">
             <Link
               href="/auth"
               className="inline-flex items-center justify-center gap-2 bg-gray-900 text-white px-6 py-2.5 rounded-none font-medium text-sm shadow-sm get-started-btn"
-              style={{ 
+              style={{
                 userSelect: 'none',
                 transition: 'all 0.2s ease-out',
+                fontFamily: "'FK Grotesk Neue', sans-serif",
+                fontWeight: 400
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#4b5563';
@@ -138,18 +140,20 @@ export default function Home() {
 
       {/* Terms of Service and Privacy Policy - Fixed at bottom */}
       <div className="fixed bottom-6 left-0 right-0 text-center z-10">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500" style={{ fontFamily: "'FK Grotesk Neue', sans-serif", fontWeight: 400 }}>
           By signing in you agree to our{' '}
-          <a 
-            href="/terms" 
+          <a
+            href="/terms"
             className="underline text-gray-500 hover:text-gray-800 transition-colors duration-200"
+            style={{ fontFamily: "'FK Grotesk Neue', sans-serif", fontWeight: 400 }}
           >
             Terms of service
           </a>
           {' '}&{' '}
-          <a 
-            href="/privacy" 
+          <a
+            href="/privacy"
             className="underline text-gray-500 hover:text-gray-800 transition-colors duration-200"
+            style={{ fontFamily: "'FK Grotesk Neue', sans-serif", fontWeight: 400 }}
           >
             Privacy policy
           </a>

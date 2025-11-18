@@ -3,10 +3,10 @@
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
 import { TeamDropdown } from '@/components/team-dropdown';
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
-import { useSearchParams } from 'next/navigation';
+import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 
 // Lazy load heavy components that are only used when opened
 const TimeTrackerWidget = lazy(() => import('@/components/timer/TimeTrackerWidget').then(m => ({ default: m.TimeTrackerWidget })));
@@ -18,22 +18,11 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const searchParams = useSearchParams();
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const { showAIChat, toggleAIChat } = useAI();
   const { user } = useUser();
   const { getToken } = useAuth();
-  
-  useEffect(() => {
-    // Check if we should open the Whoop modal
-    const openWhoopModal = searchParams.get('open_whoop_modal');
-    if (openWhoopModal === 'true') {
-      setShouldOpenWhoopModal(true);
-      // Clean up the URL parameter
-      window.history.replaceState({}, '', '/dashboard');
-    }
-  }, [searchParams]);
 
   const openTimeTrackerWindow = async () => {
     console.log('🖱️ Tracker button clicked - creating native Swift timer widget');
@@ -91,6 +80,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <div className="app-container flex h-screen bg-white overflow-x-hidden max-w-full w-full border-0">
+      {/* Handle URL search parameters (wrapped in Suspense for prerendering) */}
+      <Suspense fallback={null}>
+        <DashboardSearchHandler 
+          onOpenWhoopModal={() => setShouldOpenWhoopModal(true)} 
+        />
+      </Suspense>
+      
       {/* Window Drag Region - Midday's minimal top-only approach */}
       <div
         data-tauri-drag-region

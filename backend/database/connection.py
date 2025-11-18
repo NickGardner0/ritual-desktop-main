@@ -1,101 +1,73 @@
 """
 Database connection and session management
-Supports SQLite (local), Turso Cloud, and PostgreSQL
+Turso Cloud with embedded replica
 """
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import StaticPool, NullPool, QueuePool
-from sqlalchemy import event
+from sqlalchemy.pool import NullPool
 from database.models import Base
 from dotenv import load_dotenv
-from urllib.parse import urlparse, parse_qs
 
-# Load environment variables FIRST before reading DATABASE_URL
+# Load environment variables
 load_dotenv()
 
-# Database configuration
-# Support SQLite (local dev), Turso Cloud (production), or PostgreSQL
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./ritual.db")
+# Get Turso Cloud DATABASE_URL
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Detect database type
-is_turso_cloud = DATABASE_URL.startswith("libsql://") and "turso.io" in DATABASE_URL
-is_sqlite = "sqlite" in DATABASE_URL and not is_turso_cloud
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable is required.\n"
+        "Expected format: libsql://[HOST].turso.io?authToken=[TOKEN]\n"
+        "Set this in your backend/.env file"
+    )
 
-# Create async engine with appropriate pool settings
-if is_turso_cloud:
-    # Turso Cloud: Use sqlalchemy-libsql dialect
-    # Parse the libsql:// URL to extract sync_url and auth_token
-    parsed = urlparse(DATABASE_URL)
-    query_params = parse_qs(parsed.query)
-    auth_token = query_params.get('authToken', [None])[0]
-    
-    if not auth_token:
-        raise ValueError("Turso Cloud DATABASE_URL must include authToken query parameter")
-    
-    # Convert libsql:// to sqlite+libsql:// format
-    # For remote Turso Cloud, use sqlite+libsql:// with sync_url
-    sync_url = f"https://{parsed.netloc}"
-    
-    print(f"🔗 Connecting to Turso Cloud: {parsed.netloc}")
-    print(f"📋 Sync URL: {sync_url}")
-    
-    # Use sqlite+aiolibsql:// dialect for async support with sync_url and auth_token
-    # For Turso Cloud remote connections, libsql creates a local replica that syncs
-    # We need to specify a local database path for the replica
-    import tempfile
-    import os as os_module
-    local_db_path = os_module.path.join(tempfile.gettempdir(), "ritual_turso_replica.db")
-    
-    print(f"💾 Local replica path: {local_db_path}")
-    
-    engine = create_async_engine(
-        f"sqlite+aiolibsql:///{local_db_path}",
-        echo=False,
-        poolclass=NullPool,
-        connect_args={
-            "sync_url": sync_url,
-            "auth_token": auth_token,
-            # Disable WAL mode for remote Turso Cloud connections
-            "check_same_thread": False,
-        },
-        # Disable WAL mode initialization
-        pool_pre_ping=False,
+if not DATABASE_URL.startswith("libsql://") or "turso.io" not in DATABASE_URL:
+    raise ValueError(
+        f"Invalid DATABASE_URL format. Expected Turso Cloud URL (libsql://...turso.io)\n"
+        f"Got: {DATABASE_URL[:50]}..."
     )
-    
-    # Override the SQLite dialect's isolation level check to prevent WAL mode errors
-    # This is needed because Turso Cloud doesn't support WAL mode checks
-    from sqlalchemy.dialects.sqlite.base import SQLiteDialect
-    
-    original_get_isolation_level = SQLiteDialect.get_isolation_level
-    
-    def get_isolation_level_no_wal(self, dbapi_conn):
-        """Override to skip WAL mode checks for Turso Cloud"""
-        # Return a default isolation level without checking WAL mode
-        # This prevents the WAL mode check that causes wal_insert_begin failed error
-        return "READ UNCOMMITTED"
-    
-    # Temporarily override the method for Turso connections
-    SQLiteDialect.get_isolation_level = get_isolation_level_no_wal
-elif is_sqlite:
-    # SQLite: Use NullPool (no pooling) - pool_size/max_overflow not supported
-    engine = create_async_engine(
-        DATABASE_URL,
-        echo=False,  # Set to False in production (was True for debugging)
-        poolclass=NullPool,
-        connect_args={"check_same_thread": False}
+
+# Parse Turso Cloud connection details
+parsed = urlparse(DATABASE_URL)
+query_params = parse_qs(parsed.query)
+auth_token = query_params.get('authToken', [None])[0]
+
+if not auth_token:
+    raise ValueError(
+        "DATABASE_URL must include authToken query parameter.\n"
+        "Format: libsql://[HOST].turso.io?authToken=[TOKEN]"
     )
-else:
-    # PostgreSQL or other: Use QueuePool with connection pooling
-    engine = create_async_engine(
-        DATABASE_URL,
-        echo=False,
-        poolclass=QueuePool,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True,
-    )
+
+# HTTPS URL for syncing with Turso Cloud
+sync_url = f"https://{parsed.netloc}"
+
+print(f"🔗 Connecting to Turso Cloud: {parsed.netloc}")
+print(f"📡 Mode: Local replica with automatic sync")
+
+# Use a local replica in the backend directory
+project_root = Path(__file__).parent.parent
+local_db_path = project_root / ".turso_replica.db"
+
+print(f"💾 Local replica: {local_db_path}")
+
+# Create the engine with embedded replica
+engine = create_async_engine(
+    f"sqlite+aiolibsql:///{local_db_path}",
+    echo=False,
+    poolclass=NullPool,
+    connect_args={
+        "sync_url": sync_url,
+        "auth_token": auth_token,
+        "check_same_thread": False,
+        # Note: sync_interval removed - libsql uses default (5 seconds)
+        # Setting to 0 causes Rust panic: "`period` must be non-zero"
+    },
+    pool_pre_ping=False,
+)
 
 # Create session factory
 async_session_factory = async_sessionmaker(
@@ -117,69 +89,30 @@ async def get_db_session():
             await session.close()
 
 async def init_database():
-    """Initialize database tables"""
-    try:
-        # Try to create tables with checkfirst=True (safe - won't error if they exist)
-        async with engine.begin() as conn:
-            def create_tables(sync_conn):
-                Base.metadata.create_all(sync_conn, checkfirst=True)
-            await conn.run_sync(create_tables)
-            print("✅ Database tables initialized/verified")
-    except Exception as e:
-        # Log the error for debugging
-        error_str = str(e)
-        
-        # If tables already exist, that's fine - treat as success
-        if "already exists" in error_str or "SQL_INPUT_ERROR" in error_str or "table users already exists" in error_str:
-            print("✅ Database tables already exist (from migration)")
-        else:
-            print(f"⚠️  Database initialization error: {error_str}")
+    """
+    Initialize database - ensures tables exist
+    Uses SQLAlchemy's checkfirst=True for safety
+    """
+    from sqlalchemy import text
     
-    # Always test the connection, regardless of whether we hit an exception
-    print("🔍 Testing database connection...")
-    async with async_session_factory() as session:
-        try:
-            from sqlalchemy import text
-            
-            # First, list all tables to see what's actually in the database
-            print("📋 Listing all tables in database...")
-            try:
-                tables_result = await session.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
-                tables = tables_result.fetchall()
-                if tables:
-                    table_names = [t[0] for t in tables]
-                    print(f"✅ Found {len(table_names)} table(s): {', '.join(table_names)}")
-                else:
-                    print("⚠️  No tables found in database")
-            except Exception as list_error:
-                print(f"⚠️  Could not list tables: {str(list_error)}")
-            
-            # Now try to query users table
-            print("🔍 Querying users table...")
+    try:
+        # Create tables if they don't exist (checkfirst=True is safe)
+        async with engine.begin() as conn:
+            await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=True))
+        
+        # Quick verification
+        async with async_session_factory() as session:
             result = await session.execute(text("SELECT COUNT(*) FROM users"))
-            row = result.fetchone()
-            if row is not None:
-                count = row[0]
-                print(f"✅ Connection verified: Found {count} user(s) in database")
-            else:
-                print("⚠️  Warning: Query returned no results (table exists but is empty)")
-        except Exception as e:
-            error_msg = str(e)
-            if "no such table" in error_msg.lower():
-                print(f"❌ ERROR: Users table does not exist! Error: {error_msg}")
-                print("   This means the connection might be pointing to the wrong database,")
-                print("   or tables weren't created properly.")
-                print(f"   Database URL: {DATABASE_URL[:60]}...")
-                print("\n💡 Possible solutions:")
-                print("   1. Check your Turso dashboard - is the database name 'ritual'?")
-                print("   2. Verify DATABASE_URL in backend/.env matches your Turso database")
-                print("   3. The database name in the URL should match what's in your Turso dashboard")
-            else:
-                print(f"⚠️  Connection test error: {error_msg}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            await session.close()
+            count = result.scalar()
+            print(f"✅ Database ready: {count} user(s)")
+            
+    except Exception as e:
+        error_msg = str(e)
+        if "no such table" in error_msg.lower():
+            print(f"❌ Database initialization failed: {error_msg}")
+            print("💡 Run: cd backend && python3 scripts/init_turso_tables.py")
+        else:
+            print(f"⚠️  Database check failed: {error_msg}")
 
 async def close_database():
     """Close database connections"""

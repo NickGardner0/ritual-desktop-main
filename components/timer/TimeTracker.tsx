@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useHabits } from '@/contexts/HabitsContext'
-import { Play, Pause, Square } from "lucide-react"
+import { PlayArrowSharp, PauseSharp, StopSharp } from "@mui/icons-material"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export default function TimeTracker() {
-  const { habits, logHabitCompletion, loading: habitsLoading } = useHabits();
+  const { habits, logHabit, isLoading: habitsLoading } = useHabits();
   const [selectedHabit, setSelectedHabit] = useState<string>("")
   const [time, setTime] = useState(0)
   const [isRunning, setIsRunning] = useState(false)
@@ -56,7 +56,7 @@ export default function TimeTracker() {
   const handleStop = async () => {
     setIsRunning(false)
     setIsPaused(false)
-    if (selectedHabitData && time > 0) {
+    if (selectedHabitData && selectedHabitData.id && time > 0) {
       // Save the session to backend using the same test endpoint as Swift widget
       try {
         console.log(`🕐 Saving timer session: ${formatTime(time)} for ${selectedHabitData.name}`);
@@ -75,7 +75,7 @@ export default function TimeTracker() {
         console.log(`🔍 About to call logHabitCompletion...`);
         
         // Use the real authenticated endpoint instead of test endpoint
-        const result = await logHabitCompletion(logData);
+        const result = await logHabit(logData);
         console.log(`🔍 logHabitCompletion result:`, result);
         
         console.log(`✅ Successfully saved ${formatTime(time)} session for ${selectedHabitData.name}`);
@@ -162,21 +162,21 @@ export default function TimeTracker() {
                   disabled={!selectedHabit}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-100 disabled:bg-gray-100 disabled:text-gray-400 transition-colors rounded-none"
                 >
-                  <Play className="w-4 h-4 mr-2" />
+                  <PlayArrowSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
                   Start
                 </Button>
                 <Button
                   disabled
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-400 font-medium cursor-not-allowed rounded-none"
                 >
-                  <Pause className="w-4 h-4 mr-2" />
+                  <PauseSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
                   Pause
                 </Button>
                 <Button
                   disabled
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-400 font-medium cursor-not-allowed rounded-none"
                 >
-                  <Square className="w-4 h-4 mr-2" />
+                  <StopSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
                   Stop & Save
                 </Button>
               </>
@@ -186,21 +186,21 @@ export default function TimeTracker() {
                   disabled={isPaused}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-400 font-medium cursor-not-allowed rounded-none"
                 >
-                  <Play className="w-4 h-4 mr-2" />
+                  <PlayArrowSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
                   Start
                 </Button>
                 <Button
                   onClick={handlePause}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-100 transition-colors rounded-none"
                 >
-                  <Pause className="w-4 h-4 mr-2" />
+                  <PauseSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
                   Pause
                 </Button>
                 <Button
                   onClick={handleStop}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-red-600 font-medium hover:bg-gray-100 transition-colors rounded-none"
                 >
-                  <Square className="w-4 h-4 mr-2" />
+                  <StopSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
                   Stop & Save
                 </Button>
               </>

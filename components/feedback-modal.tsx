@@ -110,8 +110,8 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
             <div className="flex justify-end">
               <button
                 type="submit"
-                disabled={submitting || !message.trim()}
-                className="px-6 py-2.5 bg-black text-white rounded-none text-sm font-medium hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                disabled={submitting}
+                className="px-6 py-2.5 bg-black text-white rounded-none text-sm font-medium hover:bg-gray-800 transition-colors"
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
                 {submitting ? 'Sending...' : 'Send Feedback'}

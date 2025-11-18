@@ -32,6 +32,7 @@ from models.habit_models import Habit, HabitLog, HabitCreate, HabitUpdate, Habit
 from models.user_models import OnboardingData, UserProfile
 from database.connection import get_db_session
 from database.models import WhoopIntegrationDB
+from database.helpers import user_db_to_profile, parse_json_field
 from sqlalchemy import select
 import json
 
@@ -107,39 +108,7 @@ async def get_user_profile(current_user = Depends(get_current_user)):
         )
         
         print(f"✅ User found/created: {user.email}")
-        
-        # Parse tracking_interests from JSON string (handle NULL safely)
-        tracking_interests = None
-        if user.tracking_interests:
-            try:
-                tracking_interests = json.loads(user.tracking_interests)
-            except Exception as parse_error:
-                print(f"⚠️  Could not parse tracking_interests: {parse_error}")
-                tracking_interests = []
-        
-        # Parse wearable_devices from JSON string (handle NULL safely)
-        wearable_devices = None
-        if user.wearable_devices:
-            try:
-                wearable_devices = json.loads(user.wearable_devices)
-            except Exception as parse_error:
-                print(f"⚠️  Could not parse wearable_devices: {parse_error}")
-                wearable_devices = []
-        
-        # Return profile with safe defaults for NULL fields
-        return UserProfile(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name or "",
-            age_bracket=user.age_bracket,
-            gender=user.gender,
-            country=user.country,
-            tracking_interests=tracking_interests,
-            wearable_devices=wearable_devices,
-            onboarding_completed=bool(user.onboarding_completed),
-            created_at=user.created_at,
-            updated_at=user.updated_at
-        )
+        return user_db_to_profile(user)
     except Exception as e:
         print(f"❌ Error getting user profile: {str(e)}")
         import traceback
@@ -175,37 +144,8 @@ async def update_onboarding(
             wearable_devices=onboarding_data.wearable_devices
         )
         
-        # Parse tracking_interests for response
-        tracking_interests = []
-        if user.tracking_interests:
-            try:
-                tracking_interests = json.loads(user.tracking_interests)
-            except:
-                tracking_interests = []
-        
-        # Parse wearable_devices for response
-        wearable_devices = []
-        if user.wearable_devices:
-            try:
-                wearable_devices = json.loads(user.wearable_devices)
-            except:
-                wearable_devices = []
-        
         print(f"✅ Onboarding updated successfully for user {current_user['id']}")
-        
-        return UserProfile(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            age_bracket=user.age_bracket,
-            gender=user.gender,
-            country=user.country,
-            tracking_interests=tracking_interests,
-            wearable_devices=wearable_devices,
-            onboarding_completed=user.onboarding_completed,
-            created_at=user.created_at,
-            updated_at=user.updated_at
-        )
+        return user_db_to_profile(user)
     except Exception as e:
         print(f"❌ Error updating onboarding: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -25,7 +25,7 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
     viewBox="0 0 24 24"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    strokeWidth="2"
+    strokeWidth="2.1"
     stroke="currentColor"
     strokeLinecap="round"
     strokeLinejoin="round"
@@ -34,7 +34,7 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <path
       d="M9 6h6M12 6v12M9 18h6"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="2.1"
       strokeLinecap="round"
       fill="none"
     />
@@ -43,12 +43,12 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const icons = {
   "/dashboard": () => <ILetterIcon className="w-5 h-5" />,
-  "/analytics": () => <LineChart className="w-5 h-5" />,
-  "/timer": () => <Timer className="w-5 h-5" />,
-  "/calendar": () => <Calendar className="w-5 h-5" />,
-  "/integrations": () => <Plug2 className="w-5 h-5" />,
-  "/data-export": () => <Download className="w-5 h-5" />,
-  "/settings": () => <Settings className="w-5 h-5" />,
+  "/analytics": () => <LineChart className="w-5 h-5" strokeWidth={2.1} />,
+  "/timer": () => <Timer className="w-5 h-5" strokeWidth={2.1} />,
+  "/calendar": () => <Calendar className="w-5 h-5" strokeWidth={2.1} />,
+  "/integrations": () => <Plug2 className="w-5 h-5" strokeWidth={2.1} />,
+  "/data-export": () => <Download className="w-5 h-5" strokeWidth={2.1} />,
+  "/settings": () => <Settings className="w-5 h-5" strokeWidth={2.1} />,
 } as const;
 
 const items = [
@@ -239,7 +239,7 @@ const Item = ({
           {/* Icon - always in same position from sidebar edge */}
           <div className={cn(
             "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-colors pointer-events-none",
-            isExpanded ? "text-gray-600 group-hover:text-black" : "text-gray-900 group-hover:text-black"
+            "text-black"
           )}>
             <div className={cn(isActive && "text-black")}>
               <Icon />
@@ -269,7 +269,7 @@ const Item = ({
                     shouldShowChildren && "rotate-180",
                   )}
                 >
-                  <ChevronDown size={16} />
+                  <ChevronDown className="w-4 h-4" strokeWidth={2.1} />
                 </button>
               )}
             </div>

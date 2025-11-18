@@ -1,31 +1,22 @@
-'use client'
+/**
+ * Dashboard Layout - Server Component
+ * 
+ * CRITICAL: This must be a Server Component (NO 'use client')
+ * to allow child pages to be Server Components.
+ * 
+ * We wrap client-only parts in a separate client component.
+ */
 
-import { DashboardLayout } from '@/components/dashboard-layout'
-import { AIProvider } from '@/contexts/AIContext'
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { DashboardLayoutClient } from './dashboard-layout-client';
 
 export default function SharedDashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const router = useRouter();
-  
-  // Prefetch critical routes on mount for instant navigation
-  useEffect(() => {
-    router.prefetch('/dashboard');
-    router.prefetch('/analytics');
-    router.prefetch('/calendar');
-    router.prefetch('/timer');
-  }, [router]);
-  
   return (
-    <AIProvider>
-      <DashboardLayout>
-        {children}
-      </DashboardLayout>
-    </AIProvider>
-  )
+    <DashboardLayoutClient>
+      {children}
+    </DashboardLayoutClient>
+  );
 }
-

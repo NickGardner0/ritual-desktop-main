@@ -1,0 +1,37 @@
+DESCRIPTION >
+    Flexible time range query for AI chat and custom analytics
+    Returns all logs within any date range with full details
+
+NODE logs_in_range
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        timestamp,
+        status,
+        duration,
+        amount,
+        unit,
+        notes,
+        source,
+        integration_id,
+        whoop_metric_type,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(start_date, required=True) }}
+      AND date <= {{ Date(end_date, required=True) }}
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+      {% if defined(status) %}
+      AND status = {{ String(status) }}
+      {% end %}
+    ORDER BY timestamp DESC
+    LIMIT {{ Int32(limit, 1000) }}
+
+TYPE ENDPOINT
+

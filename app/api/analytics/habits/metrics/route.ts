@@ -6,6 +6,8 @@ import { tinybirdService } from '@/lib/tinybird-service';
  * API route to get habit metrics from Tinybird
  * Uses Clerk for authentication
  */
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     // Get authenticated user from Clerk

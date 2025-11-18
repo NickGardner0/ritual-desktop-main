@@ -71,6 +71,16 @@ htmlcov/
 *.sqlite3
 test_*.db
 
+# Ritual Database Files
+backend/ritual.db
+backend/ritual.db-shm
+backend/ritual.db-wal
+
+# Turso Cloud Replica (local cache)
+backend/.turso_replica.db
+backend/.turso_replica.db-shm
+backend/.turso_replica.db-wal
+
 # Backup files
 *.backup
 *.bak

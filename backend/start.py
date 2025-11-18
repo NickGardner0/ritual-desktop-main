@@ -35,20 +35,31 @@ def main():
     """Main startup function"""
     print("🚀 Starting Ritual Backend API...")
     
+    # Load environment variables FIRST (before any checks)
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     # Check requirements
     if not check_requirements():
         sys.exit(1)
     
-    # Check environment
+    # Check environment file exists
     if not check_env_file():
+        sys.exit(1)
+    
+    # Validate environment variables (after loading .env)
+    try:
+        from config.env_validation import validate_or_exit
+        validate_or_exit()
+    except ImportError:
+        print("⚠️  Environment validation module not found (skipping)")
+    except Exception as e:
+        print(f"❌ Environment validation failed: {e}")
         sys.exit(1)
     
     # Start the server
     try:
         import uvicorn
-        from dotenv import load_dotenv
-        
-        load_dotenv()
         
         host = os.getenv("API_HOST", "127.0.0.1")
         port = int(os.getenv("API_PORT", 8000))

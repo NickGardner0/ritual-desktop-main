@@ -3,6 +3,7 @@ Authentication Service - Handles Clerk JWT token validation and user management
 """
 
 import jwt
+from jwt import PyJWKClient
 import os
 import httpx
 import requests
@@ -16,48 +17,71 @@ class AuthService:
         # Clerk configuration
         self.clerk_publishable_key = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
         self.clerk_secret_key = os.getenv("CLERK_SECRET_KEY")
-        self.clerk_jwks_url = "https://api.clerk.com/v1/jwks"
         
-        # Cache for JWKS (JSON Web Key Set)
-        self._jwks_cache = None
-        self._jwks_cache_time = None
-        self._jwks_cache_duration = 3600  # 1 hour
+        # Email cache to avoid repeated Clerk API calls
+        # Format: {user_id: {"email": email, "cached_at": timestamp}}
+        self._email_cache: Dict[str, Dict[str, Any]] = {}
+        self._email_cache_ttl = 3600  # Cache for 1 hour
+        
+        # Get Clerk frontend API domain from environment or extract from sign-in URL
+        clerk_sign_in_url = os.getenv("NEXT_PUBLIC_CLERK_SIGN_IN_URL", "")
+        
+        if clerk_sign_in_url:
+            # Extract domain from sign-in URL
+            # Format: https://{domain}/sign-in
+            frontend_domain = clerk_sign_in_url.replace("https://", "").replace("/sign-in", "").split("/")[0]
+            self.clerk_jwks_url = f"https://{frontend_domain}/.well-known/jwks.json"
+        else:
+            # Fallback: try to extract from publishable key or use default
+            # For development instances, it's typically: {instance}.clerk.accounts.dev
+            # For production: clerk.{your-domain}.com
+            if self.clerk_publishable_key and self.clerk_publishable_key.startswith("pk_test_"):
+                # Development instance - use a common pattern
+                # User should set NEXT_PUBLIC_CLERK_SIGN_IN_URL in .env for accuracy
+                print("⚠️  NEXT_PUBLIC_CLERK_SIGN_IN_URL not set, using fallback JWKS URL")
+                self.clerk_jwks_url = "https://api.clerk.com/v1/jwks"
+            else:
+                self.clerk_jwks_url = "https://api.clerk.com/v1/jwks"
+        
+        print(f"🔑 Clerk JWKS URL: {self.clerk_jwks_url}")
+        
+        # Initialize PyJWKClient for automatic JWKS fetching and caching
+        self.jwks_client = PyJWKClient(
+            self.clerk_jwks_url,
+            cache_keys=True,
+            max_cached_keys=16,
+            cache_jwk_set=True,
+            lifespan=3600  # Cache for 1 hour
+        )
     
-    async def get_clerk_jwks(self) -> Dict[str, Any]:
-        """Get Clerk's JWKS for token verification"""
-        current_time = datetime.now().timestamp()
-        
-        # Use cached JWKS if available and not expired
-        if (self._jwks_cache and self._jwks_cache_time and 
-            current_time - self._jwks_cache_time < self._jwks_cache_duration):
-            return self._jwks_cache
-        
-        try:
-            response = requests.get(self.clerk_jwks_url)
-            response.raise_for_status()
-            self._jwks_cache = response.json()
-            self._jwks_cache_time = current_time
-            return self._jwks_cache
-        except Exception as e:
-            print(f"❌ Error fetching Clerk JWKS: {e}")
-            return {}
+    def get_clerk_jwks_url(self) -> str:
+        """Get Clerk's JWKS URL for the current environment"""
+        return self.clerk_jwks_url
     
     async def get_user_from_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
-        Extract user information from Clerk JWT token
+        Extract user information from Clerk JWT token with proper signature verification
         If email is not in token, fetch it from Clerk API
         """
         try:
-            # First decode without verification to get the header
-            unverified_header = jwt.get_unverified_header(token)
-            unverified_payload = jwt.decode(token, options={"verify_signature": False})
+            # Get the signing key from JWKS (PyJWKClient handles caching)
+            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
             
-            # For now, we'll do basic validation without full JWKS verification
-            # In production, you'd want to verify the signature with Clerk's JWKS
+            # Verify and decode the token with signature verification
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "verify_iat": True,
+                }
+            )
             
-            # Extract user info from Clerk JWT
-            user_id = unverified_payload.get("sub")
-            email = unverified_payload.get("email")
+            # Extract user info from verified Clerk JWT
+            user_id = payload.get("sub")
+            email = payload.get("email")
             
             if not user_id:
                 print("❌ No user ID found in token")
@@ -65,34 +89,60 @@ class AuthService:
             
             # If email is not in token, fetch from Clerk API
             if not email:
-                print(f"⚠️  Email not in token, fetching from Clerk API for user: {user_id}")
+                # Only log when actually fetching (not from cache)
+                # print(f"⚠️  Email not in token, fetching from Clerk API for user: {user_id}")
                 email = await self._fetch_email_from_clerk(user_id)
             
-            print(f"✅ Extracted user from Clerk token: {user_id} ({email})")
+            # Reduce verbosity - only log failures, not every successful auth
+            # print(f"✅ Verified and extracted user from Clerk token: {user_id} ({email})")
             
             return {
                 "id": user_id,
                 "email": email,
-                "name": unverified_payload.get("name") or unverified_payload.get("full_name"),
-                "metadata": unverified_payload
+                "name": payload.get("name") or payload.get("full_name"),
+                "metadata": payload
             }
             
-        except jwt.InvalidTokenError:
-            print("❌ Invalid JWT token")
+        except jwt.ExpiredSignatureError:
+            print("❌ Token has expired")
+            return None
+        except jwt.InvalidTokenError as e:
+            print(f"❌ Invalid JWT token: {e}")
             return None
         except Exception as e:
             print(f"❌ Error validating token: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def _fetch_email_from_clerk(self, user_id: str) -> Optional[str]:
         """
-        Fetch user email from Clerk API
+        Fetch user email from Clerk API with caching
+        Cache emails for 1 hour to avoid repeated API calls
         """
+        # Check cache first
+        cached = self._email_cache.get(user_id)
+        if cached:
+            cached_at = cached.get("cached_at")
+            cache_age = datetime.now(timezone.utc).timestamp() - cached_at
+            
+            # Return cached email if still fresh
+            if cache_age < self._email_cache_ttl:
+                email = cached.get("email")
+                # Only log cache hits in debug mode (reduce verbosity)
+                # print(f"✅ Email retrieved from cache: {email} (cached {int(cache_age)}s ago)")
+                return email
+            else:
+                # Cache expired, remove it
+                print(f"🔄 Email cache expired for user {user_id}, refreshing...")
+                del self._email_cache[user_id]
+        
         if not self.clerk_secret_key:
             print("⚠️  Clerk secret key not configured, cannot fetch email")
             return None
         
         try:
+            print(f"🌐 [CLERK API] Fetching email for user: {user_id}")
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"https://api.clerk.com/v1/users/{user_id}",
@@ -113,7 +163,14 @@ class AuthService:
                             (e.get("email_address") for e in email_addresses if e.get("verification", {}).get("status") == "verified"),
                             email_addresses[0].get("email_address")
                         )
-                        print(f"✅ Fetched email from Clerk API: {primary_email}")
+                        
+                        # Cache the email
+                        self._email_cache[user_id] = {
+                            "email": primary_email,
+                            "cached_at": datetime.now(timezone.utc).timestamp()
+                        }
+                        
+                        print(f"✅ [CLERK API] Email cached: {primary_email} (valid for 1 hour)")
                         return primary_email
                     else:
                         print(f"⚠️  No email addresses found for user {user_id}")

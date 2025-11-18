@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Bot } from "lucide-react";
+import { LogoutSharp, PersonSharp, SmartToySharp } from "@mui/icons-material";
 import { useState, useRef } from "react";
 import { useOnClickOutside } from "usehooks-ts";
 
@@ -166,7 +166,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
               onClick={handleAccount}
               className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
             >
-              <User className="mr-2 h-4 w-4" />
+              <PersonSharp sx={{ fontSize: 16 }} className="mr-2" />
               Profile
             </button>
             
@@ -174,7 +174,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
               onClick={handleSupport}
               className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
             >
-              <Bot className="mr-2 h-4 w-4" />
+              <SmartToySharp sx={{ fontSize: 16 }} className="mr-2" />
               Support
             </button>
           </div>
@@ -192,7 +192,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
                 </>
               ) : (
                 <>
-                  <LogOut className="mr-2 h-4 w-4" />
+                  <LogoutSharp sx={{ fontSize: 16 }} className="mr-2" />
                   Sign out
                 </>
               )}

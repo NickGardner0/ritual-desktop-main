@@ -5,15 +5,24 @@
 
 /* Enable smooth view transitions for instant page navigation */
 @supports (view-transition-name: none) {
+
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 0ms;
   }
 }
 
+/* Hover performance boost for list rows */
+.row-hover-boost {
+  will-change: background-color, transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  contain: layout paint;
+}
+
 @layer base {
-  /* Geist Sans is loaded via Next.js font optimization in layout.tsx */
-  
+  /* FK Grotesk Neue is loaded via @font-face declarations below */
+
   @font-face {
     font-family: 'Departure Mono';
     src: url('/fonts/DepartureMono-1.500/DepartureMono-Regular.otf') format('opentype');
@@ -21,7 +30,9 @@
     font-style: normal;
     font-display: block;
   }
-  
+
+
+
   @font-face {
     font-family: 'Geist Mono';
     src: url('/fonts/Geist_Mono/static/GeistMono-Medium.ttf') format('truetype');
@@ -29,16 +40,73 @@
     font-style: normal;
     font-display: block;
   }
-  
+
+  /* FK Grotesk Neue font family */
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Thin-BF6576818c2a14c.otf') format('opentype');
+    font-weight: 100;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Light-BF6576818c0f3e8.otf') format('opentype');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Regular-BF6576818c3af74.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Medium-BF6576818c3a00a.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf') format('opentype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf') format('opentype');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'FK Grotesk Neue';
+    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Italic-BF6576818c041e2.otf') format('opentype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+  }
+
   /* Ensure Departure Mono renders with crisp, pixelated edges for Tauri */
   .departure-mono {
     font-family: 'Departure Mono', 'Courier New', monospace;
     -webkit-font-smoothing: antialiased;
-    font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: geometricPrecision;
   }
 
-  /* Clerk component font overrides - use Geist Sans */
+  /* Clerk component font overrides - use FK Grotesk Neue */
   .cl-headerTitle,
   .cl-headerSubtitle,
   .cl-rootBox,
@@ -66,52 +134,53 @@
   .cl-rootBox {
     border-radius: 0 !important;
   }
-  
 
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-  }
+}
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-  }
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 84% 4.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 84% 4.9%;
+  --primary: 222.2 47.4% 11.2%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222.2 84% 4.9%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 84% 4.9%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 84% 4.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 210 40% 98%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 212.7 26.8% 83.9%;
 }
 
 @layer base {
@@ -123,7 +192,7 @@
     @apply bg-background text-foreground;
     -webkit-app-region: no-drag;
   }
-  
+
   /* Tauri drag region styles - Midday approach */
   .tauri-drag-region {
     @apply fixed top-0 left-0 right-0 h-5 z-[51];
@@ -136,35 +205,35 @@
     -webkit-app-region: no-drag !important;
     cursor: pointer !important;
   }
-  
+
   /* Force pointer cursor on buttons in no-drag areas */
-  .no-drag button, .no-drag .no-drag {
+  .no-drag button,
+  .no-drag .no-drag {
     -webkit-app-region: no-drag !important;
     cursor: pointer !important;
   }
-  
+
   /* Remove all borders and outlines from the root elements */
-  #__next, #root, div[data-tauri-drag-region] {
+  #__next,
+  #root,
+  div[data-tauri-drag-region] {
     border: none !important;
     outline: none !important;
     box-shadow: none !important;
   }
-  
+
   /* Remove any browser/system-level borders during drag */
   *:focus {
     outline: none !important;
   }
-  
+
   /* Ensure the app container has no borders */
   .app-container {
     border: none !important;
     outline: none !important;
   }
-  
-  /* Comprehensive border removal for Tauri app */
-  body, html, #__next, #root, .app-container {
-    /* Remove user-select restriction that might interfere with dragging */
-  }
+
+
 
   /* Desktop App - Midday's approach */
   html.desktop {
@@ -209,27 +278,28 @@
   .desktop button {
     cursor: default !important;
   }
-  
+
   /* Override cursor for get started button */
   .get-started-btn,
   .get-started-btn:hover {
     cursor: pointer !important;
   }
-  
+
   .get-started-btn:active {
     cursor: pointer !important;
   }
-  
+
   /* Ensure pointer cursor works on desktop */
   .desktop .get-started-btn,
   .desktop .get-started-btn:hover {
     cursor: pointer !important;
   }
-  
+
   .desktop .get-started-btn:active {
     cursor: pointer !important;
   }
-  
+
+
   /* Remove any remaining browser/system borders */
   ::-webkit-scrollbar {
     display: none;
@@ -239,10 +309,13 @@
 /* Voice UI Animations */
 @layer utilities {
   @keyframes voice-pulse {
-    0%, 100% {
+
+    0%,
+    100% {
       height: 10px;
       opacity: 0.8;
     }
+
     50% {
       height: 18px;
       opacity: 1;
@@ -254,6 +327,7 @@
       transform: scale(1);
       opacity: 1;
     }
+
     100% {
       transform: scale(1.5);
       opacity: 0;
@@ -264,6 +338,7 @@
     from {
       opacity: 0;
     }
+
     to {
       opacity: 1;
     }
@@ -273,6 +348,7 @@
     from {
       transform: scale(0.95);
     }
+
     to {
       transform: scale(1);
     }

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from 'date-fns';
-import { Users2, Video, MapPin, AlignLeft, Bell } from 'lucide-react';
+import { Users, Video, MapPin, AlignLeft, Bell } from 'lucide-react';
 // import CompactTimer from '@/components/timer/CompactTimer';
 
 // Sample events
@@ -122,7 +122,7 @@ export default function CalendarPage() {
             </div>
 
             <div className="flex items-center gap-4 text-sm">
-              <Users2 className="w-5 h-5" />
+              <Users className="w-5 h-5" />
               <span className="text-gray-600">Add guests</span>
             </div>
 

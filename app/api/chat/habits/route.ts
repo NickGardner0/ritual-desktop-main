@@ -152,6 +152,7 @@ Always use today's date (${today}) and be encouraging in your responses.`;
       message: z.string().optional() // For when success is false
     });
 
+    // @ts-expect-error - AI SDK generateObject has deep type inference that causes TS errors
     const result = await generateObject({
       model: openai('gpt-4o-mini'),
       system: systemPrompt,

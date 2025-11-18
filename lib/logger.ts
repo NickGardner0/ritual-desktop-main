@@ -28,10 +28,24 @@ export const logger = {
    */
   error: (...args: any[]) => {
     console.error(...args);
-    // TODO: Send to error tracking service (Sentry, etc.) in production
-    // if (!isDev) {
-    //   Sentry.captureException(args[0]);
-    // }
+    
+    // Send to Sentry in production
+    if (!isDev && typeof window !== 'undefined') {
+      try {
+        // Dynamic import to avoid bundling Sentry in development
+        import('@sentry/nextjs').then(Sentry => {
+          if (args[0] instanceof Error) {
+            Sentry.captureException(args[0]);
+          } else {
+            Sentry.captureMessage(String(args[0]), 'error');
+          }
+        }).catch(() => {
+          // Sentry not available, ignore
+        });
+      } catch {
+        // Ignore Sentry errors
+      }
+    }
   },
 
   /**

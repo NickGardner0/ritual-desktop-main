@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB, UserDB
+from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
 from services.tinybird_service import TinybirdService
 
 class HabitsService:
@@ -54,18 +55,7 @@ class HabitsService:
                 await session.refresh(habit_db)
                 
                 # Convert to Pydantic model
-                habit = Habit(
-                    id=habit_db.id,
-                    user_id=habit_db.user_id,
-                    name=habit_db.name,
-                    category=habit_db.category,
-                    icon=habit_db.icon,
-                    is_custom=habit_db.is_custom,
-                    integration_source=habit_db.integration_source,
-                    unit_type=habit_db.unit_type,
-                    created_at=habit_db.created_at,
-                    updated_at=habit_db.updated_at
-                )
+                habit = habit_db_to_pydantic(habit_db)
                 
                 # Sync to Tinybird (async, non-blocking)
                 if self.tinybird_enabled:
@@ -93,23 +83,7 @@ class HabitsService:
                     .order_by(HabitDB.created_at.desc())
                 )
                 habits_db = result.scalars().all()
-                
-                # Convert to Pydantic models
-                return [
-                    Habit(
-                        id=habit.id,
-                        user_id=habit.user_id,
-                        name=habit.name,
-                        category=habit.category,
-                        icon=habit.icon,
-                        is_custom=habit.is_custom,
-                        integration_source=habit.integration_source,
-                        unit_type=habit.unit_type,
-                        created_at=habit.created_at,
-                        updated_at=habit.updated_at
-                    )
-                    for habit in habits_db
-                ]
+                return [habit_db_to_pydantic(habit) for habit in habits_db]
                 
             except SQLAlchemyError as e:
                 raise Exception(f"Failed to fetch habits: {str(e)}")
@@ -126,22 +100,7 @@ class HabitsService:
                     .where(HabitDB.user_id == user_id)
                 )
                 habit_db = result.scalar_one_or_none()
-                
-                if not habit_db:
-                    return None
-                
-                return Habit(
-                    id=habit_db.id,
-                    user_id=habit_db.user_id,
-                    name=habit_db.name,
-                    category=habit_db.category,
-                    icon=habit_db.icon,
-                    is_custom=habit_db.is_custom,
-                    integration_source=habit_db.integration_source,
-                    unit_type=habit_db.unit_type,
-                    created_at=habit_db.created_at,
-                    updated_at=habit_db.updated_at
-                )
+                return habit_db_to_pydantic(habit_db) if habit_db else None
                 
             except SQLAlchemyError as e:
                 raise Exception(f"Failed to fetch habit: {str(e)}")
@@ -263,28 +222,24 @@ class HabitsService:
                 await session.commit()
                 await session.refresh(log_db)
                 
-                habit_log = HabitLog(
-                    id=log_db.id,
-                    habit_id=log_db.habit_id,
-                    duration=log_db.duration,
-                    amount=log_db.amount,
-                    date=log_db.date,
-                    completed_at=log_db.completed_at,
-                    status=log_db.status,
-                    notes=log_db.notes
-                )
+                habit_log = habit_log_db_to_pydantic(log_db)
                 
                 # Sync to Tinybird (async, non-blocking)
                 if self.tinybird_enabled:
                     try:
+                        print(f"🔄 Syncing habit log for '{habit.name}' to Tinybird...")
                         result = await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
                         if result and result.get('success'):
-                            print(f"📊 Habit log for '{habit.name}' synced to Tinybird ({result.get('count', 0)} events)")
+                            print(f"✅ Habit log for '{habit.name}' synced to Tinybird ({result.get('count', 0)} events)")
                         else:
-                            print(f"⚠️  Tinybird sync failed for habit log: {result.get('error', 'Unknown error')}")
-                            print(f"⚠️  Tinybird response: {result}")
+                            print(f"❌ Tinybird sync failed for habit log: {result.get('error', 'Unknown error')}")
+                            print(f"❌ Tinybird response: {result}")
                     except Exception as e:
-                        print(f"⚠️  Tinybird sync exception for habit log: {e}")
+                        print(f"❌ Tinybird sync exception for habit log: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print(f"⚠️  Tinybird sync disabled - habit log NOT synced to analytics")
                 
                 return habit_log
                 
@@ -307,20 +262,7 @@ class HabitsService:
                 
                 result = await session.execute(query)
                 logs_db = result.scalars().all()
-                
-                return [
-                    HabitLog(
-                        id=log.id,
-                        habit_id=log.habit_id,
-                        duration=log.duration,
-                        amount=log.amount,
-                        date=log.date,
-                        completed_at=log.completed_at,
-                        status=log.status,
-                        notes=log.notes
-                    )
-                    for log in logs_db
-                ]
+                return [habit_log_db_to_pydantic(log) for log in logs_db]
                 
             except SQLAlchemyError as e:
                 raise Exception(f"Failed to fetch habit logs: {str(e)}")

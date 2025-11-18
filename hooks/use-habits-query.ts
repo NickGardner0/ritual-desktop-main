@@ -131,20 +131,33 @@ export function useLogHabitMutation() {
       const token = await getToken();
       console.log('📝 [React Query] Logging habit:', habitLog);
 
-      const response = await fetch(`${PYTHON_API_BASE}/api/habit-logs`, {
+      // Use correct endpoint: /api/habits/{habit_id}/logs
+      // This endpoint syncs to Tinybird automatically!
+      const response = await fetch(`${PYTHON_API_BASE}/api/habits/${habitLog.habit_id}/logs`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(habitLog),
+        body: JSON.stringify({
+          duration: habitLog.duration,
+          amount: habitLog.amount,
+          date: habitLog.date,
+          completed_at: habitLog.completed_at,
+          status: habitLog.status,
+          notes: habitLog.notes,
+        }),
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Failed to log habit:', errorText);
         throw new Error(`Failed to log habit: ${response.status}`);
       }
 
-      return response.json();
+      const result = await response.json();
+      console.log('✅ Habit logged and synced to Tinybird!');
+      return result;
     },
 
     // Optimistic update - instant UI feedback!
@@ -182,11 +195,17 @@ export function useLogHabitMutation() {
     },
 
     // Refetch after mutation completes
-    onSettled: () => {
+    onSettled: async () => {
       console.log('✅ [React Query] Refetching logs after mutation...');
-      queryClient.invalidateQueries({ 
-        queryKey: habitLogKeys.list(user?.id || 'anonymous') 
+      // Invalidate habit logs to mark as stale (will refetch on next mount)
+      await queryClient.invalidateQueries({ 
+        queryKey: habitLogKeys.list(user?.id || 'anonymous')
       });
+      // CRITICAL: Invalidate analytics cache - marks as stale so it refetches when page opens
+      await queryClient.invalidateQueries({ 
+        queryKey: ['analytics-summary', user?.id]
+      });
+      console.log('🔄 [React Query] Analytics cache invalidated - will refetch on navigation!');
     },
   });
 }

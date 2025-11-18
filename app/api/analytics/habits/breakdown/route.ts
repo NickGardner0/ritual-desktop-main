@@ -6,10 +6,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
-    // Get Clerk auth
-    const { userId: clerkUserId } = await auth();
+    // Get Clerk auth and token in one call
+    const { userId: clerkUserId, getToken } = await auth();
     if (!clerkUserId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     // Query Python backend for habit logs with category info
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-    const token = await auth().getToken();
+    const token = await getToken();
     
     const response = await fetch(
       `${backendUrl}/api/analytics/habits/breakdown?user_id=${clerkUserId}&start_date=${startDateStr}&end_date=${endDateStr}`,

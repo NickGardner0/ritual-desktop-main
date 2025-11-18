@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils';
 import {
-  LoaderCircleIcon,
-  LoaderIcon,
-  LoaderPinwheelIcon,
+  LoaderCircle as LoaderCircleIcon,
+  Loader as LoaderIcon,
+  LoaderPinwheel as LoaderPinwheelIcon,
   type LucideProps,
 } from 'lucide-react';
 

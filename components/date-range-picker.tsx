@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CalendarIcon, ChevronDownIcon } from "lucide-react"
+import { Calendar as CalendarIcon, ChevronDown } from "lucide-react"
 import { format, subDays, subWeeks, subMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns"
 import { DateRange } from "react-day-picker"
 
@@ -155,9 +155,9 @@ export function DateRangePicker({
               className
             )}
           >
-            <CalendarIcon className="mr-2 h-4 w-4" />
+            <CalendarIcon className="w-4 h-4 mr-2" />
             {formatDateRange()}
-            <ChevronDownIcon className="ml-auto h-4 w-4" />
+            <ChevronDown className="w-4 h-4 ml-auto" />
           </Button>
         </PopoverTrigger>
         <PopoverContent 

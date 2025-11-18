@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useState } from 'react';
-import { ArrowRight, ArrowUp, Loader2, Paperclip, Mic, Search, SlidersHorizontal, MessageSquare, List } from 'lucide-react';
+import { ArrowRight, ArrowUp, Hourglass, Paperclip, Mic, Search, SlidersHorizontal, MessageSquare, List } from 'lucide-react';
 import { cn } from "@/lib/utils";
 // Removed supabase import - now using Clerk + Python backend
 import { useHabits } from '@/contexts/HabitsContext'; // Updated to use Python backend
@@ -789,7 +789,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                       {isListening ? (
                         <VoiceWaveformMini isActive={true} className="relative z-10" />
                       ) : isProcessingVoice ? (
-                        <Loader2 className="w-4 h-4 animate-spin relative z-10" />
+                        <Hourglass className="w-4 h-4 animate-spin relative z-10" />
                       ) : (
                         <Mic className="w-4 h-4 relative z-10 transition-transform hover:scale-110" />
                       )}
@@ -848,9 +848,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     }}
                   >
                     {isLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#ffffff' }} />
+                      <Hourglass className="w-4 h-4 text-white animate-spin" />
                     ) : (
-                      <ArrowUp className="w-4 h-4" style={{ color: '#ffffff' }} />
+                      <ArrowUp className="w-4 h-4 text-white" />
                     )}
                   </button>
                 </div>

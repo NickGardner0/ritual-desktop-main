@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { tinybirdService } from '@/lib/tinybird-service';
 import { logger } from '@/lib/logger';
 
+// Force dynamic rendering since we use request.url
+export const dynamic = 'force-dynamic';
+
 /**
  * Debug endpoint to execute direct SQL queries against Tinybird
  * ⚠️ WARNING: This endpoint logs sensitive user data - should be disabled or protected in production

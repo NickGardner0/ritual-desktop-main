@@ -52,13 +52,20 @@ class TinybirdService {
     // Use cloud or local based on TINYBIRD_ENV (defaults to cloud if not set)
     const useCloud = process.env.TINYBIRD_ENV !== 'local';
     
+    // Get tokens from environment
+    const cloudToken = process.env.TINYBIRD_TOKEN;
+    const localToken = process.env.TINYBIRD_LOCAL_TOKEN || 'admin local_testing@tinybird.co';
+    
+    // Validate that required token is present
+    if (useCloud && !cloudToken) {
+      throw new Error('TINYBIRD_TOKEN environment variable is required for cloud mode. Please add it to your .env file.');
+    }
+    
     this.config = {
       baseUrl: useCloud 
         ? (process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co')
         : (process.env.TINYBIRD_LOCAL_URL || 'http://localhost:7181'),
-      token: useCloud
-        ? (process.env.TINYBIRD_TOKEN || 'p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJmMWJjYzQ4Zi1mM2QxLTQ3YzgtODAwYi00MWU0ZTlhMzU5YjciLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.cIau5gLqIaohshuRL2Lr6MO_2UuXKwE49hyF3IUw5oA')
-        : (process.env.TINYBIRD_LOCAL_TOKEN || 'admin local_testing@tinybird.co')
+      token: useCloud ? cloudToken! : localToken
     };
   }
   

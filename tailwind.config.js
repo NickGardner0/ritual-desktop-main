@@ -128,7 +128,7 @@ module.exports = {
         'dots-lg': '40px 40px',
       },
       fontFamily: {
-        sans: ['var(--font-geist-sans)', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ["'FK Grotesk Neue'", '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       opacity: {
         '0': '0',

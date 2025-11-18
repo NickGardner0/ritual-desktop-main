@@ -112,15 +112,15 @@ export default function WidgetPage() {
     if (typeof window !== 'undefined') {
       const resizeWindow = async () => {
         try {
-          const { getCurrent } = await import('@tauri-apps/api/window');
+          const { getCurrent, LogicalSize } = await import('@tauri-apps/api/window');
           const currentWindow = getCurrent();
           
           if (showHabitSelector) {
             // Expand window height to show dropdown
-            await currentWindow.setSize({ width: 320, height: 200 });
+            await currentWindow.setSize(new LogicalSize(320, 200));
           } else {
             // Contract back to normal size
-            await currentWindow.setSize({ width: 320, height: 50 });
+            await currentWindow.setSize(new LogicalSize(320, 50));
           }
         } catch (error) {
           console.log('Window resize not available:', error);

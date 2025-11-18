@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/integrations/whoop/callback(.*)', // Public for OAuth callback
   '/api/integrations/whoop/store-code(.*)', // Public for OAuth polling
   '/integrations/success(.*)', // Public for OAuth success page (closes browser)
+  '/sentry-test(.*)', // Public for testing Sentry error tracking
   // Removed /api/chat/habits and /api/whisper from public routes
   // These routes now require authentication
 ]);

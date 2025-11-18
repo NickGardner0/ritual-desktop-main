@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { MainMenu } from "./main-menu";
 import { Button } from "@/components/ui/button";
-import { Command } from "lucide-react";
+import { Terminal } from "lucide-react";
 
 
 interface SidebarProps {
@@ -62,7 +62,7 @@ export function Sidebar({ onToggleChat, isChatOpen = false }: SidebarProps) {
               : "text-gray-600 hover:text-gray-900"
           )}
         >
-          <Command className="w-5 h-5" />
+          <Terminal className="w-5 h-5" />
         </button>
       </div>
     </aside>
