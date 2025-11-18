@@ -10,23 +10,18 @@ const nextConfig = {
   // Enable strict mode for better development experience and catching potential issues
   reactStrictMode: true,
   
-  // Skip TypeScript and ESLint checks during build
+  // Skip TypeScript checks during build
   // TODO: Fix TypeScript errors properly later
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   
   // Enable experimental features for better performance
   experimental: {
-    instrumentationHook: true,
-    // Optimize package imports for tree-shaking (works with Next.js 14)
+    // Optimize package imports for tree-shaking
     optimizePackageImports: [
       'recharts', 
-      '@radix-ui/react-icons', 
-      '@mui/icons-material',
+      '@radix-ui/react-icons',
       'lucide-react',
       'date-fns',
       '@hello-pangea/dnd'

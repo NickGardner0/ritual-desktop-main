@@ -14,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="desktop">
+    <html lang="en" className="desktop" suppressHydrationWarning>
       <head>
         <meta name="view-transition" content="same-origin" />
       </head>
