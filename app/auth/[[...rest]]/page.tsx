@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, FormEvent } from 'react'
-import { useSignIn, useSignUp } from '@clerk/nextjs'
+import { useState, FormEvent, useEffect } from 'react'
+import { useSignIn, useSignUp, useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler'
 import { Zap, Loader2 } from 'lucide-react'
 import Image from 'next/image'
 
 export default function AuthPage() {
+  const { isSignedIn, isLoaded: userLoaded } = useUser()
   const { signIn, setActive: setActiveSignIn, isLoaded: signInLoaded } = useSignIn()
   const { signUp, setActive: setActiveSignUp, isLoaded: signUpLoaded } = useSignUp()
   const [isSignUp, setIsSignUp] = useState(false)
@@ -16,6 +17,30 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
+
+  // Redirect if already signed in
+  useEffect(() => {
+    if (userLoaded && isSignedIn) {
+      console.log('👤 User already signed in, redirecting to dashboard...')
+      router.replace('/dashboard')
+    }
+  }, [isSignedIn, userLoaded, router])
+
+  // Show loading while checking auth state
+  if (!userLoaded) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
+          <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render auth form if user is signed in (will redirect)
+  if (isSignedIn) {
+    return null
+  }
 
   const handleEmailAuth = async (e: FormEvent) => {
     e.preventDefault()
