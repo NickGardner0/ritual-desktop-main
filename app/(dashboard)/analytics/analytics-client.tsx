@@ -388,11 +388,25 @@ export function AnalyticsClient() {
   
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
-  const [selectedHabits, setSelectedHabits] = useState<string[]>([]);
+  // Initialize selectedHabits from localStorage
+  const [selectedHabits, setSelectedHabits] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('analytics-selected-habits');
+      return saved ? JSON.parse(saved) : [];
+    }
+    return [];
+  });
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>({});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'chart' | 'ticker'>('chart');
+  // Initialize viewMode from localStorage
+  const [viewMode, setViewMode] = useState<'chart' | 'ticker'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('analytics-view-mode');
+      return (saved as 'chart' | 'ticker') || 'chart';
+    }
+    return 'chart';
+  });
   
   const availableHabits = data?.habits || [];
   const summaryMetrics = data?.summaryMetrics;
@@ -402,6 +416,20 @@ export function AnalyticsClient() {
     refetch();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+  
+  // Persist selectedHabits to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('analytics-selected-habits', JSON.stringify(selectedHabits));
+    }
+  }, [selectedHabits]);
+  
+  // Persist viewMode to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('analytics-view-mode', viewMode);
+    }
+  }, [viewMode]);
   
   // Show loading on first fetch only
   if (isLoading && !data) {
