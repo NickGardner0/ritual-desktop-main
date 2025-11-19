@@ -401,6 +401,7 @@ export function AnalyticsClient() {
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>({});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
+  const [comparisonPeriod, setComparisonPeriod] = useState<'week' | 'month'>('week');
   // Initialize viewMode from localStorage
   const [viewMode, setViewMode] = useState<'chart' | 'ticker'>(() => {
     if (typeof window !== 'undefined') {
@@ -626,8 +627,11 @@ export function AnalyticsClient() {
 
     const totalValue = chartData.reduce((sum: number, d: any) => sum + d.value, 0);
     const avgValue = chartData.length > 0 ? totalValue / chartData.length : 0;
-    const recent = chartData.slice(-7);
-    const previous = chartData.slice(-14, -7);
+    
+    // Calculate change based on comparison period
+    const comparisonDays = comparisonPeriod === 'week' ? 7 : 30;
+    const recent = chartData.slice(-comparisonDays);
+    const previous = chartData.slice(-(comparisonDays * 2), -comparisonDays);
     const recentAvg = recent.reduce((sum: number, d: any) => sum + d.value, 0) / (recent.length || 1);
     const previousAvg = previous.reduce((sum: number, d: any) => sum + d.value, 0) / (previous.length || 1);
     const change = previousAvg > 0 ? ((recentAvg - previousAvg) / previousAvg * 100) : 0;
@@ -779,6 +783,30 @@ export function AnalyticsClient() {
               onViewChange={setViewMode}
               darkMode={false}
             />
+            
+            {/* Comparison Period Toggle */}
+            <div className="flex items-center gap-1 bg-white border border-gray-300 p-1">
+              <button
+                onClick={() => setComparisonPeriod('week')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  comparisonPeriod === 'week'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                vs Last Week
+              </button>
+              <button
+                onClick={() => setComparisonPeriod('month')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  comparisonPeriod === 'month'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                vs Last Month
+              </button>
+            </div>
           </div>
         </div>
         
