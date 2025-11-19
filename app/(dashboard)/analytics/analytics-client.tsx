@@ -19,7 +19,9 @@ import {
   TrendingUp, 
   TrendingDown,
   X,
-  ChevronDown
+  ChevronDown,
+  Download,
+  Flame
 } from 'lucide-react';
 import { DateRangePicker } from '@/components/date-range-picker';
 import { DateRange } from 'react-day-picker';
@@ -640,9 +642,60 @@ export function AnalyticsClient() {
     };
   };
 
+  // Export to CSV function
+  const exportToCSV = () => {
+    if (selectedHabits.length === 0) {
+      alert('Please select at least one habit to export');
+      return;
+    }
+
+    try {
+      // Prepare CSV data
+      const csvRows = [];
+      
+      // Header row
+      csvRows.push(['Date', 'Habit', 'Value', 'Unit', 'Status', 'Notes'].join(','));
+      
+      // Data rows
+      selectedHabits.forEach(habitId => {
+        const habitLogs = analyticsData[habitId] || [];
+        const habit = availableHabits.find((h: HabitData) => h.habit_id === habitId);
+        const habitName = habit?.habit_name || 'Unknown';
+        
+        habitLogs.forEach((log: any) => {
+          const date = log.date || '';
+          const value = log.amount || log.duration || log.value || '';
+          const unit = log.unit || '';
+          const status = log.status || 'completed';
+          const notes = (log.notes || '').replace(/,/g, ';'); // Replace commas to avoid CSV issues
+          
+          csvRows.push([date, habitName, value, unit, status, notes].join(','));
+        });
+      });
+      
+      // Create blob and download
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `ritual-habits-${format(new Date(), 'yyyy-MM-dd')}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      console.log('✅ CSV exported successfully');
+    } catch (error) {
+      console.error('❌ Failed to export CSV:', error);
+      alert('Failed to export CSV. Please try again.');
+    }
+  };
+
   return (
     <>
-      {/* Top Bar: Habit Dropdown + View Toggle (left), Date Range Picker (right) */}
+      {/* Top Bar: Habit Dropdown + View Toggle (left), Date Range Picker + Export (right) */}
       <div className="flex items-center justify-between mb-5">
         {/* Left Side: Habit Multi-Select Dropdown + View Toggle */}
         <div className="flex items-end gap-3">
@@ -729,13 +782,24 @@ export function AnalyticsClient() {
           </div>
         </div>
         
-        {/* Date Range Picker - Top Right */}
-        <div className="flex items-center">
+        {/* Date Range Picker + Export Button - Top Right */}
+        <div className="flex items-center gap-2">
           <DateRangePicker 
             className="w-auto"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}
           />
+          
+          {/* Export to CSV Button */}
+          <button
+            onClick={exportToCSV}
+            disabled={selectedHabits.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 hover:bg-[#F3F3F3] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export selected habits to CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span className="text-sm font-medium">Export</span>
+          </button>
         </div>
       </div>
 
