@@ -120,6 +120,8 @@ interface HabitMetricCardProps {
   isPositive: boolean;
   onClick?: () => void;
   onRemove?: () => void;
+  currentStreak?: number;
+  longestStreak?: number;
 }
 
 const HabitMetricCard: React.FC<HabitMetricCardProps> = ({ 
@@ -130,11 +132,21 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   chartData,
   isPositive,
   onClick,
-  onRemove
+  onRemove,
+  currentStreak,
+  longestStreak
 }) => {
   const trendColor = isPositive ? COLORS.success : COLORS.danger;
   const TrendIcon = isPositive ? TrendingUp : TrendingDown;
   const safeId = habitName.replace(/[^a-zA-Z0-9]/g, '_');
+  
+  // Determine streak milestone for celebration
+  const getStreakColor = (streak: number) => {
+    if (streak >= 100) return 'text-purple-600';
+    if (streak >= 30) return 'text-orange-500';
+    if (streak >= 7) return 'text-yellow-500';
+    return 'text-gray-400';
+  };
   
   return (
     <div 
@@ -163,6 +175,14 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             </div>
           )}
           <span className="text-sm font-medium text-gray-900 truncate">{habitName}</span>
+          
+          {/* Streak Badge */}
+          {currentStreak !== undefined && currentStreak > 0 && (
+            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 ${getStreakColor(currentStreak)}`} title={`Longest: ${longestStreak || 0} days`}>
+              <Flame className="w-3 h-3" />
+              <span className="text-xs font-semibold">{currentStreak}</span>
+            </div>
+          )}
         </div>
       </div>
       
@@ -400,6 +420,7 @@ export function AnalyticsClient() {
   });
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>({});
+  const [streakData, setStreakData] = useState<Record<string, any>>({});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [comparisonPeriod, setComparisonPeriod] = useState<'week' | 'month'>('week');
   // Initialize viewMode from localStorage
@@ -496,6 +517,37 @@ export function AnalyticsClient() {
 
     fetchAnalytics();
   }, [selectedHabits, dateRange, availableHabits]);
+
+  // Fetch streak data for selected habits
+  useEffect(() => {
+    if (selectedHabits.length === 0) {
+      setStreakData({});
+      return;
+    }
+
+    const fetchStreaks = async () => {
+      try {
+        const streakPromises = selectedHabits.map(habitId =>
+          fetch(`/api/analytics/habits/streaks?habit_id=${habitId}`)
+            .then(res => res.json())
+            .then(data => ({ habitId, streak: data.data }))
+        );
+
+        const results = await Promise.all(streakPromises);
+        const streaksById: Record<string, any> = {};
+        results.forEach(({ habitId, streak }) => {
+          streaksById[habitId] = streak;
+        });
+        
+        setStreakData(streaksById);
+        console.log('🔥 Streak data fetched:', streaksById);
+      } catch (error) {
+        console.error('❌ Error fetching streaks:', error);
+      }
+    };
+
+    fetchStreaks();
+  }, [selectedHabits]);
 
   const toggleHabit = (habitId: string) => {
     setSelectedHabits(prev => 
@@ -882,10 +934,14 @@ export function AnalyticsClient() {
                 const cardData = getHabitCardData(habitId);
                 if (!cardData) return null;
 
+                const streakInfo = streakData[habitId];
+                
                 return (
                   <HabitMetricCard
                     key={habitId}
                     {...cardData}
+                    currentStreak={streakInfo?.current_streak || 0}
+                    longestStreak={streakInfo?.longest_streak || 0}
                     onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
                     onRemove={() => {
                       setSelectedHabits(prev => prev.filter(id => id !== habitId));

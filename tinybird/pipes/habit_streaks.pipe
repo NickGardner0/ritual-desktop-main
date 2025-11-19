@@ -1,0 +1,84 @@
+DESCRIPTION >
+    Calculate current and longest streaks for a specific habit
+    Shows consecutive days where the habit was completed
+
+NODE habit_completed_dates
+SQL >
+    %
+    SELECT DISTINCT
+        date,
+        habit_id,
+        habit_name
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND habit_id = {{ String(habit_id, required=True) }}
+      AND status = 'completed'
+    ORDER BY date DESC
+
+NODE date_with_gaps
+SQL >
+    %
+    SELECT 
+        date,
+        habit_id,
+        habit_name,
+        toDate(date) as log_date,
+        dateDiff('day', log_date, today()) as days_ago,
+        dateDiff('day', lag(log_date, 1) OVER (ORDER BY log_date DESC), log_date) as days_gap
+    FROM habit_completed_dates
+    ORDER BY log_date DESC
+
+NODE current_streak_calc
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        countIf(days_gap <= 1 OR days_gap IS NULL) as current_streak
+    FROM date_with_gaps
+    WHERE days_ago <= current_streak OR days_ago = 0
+    GROUP BY habit_id, habit_name
+    LIMIT 1
+
+NODE all_streaks
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        log_date,
+        days_gap,
+        sum(if(days_gap > 1, 1, 0)) OVER (ORDER BY log_date) as streak_group
+    FROM date_with_gaps
+
+NODE longest_streak_calc
+SQL >
+    %
+    SELECT
+        habit_id,
+        max(streak_length) as longest_streak
+    FROM (
+        SELECT 
+            habit_id,
+            streak_group,
+            count(*) as streak_length
+        FROM all_streaks
+        GROUP BY habit_id, streak_group
+    )
+    GROUP BY habit_id
+
+NODE final_result
+SQL >
+    %
+    SELECT
+        c.habit_id,
+        c.habit_name,
+        c.current_streak,
+        l.longest_streak,
+        if(c.current_streak >= 7, floor(c.current_streak / 7), 0) as weekly_streaks_count,
+        if(c.current_streak >= 30, floor(c.current_streak / 30), 0) as monthly_streaks_count
+    FROM current_streak_calc c
+    LEFT JOIN longest_streak_calc l ON c.habit_id = l.habit_id
+
+TYPE ENDPOINT
+
