@@ -66,12 +66,11 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     func fetchRealHabits(completion: @escaping () -> Void) {
-        // Use Supabase REST API directly - match the web app's Supabase project
-        let supabaseURL = "https://bvwgycgdmrozxfmyxpuy.supabase.co"
-        let supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2d2d5Y2dkbXJvenhmbXl4cHV5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzczNDEwMDIsImV4cCI6MjA1MjkxNzAwMn0.ENcTaG68l8hZS8jW8nne8gqQuSqtdknJ5gck-Pg5PCg"
+        // Use Python FastAPI backend (not Supabase!)
+        let pythonAPIURL = "http://127.0.0.1:8000"
         
-        guard let url = URL(string: "\(supabaseURL)/rest/v1/habits?select=*") else {
-            print("❌ Invalid Supabase URL for fetching habits")
+        guard let url = URL(string: "\(pythonAPIURL)/api/habits") else {
+            print("❌ Invalid Python API URL for fetching habits")
             completion()
             return
         }
@@ -79,17 +78,15 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(supabaseKey, forHTTPHeaderField: "apikey")
         
         // Debug logging
-        print("🔍 Supabase URL: \(supabaseURL)")
-        print("🔍 Supabase Key: \(supabaseKey)")
+        print("🔍 Python API URL: \(pythonAPIURL)")
         print("🔍 Request URL: \(url.absoluteString)")
         
-        // Add authentication header
+        // Add Clerk authentication header
         if let authToken = getAuthTokenFromFile() {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-            print("🔐 Using authentication token for Supabase habits request")
+            print("🔐 Using Clerk authentication token for Python API habits request")
             print("🔐 Auth token preview: \(String(authToken.prefix(20)))...")
         } else {
             print("⚠️ No authentication token found - request may fail")
@@ -484,6 +481,27 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print("✅ Updated current habit to: \(currentHabit)")
     }
     
+    func requestFreshAuthToken() {
+        // Write a trigger file to request fresh auth token from Tauri
+        let tempDir = NSTemporaryDirectory()
+        let triggerFile = URL(fileURLWithPath: tempDir).appendingPathComponent("ritual_refresh_token_request.txt")
+        let timestamp = String(Date().timeIntervalSince1970)
+        
+        do {
+            try timestamp.write(to: triggerFile, atomically: true, encoding: .utf8)
+            print("🔄 Requested fresh auth token from Tauri app")
+        } catch {
+            print("⚠️ Could not write token refresh request: \(error)")
+        }
+    }
+    
+    func waitForFreshToken(completion: @escaping (Bool) -> Void) {
+        // Give Tauri a moment to write the fresh token
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            completion(true)
+        }
+    }
+    
     func logTimeToHabit() {
         let minutes = seconds / 60
         let remainingSeconds = seconds % 60
@@ -491,9 +509,13 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let durationInSeconds = seconds
         
         print("📊 Logging \(timeString) (\(durationInSeconds) seconds) for \(currentHabit)")
+        print("🔄 Requesting fresh auth token before logging...")
         
-        // Send time data to Tauri backend via HTTP API
-        sendTimeLogToBackend(habitName: currentHabit, durationInSeconds: durationInSeconds) { [weak self] success in
+        // Request fresh token from Tauri before logging
+        requestFreshAuthToken()
+        waitForFreshToken { [weak self] _ in
+            // Now send time data to backend with fresh token
+            self?.sendTimeLogToBackend(habitName: self?.currentHabit ?? "", durationInSeconds: durationInSeconds) { [weak self] success in
             DispatchQueue.main.async {
                 // Play success sound (same as AI chatbox)
                 if let successSound = NSSound(named: "Glass") {
@@ -520,6 +542,7 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
+            }
             }
         }
     }
@@ -589,55 +612,53 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     func createHabitLog(habitId: String, durationInSeconds: Int, completion: @escaping (Bool) -> Void) {
-        // Direct write to Tinybird (bypassing AI processing for speed)
-        guard let url = URL(string: "https://api.us-east.aws.tinybird.co/v0/events?name=habit_logs") else {
-            print("❌ Invalid Tinybird API URL")
+        // Use Python backend API (not direct Tinybird write!)
+        let pythonAPIURL = "http://127.0.0.1:8000"
+        
+        guard let url = URL(string: "\(pythonAPIURL)/api/habits/\(habitId)/logs") else {
+            print("❌ Invalid Python API URL for creating habit log")
             completion(false)
             return
         }
         
-        // Get Tinybird token from environment variable file
-        let tinybirdToken = "p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJjYjJlMTUwYi02YTg0LTQyMjgtYjdkZi1mYThkYjFhODEwMzQiLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.5wH8BHeMPTid8vpvameDP_6FuJF3npb2IcCtFVeaSGA"
+        guard let authToken = getAuthTokenFromFile() else {
+            print("❌ No authentication token found - cannot create habit log")
+            completion(false)
+            return
+        }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(tinybirdToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         
-        print("🔐 Using Tinybird token for direct API request")
+        print("🔐 Using Clerk authentication for habit log creation")
         
-        let userId = "05cbe689-f7ec-487b-adb6-ad50c7dc767b"
         let minutes = durationInSeconds / 60
         let seconds = durationInSeconds % 60
         
-        // Create ISO8601 formatter for timestamps
-        let timeFormatter = ISO8601DateFormatter()
-        timeFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let currentTimestamp = timeFormatter.string(from: Date())
-        let currentDate = String(currentTimestamp.prefix(10)) // YYYY-MM-DD
+        // Get current date in YYYY-MM-DD format
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let currentDate = dateFormatter.string(from: Date())
         
-        // Format data directly for Tinybird schema
-        // Avoid null values by using empty strings and zeros
+        // Get current timestamp in ISO 8601 format
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let currentTimestamp = isoFormatter.string(from: Date())
+        
+        // Create habit log data matching the Python backend API schema (HabitLogCreate)
+        // Note: habit_id comes from the URL path, not the body
         let logData: [String: Any] = [
-            "id": UUID().uuidString,
-            "habit_id": habitId,
-            "habit_name": currentHabit,
-            "user_id": userId,
             "date": currentDate,
-            "timestamp": currentTimestamp,
-            "status": "completed",
+            "completed_at": currentTimestamp,
             "duration": durationInSeconds,
-            "amount": 0,
-            "unit": "Minutes",
-            "notes": "Logged from native timer widget",
-            "source": "manual",
-            "integration_id": "",
-            "whoop_metric_type": "",
-            "metadata": "{}",
-            "created_at": currentTimestamp
+            "amount": 1,
+            "status": "completed",
+            "notes": "Timer session: \(String(format: "%02d:%02d", minutes, seconds)) from native timer widget"
         ]
         
-        print("🔍 Sending direct to Tinybird: \(logData)")
+        print("🔍 Sending habit log to Python backend: \(logData)")
         print("🔍 POST URL: \(url.absoluteString)")
         
         do {
@@ -656,12 +677,12 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     print("🔍 HTTP Response Status: \(httpResponse.statusCode)")
                     
                     if let data = data, let responseString = String(data: data, encoding: .utf8) {
-                        print("🔍 Tinybird Response: \(responseString)")
+                        print("🔍 Python API Response: \(responseString)")
                     }
                     
-                    // Tinybird returns 202 Accepted for successful event ingestion
-                    if httpResponse.statusCode == 202 {
-                        print("✅ Successfully logged habit directly to Tinybird")
+                    // Python API returns 200/201 for successful log creation
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+                        print("✅ Successfully logged habit to Python backend")
                         
                         // Notify the dashboard to refresh by writing a trigger file
                         self.notifyDashboardRefresh()
@@ -671,7 +692,7 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         
                         completion(true)
                     } else {
-                        print("❌ Tinybird error: \(httpResponse.statusCode)")
+                        print("❌ Python API error: \(httpResponse.statusCode)")
                         completion(false)
                     }
                 } else {

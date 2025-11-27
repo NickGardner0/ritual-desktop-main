@@ -5,6 +5,7 @@ Handles OAuth and data sync with Whoop API
 
 import os
 import uuid
+import json
 import httpx
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -231,10 +232,10 @@ class WhoopService:
         
         return integration.access_token
     
-    async def sync_whoop_data(self, user_id: str, days_back: int = 7) -> Dict[str, Any]:
+    async def sync_whoop_data(self, user_id: str, days_back: int = 30) -> Dict[str, Any]:
         """
         Sync data from Whoop API
-        This is a simplified version - you can expand it based on your needs
+        Default syncs last 30 days to capture historical data
         """
         access_token = await self.get_valid_access_token(user_id)
         
@@ -255,94 +256,176 @@ class WhoopService:
         async with httpx.AsyncClient() as client:
             try:
                 # Fetch recovery data (v1 API - v2 not available yet)
-                recovery_response = await client.get(
-                    f"{self.WHOOP_API_BASE}/developer/v1/recovery",
-                    headers={'Authorization': f'Bearer {access_token}'},
-                    params={
-                        'start': start_date.isoformat() + 'Z',
-                        'end': end_date.isoformat() + 'Z'
-                    }
-                )
+                # Whoop API returns max 25 records per page, so we need pagination
+                all_recovery = []
+                next_token = None
                 
-                if recovery_response.is_success:
-                    recovery_data = recovery_response.json()
+                while True:
+                    params = {
+                        'start': start_date.isoformat() + 'Z',
+                        'end': end_date.isoformat() + 'Z',
+                        'limit': 25  # Max allowed by Whoop API
+                    }
+                    if next_token:
+                        params['nextToken'] = next_token
+                    
+                    recovery_response = await client.get(
+                        f"{self.WHOOP_API_BASE}/developer/v1/recovery",
+                        headers={'Authorization': f'Bearer {access_token}'},
+                        params=params
+                    )
+                    
+                    if recovery_response.is_success:
+                        recovery_page = recovery_response.json()
+                        page_records = recovery_page.get('records', [])
+                        all_recovery.extend(page_records)
+                        
+                        # Check if there are more pages
+                        next_token = recovery_page.get('next_token')
+                        if not next_token:
+                            break  # No more pages
+                    else:
+                        print(f"⚠️  Error fetching recovery: {recovery_response.status_code}")
+                        break
+                
+                recovery_data = {'records': all_recovery} if all_recovery else None
+                if recovery_data:
                     synced_data["recovery"] = len(recovery_data.get('records', []))
                     print(f"✅ Synced {synced_data['recovery']} recovery records")
                 
-                # Fetch sleep data (v1 API - v2 not available for all apps yet)
-                # Note: According to Whoop API docs, start/end filter by the END time of the sleep session
-                print(f"🔍 Fetching sleep data from {start_date.isoformat()}Z to {end_date.isoformat()}Z")
-                sleep_response = await client.get(
-                    f"{self.WHOOP_API_BASE}/developer/v1/activity/sleep",
-                    headers={'Authorization': f'Bearer {access_token}'},
-                    params={
+                # Fetch cycle data FIRST (v1 API - includes daily metrics)
+                # We need cycle IDs to fetch sleep data in v2 API
+                # Whoop API returns max 25 records per page, so we need pagination
+                all_cycles = []
+                next_token = None
+                
+                while True:
+                    params = {
                         'start': start_date.isoformat() + 'Z',
                         'end': end_date.isoformat() + 'Z',
-                        'limit': 25
+                        'limit': 25  # Max allowed by Whoop API
                     }
-                )
+                    if next_token:
+                        params['nextToken'] = next_token
+                    
+                    cycle_response = await client.get(
+                        f"{self.WHOOP_API_BASE}/developer/v1/cycle",
+                        headers={'Authorization': f'Bearer {access_token}'},
+                        params=params
+                    )
+                    
+                    if cycle_response.is_success:
+                        cycle_page = cycle_response.json()
+                        page_records = cycle_page.get('records', [])
+                        all_cycles.extend(page_records)
+                        
+                        # Check if there are more pages
+                        next_token = cycle_page.get('next_token')
+                        if not next_token:
+                            break  # No more pages
+                    else:
+                        print(f"⚠️  Error fetching cycles: {cycle_response.status_code}")
+                        break
                 
-                if sleep_response.is_success:
-                    sleep_data = sleep_response.json()
-                    synced_data["sleep"] = len(sleep_data.get('records', []))
-                    print(f"✅ Fetched {synced_data['sleep']} sleep records from Whoop API")
+                cycle_data = {'records': all_cycles} if all_cycles else None
+                if cycle_data:
+                    synced_data["cycles"] = len(cycle_data.get('records', []))
+                    print(f"✅ Synced {synced_data['cycles']} cycle records (daily metrics)")
+                
+                # Fetch sleep data using v2 API (requires cycle IDs)
+                # v2 endpoint: /developer/v2/cycle/{cycleId}/sleep
+                print(f"🔍 Fetching sleep data using v2 API (cycle-based)")
+                sleep_data = {"records": []}
+                
+                if cycle_data and cycle_data.get('records'):
+                    for cycle in cycle_data['records']:
+                        cycle_id = cycle.get('id')
+                        if not cycle_id:
+                            continue
+                        
+                        try:
+                            sleep_response = await client.get(
+                                f"{self.WHOOP_API_BASE}/developer/v2/cycle/{cycle_id}/sleep",
+                                headers={'Authorization': f'Bearer {access_token}'}
+                            )
+                            
+                            if sleep_response.is_success:
+                                sleep_record = sleep_response.json()
+                                # v2 API returns a single sleep object, not a list
+                                # Wrap it in records array format for consistency
+                                if sleep_record:
+                                    sleep_data['records'].append(sleep_record)
+                                    synced_data["sleep"] += 1
+                            else:
+                                print(f"⚠️  No sleep data for cycle {cycle_id}: {sleep_response.status_code}")
+                        except Exception as e:
+                            print(f"⚠️  Error fetching sleep for cycle {cycle_id}: {str(e)}")
+                    
+                    print(f"✅ Fetched {synced_data['sleep']} sleep records from Whoop v2 API")
                     
                     # Debug: Print details of each sleep record
                     for record in sleep_data.get('records', []):
                         sleep_start = record.get('start', 'N/A')
                         sleep_end = record.get('end', 'N/A')
                         sleep_date = sleep_start[:10] if sleep_start != 'N/A' else 'N/A'
-                        total_ms = record.get('score', {}).get('stage_summary', {}).get('total_in_bed_time_milli', 0)
+                        # Calculate actual sleep time (REM + Slow Wave + Light, excluding awake time)
+                        stage_summary = record.get('score', {}).get('stage_summary', {})
+                        rem_ms = stage_summary.get('total_rem_sleep_time_milli', 0)
+                        slow_wave_ms = stage_summary.get('total_slow_wave_sleep_time_milli', 0)
+                        light_ms = stage_summary.get('total_light_sleep_time_milli', 0)
+                        total_ms = rem_ms + slow_wave_ms + light_ms
                         total_hours = round(total_ms / 3600000, 2)
-                        print(f"  📊 Sleep: date={sleep_date}, start={sleep_start}, end={sleep_end}, duration={total_hours}h")
+                        print(f"  📊 Sleep: date={sleep_date}, start={sleep_start}, end={sleep_end}, duration={total_hours}h (actual sleep)")
                 else:
-                    print(f"❌ Failed to fetch sleep data: {sleep_response.status_code} - {sleep_response.text}")
+                    print(f"⚠️  No cycles found, skipping sleep data fetch")
                 
                 # Fetch workout data (v1 API - v2 not available yet)
-                workout_response = await client.get(
-                    f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
-                    headers={'Authorization': f'Bearer {access_token}'},
-                    params={
-                        'start': start_date.isoformat() + 'Z',
-                        'end': end_date.isoformat() + 'Z'
-                    }
-                )
+                # Whoop API returns max 25 records per page, so we need pagination
+                all_workouts = []
+                next_token = None
                 
-                if workout_response.is_success:
-                    workout_data = workout_response.json()
+                while True:
+                    params = {
+                        'start': start_date.isoformat() + 'Z',
+                        'end': end_date.isoformat() + 'Z',
+                        'limit': 25  # Max allowed by Whoop API
+                    }
+                    if next_token:
+                        params['nextToken'] = next_token
+                    
+                    workout_response = await client.get(
+                        f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
+                        headers={'Authorization': f'Bearer {access_token}'},
+                        params=params
+                    )
+                    
+                    if workout_response.is_success:
+                        workout_page = workout_response.json()
+                        page_records = workout_page.get('records', [])
+                        all_workouts.extend(page_records)
+                        
+                        # Check if there are more pages
+                        next_token = workout_page.get('next_token')
+                        if not next_token:
+                            break  # No more pages
+                    else:
+                        print(f"⚠️  Error fetching workouts: {workout_response.status_code}")
+                        break
+                
+                workout_data = {'records': all_workouts} if all_workouts else None
+                if workout_data:
                     synced_data["workouts"] = len(workout_data.get('records', []))
                     print(f"✅ Synced {synced_data['workouts']} workout records")
-                
-                # Fetch cycle data (v1 API - includes daily metrics)
-                cycle_response = await client.get(
-                    f"{self.WHOOP_API_BASE}/developer/v1/cycle",
-                    headers={'Authorization': f'Bearer {access_token}'},
-                    params={
-                        'start': start_date.isoformat() + 'Z',
-                        'end': end_date.isoformat() + 'Z'
-                    }
-                )
-                
-                if cycle_response.is_success:
-                    cycle_data = cycle_response.json()
-                    synced_data["cycles"] = len(cycle_data.get('records', []))
-                    print(f"✅ Synced {synced_data['cycles']} cycle records (daily metrics)")
-                    
-                    # Check if cycle records contain sleep data or sleep IDs
-                    if cycle_data.get('records'):
-                        sample = cycle_data['records'][0]
-                        print(f"🔍 Cycle record sample keys: {list(sample.keys())}")
-                        print(f"🔍 Cycle record sample: {sample}")
                 
                 # Store data in Tinybird for analytics
                 if self.tinybird_enabled:
                     try:
                         await self._ingest_to_tinybird(
                             user_id=user_id,
-                            recovery_data=recovery_data if recovery_response.is_success else None,
-                            sleep_data=sleep_data if sleep_response.is_success else None,
-                            workout_data=workout_data if workout_response.is_success else None,
-                            cycle_data=cycle_data if cycle_response.is_success else None
+                            recovery_data=recovery_data,
+                            sleep_data=sleep_data,
+                            workout_data=workout_data,
+                            cycle_data=cycle_data
                         )
                         print(f"✅ Whoop data synced to Tinybird for analytics")
                     except Exception as tb_error:
@@ -352,10 +435,10 @@ class WhoopService:
                 try:
                     await self._sync_to_habit_logs(
                         user_id=user_id,
-                        recovery_data=recovery_data if recovery_response.is_success else None,
-                        sleep_data=sleep_data if sleep_response.is_success else None,
-                        workout_data=workout_data if workout_response.is_success else None,
-                        cycle_data=cycle_data if cycle_response.is_success else None
+                        recovery_data=recovery_data,
+                        sleep_data=sleep_data,
+                        workout_data=workout_data,
+                        cycle_data=cycle_data
                     )
                     print(f"✅ Whoop data synced to Turso habit_logs for dashboard")
                 except Exception as db_error:
@@ -540,6 +623,15 @@ class WhoopService:
                 # Map habit names to habit IDs for quick lookup
                 habit_map = {habit.name.lower(): habit for habit in whoop_habits}
                 
+                # Map cycle IDs to dates (to handle post-midnight sleep starts correctly)
+                cycle_date_map = {}
+                if cycle_data and cycle_data.get('records'):
+                    for cycle in cycle_data['records']:
+                        # Whoop cycles have a 'days' array, usually with one date string 'YYYY-MM-DD'
+                        days = cycle.get('days', [])
+                        if days:
+                            cycle_date_map[str(cycle.get('id'))] = days[0]
+                
                 logs_created = 0
                 
                 # Sync Sleep Duration
@@ -554,13 +646,23 @@ class WhoopService:
                                 score = record.get('score', {})
                                 stage_summary = score.get('stage_summary', {})
                                 
-                                # Get total sleep duration in minutes
-                                total_sleep_ms = stage_summary.get('total_in_bed_time_milli', 0)
+                                # Calculate ACTUAL sleep duration (not time in bed)
+                                # Actual sleep = REM + Slow Wave + Light (excludes awake time)
+                                rem_ms = stage_summary.get('total_rem_sleep_time_milli', 0)
+                                slow_wave_ms = stage_summary.get('total_slow_wave_sleep_time_milli', 0)
+                                light_ms = stage_summary.get('total_light_sleep_time_milli', 0)
+                                
+                                total_sleep_ms = rem_ms + slow_wave_ms + light_ms
                                 total_sleep_minutes = total_sleep_ms // 60000
                                 total_sleep_seconds = total_sleep_minutes * 60  # Convert to seconds for storage
                                 
-                                # Extract date from sleep start time
-                                sleep_date = record.get('start', '')[:10]
+                                # Determine date: Use cycle date if available (handles post-midnight sleep), else start time
+                                cycle_id = str(record.get('cycle_id', ''))
+                                if cycle_id in cycle_date_map:
+                                    sleep_date = cycle_date_map[cycle_id]
+                                else:
+                                    sleep_date = record.get('start', '')[:10]
+                                    
                                 sleep_start_full = record.get('start', '')
                                 sleep_end_full = record.get('end', '')
                                 
@@ -579,26 +681,87 @@ class WhoopService:
                                 existing = existing_log.scalar_one_or_none()
                                 
                                 if existing:
+                                    # Prepare metadata with sleep timestamps
+                                    metadata = {
+                                        'sleep_id': record.get('id'),
+                                        'sleep_onset': record.get('start'),  # Sleep start time
+                                        'sleep_end': record.get('end')  # Sleep end time
+                                    }
+                                    metadata_json = json.dumps(metadata)
+                                    
                                     # Update existing log
                                     existing.duration = total_sleep_seconds
                                     existing.completed_at = record.get('end', '')
                                     existing.notes = f"Synced from Whoop (Sleep Performance: {score.get('sleep_performance_percentage', 0)}%)"
+                                    existing.log_metadata = metadata_json  # Note: using log_metadata in SQLAlchemy
                                     print(f"🔄 Updated sleep log for {sleep_date}: {total_sleep_minutes} minutes")
+                                    
+                                    # Sync to Tinybird
+                                    if self.tinybird_enabled:
+                                        try:
+                                            await self.tinybird.ingest_habit_log({
+                                                'id': existing.id,
+                                                'habit_id': existing.habit_id,
+                                                'habit_name': habit.name,
+                                                'user_id': user_id,
+                                                'date': existing.date,
+                                                'duration': existing.duration,
+                                                'amount': existing.amount,
+                                                'unit': habit.unit_type,
+                                                'status': existing.status,
+                                                'notes': existing.notes,
+                                                'completed_at': existing.completed_at,
+                                                'source': 'whoop',
+                                                'metadata': metadata_json
+                                            })
+                                        except Exception as tb_error:
+                                            print(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
                                 else:
+                                    # Prepare metadata with sleep timestamps
+                                    metadata = {
+                                        'sleep_id': record.get('id'),
+                                        'sleep_onset': record.get('start'),  # Sleep start time
+                                        'sleep_end': record.get('end')  # Sleep end time
+                                    }
+                                    metadata_json = json.dumps(metadata)
+                                    
                                     # Create new log
                                     new_log = HabitLogDB(
                                         id=str(uuid.uuid4()),
                                         habit_id=habit.id,
+                                        habit_name=habit.name,  # Denormalized for performance
                                         duration=total_sleep_seconds,
                                         amount=None,
                                         date=sleep_date,
                                         completed_at=record.get('end', ''),
                                         status='completed',
-                                        notes=f"Synced from Whoop (Sleep Performance: {score.get('sleep_performance_percentage', 0)}%)"
+                                        notes=f"Synced from Whoop (Sleep Performance: {score.get('sleep_performance_percentage', 0)}%)",
+                                        log_metadata=metadata_json  # Note: using log_metadata in SQLAlchemy
                                     )
                                     session.add(new_log)
                                     logs_created += 1
                                     print(f"✅ Created sleep log for {sleep_date}: {total_sleep_minutes} minutes")
+                                    
+                                    # Sync to Tinybird
+                                    if self.tinybird_enabled:
+                                        try:
+                                            await self.tinybird.ingest_habit_log({
+                                                'id': new_log.id,
+                                                'habit_id': new_log.habit_id,
+                                                'habit_name': habit.name,
+                                                'user_id': user_id,
+                                                'date': new_log.date,
+                                                'duration': new_log.duration,
+                                                'amount': new_log.amount,
+                                                'unit': habit.unit_type,
+                                                'status': new_log.status,
+                                                'notes': new_log.notes,
+                                                'completed_at': new_log.completed_at,
+                                                'source': 'whoop',
+                                                'metadata': metadata_json
+                                            })
+                                        except Exception as tb_error:
+                                            print(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
                             
                             break  # Only process one sleep habit
                 
@@ -634,6 +797,7 @@ class WhoopService:
                                     new_log = HabitLogDB(
                                         id=str(uuid.uuid4()),
                                         habit_id=habit.id,
+                                        habit_name=habit.name,  # Denormalized for performance
                                         duration=None,
                                         amount=recovery_score,
                                         date=recovery_date,
@@ -676,6 +840,7 @@ class WhoopService:
                                     new_log = HabitLogDB(
                                         id=str(uuid.uuid4()),
                                         habit_id=habit.id,
+                                        habit_name=habit.name,  # Denormalized for performance
                                         duration=None,
                                         amount=strain_score,
                                         date=workout_date,

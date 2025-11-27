@@ -1,15 +1,15 @@
+// src/trigger/whoop-sync.ts
 /**
- * Whoop Daily Sync Task
- * 
- * Automatically syncs Whoop sleep, recovery, and workout data for all users
- * Runs daily at 9 AM to ensure sleep data from the previous night is captured
+ * Whoop Daily Sync Task (now split into hourly schedules)
+ * Each schedule runs at the top of the hour and syncs only users who have
+ * selected that hour as their preferred sync time (whoop_sync_hour).
  */
 
 import { task, schedules } from "@trigger.dev/sdk/v3";
 
 /**
- * Main Whoop sync task - can be triggered manually or on a schedule
- * Schedule is configured in the Trigger.dev dashboard
+ * Main Whoop sync task - can be triggered manually or via schedule.
+ * Payload now includes an optional `hour` field to filter which users to sync.
  */
 export const syncWhoopData = task({
   id: "sync-whoop-data",
@@ -19,7 +19,7 @@ export const syncWhoopData = task({
     maxTimeoutInMs: 10000,
     factor: 2,
   },
-  run: async (payload: { userId?: string; daysBack?: number }) => {
+  run: async (payload: { userId?: string; daysBack?: number; hour?: number }) => {
     const API_BASE_URL = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
@@ -28,16 +28,21 @@ export const syncWhoopData = task({
     }
 
     console.log('🔄 Starting automated Whoop sync...');
-    console.log(`📊 Config: API=${API_BASE_URL}, userId=${payload.userId || 'all'}, daysBack=${payload.daysBack || 2}`);
+    console.log(`📊 Config: API=${API_BASE_URL}, userId=${payload.userId || 'all'}, daysBack=${payload.daysBack || 2}, hour=${payload.hour ?? 'any'}`);
 
     try {
-      // Sync all users with active Whoop integrations
+      // Sync all users with active Whoop integrations, filtered by hour if provided
       const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync-all`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Internal-Key': INTERNAL_API_KEY,
         },
+        // Pass hour filter to backend so it can limit the sync work
+        body: JSON.stringify({
+          daysBack: payload.daysBack || 2,
+          hour: payload.hour,
+        }),
       });
 
       if (!response.ok) {
@@ -46,7 +51,7 @@ export const syncWhoopData = task({
       }
 
       const result = await response.json();
-      
+
       console.log('✅ Whoop sync completed successfully');
       console.log(`📊 Results: ${result.successful_syncs}/${result.total_users} users synced`);
 
@@ -65,15 +70,20 @@ export const syncWhoopData = task({
 });
 
 /**
- * Scheduled task: Daily sync at 9 AM
- * In Trigger.dev v3, schedules are attached to tasks using the `schedules` export
+ * Generate 24 hourly schedules. Each schedule passes its hour (0‑23) as payload.
  */
-export const dailyWhoopSync = schedules.create({
-  id: "daily-whoop-sync",
-  // Run every day at 9 AM
-  cron: "0 9 * * *",
-  task: syncWhoopData,
-  payload: {
-    daysBack: 2,
-  },
-});
+const hourlySchedules = [] as any[];
+for (let h = 0; h < 24; h++) {
+  hourlySchedules.push(
+    schedules.create({
+      id: `whoop-sync-hour-${h}`,
+      // Run at minute 0 of the given hour every day
+      cron: `0 ${h} * * *`,
+      task: syncWhoopData,
+      payload: { hour: h },
+    })
+  );
+}
+
+// Export all schedules so Trigger.dev registers them.
+export const whoopHourlySyncSchedules = hourlySchedules;

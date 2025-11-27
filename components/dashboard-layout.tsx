@@ -3,7 +3,7 @@
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
 import { TeamDropdown } from '@/components/team-dropdown';
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
@@ -20,9 +20,10 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
-  const { showAIChat, toggleAIChat } = useAI();
+  const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
   const { user } = useUser();
   const { getToken } = useAuth();
+  const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
 
   const openTimeTrackerWindow = async () => {
     console.log('🖱️ Tracker button clicked - creating native Swift timer widget');
@@ -78,6 +79,36 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return email.charAt(0).toUpperCase();
   };
 
+  // Monitor for token refresh requests from Swift widget
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const checkForTokenRefreshRequests = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        const timestamp = await invoke('check_token_refresh_request') as number;
+        
+        // If we got a new timestamp (different from last check), refresh the token
+        if (timestamp > 0 && timestamp !== lastTokenRefreshCheck) {
+          console.log('🔄 Token refresh requested by Swift widget, writing fresh token...');
+          setLastTokenRefreshCheck(timestamp);
+          
+          const token = await getToken();
+          if (token) {
+            await invoke('write_auth_token_to_file', { token });
+            console.log('✅ Fresh token written for Swift widget');
+          }
+        }
+      } catch (error) {
+        // Not in Tauri, ignore
+      }
+    };
+
+    // Check every 500ms for token refresh requests
+    const interval = setInterval(checkForTokenRefreshRequests, 500);
+    return () => clearInterval(interval);
+  }, [getToken, lastTokenRefreshCheck]);
+
   return (
     <div className="app-container flex h-screen bg-white overflow-x-hidden max-w-full w-full border-0">
       {/* Handle URL search parameters (wrapped in Suspense for prerendering) */}
@@ -93,15 +124,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         className="tauri-drag-region"
       />
       
-      {/* Clean Midday-style Sidebar */}
-      <Sidebar 
-        onToggleChat={toggleAIChat}
-        isChatOpen={showAIChat}
-      />
+      {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
+      {!isFullScreenChat && (
+        <Sidebar 
+          onToggleChat={toggleAIChat}
+          isChatOpen={showAIChat}
+        />
+      )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden border-0 ml-[70px]">
-        {/* Top Header - Midday Style */}
+      <div className={`flex-1 flex flex-col overflow-hidden border-0 ${!isFullScreenChat ? 'ml-[70px]' : ''}`}>
+        {/* Top Header - Midday Style - Hidden in Full-Screen Chat */}
+        {!isFullScreenChat && (
         <header className="px-6 h-[70px] flex items-center border-b border-gray-300">
           <div className="flex items-center justify-between w-full">
             {/* Left side - Quick Actions buttons */}
@@ -145,9 +179,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           </div>
         </header>
+        )}
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto bg-white border-0">
+        <main className="flex-1 overflow-auto border-0 bg-white">
           {children}
         </main>
       </div>

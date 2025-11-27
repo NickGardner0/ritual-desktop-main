@@ -16,15 +16,13 @@ export function RootProviders({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme="light"
       forcedTheme="light"
-      enableSystem={false}
       disableTransitionOnChange
     >
       <ClerkProvider
         signInUrl="/auth"
         signUpUrl="/auth"
-        afterSignOutUrl="/"
+        afterSignOutUrl="/welcome"
       >
         <QueryProvider>
           <HabitsProvider>

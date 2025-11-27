@@ -56,12 +56,14 @@ class HabitLogDB(Base):
     
     id = Column(String, primary_key=True)
     habit_id = Column(String, ForeignKey("habits.id"), nullable=False)
+    habit_name = Column(String)  # Denormalized for performance and historical accuracy
     duration = Column(Integer)  # in seconds
     amount = Column(Float)
     date = Column(String, nullable=False)  # ISO date string
     completed_at = Column(String)  # ISO datetime string
     status = Column(String, nullable=False, default="completed")  # completed, skipped, missed
     notes = Column(Text)
+    log_metadata = Column(Text)  # JSON string for additional data (e.g. Whoop sleep_onset, sleep_end)
     
     # Relationships
     habit = relationship("HabitDB", back_populates="logs")
@@ -79,6 +81,7 @@ class WhoopIntegrationDB(Base):
     connected_at = Column(DateTime, default=datetime.utcnow)
     last_sync_at = Column(DateTime)
     is_active = Column(Boolean, default=True)
+    whoop_sync_hour = Column(Integer, default=9)  # Preferred sync hour (0-23), defaults to 9 AM
     
     # Relationships
     user = relationship("UserDB", backref="whoop_integration")

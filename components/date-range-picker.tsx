@@ -33,7 +33,7 @@ const presetRanges: PresetRange[] = [
     }
   },
   {
-    label: "Yesterday", 
+    label: "Yesterday",
     value: "yesterday",
     getRange: () => {
       const yesterday = subDays(new Date(), 1)
@@ -42,7 +42,7 @@ const presetRanges: PresetRange[] = [
   },
   {
     label: "Last 7 days",
-    value: "last7days", 
+    value: "last7days",
     getRange: () => ({
       from: startOfDay(subDays(new Date(), 6)),
       to: endOfDay(new Date())
@@ -66,7 +66,7 @@ const presetRanges: PresetRange[] = [
   },
   {
     label: "This month",
-    value: "thismonth", 
+    value: "thismonth",
     getRange: () => ({
       from: startOfDay(startOfMonth(new Date())),
       to: endOfDay(endOfMonth(new Date()))
@@ -120,7 +120,7 @@ export function DateRangePicker({
         to: selectedDate.to ? endOfDay(selectedDate.to) : endOfDay(selectedDate.from)
       };
     }
-    
+
     setDate(adjustedDate)
     setSelectedPreset("custom")
     onDateRangeChange?.(adjustedDate)
@@ -150,8 +150,8 @@ export function DateRangePicker({
             id="date"
             variant={"outline"}
             className={cn(
-              "w-[120px] justify-between text-left font-normal text-sm px-3 py-2 h-9 border-gray-300 bg-white text-gray-700 hover:bg-[#F3F3F3] hover:border-gray-300 rounded-none",
-              !date && "text-muted-foreground",
+              "w-[120px] justify-between text-left font-normal text-sm px-3 py-2 h-9 border-gray-300 bg-white text-black hover:bg-[#F3F3F3] hover:border-gray-300 rounded-none",
+              !date && "text-black",
               className
             )}
           >
@@ -160,9 +160,9 @@ export function DateRangePicker({
             <ChevronDown className="w-4 h-4 ml-auto" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent 
-          className="w-[580px] p-0 border-gray-300 shadow-lg rounded-none" 
-          align="end" 
+        <PopoverContent
+          className="w-[580px] p-0 border-gray-300 shadow-lg rounded-none"
+          align="end"
           side="bottom"
           sideOffset={8}
           avoidCollisions={true}

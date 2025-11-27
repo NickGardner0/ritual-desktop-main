@@ -111,7 +111,7 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 1000,
+        "height": 850,
         "resizable": true,
         "title": "",
         "width": 1280,

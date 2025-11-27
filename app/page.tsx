@@ -14,9 +14,22 @@ export default function Home() {
   const hasChecked = useRef(false);
   const [isChecking, setIsChecking] = useState(false);
 
-  // Check onboarding status and redirect appropriately
+  // Check if first-time visitor
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || !user || hasChecked.current) {
+    if (!isLoaded) return;
+
+    // If not signed in, check if they've seen the welcome flow
+    if (!isSignedIn) {
+      const hasSeenWelcome = localStorage.getItem('ritual-onboarding-completed');
+      if (!hasSeenWelcome) {
+        router.replace('/welcome');
+        return;
+      }
+      return;
+    }
+
+    // If signed in, check backend onboarding status
+    if (!user || hasChecked.current) {
       return;
     }
 
@@ -25,37 +38,58 @@ export default function Home() {
 
     const checkAndRedirect = async () => {
       try {
-        const token = await getToken();
+        // Add a small delay to prevent rapid token refresh requests
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const token = await getToken({ skipCache: false }).catch((err) => {
+          console.error('Token fetch error:', err);
+          return null;
+        });
+
         if (!token) {
+          console.log('No token available, redirecting to onboarding');
           router.replace('/onboarding');
           return;
         }
 
-        // Quick profile check
+        // Quick profile check with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
         const response = await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
-          }
-        });
+          },
+          signal: controller.signal
+        }).catch((err) => {
+          console.error('Profile fetch error:', err);
+          return null;
+        }).finally(() => clearTimeout(timeoutId));
 
-        if (response.ok) {
+        if (response && response.ok) {
           const profile = await response.json();
+          console.log('Profile data:', profile);
+          console.log('Onboarding completed:', profile.onboarding_completed);
 
           // Route directly to the correct destination
           if (profile.onboarding_completed) {
+            console.log('Redirecting to dashboard - onboarding completed');
             router.replace('/dashboard');
           } else {
+            console.log('Redirecting to onboarding - not completed');
             router.replace('/onboarding');
           }
         } else {
-          // If profile doesn't exist or error, go to onboarding to create it
-          console.log('Profile fetch failed, redirecting to onboarding');
-          router.replace('/onboarding');
+          // If profile doesn't exist or error, go to dashboard (user exists but no profile yet)
+          console.log('Profile fetch failed or no profile, redirecting to dashboard');
+          console.log('Response status:', response?.status);
+          router.replace('/dashboard');
         }
       } catch (error) {
         console.error('Error checking profile:', error);
-        router.replace('/onboarding');
+        // On error, just go to dashboard and let it handle the flow
+        router.replace('/dashboard');
       }
     };
 
@@ -63,8 +97,9 @@ export default function Home() {
   }, [isSignedIn, isLoaded, user, getToken, router]);
 
 
-  // Show loading while checking auth state or redirecting
-  if (!isLoaded || (isSignedIn && isChecking)) {
+  // Show loading only while checking auth state for signed-in users
+  // For non-signed-in users, show the page immediately
+  if (isSignedIn && isChecking) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
@@ -88,7 +123,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="relative z-30 flex flex-col items-center justify-center min-h-[calc(100vh-120px)] px-6 text-center" data-tauri-drag-region style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
+      <main className="relative z-30 flex flex-col items-center justify-center min-h-[calc(100vh-120px)] px-6 text-center" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
         <div className="max-w-2xl mx-auto">
           <div className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center mx-auto mb-8">
             <img
@@ -110,14 +145,10 @@ export default function Home() {
             Welcome to Ritual
           </h1>
 
-          <p className="text-base text-gray-500 mb-12 leading-relaxed font-normal" style={{ fontFamily: "'FK Grotesk Neue', sans-serif", fontWeight: 400 }}>
-            Ritual is the best way to track and quantify your behavior.
-          </p>
-
           <div className="flex justify-center">
             <Link
               href="/auth"
-              className="inline-flex items-center justify-center gap-2 bg-gray-900 text-white px-6 py-2.5 rounded-none font-medium text-sm shadow-sm get-started-btn"
+              className="inline-flex items-center justify-center gap-2 bg-gray-900 text-white px-4 py-1.5 rounded-none font-medium text-sm shadow-sm get-started-btn"
               style={{
                 userSelect: 'none',
                 transition: 'all 0.2s ease-out',

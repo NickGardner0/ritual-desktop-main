@@ -1,0 +1,82 @@
+DESCRIPTION >
+    Analytics page summary metrics - Active days, streaks, consistency
+    Optimized for analytics dashboard top-level KPIs
+
+NODE active_days_30d
+SQL >
+    %
+    SELECT uniqExact(date) as active_days
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL 30 DAY
+      AND status = 'completed'
+
+NODE avg_entries_per_day
+SQL >
+    %
+    SELECT 
+        count(*) as total_entries,
+        round(count(*) / 30, 1) as avg_entries_per_day
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL 30 DAY
+      AND status = 'completed'
+
+NODE most_consistent_habit
+SQL >
+    %
+    SELECT 
+        habit_id,
+        habit_name,
+        uniqExact(date) as days_logged,
+        round((uniqExact(date) / 30) * 100) as consistency_pct
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL 30 DAY
+      AND status = 'completed'
+    GROUP BY habit_id, habit_name
+    ORDER BY days_logged DESC
+    LIMIT 1
+
+NODE current_streak
+SQL >
+    %
+    -- Get all distinct dates with activity in descending order
+    WITH daily_activity AS (
+        SELECT DISTINCT date
+        FROM habit_logs
+        WHERE user_id = {{ String(user_id, required=True) }}
+          AND date >= today() - INTERVAL 365 DAY
+          AND status = 'completed'
+        ORDER BY date DESC
+    ),
+    -- Calculate day differences
+    streak_calc AS (
+        SELECT 
+            date,
+            dateDiff('day', date, today()) as days_ago,
+            row_number() OVER (ORDER BY date DESC) - 1 as row_num
+        FROM daily_activity
+    )
+    -- Count consecutive days from today
+    SELECT 
+        countIf(days_ago = row_num) as current_streak_days
+    FROM streak_calc
+    WHERE days_ago = row_num
+
+NODE final_summary
+SQL >
+    %
+    SELECT 
+        ad.active_days as active_days_30d,
+        ae.avg_entries_per_day as avg_entries_per_day_30d,
+        cs.current_streak_days,
+        mc.habit_name as most_consistent_habit_name,
+        mc.consistency_pct as most_consistent_habit_pct
+    FROM active_days_30d ad
+    CROSS JOIN avg_entries_per_day ae
+    CROSS JOIN current_streak cs
+    LEFT JOIN most_consistent_habit mc ON 1=1
+
+TYPE ENDPOINT
+

@@ -13,6 +13,7 @@ import { DashboardLayout } from '@/components/dashboard-layout';
 import { AIProvider } from '@/contexts/AIContext';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { setDashboardWindowSize } from '@/lib/tauri-utils';
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -25,6 +26,11 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
     router.prefetch('/timer');
     router.prefetch('/integrations');
   }, [router]);
+
+  // Resize window to dashboard size
+  useEffect(() => {
+    setDashboardWindowSize();
+  }, []);
   
   return (
     <AIProvider>

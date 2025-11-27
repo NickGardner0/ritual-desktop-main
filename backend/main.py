@@ -405,7 +405,8 @@ async def whoop_status(current_user = Depends(get_current_user)):
             "whoop_user_id": integration.whoop_user_id,
             "connected_at": integration.connected_at.isoformat(),
             "last_sync_at": integration.last_sync_at.isoformat() if integration.last_sync_at else None,
-            "is_active": integration.is_active
+            "is_active": integration.is_active,
+            "sync_hour": integration.whoop_sync_hour or 9  # Default to 9 AM if not set
         }
         
     except Exception as e:
@@ -413,12 +414,12 @@ async def whoop_status(current_user = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/integrations/whoop/sync")
-async def whoop_sync(days_back: int = 7, current_user = Depends(get_current_user)):
+async def whoop_sync(days_back: int = 30, current_user = Depends(get_current_user)):
     """
     Sync data from Whoop API
     """
     try:
-        print(f"🔄 Starting Whoop sync for user {current_user['id']}")
+        print(f"🔄 Starting Whoop sync for user {current_user['id']} (last {days_back} days)")
         result = await whoop_service.sync_whoop_data(current_user["id"], days_back)
         print(f"✅ Whoop sync completed for user {current_user['id']}")
         return result
@@ -504,6 +505,50 @@ async def whoop_disconnect(current_user = Depends(get_current_user)):
         
     except Exception as e:
         print(f"❌ Whoop disconnect error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class WhoopSyncHourUpdate(BaseModel):
+    sync_hour: int  # 0-23
+
+@app.put("/api/integrations/whoop/sync-hour")
+async def update_whoop_sync_hour(
+    update_data: WhoopSyncHourUpdate,
+    current_user = Depends(get_current_user)
+):
+    """
+    Update user's preferred Whoop sync hour (0-23)
+    """
+    try:
+        # Validate hour range
+        if not 0 <= update_data.sync_hour <= 23:
+            raise HTTPException(status_code=400, detail="Sync hour must be between 0 and 23")
+        
+        # Update the sync hour
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(WhoopIntegrationDB)
+                .where(WhoopIntegrationDB.user_id == current_user["id"])
+            )
+            integration = result.scalar_one_or_none()
+            
+            if not integration:
+                raise HTTPException(status_code=404, detail="Whoop integration not found")
+            
+            integration.whoop_sync_hour = update_data.sync_hour
+            await session.commit()
+        
+        print(f"✅ Updated Whoop sync hour to {update_data.sync_hour} for user {current_user['id']}")
+        
+        return {
+            "status": "success",
+            "message": f"Sync hour updated to {update_data.sync_hour}:00",
+            "sync_hour": update_data.sync_hour
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating sync hour: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ================================

@@ -206,10 +206,11 @@ class HabitsService:
                 if not habit:
                     raise Exception("Habit not found or not authorized")
                 
-                # Create habit log
+                # Create habit log (include habit_name for denormalization)
                 log_db = HabitLogDB(
                     id=str(uuid.uuid4()),
                     habit_id=habit_id,
+                    habit_name=habit.name,  # Denormalized for performance and historical accuracy
                     duration=log_data.duration,
                     amount=log_data.amount,
                     date=log_data.date,

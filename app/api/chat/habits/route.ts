@@ -101,7 +101,7 @@ For trackable activities, respond with JSON:
   "activity": "specific activity description",
   "amount": number_if_quantity_based,
   "duration": number_in_minutes_if_time_based,
-  "unit": "Miles|Pages|Minutes|Sessions|Hours|Reps|Sets|Glasses",
+  "unit": "Count|Minutes|Hours|Miles|Kilometers|Steps|Calories|Pages|Milligrams|Grams|Kilograms|Pounds|Ounces|Liters|Cups|Glasses|Reps|Sets|Percentage|Points|Sessions|Chapters|Episodes|Articles|Words|Lines|Tasks|Projects|Emails|Calls|Meetings|Breaks",
   "date": "${today}",
   "notes": "additional context from user input"
 }
@@ -129,6 +129,12 @@ QUANTITY EXTRACTION:
 - "10 reps" = 10 amount with unit "Reps"
 - "3 sets" = 3 amount with unit "Sets"
 - "8 glasses" = 8 amount with unit "Glasses"
+- "400mg" or "400 milligrams" = 400 amount with unit "Milligrams"
+- "50g" or "50 grams" = 50 amount with unit "Grams"
+- "2kg" or "2 kilograms" = 2 amount with unit "Kilograms"
+- "5km" or "5 kilometers" = 5 amount with unit "Kilometers"
+- "10000 steps" = 10000 amount with unit "Steps"
+- "250 calories" = 250 amount with unit "Calories"
 
 ${habitsContext}
 
@@ -146,7 +152,12 @@ Always use today's date (${today}) and be encouraging in your responses.`;
       activity: z.string().optional(),
       amount: z.number().nullable().optional(),
       duration: z.number().nullable().optional(), // in minutes
-      unit: z.enum(['Miles', 'Pages', 'Minutes', 'Sessions', 'Hours', 'Reps', 'Sets', 'Glasses']).optional(),
+      unit: z.enum([
+        'Count', 'Minutes', 'Hours', 'Miles', 'Kilometers', 'Steps', 'Calories', 'Pages',
+        'Milligrams', 'Grams', 'Kilograms', 'Pounds', 'Ounces', 'Liters', 'Cups', 'Glasses',
+        'Reps', 'Sets', 'Percentage', 'Points', 'Sessions', 'Chapters', 'Episodes', 'Articles',
+        'Words', 'Lines', 'Tasks', 'Projects', 'Emails', 'Calls', 'Meetings', 'Breaks'
+      ]).optional(),
       date: z.string().optional(),
       notes: z.string().optional(),
       message: z.string().optional() // For when success is false

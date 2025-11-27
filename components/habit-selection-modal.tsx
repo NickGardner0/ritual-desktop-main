@@ -635,7 +635,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                                   setIsMetricDropdownOpen(false);
                                 }}
                                 className={`flex items-center w-full px-4 py-2 text-sm hover:bg-[#F3F3F3] text-left ${
-                                  selectedMetric === metric ? 'bg-gray-100 text-gray-700' : 'text-gray-700'
+                                  selectedMetric === metric ? 'bg-[#F3F3F3] text-gray-700' : 'text-gray-700'
                                 }`}
                               >
                                 {metric}

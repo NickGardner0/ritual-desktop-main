@@ -29,3 +29,35 @@ export async function openInBrowser(url: string): Promise<void> {
   }
 }
 
+/**
+ * Resize the Tauri window
+ */
+export async function resizeWindow(width: number, height: number): Promise<void> {
+  if (!isTauri()) {
+    return;
+  }
+
+  try {
+    const { appWindow } = await import('@tauri-apps/api/window');
+    const { LogicalSize } = await import('@tauri-apps/api/window');
+    await appWindow.setSize(new LogicalSize(width, height));
+    await appWindow.center();
+  } catch (error) {
+    console.error('Failed to resize window:', error);
+  }
+}
+
+/**
+ * Set window to compact size for onboarding
+ */
+export async function setOnboardingWindowSize(): Promise<void> {
+  await resizeWindow(1280, 850);
+}
+
+/**
+ * Set window to full size for dashboard
+ */
+export async function setDashboardWindowSize(): Promise<void> {
+  await resizeWindow(1280, 1000);
+}
+

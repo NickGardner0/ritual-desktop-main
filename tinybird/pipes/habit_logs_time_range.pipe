@@ -19,6 +19,7 @@ SQL >
         source,
         integration_id,
         whoop_metric_type,
+        metadata,
         created_at
     FROM habit_logs
     WHERE user_id = {{ String(user_id, required=True) }}

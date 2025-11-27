@@ -28,6 +28,7 @@ fn main() {
       native_widget::close_native_timer_widget,
       native_widget::write_auth_token_to_file,
       native_widget::check_dashboard_refresh_trigger,
+      native_widget::check_token_refresh_request,
       native_widget::show_native_microphone_permission_dialog,
       native_widget::check_native_microphone_permission,
       native_widget::start_native_speech_recognition,

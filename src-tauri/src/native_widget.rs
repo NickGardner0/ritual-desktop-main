@@ -148,6 +148,29 @@ pub async fn check_dashboard_refresh_trigger() -> Result<f64, String> {
 }
 
 #[tauri::command]
+pub async fn check_token_refresh_request() -> Result<f64, String> {
+    use std::fs;
+    use std::env;
+    
+    let temp_dir = env::temp_dir();
+    let request_file = temp_dir.join("ritual_refresh_token_request.txt");
+    
+    match fs::read_to_string(&request_file) {
+        Ok(timestamp_str) => {
+            match timestamp_str.trim().parse::<f64>() {
+                Ok(timestamp) => {
+                    // Delete the request file after reading
+                    let _ = fs::remove_file(&request_file);
+                    Ok(timestamp)
+                }
+                Err(_) => Ok(0.0),
+            }
+        }
+        Err(_) => Ok(0.0),
+    }
+}
+
+#[tauri::command]
 pub async fn show_native_microphone_permission_dialog() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {

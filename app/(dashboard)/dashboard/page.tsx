@@ -26,11 +26,11 @@ const kebabToPascal = (k: string) => k.split('-').map(s => s.charAt(0).toUpperCa
 const HabitIcon = ({ iconName }: { iconName: string }) => {
   // Handle Lucide icons (kebab-case names)
   const IconComponent = (Lucide as any)[kebabToPascal(iconName)];
-  
+
   if (IconComponent) {
     return <IconComponent className="w-5 h-5 text-black" />;
   }
-  
+
   // Fallback to default icon
   return <LayoutDashboard className="w-5 h-5 text-black" />;
 };
@@ -83,7 +83,7 @@ const getHabitIcon = (name: string, category: string) => {
     'cold showers': '🚿',
     'standup check-in': '📞'
   };
-  
+
   const key = name.toLowerCase().replace(/\s+/g, ' ');
   return iconMap[key] || '📈';
 };
@@ -93,17 +93,17 @@ export default function DashboardPage() {
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
   const { isLoaded, signOut } = useAuth();
   const clerk = useClerk();
-  const { showAIChat } = useAI();
-  const { 
-    habits, 
-    habitLogs, 
-    isLoading, 
+  const { showAIChat, chatMode, setChatMode, isFullScreenChat } = useAI();
+  const {
+    habits,
+    habitLogs,
+    isLoading,
     error,
     fetchHabits,
     fetchHabitLogs,
     deleteHabit
   } = useHabits();
-  
+
   // Local UI state only
   const [showSelectionModal, setShowSelectionModal] = useState(false);
   const [habitToDelete, setHabitToDelete] = useState<string | null>(null);
@@ -114,7 +114,7 @@ export default function DashboardPage() {
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
 
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
-  
+
   // Merge optimistic logs with real logs for display
   const displayLogs = React.useMemo(() => {
     return [...habitLogs, ...optimisticLogs];
@@ -201,14 +201,14 @@ export default function DashboardPage() {
       habitLogsLength: habitLogs.length,
       hasLoadedLogs: hasLoadedLogs.current
     });
-    
+
     if (user && !isLoading && habitLogs.length === 0 && !hasLoadedLogs.current) {
       console.log('🔄 Fetching habit logs on component mount...');
       hasLoadedLogs.current = true;
       fetchHabitLogs();
     }
   }, [user, isLoading, fetchHabitLogs]); // Add fetchHabitLogs dependency back
-  
+
   // Debug effect to monitor habit logs
   useEffect(() => {
     console.log('📊 Habit logs updated:', {
@@ -237,17 +237,17 @@ export default function DashboardPage() {
       try {
         const { invoke } = await import('@tauri-apps/api/tauri');
         const result = await invoke('check_dashboard_refresh_trigger') as string;
-        
+
         if (result && result !== lastTimestamp) {
           console.log('🔄 Timer widget update detected, refreshing dashboard...');
           lastTimestamp = result;
-          
+
           // Refresh both habits and logs
           await Promise.all([
             fetchHabits(),
             fetchHabitLogs()
           ]);
-          
+
           console.log('✅ Dashboard refreshed after timer widget update');
         }
       } catch (error) {
@@ -270,7 +270,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       if (!user || onboardingChecked) return;
-      
+
       try {
         // If user has habits, they've clearly completed onboarding
         if (habits.length > 0) {
@@ -280,7 +280,7 @@ export default function DashboardPage() {
         }
 
         console.log('🔍 Dashboard onboarding check - using new backend (skipping for now)');
-        
+
         // For now, skip onboarding check since we're using Clerk + FastAPI backend
         // if (profile?.onboarding_completed === false) {
         //   router.push('/onboarding');
@@ -315,64 +315,28 @@ export default function DashboardPage() {
   // Get display text for habit metrics
   const getHabitMetricDisplay = React.useCallback((habit: Habit): string => {
     const unitType = habit.unit_type || 'sessions';
-    
-    // Debug logging to see what data we have
-    const thisHabitLogs = displayLogs.filter(log => log.habit_id === habit.id);
-    const completedLogs = displayLogs.filter(log => log.habit_id === habit.id && log.status === 'completed');
-    
-    console.log('🔍 Debug habit metrics for:', habit.name);
-    console.log('  - Habit ID:', habit.id);
-    console.log('  - Unit Type:', unitType);
-    console.log('  - Total habit logs:', displayLogs.length);
-    console.log('  - Logs for this habit:', thisHabitLogs.length);
-    console.log('  - Completed logs for this habit:', completedLogs.length);
-    console.log('  - Sample logs:', thisHabitLogs.slice(0, 2));
-    console.log('  - Sample completed logs:', completedLogs.slice(0, 2));
-    
-    // Debug logging for Morning Workout
-    if (habit.name === 'Morning Workout') {
-      const allLogs = displayLogs.filter(log => log.habit_id === habit.id);
-      const completedLogs = displayLogs.filter(log => log.habit_id === habit.id && log.status === 'completed');
-      
-      console.log('🔍 Morning Workout debug:');
-      console.log('  - Habit ID:', habit.id);
-      console.log('  - Unit Type:', unitType);
-      console.log('  - All logs count:', allLogs.length);
-      console.log('  - Completed logs count:', completedLogs.length);
-      console.log('  - All logs:', allLogs);
-      console.log('  - Completed logs:', completedLogs);
-      
-      // Show individual log details
-      completedLogs.forEach((log, index) => {
-        console.log(`  - Log ${index + 1}:`, {
-          id: log.id,
-          date: log.date,
-          duration: log.duration,
-          amount: log.amount,
-          unit: log.unit,
-          notes: log.notes
-        });
-      });
-    }
-    
+
+    // Debug logging disabled to reduce console noise
+    // Uncomment if you need to debug habit metrics calculations
+
     // Filter logs based on date range - be more flexible with status
     let filteredLogs = displayLogs.filter(log => {
       const matchesHabit = log.habit_id === habit.id;
       const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status; // Handle different status values
-      
+
       // Removed excessive debug logging
-      
+
       return matchesHabit && isCompleted;
     });
-    
-    
+
+
     // Apply date range filter if set
     if (dateRange?.from) {
       filteredLogs = filteredLogs.filter(log => {
         // Parse the log date (format: "2025-09-26")
         const logDate = parseISO(log.date);
         let isInRange = false;
-        
+
         if (dateRange.to) {
           // For date ranges, use isWithinInterval
           isInRange = isWithinInterval(logDate, { start: dateRange.from!, end: dateRange.to });
@@ -382,17 +346,17 @@ export default function DashboardPage() {
           const filterDateOnly = new Date(dateRange.from!.getFullYear(), dateRange.from!.getMonth(), dateRange.from!.getDate());
           isInRange = logDateOnly.getTime() === filterDateOnly.getTime(); // Use === for exact date match
         }
-        
-        
+
+
         return isInRange;
       });
-      
+
     }
-    
+
     if (filteredLogs.length === 0) {
       return `0 ${unitType}`;
     }
-    
+
     // For time-based habits (Hours, Minutes), show total duration
     if (unitType.toLowerCase().includes('hour') || unitType.toLowerCase().includes('minute')) {
       // Always prioritize duration field (stored in seconds) over amount
@@ -412,17 +376,25 @@ export default function DashboardPage() {
         }
         return sum;
       }, 0);
-      
+
       // Convert to appropriate display unit based on habit's unit_type
       if (unitType.toLowerCase().includes('hour')) {
         const totalHours = Math.round((totalDurationSeconds / 3600) * 100) / 100;
         return `${totalHours} Hours`;
       } else {
-        const totalMinutes = Math.round(totalDurationSeconds / 60);
-        return `${totalMinutes} Minutes`;
+        // For minutes, show more precision for short durations
+        const totalMinutes = totalDurationSeconds / 60;
+        if (totalMinutes < 5) {
+          // Show seconds for durations under 5 minutes
+          const mins = Math.floor(totalMinutes);
+          const secs = Math.round(totalDurationSeconds % 60);
+          return secs > 0 ? `${mins} Min ${secs} Sec` : `${mins} Minutes`;
+        } else {
+          return `${Math.round(totalMinutes)} Minutes`;
+        }
       }
     }
-    
+
     // For other units, show total sessions or amount
     const totalAmount = filteredLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
     return `${totalAmount} ${unitType}`;
@@ -550,140 +522,143 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header with view controls - matching web app layout */}
-      <div className="flex items-center justify-between mt-1">
-        <div className="flex items-center space-x-2">
-          {/* Empty left side */}
-        </div>
-        
-        <div className="flex items-center space-x-1">
-          {/* Add Habit button */}
-          <div className="relative group">
-            <button
-              onClick={() => setShowSelectionModal(true)}
-              className="h-9 px-3 py-2 border border-gray-300 bg-white text-gray-600 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 text-xs text-black bg-white border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap">
-              Add habit
-            </div>
+      {/* Header with view controls - Hidden in Chat Mode */}
+      {!isFullScreenChat && (
+        <div className="flex items-center justify-between mt-1">
+          <div className="flex items-center space-x-2">
+            {/* Empty left side */}
           </div>
-          
-          {/* Date Range Picker - compact version */}
-          <DateRangePicker 
-            className="w-auto"
-            onDateRangeChange={setDateRange}
-            initialDateRange={dateRange}
-          />
-        </div>
-      </div>
 
-      {/* Habits List */}
-      <div className="mt-6">
-        <div className="max-w-4xl mx-auto px-2 w-full">
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="habits">
-              {(provided) => (
-                <div 
-                  {...provided.droppableProps}
-                  ref={provided.innerRef}
-                  className="space-y-1"
-                >
-                  {orderedHabits.map((habit, index) => (
-                    <Draggable key={habit.id} draggableId={habit.id || ''} index={index}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          className={`w-full flex items-center py-1 group hover:bg-[#F3F3F3] bg-white transition-colors cursor-grab active:cursor-grabbing ${
-                            snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
-                          }`}
-                        >
-                          <div className="flex items-center flex-1 min-w-0 space-x-1">
-                            <span
-                              className="flex items-center justify-center"
-                              style={{ minWidth: 24 }}
-                            >
-                              {habit.icon ? (
-                                // Check if it's an emoji (contains emoji characters)
-                                /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
-                                  <span className="text-xl">{habit.icon}</span>
-                                ) : (
-                                  <HabitIcon iconName={habit.icon} />
-                                )
-                              ) : (
-                                <span className="text-xl">{getHabitIcon(habit.name, habit.category)}</span>
-                              )}
-                            </span>
-                            <span className="text-base font-normal truncate">{habit.name}</span>
-                          </div>
-                        <div
-                          className="flex items-center space-x-1 cursor-default relative ml-4 tooltip-container"
-                          onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
-                        >
-                          <span className="text-base font-normal select-none">
-                            {getHabitMetricDisplay(habit)}
-                          </span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id || ''); }}
-                            disabled={deletingHabit === habit.id}
-                            className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
-                            title="Delete habit"
+          <div className="flex items-center space-x-1">
+            {/* Add Habit button */}
+            <div className="relative group">
+              <button
+                onClick={() => setShowSelectionModal(true)}
+                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 px-2 py-1 text-xs text-black bg-white border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                Add
+              </div>
+            </div>
+
+            {/* Date Range Picker - compact version */}
+            <DateRangePicker
+              className="w-auto"
+              onDateRangeChange={setDateRange}
+              initialDateRange={dateRange}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Habits List - Hidden in Chat Mode */}
+      {!isFullScreenChat && (
+        <div className="mt-6">
+          <div className="max-w-4xl mx-auto px-2 w-full">
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="habits">
+                {(provided) => (
+                  <div
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    className="space-y-1"
+                  >
+                    {orderedHabits.map((habit, index) => (
+                      <Draggable key={habit.id} draggableId={habit.id || ''} index={index}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            className={`w-full flex items-center py-1 group hover:bg-[#F3F3F3] bg-white transition-colors cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
+                              }`}
                           >
-                            {deletingHabit === habit.id ? (
-                              <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                            ) : (
-                              <X className="w-3 h-3" />
-                            )}
-                          </button>
-                          {activeTooltip === habit.id && (
-                            <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]">
-                              {(() => {
-                                const s = getHabitMetricStats(habit);
-                                return (
-                                  <div className="space-y-1.5 text-sm">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-gray-900">Sum</span>
-                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-gray-900">Average</span>
-                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-gray-900">Min</span>
-                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-gray-900">Max</span>
-                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-gray-900">Variance</span>
-                                      <span className="text-gray-700 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.varianceFormatted}</span>
-                                    </div>
-                                  </div>
-                                );
-                              })()}
+                            <div className="flex items-center flex-1 min-w-0 space-x-1">
+                              <span
+                                className="flex items-center justify-center"
+                                style={{ minWidth: 24 }}
+                              >
+                                {habit.icon ? (
+                                  // Check if it's an emoji (contains emoji characters)
+                                  /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
+                                    <span className="text-xl">{habit.icon}</span>
+                                  ) : (
+                                    <HabitIcon iconName={habit.icon} />
+                                  )
+                                ) : (
+                                  <span className="text-xl">{getHabitIcon(habit.name, habit.category)}</span>
+                                )}
+                              </span>
+                              <span className="text-base font-normal truncate">{habit.name}</span>
                             </div>
-                          )}
-                        </div>
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          </DragDropContext>
+                            <div
+                              className="flex items-center space-x-1 cursor-default relative ml-4 tooltip-container"
+                              onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
+                            >
+                              <span className="text-base font-normal select-none">
+                                {getHabitMetricDisplay(habit)}
+                              </span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id || ''); }}
+                                disabled={deletingHabit === habit.id}
+                                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
+                                title="Delete habit"
+                              >
+                                {deletingHabit === habit.id ? (
+                                  <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                  <X className="w-3 h-3" />
+                                )}
+                              </button>
+                              {activeTooltip === habit.id && (
+                                <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]">
+                                  {(() => {
+                                    const s = getHabitMetricStats(habit);
+                                    return (
+                                      <div className="space-y-1.5 text-sm">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-gray-900">Sum</span>
+                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-gray-900">Average</span>
+                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-gray-900">Min</span>
+                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-gray-900">Max</span>
+                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-gray-900">Variance</span>
+                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.varianceFormatted}</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Empty state when no habits */}
-      {habits.length === 0 && !isLoading && (
+      {/* Empty state when no habits - Hidden in Chat Mode */}
+      {chatMode === 'log' && habits.length === 0 && !isLoading && (
         <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8">
           <div className="text-xl mb-2 text-center" style={{ fontWeight: 500 }}>
             Connect your devices
@@ -724,14 +699,14 @@ export default function DashboardPage() {
               <Button
                 variant="outline"
                 onClick={cancelDelete}
-                className="rounded-none px-4 py-2 text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]"
+                className="rounded-none px-3 py-1.5 text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]"
               >
                 Cancel
               </Button>
               <Button
                 onClick={() => handleDeleteHabit(habitToDelete)}
                 disabled={deletingHabit === habitToDelete}
-                className="rounded-none bg-black hover:bg-gray-800 text-white px-4 py-2 text-sm"
+                className="rounded-none bg-black hover:bg-gray-800 text-white px-3 py-1.5 text-sm"
               >
                 {deletingHabit === habitToDelete ? (
                   <Spinner className="w-4 h-4" />
@@ -747,89 +722,90 @@ export default function DashboardPage() {
       {/* AI Habit Chat - Conditionally rendered */}
       {showAIChat && (
         <div className="fixed bottom-0 left-0 right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-12 pt-8 bg-gradient-to-t from-white via-white to-transparent">
-        <div className="w-full max-w-4xl">
-          <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
-            <AIHabitChat 
-            onHabitUpdate={async (habitData) => {
-              console.log('🎯 Habit update from AI:', habitData);
-              
-              if (habitData.optimisticUpdate) {
-                // Optimistic update: instantly add a temporary log to the UI
-                console.log('🚀 Optimistic update received, updating UI immediately...');
-                
-                // Create a temporary log entry for instant feedback
-                if (habitData.habitId && (habitData.duration !== undefined || habitData.amount !== undefined)) {
-                  const tempLog = {
-                    id: `temp-${Date.now()}`, // Temporary ID
-                    habit_id: habitData.habitId,
-                    duration: habitData.duration ? habitData.duration * 60 : 0, // Convert minutes to seconds
-                    amount: habitData.amount || null,
-                    date: new Date().toISOString().split('T')[0],
-                    completed_at: new Date().toISOString(),
-                    status: 'completed' as const,
-                    notes: habitData.notes || '',
-                    unit: habitData.unit || ''
-                  };
-                  
-                  // Add temporary log to local state for instant UI update
-                  setOptimisticLogs(prev => [...prev, tempLog]);
-                  console.log('✅ Added temporary log to UI:', tempLog);
-                }
-                
-                if (habitData.playSound) {
-                  try {
-                    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                    if (audioContext.state === 'suspended') {
-                      await audioContext.resume();
+          <div className="w-full max-w-2xl">
+            <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
+              <AIHabitChat
+                onModeChange={(mode) => setChatMode(mode)}
+                onHabitUpdate={async (habitData) => {
+                  console.log('🎯 Habit update from AI:', habitData);
+
+                  if (habitData.optimisticUpdate) {
+                    // Optimistic update: instantly add a temporary log to the UI
+                    console.log('🚀 Optimistic update received, updating UI immediately...');
+
+                    // Create a temporary log entry for instant feedback
+                    if (habitData.habitId && (habitData.duration !== undefined || habitData.amount !== undefined)) {
+                      const tempLog = {
+                        id: `temp-${Date.now()}`, // Temporary ID
+                        habit_id: habitData.habitId,
+                        duration: habitData.duration ? habitData.duration * 60 : 0, // Convert minutes to seconds
+                        amount: habitData.amount || null,
+                        date: new Date().toISOString().split('T')[0],
+                        completed_at: new Date().toISOString(),
+                        status: 'completed' as const,
+                        notes: habitData.notes || '',
+                        unit: habitData.unit || ''
+                      };
+
+                      // Add temporary log to local state for instant UI update
+                      setOptimisticLogs(prev => [...prev, tempLog]);
+                      console.log('✅ Added temporary log to UI:', tempLog);
                     }
-                    
-                    const oscillator1 = audioContext.createOscillator();
-                    const oscillator2 = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    
-                    oscillator1.connect(gainNode);
-                    oscillator2.connect(gainNode);
-                    gainNode.connect(audioContext.destination);
-                    
-                    oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
-                    oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
-                    
-                    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-                    gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
-                    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
-                    
-                    oscillator1.type = 'sine';
-                    oscillator2.type = 'sine';
-                    
-                    oscillator1.start(audioContext.currentTime);
-                    oscillator2.start(audioContext.currentTime);
-                    oscillator1.stop(audioContext.currentTime + 0.6);
-                    oscillator2.stop(audioContext.currentTime + 0.6);
-                  } catch (e) {
-                    console.log('Sound playback failed:', e);
+
+                    if (habitData.playSound) {
+                      try {
+                        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                        if (audioContext.state === 'suspended') {
+                          await audioContext.resume();
+                        }
+
+                        const oscillator1 = audioContext.createOscillator();
+                        const oscillator2 = audioContext.createOscillator();
+                        const gainNode = audioContext.createGain();
+
+                        oscillator1.connect(gainNode);
+                        oscillator2.connect(gainNode);
+                        gainNode.connect(audioContext.destination);
+
+                        oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
+                        oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
+
+                        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                        gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
+                        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+
+                        oscillator1.type = 'sine';
+                        oscillator2.type = 'sine';
+
+                        oscillator1.start(audioContext.currentTime);
+                        oscillator2.start(audioContext.currentTime);
+                        oscillator1.stop(audioContext.currentTime + 0.6);
+                        oscillator2.stop(audioContext.currentTime + 0.6);
+                      } catch (e) {
+                        console.log('Sound playback failed:', e);
+                      }
+                    }
+
+                    console.log('✅ Optimistic update complete, waiting for backend confirmation...');
+                  } else if (habitData.refreshNeeded) {
+                    // Backend confirmed - now refresh from database and clear optimistic logs
+                    console.log('🔄 Backend confirmed success, refreshing from database...');
+                    try {
+                      await Promise.all([
+                        fetchHabits(),
+                        fetchHabitLogs()
+                      ]);
+                      // Clear optimistic logs since we now have real data
+                      setOptimisticLogs([]);
+                      console.log('✅ Dashboard data refreshed after habit log, optimistic logs cleared');
+                    } catch (error) {
+                      console.error('❌ Error refreshing dashboard data:', error);
+                    }
                   }
-                }
-                
-                console.log('✅ Optimistic update complete, waiting for backend confirmation...');
-              } else if (habitData.refreshNeeded) {
-                // Backend confirmed - now refresh from database and clear optimistic logs
-                console.log('🔄 Backend confirmed success, refreshing from database...');
-                try {
-                  await Promise.all([
-                    fetchHabits(),
-                    fetchHabitLogs()
-                  ]);
-                  // Clear optimistic logs since we now have real data
-                  setOptimisticLogs([]);
-                  console.log('✅ Dashboard data refreshed after habit log, optimistic logs cleared');
-                } catch (error) {
-                  console.error('❌ Error refreshing dashboard data:', error);
-                }
-              }
-            }}
-          />
-          </Suspense>
-        </div>
+                }}
+              />
+            </Suspense>
+          </div>
         </div>
       )}
     </div>
