@@ -48,16 +48,23 @@ export async function resizeWindow(width: number, height: number): Promise<void>
 }
 
 /**
+ * Set window to standard size (used across all pages)
+ */
+export async function setStandardWindowSize(): Promise<void> {
+  await resizeWindow(1200, 850);
+}
+
+/**
  * Set window to compact size for onboarding
  */
 export async function setOnboardingWindowSize(): Promise<void> {
-  await resizeWindow(1280, 850);
+  await resizeWindow(1200, 850);
 }
 
 /**
  * Set window to full size for dashboard
  */
 export async function setDashboardWindowSize(): Promise<void> {
-  await resizeWindow(1280, 1000);
+  await resizeWindow(1200, 850);
 }
 

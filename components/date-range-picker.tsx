@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Calendar as CalendarIcon, ChevronDown } from "lucide-react"
-import { format, subDays, subWeeks, subMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay } from "date-fns"
+import { format, subDays, subMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay, isBefore } from "date-fns"
 import { DateRange } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
@@ -103,6 +103,13 @@ export function DateRangePicker({
   const [date, setDate] = React.useState<DateRange | undefined>(initialDateRange)
   const [selectedPreset, setSelectedPreset] = React.useState<string>("alltime")
   const [isOpen, setIsOpen] = React.useState(false)
+  
+  // Drag-to-select state
+  const [isDragging, setIsDragging] = React.useState(false)
+  const [dragStart, setDragStart] = React.useState<Date | null>(null)
+  
+  // Track if we're in the middle of selecting (first click done, waiting for second)
+  const [isSelectingRange, setIsSelectingRange] = React.useState(false)
 
   const handlePresetClick = (preset: PresetRange) => {
     setSelectedPreset(preset.value)
@@ -112,6 +119,9 @@ export function DateRangePicker({
   }
 
   const handleDateSelect = (selectedDate: DateRange | undefined) => {
+    // If we're dragging, let the drag handlers manage the selection
+    if (isDragging) return;
+    
     // Ensure custom date selections use proper day boundaries
     let adjustedDate = selectedDate;
     if (selectedDate?.from) {
@@ -119,11 +129,260 @@ export function DateRangePicker({
         from: startOfDay(selectedDate.from),
         to: selectedDate.to ? endOfDay(selectedDate.to) : endOfDay(selectedDate.from)
       };
+      
+      // Track if this is the first click (starting a range) or completing it
+      if (!selectedDate.to) {
+        setIsSelectingRange(true)
+      } else {
+        setIsSelectingRange(false)
+      }
     }
 
     setDate(adjustedDate)
     setSelectedPreset("custom")
     onDateRangeChange?.(adjustedDate)
+  }
+  
+  // Handle drag start (mouse down on a day)
+  const handleDayMouseDown = (day: Date) => {
+    setIsDragging(true)
+    setDragStart(day)
+    const newRange = { from: startOfDay(day), to: endOfDay(day) }
+    setDate(newRange)
+    setSelectedPreset("custom")
+  }
+  
+  // Handle drag over (mouse enter on a day while dragging)
+  const handleDayMouseEnter = (day: Date) => {
+    if (!isDragging || !dragStart) return
+    
+    // Determine the correct from/to based on drag direction
+    let newRange: DateRange
+    if (isBefore(day, dragStart)) {
+      newRange = { from: startOfDay(day), to: endOfDay(dragStart) }
+    } else {
+      newRange = { from: startOfDay(dragStart), to: endOfDay(day) }
+    }
+    
+    setDate(newRange)
+  }
+  
+  // Handle drag end (mouse up)
+  const handleMouseUp = React.useCallback(() => {
+    if (isDragging && date) {
+      // Completed a drag - finalize the range
+      onDateRangeChange?.(date)
+    }
+    // Always reset drag state
+    setIsDragging(false)
+    setDragStart(null)
+  }, [isDragging, date, onDateRangeChange])
+  
+  // Add global mouse up listener for drag end
+  React.useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mouseup', handleMouseUp)
+      window.addEventListener('pointerup', handleMouseUp)
+      return () => {
+        window.removeEventListener('mouseup', handleMouseUp)
+        window.removeEventListener('pointerup', handleMouseUp)
+      }
+    }
+  }, [isDragging, handleMouseUp])
+  
+  // Get the displayed months from the calendar caption elements
+  const getDisplayedMonths = (element: HTMLElement): Date[] => {
+    const months: Date[] = []
+    const calendar = element.closest('.rdp') || element.closest('[class*="p-4"]')?.parentElement
+    if (!calendar) return months
+    
+    const captions = calendar.querySelectorAll('.rdp-caption_label, [class*="caption_label"]')
+    captions.forEach((caption) => {
+      const text = caption.textContent?.trim() // e.g., "December 2025"
+      if (text) {
+        const parsed = new Date(text + ' 1') // Add day to make it parseable
+        if (!isNaN(parsed.getTime())) {
+          months.push(parsed)
+        }
+      }
+    })
+    return months
+  }
+  
+  // Parse date from button by getting day number and determining which month it belongs to
+  const parseDateFromButton = (button: HTMLElement): Date | null => {
+    // Get the day number from button text
+    const dayText = button.textContent?.trim()
+    if (!dayText) return null
+    
+    const dayNum = parseInt(dayText, 10)
+    if (isNaN(dayNum) || dayNum < 1 || dayNum > 31) return null
+    
+    // Find which month container this button is in
+    // Try multiple selectors as react-day-picker structure varies
+    let monthContainer = button.closest('.rdp-month')
+    if (!monthContainer) {
+      // Try finding by going up to table and then to its parent
+      const table = button.closest('table')
+      monthContainer = table?.parentElement
+    }
+    
+    // Get the caption - try multiple ways
+    let monthText: string | null = null
+    
+    if (monthContainer) {
+      // Try finding caption within the month container
+      const caption = monthContainer.querySelector('.rdp-caption_label') ||
+                     monthContainer.querySelector('[class*="caption_label"]') ||
+                     monthContainer.querySelector('.rdp-caption span') ||
+                     monthContainer.querySelector('[class*="caption"] span') ||
+                     monthContainer.querySelector('div[class*="caption"]')
+      
+      if (caption) {
+        monthText = caption.textContent?.trim() || null
+      }
+      
+      // If still not found, look for any element containing month name
+      if (!monthText) {
+        const walker = document.createTreeWalker(
+          monthContainer,
+          NodeFilter.SHOW_TEXT,
+          null
+        )
+        let node
+        while (node = walker.nextNode()) {
+          const text = node.textContent?.trim()
+          if (text && /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i.test(text)) {
+            monthText = text
+            break
+          }
+        }
+      }
+    }
+    
+    // If still not found, try finding all captions in the calendar
+    if (!monthText) {
+      const calendar = button.closest('.rdp') || button.closest('[class*="p-4"]')?.parentElement
+      if (calendar) {
+        // Find the table this button is in
+        const buttonTable = button.closest('table')
+        const allMonthContainers = calendar.querySelectorAll('[class*="rdp-caption_start"], [class*="rdp-month"]')
+        
+        allMonthContainers.forEach((container) => {
+          const table = container.querySelector('table')
+          if (table === buttonTable) {
+            // This is our month - find the caption
+            const captionEl = container.querySelector('.rdp-caption_label') || 
+                             container.querySelector('[class*="caption"] div') ||
+                             container.querySelector('div > div')
+            if (captionEl?.textContent?.match(/\d{4}/)) {
+              monthText = captionEl.textContent.trim()
+            }
+          }
+        })
+      }
+    }
+    
+    if (!monthText) return null
+    
+    // Parse month and year from text like "December 2025"
+    const match = monthText.match(/(\w+)\s+(\d{4})/)
+    if (!match) return null
+    
+    const [, monthName, yearStr] = match
+    const year = parseInt(yearStr, 10)
+    
+    // Convert month name to month index
+    const monthDate = new Date(`${monthName} 1, ${year}`)
+    if (isNaN(monthDate.getTime())) return null
+    
+    const month = monthDate.getMonth()
+    
+    // Check if this is an "outside" day (from previous/next month)
+    const cell = button.closest('td')
+    const isOutside = cell?.classList.contains('day-outside') || 
+                      button.classList.contains('day-outside') ||
+                      cell?.querySelector('.day-outside') !== null ||
+                      button.closest('.day-outside') !== null
+    
+    let finalMonth = month
+    let finalYear = year
+    
+    if (isOutside) {
+      // Determine if it's from previous or next month based on day number
+      if (dayNum > 20) {
+        // High day number in "outside" = previous month
+        finalMonth = month - 1
+        if (finalMonth < 0) {
+          finalMonth = 11
+          finalYear = year - 1
+        }
+      } else {
+        // Low day number in "outside" = next month
+        finalMonth = month + 1
+        if (finalMonth > 11) {
+          finalMonth = 0
+          finalYear = year + 1
+        }
+      }
+    }
+    
+    return new Date(finalYear, finalMonth, dayNum)
+  }
+  
+  // Find the day button from an event target
+  const findDayButton = (target: HTMLElement): HTMLElement | null => {
+    if (target.tagName === 'BUTTON' && target.getAttribute('name') === 'day') {
+      return target
+    }
+    const button = target.closest('button[name="day"]') as HTMLElement
+    return button
+  }
+  
+  // Handle pointer down on calendar - only used for starting drag selection
+  const handleCalendarMouseDown = (e: React.PointerEvent | React.MouseEvent) => {
+    // Don't interfere with normal clicks - let Calendar handle them
+    // We only track for potential drag operations
+    const target = e.target as HTMLElement
+    const dayButton = findDayButton(target)
+    
+    if (dayButton) {
+      const dayDate = parseDateFromButton(dayButton)
+      if (dayDate && !isNaN(dayDate.getTime())) {
+        // Store potential drag start, but don't prevent default yet
+        setDragStart(dayDate)
+      }
+    }
+  }
+  
+  // Handle pointer move over calendar (event delegation) - for drag selection
+  const handleCalendarMouseMove = (e: React.PointerEvent | React.MouseEvent) => {
+    // Only process if we have a potential drag start and mouse is down
+    if (!dragStart) return
+    
+    // Check if mouse button is still pressed
+    if (!('buttons' in e) || (e as React.MouseEvent).buttons !== 1) {
+      setDragStart(null)
+      return
+    }
+    
+    const target = e.target as HTMLElement
+    const dayButton = findDayButton(target)
+    
+    if (dayButton) {
+      const dayDate = parseDateFromButton(dayButton)
+      if (dayDate && !isNaN(dayDate.getTime())) {
+        // Check if we've moved to a different date
+        if (dayDate.getTime() !== dragStart.getTime()) {
+          // Start dragging if not already
+          if (!isDragging) {
+            setIsDragging(true)
+          }
+          // Update selection while dragging
+          handleDayMouseEnter(dayDate)
+        }
+      }
+    }
   }
 
   const formatDateRange = () => {
@@ -187,7 +446,13 @@ export function DateRangePicker({
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-[580px]">
+            <div 
+              className={cn("w-[580px] select-none", isDragging && "cursor-crosshair")}
+              onPointerDownCapture={handleCalendarMouseDown}
+              onPointerMoveCapture={handleCalendarMouseMove}
+              onPointerUpCapture={handleMouseUp}
+              style={{ touchAction: 'none' }}
+            >
               <Calendar
                 initialFocus
                 mode="range"
@@ -198,7 +463,10 @@ export function DateRangePicker({
                 fixedWeeks={true}
                 className="p-4"
                 classNames={{
-                  day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-none hover:bg-[#F3F3F3] hover:text-gray-900",
+                  day: cn(
+                    "h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-none hover:bg-[#F3F3F3] hover:text-gray-900",
+                    isDragging && "cursor-crosshair"
+                  ),
                   day_selected: "bg-[#F3F3F3] text-gray-900 hover:bg-[#F3F3F3] hover:text-gray-900 focus:bg-[#F3F3F3] focus:text-gray-900 rounded-none",
                   day_today: "bg-[#F3F3F3] text-gray-900 rounded-none",
                   day_range_middle: "aria-selected:bg-[#F3F3F3] aria-selected:text-gray-900",
@@ -214,3 +482,4 @@ export function DateRangePicker({
     </div>
   )
 }
+

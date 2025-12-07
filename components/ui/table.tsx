@@ -13,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ChevronDown, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from "@mui/icons-material"
+import { ChevronDown, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -78,7 +78,7 @@ const TableRow = React.forwardRef<
   <tr
     ref={ref}
     className={cn(
-      "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+      "border-b data-[state=selected]:bg-muted",
       className
     )}
     {...props}
@@ -459,7 +459,7 @@ export default function DataTableDemo() {
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="ml-auto bg-transparent rounded-none">
               <Settings2 className="mr-2 h-4 w-4" />
-              Columns <KeyboardArrowDownSharp sx={{ fontSize: 16 }} className="ml-2 h-4 w-4" />
+              Columns <ChevronDown className="ml-2 h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">

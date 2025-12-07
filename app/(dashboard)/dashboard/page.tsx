@@ -11,6 +11,7 @@ import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useClerk, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
 
 import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
@@ -35,33 +36,7 @@ const HabitIcon = ({ iconName }: { iconName: string }) => {
   return <LayoutDashboard className="w-5 h-5 text-black" />;
 };
 
-// Old dynamic loading code (removed to fix 27,715 modules issue):
-/*
-const HabitIconOld = ({ iconName }: { iconName: string }) => {
-  const [Icon, setIcon] = useState<React.ComponentType<any>>(DashboardSharp);
-
-  useEffect(() => {
-    // Dynamically import Material UI Sharp icon
-    import('@mui/icons-material')  // ❌ This imports ALL 2000+ icons!
-      .then((icons) => {
-        const IconComponent = (icons as any)[iconName];
-        if (IconComponent) {
-          iconCache[iconName] = IconComponent;
-          setIcon(() => IconComponent);
-        } else {
-          // Icon not found, use default
-          iconCache[iconName] = DashboardSharp;
-          setIcon(() => DashboardSharp);
-        }
-      })
-      .catch(() => {
-        iconCache[iconName] = DashboardSharp;
-        setIcon(() => DashboardSharp);
-      });
-  }, [iconName]);
-  return <Icon sx={{ fontSize: 20, color: '#000' }} />;
-};
-*/
+// Note: Old MUI dynamic loading code was removed to improve bundle size
 
 // Habit icons mapping
 const getHabitIcon = (name: string, category: string) => {
@@ -91,7 +66,7 @@ const getHabitIcon = (name: string, category: string) => {
 
 export default function DashboardPage() {
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
-  const { isLoaded, signOut } = useAuth();
+  const { isLoaded, signOut, getToken } = useAuth();
   const clerk = useClerk();
   const { showAIChat, chatMode, setChatMode, isFullScreenChat } = useAI();
   const {
@@ -114,11 +89,59 @@ export default function DashboardPage() {
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
 
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
+  
+  // Cached stats from Python analytics API (single source of truth)
+  const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>({});
+  const [statsLoading, setStatsLoading] = useState(false);
 
   // Merge optimistic logs with real logs for display
   const displayLogs = React.useMemo(() => {
     return [...habitLogs, ...optimisticLogs];
   }, [habitLogs, optimisticLogs]);
+
+  // Fetch stats from Python analytics API (single source of truth)
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (!habits.length) return;
+      
+      try {
+        setStatsLoading(true);
+        const token = await getToken();
+        if (!token) return;
+        
+        // Build date params
+        const params: { startDate?: string; endDate?: string; daysBack?: number } = {};
+        if (dateRange?.from) {
+          params.startDate = dateRange.from.toISOString().split('T')[0];
+          if (dateRange.to) {
+            params.endDate = dateRange.to.toISOString().split('T')[0];
+          } else {
+            params.endDate = params.startDate;
+          }
+        } else {
+          params.daysBack = 30; // Default to last 30 days
+        }
+        
+        const result = await analyticsApi.getHabitStats(token, params);
+        
+        if (result.success && result.habits) {
+          // Index by habit ID for quick lookup
+          const statsMap: Record<string, HabitStats> = {};
+          result.habits.forEach(stat => {
+            statsMap[stat.id] = stat;
+          });
+          setCachedStats(statsMap);
+          console.log('📊 Stats fetched from Python API:', Object.keys(statsMap).length, 'habits');
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch stats from Python API:', error);
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+    
+    fetchStats();
+  }, [habits, dateRange, getToken]);
 
   // Initialize ordered habits from localStorage or use habits from context
   useEffect(() => {
@@ -382,16 +405,9 @@ export default function DashboardPage() {
         const totalHours = Math.round((totalDurationSeconds / 3600) * 100) / 100;
         return `${totalHours} Hours`;
       } else {
-        // For minutes, show more precision for short durations
-        const totalMinutes = totalDurationSeconds / 60;
-        if (totalMinutes < 5) {
-          // Show seconds for durations under 5 minutes
-          const mins = Math.floor(totalMinutes);
-          const secs = Math.round(totalDurationSeconds % 60);
-          return secs > 0 ? `${mins} Min ${secs} Sec` : `${mins} Minutes`;
-        } else {
-          return `${Math.round(totalMinutes)} Minutes`;
-        }
+        // Show total minutes (rounded)
+        const totalMinutes = Math.round(totalDurationSeconds / 60);
+        return `${totalMinutes} Minutes`;
       }
     }
 
@@ -400,64 +416,53 @@ export default function DashboardPage() {
     return `${totalAmount} ${unitType}`;
   }, [displayLogs, dateRange]);
 
-  // Detailed stats for tooltip (sum/avg/min/max/variance)
+  // Detailed stats for tooltip - uses cached stats from Python API (single source of truth)
   const getHabitMetricStats = React.useCallback((habit: Habit) => {
-    const unitType = habit.unit_type || 'sessions';
-    let filteredLogs = displayLogs.filter(log => {
-      const matchesHabit = log.habit_id === habit.id;
-      const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
-      return matchesHabit && isCompleted;
-    });
-    if (dateRange?.from) {
-      filteredLogs = filteredLogs.filter(log => {
-        const logDate = parseISO(log.date);
-        if (dateRange.to) {
-          return isWithinInterval(logDate, { start: dateRange.from!, end: dateRange.to });
-        } else {
-          const logDateOnly = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate());
-          const filterDateOnly = new Date(dateRange.from!.getFullYear(), dateRange.from!.getMonth(), dateRange.from!.getDate());
-          return logDateOnly.getTime() === filterDateOnly.getTime();
-        }
-      });
-    }
     const formatNum = (n: number) => {
       const rounded = Math.round(n * 10) / 10;
       return rounded.toLocaleString(undefined, { maximumFractionDigits: 1 });
     };
-    // Build numeric series in the correct unit
-    let series: number[] = [];
-    if (unitType.toLowerCase().includes('hour') || unitType.toLowerCase().includes('minute')) {
-      const seconds = filteredLogs.map(log => {
-        if (log.duration && log.duration > 0) return log.duration;
-        if (log.amount && log.amount > 0) {
-          if (log.unit === 'Hours' || log.unit === 'hours') return log.amount * 3600;
-          if (log.unit === 'Minutes' || log.unit === 'minutes') return log.amount * 60;
-        }
-        return 0;
-      });
-      if (unitType.toLowerCase().includes('hour')) {
-        series = seconds.map(s => s / 3600);
-      } else {
-        series = seconds.map(s => s / 60);
-      }
-    } else {
-      series = filteredLogs.map(log => (log.amount != null ? Number(log.amount) : 1));
+    
+    // Use cached stats from Python API
+    const stats = cachedStats[habit.id || ''];
+    
+    if (stats) {
+      // Stats from Python API (single source of truth)
+      const unitLabel = stats.unit || habit.unit_type || 'sessions';
+      return {
+        unitLabel,
+        sumFormatted: `${formatNum(stats.total)} ${unitLabel}`,
+        avgFormatted: `${formatNum(stats.average)} ${unitLabel}`,
+        minFormatted: `${formatNum(stats.min)} ${unitLabel}`,
+        maxFormatted: `${formatNum(stats.max)} ${unitLabel}`,
+        varianceFormatted: `${formatNum(stats.variance)} ${unitLabel}`,
+        daysWithData: stats.days_with_data,
+      };
     }
-    const sum = series.reduce((a, b) => a + (isFinite(b) ? b : 0), 0);
-    const avg = series.length ? sum / series.length : 0;
-    const min = series.length ? Math.min(...series) : 0;
-    const max = series.length ? Math.max(...series) : 0;
-    const variance = series.length ? series.reduce((acc, v) => acc + Math.pow(v - avg, 2), 0) / series.length : 0;
-    const unitLabel = unitType;
+    
+    // Fallback while loading or if API fails - show loading state
+    const unitLabel = habit.unit_type || 'sessions';
+    if (statsLoading) {
+      return {
+        unitLabel,
+        sumFormatted: `Loading...`,
+        avgFormatted: `Loading...`,
+        minFormatted: `Loading...`,
+        maxFormatted: `Loading...`,
+        varianceFormatted: `Loading...`,
+      };
+    }
+    
+    // No data available
     return {
       unitLabel,
-      sumFormatted: `${formatNum(sum)} ${unitLabel}`,
-      avgFormatted: `${formatNum(avg)} ${unitLabel}`,
-      minFormatted: `${formatNum(min)} ${unitLabel}`,
-      maxFormatted: `${formatNum(max)} ${unitLabel}`,
-      varianceFormatted: `${formatNum(variance)} ${unitLabel}`,
+      sumFormatted: `0 ${unitLabel}`,
+      avgFormatted: `0 ${unitLabel}`,
+      minFormatted: `0 ${unitLabel}`,
+      maxFormatted: `0 ${unitLabel}`,
+      varianceFormatted: `0 ${unitLabel}`,
     };
-  }, [displayLogs, dateRange]);
+  }, [cachedStats, statsLoading]);
 
   // Handle habit creation
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
@@ -521,27 +526,18 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="px-6 pt-3 pb-6 space-y-4">
       {/* Header with view controls - Hidden in Chat Mode */}
       {!isFullScreenChat && (
-        <div className="flex items-center justify-between mt-1">
-          <div className="flex items-center space-x-2">
-            {/* Empty left side */}
-          </div>
-
+        <div className="flex items-center justify-end">
           <div className="flex items-center space-x-1">
             {/* Add Habit button */}
-            <div className="relative group">
-              <button
-                onClick={() => setShowSelectionModal(true)}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 px-2 py-1 text-xs text-black bg-white border border-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                Add
-              </div>
-            </div>
+            <button
+              onClick={() => setShowSelectionModal(true)}
+              className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
 
             {/* Date Range Picker - compact version */}
             <DateRangePicker
@@ -553,17 +549,19 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Spacer between header and habits */}
+      {!isFullScreenChat && <div className="h-4" />}
+      
       {/* Habits List - Hidden in Chat Mode */}
       {!isFullScreenChat && (
-        <div className="mt-6">
-          <div className="max-w-4xl mx-auto px-2 w-full">
+        <div>
+          <div className="max-w-[680px] mx-auto w-full">
             <DragDropContext onDragEnd={handleDragEnd}>
               <Droppable droppableId="habits">
                 {(provided) => (
                   <div
                     {...provided.droppableProps}
                     ref={provided.innerRef}
-                    className="space-y-1"
                   >
                     {orderedHabits.map((habit, index) => (
                       <Draggable key={habit.id} draggableId={habit.id || ''} index={index}>
@@ -572,13 +570,12 @@ export default function DashboardPage() {
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            className={`w-full flex items-center py-1 group hover:bg-[#F3F3F3] bg-white transition-colors cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
+                            className={`w-full flex justify-between items-center h-8 px-2 group hover:bg-[#F2F2F2] bg-white cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
                               }`}
                           >
-                            <div className="flex items-center flex-1 min-w-0 space-x-1">
+                            <div className="flex items-center min-w-0 space-x-2">
                               <span
-                                className="flex items-center justify-center"
-                                style={{ minWidth: 24 }}
+                                className="flex items-center justify-center w-6 h-6 flex-shrink-0"
                               >
                                 {habit.icon ? (
                                   // Check if it's an emoji (contains emoji characters)
@@ -591,13 +588,13 @@ export default function DashboardPage() {
                                   <span className="text-xl">{getHabitIcon(habit.name, habit.category)}</span>
                                 )}
                               </span>
-                              <span className="text-base font-normal truncate">{habit.name}</span>
+                              <span className="text-[17px] font-normal text-gray-900 truncate">{habit.name}</span>
                             </div>
                             <div
-                              className="flex items-center space-x-1 cursor-default relative ml-4 tooltip-container"
+                              className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
                               onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
                             >
-                              <span className="text-base font-normal select-none">
+                              <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
                                 {getHabitMetricDisplay(habit)}
                               </span>
                               <button
@@ -721,11 +718,10 @@ export default function DashboardPage() {
 
       {/* AI Habit Chat - Conditionally rendered */}
       {showAIChat && (
-        <div className="fixed bottom-0 left-0 right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-12 pt-8 bg-gradient-to-t from-white via-white to-transparent">
+        <div className="fixed bottom-0 left-16 right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white via-white/95 to-transparent">
           <div className="w-full max-w-2xl">
             <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
               <AIHabitChat
-                onModeChange={(mode) => setChatMode(mode)}
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
 

@@ -33,7 +33,10 @@ SQL >
         SUM(total_duration) as weekly_duration,
         SUM(total_amount) as weekly_amount,
         any(unit) as unit,
-        COUNT(DISTINCT date) as days_logged
+        COUNT(DISTINCT date) as days_logged,
+        -- Average per day with data in the week
+        SUM(total_amount) / COUNT(DISTINCT date) as avg_amount_per_day,
+        SUM(total_duration) / COUNT(DISTINCT date) as avg_duration_per_day
     FROM daily_trends
     GROUP BY week_start, habit_id, habit_name
     ORDER BY week_start DESC

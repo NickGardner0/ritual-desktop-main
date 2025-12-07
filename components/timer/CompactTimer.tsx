@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useHabits } from '@/contexts/HabitsContext'
-import { PlayArrowSharp, PauseSharp, StopSharp, AccessTimeSharp } from "@mui/icons-material"
+import { Play, Pause, Square, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
@@ -145,21 +145,21 @@ export default function CompactTimer({ onSessionComplete }: { onSessionComplete?
               disabled={!selectedHabit}
               className="px-1.5 py-0.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 transition-colors rounded-none text-xs h-6"
             >
-              <PlayArrowSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
+              <Play className="w-2 h-2 mr-1" />
               Start
             </Button>
             <Button
               disabled
               className="px-1.5 py-0.5 bg-gray-100 text-gray-400 font-medium cursor-not-allowed rounded-none text-xs h-6"
             >
-              <PauseSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
+              <Pause className="w-2 h-2 mr-1" />
               Pause
             </Button>
             <Button
               disabled
               className="px-1.5 py-0.5 bg-gray-100 text-gray-400 font-medium cursor-not-allowed rounded-none text-xs h-6"
             >
-              <StopSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
+              <Square className="w-2 h-2 mr-1" />
               Stop
             </Button>
           </>
@@ -169,21 +169,21 @@ export default function CompactTimer({ onSessionComplete }: { onSessionComplete?
               disabled={isPaused}
               className="px-1.5 py-0.5 bg-gray-100 text-gray-400 font-medium cursor-not-allowed rounded-none text-xs h-6"
             >
-              <PlayArrowSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
+              <Play className="w-2 h-2 mr-1" />
               Start
             </Button>
             <Button
               onClick={handlePause}
               className="px-1.5 py-0.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-50 transition-colors rounded-none text-xs h-6"
             >
-              <PauseSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
+              <Pause className="w-2 h-2 mr-1" />
               Pause
             </Button>
             <Button
               onClick={handleStop}
               className="px-1.5 py-0.5 bg-red-600 hover:bg-red-700 text-white font-medium transition-colors rounded-none text-xs h-6"
             >
-              <StopSharp sx={{ fontSize: 16 }} className="w-2 h-2 mr-1" />
+              <Square className="w-2 h-2 mr-1" />
               Stop
             </Button>
           </>

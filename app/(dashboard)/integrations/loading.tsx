@@ -6,14 +6,16 @@
  * approach of showing instant UI shells.
  */
 
+const shimmerClass = "animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200";
+
 export default function IntegrationsLoading() {
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-7xl mx-auto py-8 px-8">
         {/* Header Skeleton */}
-        <div className="flex items-center mb-8 animate-pulse">
-          <div className="w-5 h-5 bg-gray-200 rounded mr-2"></div>
-          <div className="h-6 w-32 bg-gray-200 rounded"></div>
+        <div className="flex items-center mb-8">
+          <div className={`w-5 h-5 rounded mr-2 ${shimmerClass}`}></div>
+          <div className={`h-6 w-32 rounded ${shimmerClass}`}></div>
         </div>
 
         {/* Integration Cards Grid Skeleton */}
@@ -21,29 +23,29 @@ export default function IntegrationsLoading() {
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div 
               key={i} 
-              className="bg-white border border-gray-200 p-5 h-[280px] animate-pulse"
+              className="bg-white border border-gray-200 p-5 h-[280px]"
             >
               {/* Logo */}
               <div className="h-14 mb-4">
-                <div className="w-24 h-12 bg-gray-200 rounded"></div>
+                <div className={`w-24 h-12 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Title */}
               <div className="mb-2">
-                <div className="h-5 w-32 bg-gray-200 rounded"></div>
+                <div className={`h-5 w-32 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Description */}
               <div className="space-y-2 mb-5">
-                <div className="h-4 w-full bg-gray-100 rounded"></div>
-                <div className="h-4 w-full bg-gray-100 rounded"></div>
-                <div className="h-4 w-3/4 bg-gray-100 rounded"></div>
+                <div className={`h-4 w-full rounded ${shimmerClass}`}></div>
+                <div className={`h-4 w-full rounded ${shimmerClass}`}></div>
+                <div className={`h-4 w-3/4 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Buttons */}
               <div className="flex items-center gap-3 mt-auto">
-                <div className="h-9 w-20 bg-gray-200 rounded"></div>
-                <div className="h-9 w-24 bg-gray-200 rounded"></div>
+                <div className={`h-9 w-20 rounded ${shimmerClass}`}></div>
+                <div className={`h-9 w-24 rounded ${shimmerClass}`}></div>
               </div>
             </div>
           ))}

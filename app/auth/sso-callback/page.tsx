@@ -21,16 +21,12 @@ export default function SSOCallback() {
       try {
         // Check if user came from welcome flow
         const isFromWelcome = localStorage.getItem('ritual-from-welcome')
-
+        
+        // Always clean up the welcome flag
         if (isFromWelcome === 'true') {
-          // New user from welcome flow - go to onboarding
-          localStorage.removeItem('ritual-from-welcome') // Clean up flag
-          setStatus('Setting up your profile...')
-          router.replace('/onboarding')
-          return
+          localStorage.removeItem('ritual-from-welcome')
         }
 
-        // Existing user - check backend profile
         setStatus('Checking your profile...')
 
         // Add delay and error handling to prevent rapid token requests
@@ -47,7 +43,7 @@ export default function SSOCallback() {
           return
         }
 
-        // Check onboarding status from backend with timeout
+        // Always check onboarding status from backend (even for welcome flow users)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -68,19 +64,34 @@ export default function SSOCallback() {
           console.log('[SSO Callback] Onboarding completed:', profile.onboarding_completed)
 
           if (profile.onboarding_completed) {
+            // User already completed onboarding - go to dashboard
             setStatus('Welcome back! Taking you to your dashboard...')
-            console.log('[SSO Callback] Redirecting to dashboard')
+            console.log('[SSO Callback] Redirecting to dashboard - onboarding already completed')
             router.replace('/dashboard')
+          } else if (isFromWelcome === 'true') {
+            // New user from welcome flow who hasn't completed onboarding
+            setStatus('Setting up your profile...')
+            console.log('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
+            router.replace('/onboarding')
           } else {
+            // Existing user who hasn't completed onboarding
             setStatus('Setting up your profile...')
             console.log('[SSO Callback] Redirecting to onboarding - onboarding_completed is:', profile.onboarding_completed)
             router.replace('/onboarding')
           }
         } else {
-          // Profile doesn't exist yet or error, go to dashboard
-          console.log('[SSO Callback] Profile fetch failed, status:', response?.status)
-          setStatus('Taking you to your dashboard...')
-          router.replace('/dashboard')
+          // Profile doesn't exist yet
+          if (isFromWelcome === 'true') {
+            // New user from welcome flow - go to onboarding
+            setStatus('Setting up your profile...')
+            console.log('[SSO Callback] No profile yet, new user - redirecting to onboarding')
+            router.replace('/onboarding')
+          } else {
+            // Returning user but profile fetch failed - go to dashboard
+            console.log('[SSO Callback] Profile fetch failed, status:', response?.status)
+            setStatus('Taking you to your dashboard...')
+            router.replace('/dashboard')
+          }
         }
       } catch (error) {
         console.error('Error checking onboarding:', error)

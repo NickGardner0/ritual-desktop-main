@@ -7,10 +7,10 @@ import {
   CheckCircle, 
   X, 
   Calendar, 
-  CheckSquare, 
+  Brain,
   BookOpen, 
-  Heart, 
-  Zap, 
+  Activity,
+  FlaskConical, 
   Plus 
 } from 'lucide-react';
 import { useHabits } from '@/contexts/HabitsContext';
@@ -398,10 +398,32 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
   // Metric type options
   const metricOptions = [
-    'Count', 'Minutes', 'Hours', 'Miles', 'Kilometers', 'Steps', 'Calories', 'Pages',
-    'Milligrams', 'Grams', 'Kilograms', 'Pounds', 'Ounces', 'Liters', 'Cups', 'Glasses',
-    'Reps', 'Sets', 'Percentage', 'Points', 'Sessions', 'Chapters', 'Episodes', 'Articles',
-    'Words', 'Lines', 'Tasks', 'Projects', 'Emails', 'Calls', 'Meetings', 'Breaks'
+    // General
+    'Count', 'Sessions', 'Times', 'Percentage', 'Points', 'Score',
+    // Time
+    'Minutes', 'Hours', 'Days', 'Weeks',
+    // Distance
+    'Miles', 'Kilometers', 'Meters', 'Steps', 'Laps',
+    // Weight & Mass
+    'Pounds', 'Kilograms', 'Grams', 'Ounces', 'Milligrams',
+    // Volume & Hydration
+    'Liters', 'Milliliters', 'Cups', 'Glasses', 'Ounces (fl)',
+    // Fitness
+    'Reps', 'Sets', 'Calories', 'BPM', 'Watts',
+    // Reading & Learning
+    'Pages', 'Chapters', 'Books', 'Articles', 'Lessons', 'Courses',
+    // Productivity
+    'Tasks', 'Projects', 'Emails', 'Calls', 'Meetings', 'Pomodoros',
+    // Writing & Coding
+    'Words', 'Lines', 'Characters', 'Commits', 'Pull Requests',
+    // Sleep & Wellness
+    'Hours Slept', 'Sleep Score', 'HRV', 'Recovery Score',
+    // Finance
+    'Dollars', 'Transactions', 'Savings',
+    // Social
+    'Connections', 'Messages', 'Posts',
+    // Misc
+    'Items', 'Units', 'Servings', 'Doses', 'Breaks'
   ];
 
   const handleCreateHabit = async () => {
@@ -489,13 +511,27 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   if (!isOpen) return null;
 
   const modalContent = (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed' }}>
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4" 
+      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed' }}
+      data-tauri-drag-region="false"
+    >
       {/* Backdrop - Midday exact style */}
-      <div className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80" onClick={onClose} style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}></div>
+      <div 
+        className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80" 
+        onClick={(e) => {
+          // Only close if the click target is the backdrop itself
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
+        data-tauri-drag-region="false"
+        style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}
+      ></div>
       
       <div 
         ref={cardRef}
-        className="relative bg-white w-[90vw] max-w-xl h-[600px] flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-none"
+        className="relative bg-white w-[90vw] max-w-xl h-[560px] flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-none"
       >
         {/* floating layer that confines dropdowns to the card */}
         <div
@@ -504,7 +540,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         />
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 flex-shrink-0">
           {showCustomization ? (
             <button
               onClick={handleBack}
@@ -526,7 +562,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </svg>
                 </button>
               )}
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-medium text-gray-900">
                 {selectedCategory 
                   ? selectedCategory === 'whoop' ? 'Whoop Habits' 
                   : selectedCategory === 'fitness' ? 'Fitness & Health Habits'
@@ -545,132 +581,140 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Description */}
         {!selectedCategory && (
-          <div className="px-6 pb-3 flex-shrink-0">
-            <p className="text-sm text-gray-600">
+          <div className="px-5 pb-4 flex-shrink-0">
+            <p className="text-sm text-gray-500">
               Ritual works best when you connect and integrate your wearable devices with manual self tracking tools.
             </p>
         </div>
         )}
 
-        {/* Search Bar */}
-        <div className="px-6 pb-3 flex items-center gap-4 flex-shrink-0">
-          {showCustomization ? (
-            <div className="flex items-center gap-4 w-full">
-              <label className="block text-sm font-medium text-gray-700 w-20 text-left">Title</label>
-              <div className="flex-1 max-w-md">
-                <input
-                  type="text"
-                  placeholder={selectedCategory === 'custom' ? 'Enter habit name...' : selectedHabit?.label}
-                  value={selectedCategory === 'custom' ? customHabitName : (selectedHabit?.label || '')}
-                  onChange={(e) => {
-                    if (selectedCategory === 'custom') {
-                      setCustomHabitName(e.target.value);
-                    }
-                  }}
-                  readOnly={selectedCategory !== 'custom'}
-                  className={`w-full px-4 py-3 border border-gray-200 rounded-none text-sm text-gray-700 h-[48px] ${
-                    selectedCategory === 'custom' ? 'bg-white' : 'bg-gray-50'
-                  }`}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1">
-              <input
-                type="text"
-                placeholder="Search habits..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-none focus:outline-none focus:border-gray-400 text-sm"
-              />
-            </div>
-          )}
-        </div>
+        {/* Search Bar - Only show when viewing habits within a category (not on main page or customization) */}
+        {!showCustomization && selectedCategory && (
+          <div className="px-5 pb-2 flex-shrink-0">
+            <input
+              type="text"
+              placeholder="Search habits..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-none focus:outline-none focus:border-gray-400 text-sm"
+            />
+          </div>
+        )}
 
         {/* Content Area - Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 pb-4">
+        <div className="flex-1 overflow-y-auto px-5 pb-3">
           {showCustomization ? (
-            // Habit Customization View - Larger Layout
-            <div className="space-y-6">
-              {/* Icon Selection - Raycast Style */}
-              <div className="mb-8 flex items-center gap-4">
-                <label className="block text-sm font-medium text-gray-700 w-20 text-left">Icon</label>
-                <div className="flex-1 max-w-md">
-                  <IconPicker
-                    value={selectedIcon}
-                    onChange={(name) => setSelectedIcon(name)}
-                    anchorClassName="flex items-center justify-between w-full px-4 py-3 border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
-                    portalRef={floatingLayerRef}
-                    withinCardRef={cardRef}
-                    minMenuHeight={260}
-                    desiredMenuWidth={384}
+            // Habit Customization View - Redesigned per ChatGPT recommendations
+            <div className="flex flex-col h-full">
+              {/* Title */}
+              <h3 className="text-lg font-medium text-gray-900 mb-5">Configure</h3>
+              
+              {/* Form Fields - Tighter spacing */}
+              <div className="space-y-4">
+                {/* Title Input */}
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Title</label>
+                  <input
+                    type="text"
+                    placeholder={selectedCategory === 'custom' ? 'Enter habit name...' : selectedHabit?.label}
+                    value={selectedCategory === 'custom' ? customHabitName : (selectedHabit?.label || '')}
+                    onChange={(e) => {
+                      if (selectedCategory === 'custom') {
+                        setCustomHabitName(e.target.value);
+                      }
+                    }}
+                    readOnly={selectedCategory !== 'custom'}
+                    className={`flex-1 px-3 py-2 border border-gray-300 rounded-none text-sm font-normal text-gray-900 h-10 focus:outline-none focus:border-gray-400 ${
+                      selectedCategory === 'custom' ? 'bg-white' : 'bg-gray-50'
+                    }`}
                   />
                 </div>
-              </div>
 
-              {/* Metric Type Selection - Raycast Style */}
-              <div className="mb-8 flex items-center gap-4">
-                <label className="block text-sm font-medium text-gray-700 w-20 text-left">Metric</label>
-                <div className="flex-1 max-w-md">
-                  <div className="relative" ref={metricDropdownRef}>
-                    <button
-                      ref={metricBtnRef}
-                      onClick={() => setIsMetricDropdownOpen((v) => !v)}
-                      className="flex items-center justify-between w-full px-4 py-3 border border-gray-200 rounded-none bg-white text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-[48px]"
-                    >
-                      <span>{selectedMetric}</span>
-                      <ChevronDown className={`w-4 h-4 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
-                    </button>
+                {/* Icon Selection */}
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Icon</label>
+                  <div className="flex-1">
+                    <IconPicker
+                      value={selectedIcon}
+                      onChange={(name) => setSelectedIcon(name)}
+                      anchorClassName="flex items-center justify-between w-full px-3 py-2 border border-gray-300 bg-white text-sm font-normal text-gray-700 hover:bg-[#FAFAF9] focus:outline-none h-10"
+                      portalRef={floatingLayerRef}
+                      withinCardRef={cardRef}
+                      minMenuHeight={260}
+                      desiredMenuWidth={384}
+                    />
+                  </div>
+                </div>
 
-                    {isMetricDropdownOpen &&
-                      floatingLayerRef.current &&
-                      createPortal(
-                        <div style={metricStyle} className="dropdown">
-                          <div className="py-1">
-                            {metricOptions.map((metric) => (
-                              <button
-                                key={metric}
-                                onClick={() => {
-                                  setSelectedMetric(metric);
-                                  setIsMetricDropdownOpen(false);
-                                }}
-                                className={`flex items-center w-full px-4 py-2 text-sm hover:bg-[#F3F3F3] text-left ${
-                                  selectedMetric === metric ? 'bg-[#F3F3F3] text-gray-700' : 'text-gray-700'
-                                }`}
-                              >
-                                {metric}
-                              </button>
-                            ))}
-                          </div>
-                        </div>,
-                        floatingLayerRef.current
-                      )}
+                {/* Metric Type Selection */}
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Metric</label>
+                  <div className="flex-1">
+                    <div className="relative" ref={metricDropdownRef}>
+                      <button
+                        ref={metricBtnRef}
+                        onClick={() => setIsMetricDropdownOpen((v) => !v)}
+                        className="flex items-center justify-between w-full px-3 py-2 border border-gray-300 rounded-none bg-white text-sm font-normal text-gray-700 hover:bg-[#FAFAF9] focus:outline-none h-10"
+                      >
+                        <span>{selectedMetric}</span>
+                        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {isMetricDropdownOpen &&
+                        floatingLayerRef.current &&
+                        createPortal(
+                          <div style={metricStyle} className="dropdown">
+                            <div className="py-1">
+                              {metricOptions.map((metric) => (
+                                <button
+                                  key={metric}
+                                  onClick={() => {
+                                    setSelectedMetric(metric);
+                                    setIsMetricDropdownOpen(false);
+                                  }}
+                                  className={`flex items-center w-full px-3 py-2 text-sm font-normal hover:bg-[#FAFAF9] text-left ${
+                                    selectedMetric === metric ? 'bg-[#F3F3F3] text-gray-900' : 'text-gray-700'
+                                  }`}
+                                >
+                                  {metric}
+                                </button>
+                              ))}
+                            </div>
+                          </div>,
+                          floatingLayerRef.current
+                        )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Start Date Selection */}
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Start Date</label>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2.5 px-3 py-2 border border-gray-300 rounded-none bg-[#FAFAF9] text-sm font-normal text-gray-700 h-10">
+                      <Calendar className="w-4 h-4 text-gray-500" />
+                      <span>Today, {new Date().toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric',
+                        year: 'numeric' 
+                      })}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Start Date Selection - Raycast Style */}
-              <div className="mb-8 flex items-center gap-4">
-                <label className="block text-sm font-medium text-gray-700 w-20 text-left">Start Date</label>
-                <div className="flex-1 max-w-md">
-                  <div className="flex items-center gap-3 px-4 py-3 border border-gray-200 rounded-none bg-gray-50 text-sm text-gray-700 h-[48px]">
-                    <Calendar className="w-4 h-4" />
-                    <span>Today, {new Date().toLocaleDateString('en-US', { 
-                      weekday: 'long', 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Start Tracking Button */}
-              <div className="flex justify-end">
+              {/* Footer Buttons - Better placement */}
+              <div className="flex justify-end items-center gap-3 mt-auto pt-6">
+                <button
+                  onClick={handleBack}
+                  className="px-4 py-2 text-sm font-normal text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  Cancel
+                </button>
                 <button
                   onClick={handleCreateHabit}
-                  disabled={isCreating}
-                  className="px-6 py-2 bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  disabled={isCreating || (selectedCategory === 'custom' && !customHabitName.trim())}
+                  className="px-5 py-2 bg-black text-white text-sm font-normal hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isCreating ? 'Starting...' : 'Start Tracking'}
                 </button>
@@ -678,30 +722,27 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             </div>
           ) : !selectedCategory ? (
             // Category Selection
-            <div className="space-y-0.5">
-                
-                                {/* Custom Habit - Manual */}
-                <div className="flex justify-between items-center py-2 px-3">
+            <div>
+                {/* Custom - Manual */}
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <Plus className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-11 w-11 items-center justify-center">
+                      <Plus className="w-6 h-6 text-gray-900" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Custom Habit</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Custom</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('custom')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Manual
                   </button>
                 </div>
 
-                                {/* Wearables & Devices - Connect */}
-                <div className="flex justify-between items-center py-2 px-3">
+                {/* Wearables & Devices - Connect */}
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex items-center justify-center mr-3">
+                    <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-7 h-7" onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
@@ -711,67 +752,59 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Screen Time</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Screen Time</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('screentime')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                    <div className="flex h-11 w-11 items-center justify-center">
                       <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
                         <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/>
                       </svg>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Apple Watch</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Apple Watch</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('applewatch')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center mr-3">
-                      <img src="/images/oura.svg" alt="Oura Ring" className="h-28" />
+                    <div className="flex h-11 w-11 items-center justify-center">
+                      <img src="/images/oura.svg" alt="Oura Ring" className="h-14" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Oura Ring</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Oura Ring</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('oura')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                    <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/whoop.svg" alt="Whoop" className="h-6" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Whoop</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Whoop</p>
                   </div>
                   {whoopConnected ? (
                     <button 
                       onClick={() => handleCategorySelect('whoop')}
-                      className="px-3 py-1.5 text-sm font-medium text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors"
+                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors mr-1"
                     >
                       Connected
                     </button>
@@ -779,128 +812,99 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     <button 
                       onClick={() => handleCategorySelect('whoop')}
                       disabled={whoopConnecting}
-                      className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                      className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50 mr-1"
                     >
                       {whoopConnecting ? 'Connecting...' : 'Connect'}
                     </button>
                   )}
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                    <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/fitbit.svg" alt="Fitbit" className="h-6" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Fitbit</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Fitbit</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('fitbit')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center mr-3">
+                    <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/garmin.svg" alt="Garmin" className="h-6" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Garmin</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Garmin</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('garmin')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Connect
                   </button>
                 </div>
 
-                                {/* Manual Tracking Categories */}
-                <div className="flex justify-between items-center py-2 px-3">
+                {/* Manual Tracking Categories */}
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <CheckSquare className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-11 w-11 items-center justify-center">
+                      <Brain className="w-5 h-5 text-gray-900" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Productivity</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Productivity</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('productivity')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <BookOpen className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-11 w-11 items-center justify-center">
+                      <BookOpen className="w-5 h-5 text-gray-900" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Education</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Learning</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('education')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <Heart className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-11 w-11 items-center justify-center">
+                      <Activity className="w-5 h-5 text-gray-900" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Fitness & Health</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Fitness & Health</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('fitness')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center py-2 px-3">
+                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
                   <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <Zap className="w-4 h-4 text-gray-700" />
+                    <div className="flex h-11 w-11 items-center justify-center">
+                      <FlaskConical className="w-5 h-5 text-gray-900" />
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Experiments</p>
-                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Experiments</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('experiments')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
-                  >
-                    Manual
-                  </button>
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3">
-                  <div className="flex items-center">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 mr-3">
-                      <Plus className="w-4 h-4 text-gray-700" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium leading-none">Custom Habits</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => handleCategorySelect('custom')}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Manual
                   </button>
@@ -908,19 +912,15 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             </div>
           ) : (
             // Habit Selection for Category
-            <div className="space-y-0.5">
+            <div>
                 {displayedHabits.length > 0 ? (
                   displayedHabits.map((habit, index) => (
-                    <div key={habit.value} className="flex justify-between items-center py-2 px-3">
-                      <div className="flex items-center">
-                        <div>
-                          <p className="text-sm font-medium leading-none">{habit.label}</p>
-                        </div>
-                      </div>
+                    <div key={habit.value} className="flex justify-between items-center h-12 px-3 hover:bg-[#FAFAF9] transition-colors">
+                      <p className="text-sm font-normal text-gray-900">{habit.label}</p>
                       <button
                         onClick={() => handleHabitClick(habit)}
                         disabled={isCreating}
-                        className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                        className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
                       >
                         {isCreating ? 'Creating...' : 'Track'}
                       </button>
@@ -934,7 +934,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>
-                    <p className="text-sm font-medium text-gray-900 mb-1">No habits found</p>
+                    <p className="text-sm font-normal text-gray-900 mb-1">No habits found</p>
                     <p className="text-xs text-gray-500">Try a different search term</p>
                   </div>
                 ) : null}

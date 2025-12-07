@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { format, subDays, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, getDay } from 'date-fns';
+import { format, subDays, eachDayOfInterval, isSameDay, getDay } from 'date-fns';
+import { Calendar } from 'lucide-react';
 
 interface ActivityData {
   date: string;
@@ -27,8 +28,8 @@ export function ActivityHeatmap({ data, days = 90 }: ActivityHeatmapProps) {
   });
   
   // Group dates by week
-  const weeks: Date[][] = [];
-  let currentWeek: Date[] = [];
+  const weeks: (Date | null)[][] = [];
+  let currentWeek: (Date | null)[] = [];
   
   allDates.forEach((date, index) => {
     const dayOfWeek = getDay(date);
@@ -48,9 +49,9 @@ export function ActivityHeatmap({ data, days = 90 }: ActivityHeatmapProps) {
   });
   
   // Pad first week with empty cells if it doesn't start on Sunday
-  if (weeks[0] && getDay(weeks[0][0]) !== 0) {
+  if (weeks[0] && weeks[0][0] && getDay(weeks[0][0]) !== 0) {
     const firstDayOfWeek = getDay(weeks[0][0]);
-    const padding = Array(firstDayOfWeek).fill(null);
+    const padding: null[] = Array(firstDayOfWeek).fill(null);
     weeks[0] = [...padding, ...weeks[0]];
   }
   
@@ -67,40 +68,47 @@ export function ActivityHeatmap({ data, days = 90 }: ActivityHeatmapProps) {
     return 1;
   };
   
-  // Get color for intensity level
+  // Get color for intensity level - using neutral dark colors to match design
   const getColor = (intensity: number): string => {
     const colors = [
-      'bg-gray-100',      // 0 - no activity
-      'bg-green-200',     // 1 - low
-      'bg-green-400',     // 2 - medium
-      'bg-green-600',     // 3 - high
-      'bg-green-800',     // 4 - very high
+      'bg-gray-100',           // 0 - no activity
+      'bg-gray-300',           // 1 - low
+      'bg-gray-400',           // 2 - medium
+      'bg-gray-600',           // 3 - high
+      'bg-gray-900',           // 4 - very high
     ];
     return colors[intensity];
   };
   
-  // Calculate total activities and current streak
+  // Calculate stats
   const totalActivities = data.reduce((sum, d) => sum + d.count, 0);
+  const daysWithActivity = data.filter(d => d.count > 0).length;
+  
+  // Day labels - only show select days to keep it clean
+  const dayLabels = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
   
   return (
-    <div className="bg-white border border-gray-300 p-6">
+    <div className="bg-white border border-gray-300 p-5">
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900">Activity Overview</h3>
-          <p className="text-sm text-gray-600 mt-1">
-            {totalActivities} activities in the last {days} days
-          </p>
+        <div className="flex items-center gap-3">
+          <Calendar className="w-5 h-5 text-gray-400" />
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Activity Overview</h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {totalActivities} entries across {daysWithActivity} active days
+            </p>
+          </div>
         </div>
         
         {/* Legend */}
-        <div className="flex items-center gap-2 text-xs text-gray-600">
+        <div className="flex items-center gap-2 text-xs text-gray-500">
           <span>Less</span>
-          <div className="flex gap-1">
+          <div className="flex gap-0.5">
             {[0, 1, 2, 3, 4].map(level => (
               <div
                 key={level}
-                className={`w-3 h-3 ${getColor(level)} border border-gray-200`}
-                title={level === 0 ? 'No activity' : `${level} level`}
+                className={`w-3 h-3 ${getColor(level)}`}
               />
             ))}
           </div>
@@ -109,26 +117,22 @@ export function ActivityHeatmap({ data, days = 90 }: ActivityHeatmapProps) {
       </div>
       
       {/* Heatmap Grid */}
-      <div className="flex gap-1 overflow-x-auto pb-2">
+      <div className="flex gap-[3px] overflow-x-auto">
         {/* Day labels */}
-        <div className="flex flex-col justify-around text-xs text-gray-500 pr-2">
-          <span>Sun</span>
-          <span>Mon</span>
-          <span>Tue</span>
-          <span>Wed</span>
-          <span>Thu</span>
-          <span>Fri</span>
-          <span>Sat</span>
+        <div className="flex flex-col justify-around text-[10px] text-gray-400 pr-2 py-[1px]">
+          {dayLabels.map((label, i) => (
+            <span key={i} className="h-[11px] leading-[11px]">{label}</span>
+          ))}
         </div>
         
         {/* Weeks */}
-        <div className="flex gap-1">
+        <div className="flex gap-[3px]">
           {weeks.map((week, weekIndex) => (
-            <div key={weekIndex} className="flex flex-col gap-1">
+            <div key={weekIndex} className="flex flex-col gap-[3px]">
               {week.map((date, dayIndex) => {
                 if (!date) {
                   // Empty cell for padding
-                  return <div key={`empty-${dayIndex}`} className="w-3 h-3" />;
+                  return <div key={`empty-${dayIndex}`} className="w-[11px] h-[11px]" />;
                 }
                 
                 const dateStr = format(date, 'yyyy-MM-dd');
@@ -139,10 +143,10 @@ export function ActivityHeatmap({ data, days = 90 }: ActivityHeatmapProps) {
                 return (
                   <div
                     key={dateStr}
-                    className={`w-3 h-3 ${getColor(intensity)} border border-gray-200 hover:border-gray-400 transition-all cursor-pointer ${
-                      isToday ? 'ring-2 ring-blue-500' : ''
+                    className={`w-[11px] h-[11px] ${getColor(intensity)} hover:ring-1 hover:ring-gray-400 transition-all cursor-pointer ${
+                      isToday ? 'ring-1 ring-black' : ''
                     }`}
-                    title={`${format(date, 'MMM d, yyyy')}: ${count} ${count === 1 ? 'activity' : 'activities'}`}
+                    title={`${format(date, 'MMM d, yyyy')}: ${count} ${count === 1 ? 'entry' : 'entries'}`}
                   />
                 );
               })}
@@ -152,19 +156,17 @@ export function ActivityHeatmap({ data, days = 90 }: ActivityHeatmapProps) {
       </div>
       
       {/* Month labels */}
-      <div className="flex gap-1 mt-2 ml-12">
+      <div className="flex text-[10px] text-gray-400 mt-2 ml-6">
         {weeks.map((week, index) => {
-          if (index === 0 || (week[0] && getDay(week[0]) <= 7)) {
-            const date = week.find(d => d !== null);
-            if (date && (index === 0 || date.getDate() <= 7)) {
-              return (
-                <div key={index} className="text-xs text-gray-500 w-3" style={{ marginLeft: index === 0 ? 0 : 'auto' }}>
-                  {format(date, 'MMM')}
-                </div>
-              );
-            }
-          }
-          return <div key={index} className="w-3" />;
+          const firstDate = week.find(d => d !== null);
+          // Show month label at the start and when month changes
+          const showLabel = firstDate && (index === 0 || firstDate.getDate() <= 7);
+          
+          return (
+            <div key={index} className="w-[14px] flex-shrink-0">
+              {showLabel && firstDate && format(firstDate, 'MMM')}
+            </div>
+          );
         })}
       </div>
     </div>

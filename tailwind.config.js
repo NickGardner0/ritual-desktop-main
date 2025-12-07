@@ -102,6 +102,10 @@ module.exports = {
             opacity: '1',
             transform: 'translateY(0)'
           },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
         }
       },
       animation: {
@@ -109,7 +113,8 @@ module.exports = {
         "accordion-up": "accordion-up 0.2s ease-out",
         scroll: 'scroll 60s linear infinite',
         'scroll-reverse': 'scroll-reverse 60s linear infinite',
-        'fade-up': 'fade-up 0.8s ease-out forwards'
+        'fade-up': 'fade-up 0.8s ease-out forwards',
+        shimmer: 'shimmer 2s ease-in-out infinite',
       },
       backgroundImage: {
         'grid-pattern': 'linear-gradient(to right, #80808012 1px, transparent 1px), linear-gradient(to bottom, #80808012 1px, transparent 1px)',

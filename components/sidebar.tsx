@@ -5,16 +5,8 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useState } from "react";
 import { MainMenu } from "./main-menu";
-import { Button } from "@/components/ui/button";
-import { Terminal } from "lucide-react";
 
-
-interface SidebarProps {
-  onToggleChat?: () => void;
-  isChatOpen?: boolean;
-}
-
-export function Sidebar({ onToggleChat, isChatOpen = false }: SidebarProps) {
+export function Sidebar() {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
@@ -34,11 +26,11 @@ export function Sidebar({ onToggleChat, isChatOpen = false }: SidebarProps) {
           isExpanded ? "w-full" : "w-[69px]",
         )}
       >
-        <Link href="/" className="absolute left-[4px] top-[60%] -translate-y-1/2 transition-none">
+        <Link href="/" className="absolute left-[20px] top-[58%] -translate-y-1/2 transition-none">
           <img 
-            src="/images/ritual-logo1.svg" 
+            src="/images/logo_fix1.svg" 
             alt="Ritual Logo" 
-            className="w-[57px] h-[57px]"
+            className="w-[28px] h-[28px] transition-transform duration-500 ease-in-out hover:rotate-[360deg]"
           />
         </Link>
       </div>
@@ -49,21 +41,6 @@ export function Sidebar({ onToggleChat, isChatOpen = false }: SidebarProps) {
           isExpanded={isExpanded} 
           onCloseSidebar={() => setIsExpanded(false)}
         />
-      </div>
-
-      {/* AI Chat Toggle Button - Bottom of Sidebar */}
-      <div className="absolute bottom-4 left-[15px]">
-        <button
-          onClick={onToggleChat}
-          className={cn(
-            "w-10 h-10 flex items-center justify-center transition-colors duration-200",
-            isChatOpen 
-              ? "text-gray-900" 
-              : "text-gray-600 hover:text-gray-900"
-          )}
-        >
-          <Terminal className="w-5 h-5" />
-        </button>
       </div>
     </aside>
   );

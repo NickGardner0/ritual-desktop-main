@@ -91,30 +91,33 @@ class TinybirdService:
     async def ingest_habit_log(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Ingest a habit log to Tinybird
+        
+        IMPORTANT: Timestamps are stored in UTC to match Turso database.
+        - `date` field: User's intended local date (for grouping/filtering)
+        - `timestamp` field: Full UTC timestamp (for accurate time display)
         """
         from datetime import datetime
         
-        # Helper to format datetime for Tinybird (remove 'Z', keep milliseconds)
-        def format_datetime(dt_string: str) -> str:
+        # Helper to format ISO datetime for Tinybird (convert to space-separated UTC format)
+        def format_utc_datetime(dt_string: str) -> str:
             if not dt_string:
                 return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-            # Remove 'Z' suffix if present, Tinybird prefers space-separated format
-            return dt_string.replace('Z', '').replace('T', ' ') if 'T' in dt_string else dt_string
+            # Convert ISO format to Tinybird format: "2025-12-07T00:02:08.352Z" -> "2025-12-07 00:02:08"
+            # Keep the FULL UTC timestamp, don't mix with local date!
+            result = dt_string.replace('T', ' ')
+            # Remove 'Z' suffix and milliseconds
+            if 'Z' in result:
+                result = result.replace('Z', '')
+            if '.' in result:
+                result = result.split('.')[0]
+            return result
         
-        # Get timestamps - Use date field to maintain consistency
         completed_at = log_data.get('completed_at')
-        log_date = log_data.get('date')
+        log_date = log_data.get('date')  # User's intended local date
         
-        # If we have a completed_at timestamp, use it but replace the date portion with log_date
-        # This ensures timestamp aligns with the intended log date, not UTC date
-        if completed_at and log_date:
-            # Extract time portion from completed_at (HH:MM:SS)
-            time_portion = completed_at.split('T')[1] if 'T' in completed_at else '12:00:00'
-            time_portion = time_portion.replace('Z', '').split('.')[0]  # Remove Z and milliseconds for simplicity
-            timestamp_str = f"{log_date} {time_portion}"
-        else:
-            # Fallback to current time with log_date
-            timestamp_str = f"{log_date} {datetime.utcnow().strftime('%H:%M:%S')}" if log_date else format_datetime(completed_at)
+        # Use full UTC timestamp from completed_at (matches Turso storage)
+        # This ensures timestamp accuracy for time display in tooltips
+        timestamp_str = format_utc_datetime(completed_at) if completed_at else datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         
         # Transform data for Tinybird schema
         # CRITICAL: Tinybird converts empty strings to null and rejects them!
@@ -124,8 +127,8 @@ class TinybirdService:
             'habit_id': log_data.get('habit_id') or 'unknown',
             'habit_name': log_data.get('habit_name') or 'Unknown Habit',
             'user_id': log_data.get('user_id') or 'unknown',
-            'date': log_date or datetime.utcnow().strftime('%Y-%m-%d'),
-            'timestamp': timestamp_str,  # Use aligned timestamp (date + time)
+            'date': log_date or datetime.utcnow().strftime('%Y-%m-%d'),  # User's local date for grouping
+            'timestamp': timestamp_str,  # Full UTC timestamp (matches Turso)
             'status': log_data.get('status') or 'completed',
             'duration': int(log_data.get('duration') or 0),  # Ensure Int32, default 0
             'amount': float(log_data.get('amount') or 0.0),  # Ensure Float64, default 0.0
@@ -135,7 +138,7 @@ class TinybirdService:
             'integration_id': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
             'whoop_metric_type': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
             'metadata': log_data.get('metadata') or '{}',
-            'created_at': timestamp_str  # Use same aligned timestamp
+            'created_at': timestamp_str  # Full UTC timestamp
         }
         
         print(f"🔍 Tinybird event data (formatted): {event}")

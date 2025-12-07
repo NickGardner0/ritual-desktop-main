@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useHabits } from '@/contexts/HabitsContext'
-import { PlayArrowSharp, PauseSharp, StopSharp } from "@mui/icons-material"
+import { Play, Pause, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
@@ -162,21 +162,21 @@ export default function TimeTracker() {
                   disabled={!selectedHabit}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-100 disabled:bg-gray-100 disabled:text-gray-400 transition-colors rounded-none"
                 >
-                  <PlayArrowSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
+                  <Play className="w-4 h-4 mr-2" />
                   Start
                 </Button>
                 <Button
                   disabled
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-400 font-medium cursor-not-allowed rounded-none"
                 >
-                  <PauseSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
+                  <Pause className="w-4 h-4 mr-2" />
                   Pause
                 </Button>
                 <Button
                   disabled
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-400 font-medium cursor-not-allowed rounded-none"
                 >
-                  <StopSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
+                  <Square className="w-4 h-4 mr-2" />
                   Stop & Save
                 </Button>
               </>
@@ -186,21 +186,21 @@ export default function TimeTracker() {
                   disabled={isPaused}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-400 font-medium cursor-not-allowed rounded-none"
                 >
-                  <PlayArrowSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
+                  <Play className="w-4 h-4 mr-2" />
                   Start
                 </Button>
                 <Button
                   onClick={handlePause}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-100 transition-colors rounded-none"
                 >
-                  <PauseSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
+                  <Pause className="w-4 h-4 mr-2" />
                   Pause
                 </Button>
                 <Button
                   onClick={handleStop}
                   className="px-6 py-1.5 bg-white border border-gray-300 text-red-600 font-medium hover:bg-gray-100 transition-colors rounded-none"
                 >
-                  <StopSharp sx={{ fontSize: 16 }} className="w-4 h-4 mr-2" />
+                  <Square className="w-4 h-4 mr-2" />
                   Stop & Save
                 </Button>
               </>

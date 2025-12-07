@@ -4,6 +4,7 @@ import { useUser, useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState, useRef } from 'react';
+import { setStandardWindowSize } from '@/lib/tauri-utils';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
@@ -13,6 +14,29 @@ export default function Home() {
   const router = useRouter();
   const hasChecked = useRef(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [isLogoSpinning, setIsLogoSpinning] = useState(false);
+  const logoRef = useRef<HTMLImageElement>(null);
+
+  // Attach click handler directly to logo via DOM
+  useEffect(() => {
+    const logo = logoRef.current;
+    if (!logo) return;
+
+    const handleLogoClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      console.log('Logo clicked via DOM handler!');
+      setIsLogoSpinning(prev => !prev);
+    };
+
+    logo.addEventListener('click', handleLogoClick, true);
+    return () => logo.removeEventListener('click', handleLogoClick, true);
+  }, []);
+
+  // Set standard window size
+  useEffect(() => {
+    setStandardWindowSize();
+  }, []);
 
   // Check if first-time visitor
   useEffect(() => {
@@ -72,11 +96,31 @@ export default function Home() {
           console.log('Profile data:', profile);
           console.log('Onboarding completed:', profile.onboarding_completed);
 
+          // Check localStorage as a fallback (in case DB sync is slow)
+          const localOnboardingCompleted = localStorage.getItem('ritual-onboarding-backend-completed') === 'true';
+          
           // Route directly to the correct destination
-          if (profile.onboarding_completed) {
+          if (profile.onboarding_completed || localOnboardingCompleted) {
             console.log('Redirecting to dashboard - onboarding completed');
             router.replace('/dashboard');
           } else {
+            // Check if user has habits - if so, they're an existing user, skip onboarding
+            try {
+              const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (habitsResponse.ok) {
+                const habits = await habitsResponse.json();
+                if (habits && habits.length > 0) {
+                  console.log('User has existing habits, skipping onboarding');
+                  router.replace('/dashboard');
+                  return;
+                }
+              }
+            } catch (e) {
+              console.log('Could not check habits, proceeding with onboarding check');
+            }
+            
             console.log('Redirecting to onboarding - not completed');
             router.replace('/onboarding');
           }
@@ -125,11 +169,16 @@ export default function Home() {
       {/* Main Content */}
       <main className="relative z-30 flex flex-col items-center justify-center min-h-[calc(100vh-120px)] px-6 text-center" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
         <div className="max-w-2xl mx-auto">
-          <div className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center mx-auto mb-8">
+          <div className="flex items-center justify-center mx-auto mb-8">
             <img
-              src="/images/ritual-logo1.svg"
+              ref={logoRef}
+              src="/images/logo_fix1.svg"
               alt="Ritual Logo"
-              className="w-full h-full"
+              className="w-10 h-10 cursor-pointer"
+              style={{ 
+                transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
+                transition: 'transform 500ms ease-in-out'
+              }}
             />
           </div>
 

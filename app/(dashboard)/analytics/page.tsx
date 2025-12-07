@@ -27,10 +27,10 @@ export default function AnalyticsPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {[1,2,3,4].map(i => (
-                <div key={i} className="bg-white border border-gray-300 p-5 h-24 animate-pulse" />
+                <div key={i} className="border border-gray-300 p-5 h-24 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
               ))}
             </div>
-            <div className="h-64 bg-white border border-gray-300 animate-pulse" />
+            <div className="h-64 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
           </div>
         }>
           <AnalyticsClient />

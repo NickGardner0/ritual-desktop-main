@@ -20,6 +20,16 @@
   contain: layout paint;
 }
 
+/* Shimmer animation for "Thinking..." text */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 @layer base {
   /* FK Grotesk Neue is loaded via @font-face declarations below */
 

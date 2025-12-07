@@ -22,6 +22,7 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
   useEffect(() => {
     router.prefetch('/dashboard');
     router.prefetch('/analytics');
+    router.prefetch('/chat');
     router.prefetch('/calendar');
     router.prefetch('/timer');
     router.prefetch('/integrations');

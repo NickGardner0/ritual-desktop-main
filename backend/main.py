@@ -312,6 +312,129 @@ async def get_habits_breakdown(
         raise HTTPException(status_code=400, detail=str(e))
 
 # ================================
+# CENTRALIZED ANALYTICS - Single Source of Truth
+# ================================
+
+from services.analytics_service import analytics_service
+
+@app.get("/api/analytics/stats")
+@limiter.limit("30/minute")
+async def get_habit_stats(
+    request: Request,
+    habit_id: Optional[str] = None,
+    habit_name: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days_back: int = 30,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get comprehensive habit statistics.
+    Single source of truth for: total, average (per day with data), min, max, variance.
+    
+    Query params:
+    - habit_id: Specific habit ID (optional)
+    - habit_name: Habit name to search for (flexible matching)
+    - start_date: Start date YYYY-MM-DD
+    - end_date: End date YYYY-MM-DD  
+    - days_back: Days to look back (default 30, used if no dates provided)
+    """
+    try:
+        result = await analytics_service.get_habit_stats(
+            user_id=current_user["id"],
+            habit_id=habit_id,
+            habit_name=habit_name,
+            start_date=start_date,
+            end_date=end_date,
+            days_back=days_back
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/analytics/daily-breakdown")
+@limiter.limit("30/minute")
+async def get_daily_breakdown(
+    request: Request,
+    habit_id: Optional[str] = None,
+    habit_name: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days_back: int = 30,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get day-by-day breakdown for a habit.
+    Returns chronological list of daily values.
+    
+    Query params:
+    - habit_id: Specific habit ID
+    - habit_name: Habit name to search for (flexible matching)
+    - start_date: Start date (YYYY-MM-DD) - overrides days_back
+    - end_date: End date (YYYY-MM-DD) - overrides days_back
+    - days_back: Days to look back (default 30, ignored if dates provided)
+    """
+    try:
+        result = await analytics_service.get_daily_breakdown(
+            user_id=current_user["id"],
+            habit_id=habit_id,
+            habit_name=habit_name,
+            start_date=start_date,
+            end_date=end_date,
+            days_back=days_back
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/analytics/correlation")
+@limiter.limit("20/minute")
+async def get_correlation(
+    request: Request,
+    habit1_id: Optional[str] = None,
+    habit1_name: Optional[str] = None,
+    habit2_id: Optional[str] = None,
+    habit2_name: Optional[str] = None,
+    days_back: int = 30,
+    current_user = Depends(get_current_user)
+):
+    """
+    Calculate correlation between two habits.
+    Returns Pearson correlation coefficient and interpretation.
+    
+    Query params:
+    - habit1_id/habit1_name: First habit
+    - habit2_id/habit2_name: Second habit
+    - days_back: Days to analyze (default 30)
+    """
+    try:
+        result = await analytics_service.get_correlation(
+            user_id=current_user["id"],
+            habit1_id=habit1_id,
+            habit1_name=habit1_name,
+            habit2_id=habit2_id,
+            habit2_name=habit2_name,
+            days_back=days_back
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/analytics/list-habits")
+async def list_habits_for_analytics(
+    current_user = Depends(get_current_user)
+):
+    """
+    List all habits for a user with basic info.
+    Useful for AI chat to know available habits.
+    """
+    try:
+        result = await analytics_service.list_habits(current_user["id"])
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ================================
 # REAL-TIME ENDPOINTS - WebSocket for live updates
 # ================================
 
@@ -414,13 +537,32 @@ async def whoop_status(current_user = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/integrations/whoop/sync")
-async def whoop_sync(days_back: int = 30, current_user = Depends(get_current_user)):
+async def whoop_sync(
+    days_back: int = None, 
+    force_full_sync: bool = False,
+    current_user = Depends(get_current_user)
+):
     """
-    Sync data from Whoop API
+    Sync data from Whoop API with smart incremental syncing.
+    
+    - Default: Only fetches new data since last sync (with 2-day overlap for safety)
+    - First sync: Automatically fetches 30 days of historical data
+    - days_back: Manual override to fetch specific number of days
+    - force_full_sync: Force a full 30-day sync regardless of last sync time
     """
     try:
-        print(f"🔄 Starting Whoop sync for user {current_user['id']} (last {days_back} days)")
-        result = await whoop_service.sync_whoop_data(current_user["id"], days_back)
+        sync_type = "smart incremental"
+        if force_full_sync:
+            sync_type = "full (forced)"
+        elif days_back is not None:
+            sync_type = f"manual ({days_back} days)"
+            
+        print(f"🔄 Starting Whoop {sync_type} sync for user {current_user['id']}")
+        result = await whoop_service.sync_whoop_data(
+            current_user["id"], 
+            days_back=days_back,
+            force_full_sync=force_full_sync
+        )
         print(f"✅ Whoop sync completed for user {current_user['id']}")
         return result
         
@@ -435,13 +577,14 @@ async def whoop_sync_all(
     """
     Sync Whoop data for all users with active integrations
     This endpoint is for internal use (cron jobs, background tasks)
+    Uses smart incremental syncing - only fetches new data since each user's last sync
     """
     try:
         # Verify internal API key
         if internal_key != os.getenv("INTERNAL_API_KEY"):
             raise HTTPException(status_code=403, detail="Invalid internal API key")
         
-        print(f"🔄 Starting bulk Whoop sync for all users")
+        print(f"🔄 Starting bulk Whoop sync for all users (smart incremental)")
         
         # Get all users with active Whoop integrations
         async with get_db_session() as session:
@@ -455,7 +598,8 @@ async def whoop_sync_all(
         for integration in integrations:
             try:
                 print(f"🔄 Syncing Whoop data for user {integration.user_id}")
-                result = await whoop_service.sync_whoop_data(integration.user_id, days_back=2)
+                # Use smart sync (no days_back = auto-detect based on last_sync_at)
+                result = await whoop_service.sync_whoop_data(integration.user_id)
                 sync_results.append({
                     "user_id": integration.user_id,
                     "success": True,

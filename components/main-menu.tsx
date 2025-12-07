@@ -12,7 +12,7 @@ import {
   Download,
   Plug2,
   ChevronDown,
-  LayoutDashboard,
+  TableProperties,
 } from "lucide-react";
 import { usePrefetchDashboard, usePrefetchAnalytics, usePrefetchCalendar, usePrefetchTimer } from "@/hooks/use-prefetch";
 
@@ -44,6 +44,7 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
 const icons = {
   "/dashboard": () => <ILetterIcon className="w-5 h-5" />,
   "/analytics": () => <LineChart className="w-5 h-5" strokeWidth={2.1} />,
+  "/activity": () => <TableProperties className="w-5 h-5" strokeWidth={2.1} />,
   "/timer": () => <Timer className="w-5 h-5" strokeWidth={2.1} />,
   "/calendar": () => <Calendar className="w-5 h-5" strokeWidth={2.1} />,
   "/integrations": () => <Plug2 className="w-5 h-5" strokeWidth={2.1} />,
@@ -59,6 +60,10 @@ const items = [
   {
     path: "/analytics",
     name: "Analytics",
+  },
+  {
+    path: "/activity",
+    name: "Activity",
   },
   {
     path: "/timer",

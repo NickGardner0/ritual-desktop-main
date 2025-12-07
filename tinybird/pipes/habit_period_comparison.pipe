@@ -1,0 +1,150 @@
+DESCRIPTION >
+    Calculate FIRST DAY → LAST DAY percentage change within selected date range
+    Shows the trend across the user's selected period
+    Example: Dec 4-6 compares Dec 4 value to Dec 6 value = +43.9% if sleep improved
+
+NODE first_day_values
+DESCRIPTION >
+    Get the value for the FIRST day in the selected range (per habit)
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        any(unit) as unit,
+        date as first_date,
+        SUM(amount) as first_day_amount,
+        SUM(duration) as first_day_duration
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(start_date, required=True) }}
+      AND date <= {{ Date(end_date, required=True) }}
+      AND status = 'completed'
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    GROUP BY habit_id, habit_name, date
+    HAVING date = (
+        SELECT MIN(date) 
+        FROM habit_logs 
+        WHERE user_id = {{ String(user_id) }}
+          AND habit_id = habit_logs.habit_id
+          AND date >= {{ Date(start_date) }}
+          AND date <= {{ Date(end_date) }}
+          AND status = 'completed'
+    )
+
+NODE last_day_values
+DESCRIPTION >
+    Get the value for the LAST day in the selected range (per habit)
+SQL >
+    %
+    SELECT
+        habit_id,
+        date as last_date,
+        SUM(amount) as last_day_amount,
+        SUM(duration) as last_day_duration
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(start_date, required=True) }}
+      AND date <= {{ Date(end_date, required=True) }}
+      AND status = 'completed'
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    GROUP BY habit_id, date
+    HAVING date = (
+        SELECT MAX(date) 
+        FROM habit_logs 
+        WHERE user_id = {{ String(user_id) }}
+          AND habit_id = habit_logs.habit_id
+          AND date >= {{ Date(start_date) }}
+          AND date <= {{ Date(end_date) }}
+          AND status = 'completed'
+    )
+
+NODE period_totals
+DESCRIPTION >
+    Get totals and averages for the entire selected period
+SQL >
+    %
+    SELECT
+        habit_id,
+        COUNT(DISTINCT date) as days_with_data,
+        SUM(amount) as total_amount,
+        SUM(duration) as total_duration,
+        SUM(amount) / nullIf(COUNT(DISTINCT date), 0) as avg_amount,
+        SUM(duration) / nullIf(COUNT(DISTINCT date), 0) as avg_duration
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(start_date, required=True) }}
+      AND date <= {{ Date(end_date, required=True) }}
+      AND status = 'completed'
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    GROUP BY habit_id
+
+NODE period_comparison
+DESCRIPTION >
+    Calculate first day → last day percentage change (trend within period)
+SQL >
+    %
+    SELECT
+        f.habit_id,
+        f.habit_name,
+        f.unit,
+        
+        -- First day values
+        f.first_date,
+        f.first_day_amount,
+        f.first_day_duration,
+        
+        -- Last day values
+        l.last_date,
+        l.last_day_amount,
+        l.last_day_duration,
+        
+        -- Period totals
+        t.days_with_data,
+        t.total_amount,
+        t.total_duration,
+        t.avg_amount,
+        t.avg_duration,
+        
+        -- FIRST → LAST percentage change in AMOUNT
+        CASE
+            WHEN f.first_day_amount > 0 
+            THEN ((l.last_day_amount - f.first_day_amount) / f.first_day_amount * 100)
+            WHEN l.last_day_amount > 0 AND f.first_day_amount = 0
+            THEN 100.0  -- Started from zero
+            ELSE 0
+        END as amount_change_pct,
+        
+        -- Absolute change in amount (last - first)
+        l.last_day_amount - f.first_day_amount as amount_absolute_change,
+        
+        -- FIRST → LAST percentage change in DURATION
+        CASE
+            WHEN f.first_day_duration > 0 
+            THEN ((l.last_day_duration - f.first_day_duration) / f.first_day_duration * 100)
+            WHEN l.last_day_duration > 0 AND f.first_day_duration = 0
+            THEN 100.0
+            ELSE 0
+        END as duration_change_pct,
+        
+        -- Absolute change in duration
+        l.last_day_duration - f.first_day_duration as duration_absolute_change,
+        
+        -- Period info for display (use actual first/last dates from data)
+        f.first_date as period_start,
+        l.last_date as period_end,
+        dateDiff('day', f.first_date, l.last_date) + 1 as period_days
+        
+    FROM first_day_values f
+    LEFT JOIN last_day_values l ON f.habit_id = l.habit_id
+    LEFT JOIN period_totals t ON f.habit_id = t.habit_id
+    ORDER BY t.total_amount DESC
+
+TYPE ENDPOINT
+

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Command } from "cmdk";
-import { FindInPageSharp, CalendarTodaySharp, FormatListBulletedSharp, BarChartSharp, WifiSharp, SmartToySharp, TimerSharp, CenterFocusStrongSharp, VisibilitySharp, DescriptionSharp, TrendingUpSharp, DownloadSharp } from "@mui/icons-material";
+import { Search, Calendar, List, BarChart3, Wifi, Bot, Timer, Focus, Eye, FileText, TrendingUp, Download } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 import { cn } from "@/lib/utils";
@@ -19,22 +19,22 @@ interface QuickActionItem {
 
 const quickActionItems: QuickActionItem[] = [
   // Quick Actions section
-  { id: 'search-logs', name: 'Search logs', icon: <FindInPageSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
-  { id: 'calendar-view', name: 'Calendar view', icon: <CalendarTodaySharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
-  { id: 'create-task', name: 'Create task', icon: <FormatListBulletedSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
-  { id: 'view-analytics', name: 'View analytics', icon: <BarChartSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
-  { id: 'connect-wearables', name: 'Connect wearables', icon: <WifiSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
-  { id: 'ai-assistant', name: 'AI assistant', icon: <SmartToySharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'quick_actions' },
+  { id: 'search-logs', name: 'Search logs', icon: <Search className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
+  { id: 'calendar-view', name: 'Calendar view', icon: <Calendar className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
+  { id: 'create-task', name: 'Create task', icon: <List className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
+  { id: 'view-analytics', name: 'View analytics', icon: <BarChart3 className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
+  { id: 'connect-wearables', name: 'Connect wearables', icon: <Wifi className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
+  { id: 'ai-assistant', name: 'AI assistant', icon: <Bot className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
   
   // Tracker section
-  { id: 'track-time', name: 'Track time', icon: <TimerSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'tracker' },
-  { id: 'start-focus-session', name: 'Start focus session', icon: <CenterFocusStrongSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'tracker' },
+  { id: 'track-time', name: 'Track time', icon: <Timer className="h-4 w-4 text-gray-700" />, section: 'tracker' },
+  { id: 'start-focus-session', name: 'Start focus session', icon: <Focus className="h-4 w-4 text-gray-700" />, section: 'tracker' },
   
   // Insights section
-  { id: 'view-today-summary', name: "View today's summary", icon: <VisibilitySharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
-  { id: 'weekly-activity-report', name: 'Weekly activity report', icon: <DescriptionSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
-  { id: 'correlation-finder', name: 'Correlation finder', icon: <TrendingUpSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
-  { id: 'export-data', name: 'Export data', icon: <DownloadSharp sx={{ fontSize: 16, color: '#374151' }} />, section: 'insights' },
+  { id: 'view-today-summary', name: "View today's summary", icon: <Eye className="h-4 w-4 text-gray-700" />, section: 'insights' },
+  { id: 'weekly-activity-report', name: 'Weekly activity report', icon: <FileText className="h-4 w-4 text-gray-700" />, section: 'insights' },
+  { id: 'correlation-finder', name: 'Correlation finder', icon: <TrendingUp className="h-4 w-4 text-gray-700" />, section: 'insights' },
+  { id: 'export-data', name: 'Export data', icon: <Download className="h-4 w-4 text-gray-700" />, section: 'insights' },
 ];
 
 interface HabitSelectorProps {

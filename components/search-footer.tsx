@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpwardSharp, ArrowDownwardSharp, SubdirectoryArrowLeftSharp } from "@mui/icons-material";
+import { ArrowUp, ArrowDown, CornerDownLeft } from "lucide-react";
 
 export function SearchFooter() {
   return (
@@ -17,12 +17,12 @@ export function SearchFooter() {
       {/* Right side - Keyboard shortcuts */}
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1">
-          <ArrowUpwardSharp sx={{ fontSize: 12 }} />
-          <ArrowDownwardSharp sx={{ fontSize: 12 }} />
+          <ArrowUp className="h-3 w-3" />
+          <ArrowDown className="h-3 w-3" />
           <span>Navigate</span>
         </div>
         <div className="flex items-center gap-1">
-          <SubdirectoryArrowLeftSharp sx={{ fontSize: 12 }} />
+          <CornerDownLeft className="h-3 w-3" />
           <span>Select</span>
         </div>
         <div className="flex items-center gap-1">

@@ -1,0 +1,106 @@
+DESCRIPTION >
+    Calculate habit progress comparing first 7 days to last 7 days of tracking.
+    Shows how much a user has improved since they started tracking each habit.
+
+TOKEN "habit_progress_since_start_read" READ
+
+NODE habit_date_range
+DESCRIPTION >
+    Get the date range for each habit (first and last log dates)
+SQL >
+    %
+    SELECT 
+        user_id,
+        habit_id,
+        habit_name,
+        unit,
+        min(toDate(timestamp)) AS first_date,
+        max(toDate(timestamp)) AS last_date,
+        dateDiff('day', min(toDate(timestamp)), max(toDate(timestamp))) + 1 AS total_days_tracked
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, '') }}
+      AND status = 'completed'
+    GROUP BY user_id, habit_id, habit_name, unit
+    HAVING total_days_tracked >= 2
+
+NODE first_period_stats
+DESCRIPTION >
+    Calculate average for the first 7 days of tracking each habit
+SQL >
+    %
+    SELECT 
+        hl.user_id,
+        hl.habit_id,
+        avg(hl.amount) AS first_period_avg_amount,
+        avg(hl.duration / 3600.0) AS first_period_avg_duration_hours,
+        count(*) AS first_period_log_count,
+        count(DISTINCT toDate(hl.timestamp)) AS first_period_days
+    FROM habit_logs hl
+    INNER JOIN habit_date_range hdr 
+        ON hl.habit_id = hdr.habit_id AND hl.user_id = hdr.user_id
+    WHERE hl.user_id = {{ String(user_id, '') }}
+      AND hl.status = 'completed'
+      AND toDate(hl.timestamp) >= hdr.first_date
+      AND toDate(hl.timestamp) < hdr.first_date + INTERVAL 7 DAY
+    GROUP BY hl.user_id, hl.habit_id
+
+NODE last_period_stats
+DESCRIPTION >
+    Calculate average for the last 7 days of tracking each habit
+SQL >
+    %
+    SELECT 
+        hl.user_id,
+        hl.habit_id,
+        avg(hl.amount) AS last_period_avg_amount,
+        avg(hl.duration / 3600.0) AS last_period_avg_duration_hours,
+        count(*) AS last_period_log_count,
+        count(DISTINCT toDate(hl.timestamp)) AS last_period_days
+    FROM habit_logs hl
+    INNER JOIN habit_date_range hdr 
+        ON hl.habit_id = hdr.habit_id AND hl.user_id = hdr.user_id
+    WHERE hl.user_id = {{ String(user_id, '') }}
+      AND hl.status = 'completed'
+      AND toDate(hl.timestamp) > hdr.last_date - INTERVAL 7 DAY
+      AND toDate(hl.timestamp) <= hdr.last_date
+    GROUP BY hl.user_id, hl.habit_id
+
+NODE progress_calculation
+DESCRIPTION >
+    Calculate progress percentage from first period to last period
+TYPE endpoint
+SQL >
+    SELECT 
+        hdr.user_id AS user_id,
+        hdr.habit_id AS habit_id,
+        hdr.habit_name AS habit_name,
+        hdr.unit AS unit,
+        hdr.first_date AS first_date,
+        hdr.last_date AS last_date,
+        hdr.total_days_tracked AS total_days_tracked,
+        coalesce(fp.first_period_avg_amount, 0) AS first_period_avg_amount,
+        coalesce(fp.first_period_avg_duration_hours, 0) AS first_period_avg_duration,
+        coalesce(fp.first_period_days, 0) AS first_period_days,
+        coalesce(lp.last_period_avg_amount, 0) AS last_period_avg_amount,
+        coalesce(lp.last_period_avg_duration_hours, 0) AS last_period_avg_duration,
+        coalesce(lp.last_period_days, 0) AS last_period_days,
+        multiIf(
+            fp.first_period_avg_amount > 0, 
+            ((lp.last_period_avg_amount - fp.first_period_avg_amount) / fp.first_period_avg_amount) * 100,
+            lp.last_period_avg_amount > 0, 
+            100.0,
+            0
+        ) AS amount_progress_pct,
+        coalesce(lp.last_period_avg_amount, 0) - coalesce(fp.first_period_avg_amount, 0) AS amount_absolute_change,
+        multiIf(
+            fp.first_period_avg_duration_hours > 0, 
+            ((lp.last_period_avg_duration_hours - fp.first_period_avg_duration_hours) / fp.first_period_avg_duration_hours) * 100,
+            lp.last_period_avg_duration_hours > 0, 
+            100.0,
+            0
+        ) AS duration_progress_pct,
+        coalesce(lp.last_period_avg_duration_hours, 0) - coalesce(fp.first_period_avg_duration_hours, 0) AS duration_absolute_change
+    FROM habit_date_range hdr
+    LEFT JOIN first_period_stats fp ON hdr.habit_id = fp.habit_id AND hdr.user_id = fp.user_id
+    LEFT JOIN last_period_stats lp ON hdr.habit_id = lp.habit_id AND hdr.user_id = lp.user_id
+    ORDER BY hdr.habit_name

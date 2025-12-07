@@ -101,7 +101,7 @@ export default function WelcomePage() {
           {currentPage === 1 && (
             <div className="animate-in fade-in duration-500">
               <div className="flex justify-center mb-4">
-                <RitualLogo className="h-[78px] w-auto" />
+                <RitualLogo className="h-10 w-auto" />
               </div>
               <h1 className="text-3xl font-medium text-gray-900 dark:text-white">
                 Welcome to Ritual
@@ -171,7 +171,7 @@ export default function WelcomePage() {
           {currentPage === 4 && (
             <div className="animate-in fade-in duration-500">
               <div className="flex justify-center mb-8">
-                <RitualLogo className="h-20 w-auto" />
+                <RitualLogo className="h-10 w-auto" />
               </div>
               <h1 className="text-4xl font-medium text-gray-900 dark:text-white mb-4">
                 You're all set!

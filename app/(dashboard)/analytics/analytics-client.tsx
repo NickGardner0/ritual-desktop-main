@@ -25,6 +25,7 @@ import { DateRangePicker } from '@/components/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { format, parseISO, startOfDay, differenceInDays, subDays, isWithinInterval, sub } from 'date-fns';
 import { HabitTickerGrid, AnalyticsViewToggle } from '@/components/analytics/habit-ticker-view';
+import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
 
 // Import Recharts components directly (lazy loading causes type issues in production)
 import {
@@ -73,47 +74,14 @@ const COLORS = {
   }
 };
 
-interface MetricSummaryCardProps {
-  label: string;
-  value: string | number;
-  subtitle: string;
-  trend?: {
-    value: number;
-    isPositive: boolean;
-  };
-}
-
-const MetricSummaryCard: React.FC<MetricSummaryCardProps> = ({
-  label,
-  value,
-  subtitle,
-  trend
-}) => {
-  return (
-    <div className="bg-white border border-gray-300 p-4 hover:bg-[#F3F3F3] transition-colors">
-      <div className="flex items-start justify-between mb-1.5">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
-      </div>
-      <div className="mb-1">
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <p className="text-xs text-gray-500">{subtitle}</p>
-        {trend && (
-          <span className={`text-xs font-medium ${trend.isPositive ? 'text-green-600' : 'text-red-600'}`}>
-            {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%
-          </span>
-        )}
-      </div>
-    </div>
-  );
-};
+// Summary cards removed - now using Perplexity-style habit ticker cards
 
 interface HabitMetricCardProps {
   habitName: string;
   currentValue: number;
   unit: string;
   change?: number;
+  absoluteChange?: number;
   chartData: any[];
   isPositive: boolean;
   onClick?: () => void;
@@ -125,52 +93,87 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   currentValue,
   unit,
   change,
+  absoluteChange,
   chartData,
   isPositive,
   onClick,
   onRemove
 }) => {
-  const trendColor = isPositive ? COLORS.success : COLORS.danger;
-  const TrendIcon = isPositive ? TrendingUp : TrendingDown;
-  const safeId = habitName.replace(/[^a-zA-Z0-9]/g, '_');
+  // Match spark card colors
+  const tealGreen = '#0D9488';
+  const warmRed = '#B91C1C';
+  const isNeutral = change === undefined || Math.abs(change) < 0.5;
+  const chartColor = isNeutral ? '#6B7280' : (isPositive ? tealGreen : warmRed);
+  const bgColor = isNeutral 
+    ? 'rgba(107, 114, 128, 0.08)' 
+    : (isPositive ? 'rgba(13, 148, 136, 0.08)' : 'rgba(185, 28, 28, 0.08)');
 
   return (
     <div
-      className="group relative bg-white border border-gray-300 p-3 hover:bg-[#F3F3F3] hover:shadow-md transition-all duration-200 cursor-pointer"
+      className="group relative bg-[#FAFAF9] border border-gray-300 p-4 hover:bg-[#F5F5F4] transition-colors duration-150 cursor-pointer"
       onClick={onClick}
     >
-      {/* Close Button - Subtle, appears on hover */}
+      {/* Close Button - Top right corner, appears on hover */}
       {onRemove && (
         <button
           onClick={(e) => {
-            e.stopPropagation(); // Prevent card click
+            e.stopPropagation();
             onRemove();
           }}
-          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1 hover:bg-gray-100"
+          className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
           aria-label="Remove habit"
         >
-          <X className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
+          <X className="w-3 h-3 text-gray-400 hover:text-gray-600" />
         </button>
       )}
 
+      {/* Header Row: Name + Badge + Change */}
       <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          {change !== undefined && Math.abs(change) > 0 && (
-            <div className="flex items-center gap-0.5 flex-shrink-0" style={{ color: trendColor }}>
-              <TrendIcon className="w-3.5 h-3.5" />
-            </div>
+        <div className="flex-1 min-w-0 pr-3">
+          <h3 className="font-medium text-[15px] text-gray-900 truncate leading-tight">
+            {habitName}
+          </h3>
+          <p className="text-[11px] text-gray-500 uppercase tracking-wider mt-0.5">
+            {unit}
+          </p>
+        </div>
+        
+        {/* Right side: Badge + Absolute Change */}
+        <div className="flex flex-col items-end flex-shrink-0">
+          {/* % Badge */}
+          <div 
+            className="flex items-center gap-1 px-2 py-0.5"
+            style={{ backgroundColor: bgColor }}
+          >
+            {!isNeutral && (
+              isPositive 
+                ? <span className="text-[11px]" style={{ color: chartColor }}>↗</span>
+                : <span className="text-[11px]" style={{ color: chartColor }}>↘</span>
+            )}
+            <span 
+              className="text-[11px] font-medium tabular-nums"
+              style={{ color: chartColor }}
+            >
+              {Math.abs(change || 0).toFixed(2)}%
+            </span>
+          </div>
+          {/* Absolute change */}
+          {absoluteChange !== undefined && (
+            <span 
+              className="text-[11px] font-medium tabular-nums mt-1"
+              style={{ color: chartColor }}
+            >
+              {absoluteChange >= 0 ? '+' : ''}{absoluteChange.toFixed(1)}
+            </span>
           )}
-          <span className="text-sm font-medium text-gray-900 truncate">{habitName}</span>
         </div>
       </div>
 
+      {/* Value */}
       <div className="mb-2">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-xl font-bold text-gray-900">
-            {currentValue.toFixed(currentValue < 10 ? 1 : 0)}
-          </span>
-          <span className="text-xs text-gray-500">{unit}</span>
-        </div>
+        <p className="text-xl font-medium text-gray-900 tabular-nums">
+          {currentValue.toFixed(currentValue < 10 ? 2 : 0)}
+        </p>
       </div>
 
       <div className="h-[110px] -mx-2">
@@ -209,8 +212,15 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
                       return (
-                        <div className="bg-white/85 backdrop-blur-[12px] text-gray-900 px-3 py-2 text-xs shadow-lg border border-gray-200/50 rounded-md">
-                          <p className="font-semibold mb-1">{data.date}</p>
+                        <div 
+                          className="text-gray-900 px-3 py-2 text-xs shadow-lg border border-gray-300/60"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.72)',
+                            backdropFilter: 'blur(12px) saturate(180%)',
+                            WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+                          }}
+                        >
+                          <p className="font-medium mb-1">{data.date}</p>
                           <p>{data.value.toFixed(1)} {unit}</p>
                           {data.time && <p className="text-gray-500 mt-0.5">{data.time}</p>}
                         </div>
@@ -222,7 +232,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
                 />
                 <Bar
                   dataKey="value"
-                  fill="#2e2d2a"
+                  fill="#4A4A4C"
                   radius={[0, 0, 0, 0]}
                   isAnimationActive={false}
                   maxBarSize={40}
@@ -240,14 +250,54 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     
+    // Format time helper - converts UTC timestamp to local time
+    const formatTimeString = (timeStr: string) => {
+      try {
+        if (!timeStr) return '';
+        
+        // Handle different timestamp formats from Tinybird/backend
+        // Tinybird returns: "2025-12-06 17:02:00" (UTC, no timezone indicator)
+        // ISO format: "2025-12-06T17:02:00Z" or "2025-12-06T17:02:00.000Z"
+        
+        let date: Date;
+        
+        if (timeStr.includes('T')) {
+          // ISO format - parseISO handles this correctly
+          date = parseISO(timeStr);
+        } else if (timeStr.includes(' ')) {
+          // Tinybird format: "2025-12-06 17:02:00" - treat as UTC
+          // Append 'Z' to force UTC interpretation
+          date = new Date(timeStr.replace(' ', 'T') + 'Z');
+        } else {
+          // Just a time string like "17:02:00"
+          return timeStr;
+        }
+        
+        if (!isNaN(date.getTime())) {
+          // Format in user's local timezone
+          return format(date, 'h:mm a');
+        }
+        return timeStr;
+      } catch {
+        return timeStr;
+      }
+    };
+    
     return (
-      <div className="bg-white/80 backdrop-blur-xl border border-gray-200/50 shadow-xl rounded-lg p-2.5 min-w-[180px]">
-        <p className="text-xs font-semibold text-gray-900 mb-1.5">{label}</p>
+      <div 
+        className="p-2.5 min-w-[180px] border border-gray-300/60 shadow-lg"
+        style={{
+          background: 'rgba(255, 255, 255, 0.72)',
+          backdropFilter: 'blur(12px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+        }}
+      >
+        <p className="text-xs font-medium text-gray-900 mb-1.5">{label}</p>
         <div className="space-y-1 text-xs">
           {/* Value */}
           <div className="flex items-center justify-between gap-3">
             <span className="text-gray-700 font-medium">{payload[0].name}</span>
-            <span className="text-gray-900 font-semibold tabular-nums">
+            <span className="text-gray-900 font-medium tabular-nums">
               {typeof payload[0].value === 'number' ? payload[0].value.toFixed(1) : payload[0].value}
             </span>
           </div>
@@ -275,7 +325,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
             <div className="flex items-center justify-between gap-3">
               <span className="text-gray-600">Time</span>
               <span className="text-gray-800 tabular-nums font-medium">
-                {data.time}
+                {formatTimeString(data.time)}
               </span>
             </div>
           )}
@@ -303,12 +353,13 @@ function useAnalyticsSummary() {
       const token = await getToken();
       const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
-      // Fetch habits and summary metrics in parallel (now using Tinybird!)
-      const [habitsRes, summaryRes] = await Promise.all([
+      // Fetch habits, overall summary, and per-habit summary in parallel (all Tinybird-powered!)
+      const [habitsRes, summaryRes, habitsSummaryRes] = await Promise.all([
         fetch(`${backendUrl}/api/habits`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch('/api/analytics/summary') // ✅ Tinybird-powered!
+        fetch('/api/analytics/summary'), // ✅ Tinybird-powered overall metrics
+        fetch('/api/analytics/habits/summary') // ✅ Tinybird-powered per-habit metrics with % changes!
       ]);
 
       if (!habitsRes.ok || !summaryRes.ok) {
@@ -317,29 +368,45 @@ function useAnalyticsSummary() {
 
       const habits = await habitsRes.json();
       const summaryData = await summaryRes.json();
+      const habitsSummaryData = habitsSummaryRes.ok ? await habitsSummaryRes.json() : { data: [] };
 
-      console.log('✅ [Analytics Query] Tinybird summary response:', {
+      console.log('✅ [Analytics Query] Tinybird responses:', {
         habitsCount: habits.length,
         summaryData: summaryData.data,
+        habitsSummaryCount: habitsSummaryData.data?.length || 0,
         timestamp: new Date().toLocaleTimeString()
       });
 
+      // Create a map of habit_id -> Tinybird-calculated metrics for quick lookup
+      const tinybirdHabitMetrics: Record<string, any> = {};
+      (habitsSummaryData.data || []).forEach((h: any) => {
+        tinybirdHabitMetrics[h.habit_id] = h;
+      });
+
       // Transform habits to match expected format (id → habit_id, name → habit_name)
+      // IMPORTANT: Spread original fields FIRST, then override with correct field names
+      // This prevents any undefined habit_id/habit_name from the API from overwriting our values
       const transformedHabits = habits.map((h: any) => ({
-        habit_id: h.id,
+        ...h,  // Spread original fields FIRST
+        habit_id: h.id,  // Then override with correct mapping
         habit_name: h.name,
         category: h.category,
         icon: h.icon,
         unit_type: h.unit_type,
-        // Keep original fields too for compatibility
-        ...h
       }));
+      
+      // Debug: verify all habits have valid habit_id
+      const habitsWithoutId = transformedHabits.filter((h: any) => !h.habit_id);
+      if (habitsWithoutId.length > 0) {
+        console.warn('⚠️ Some habits missing habit_id:', habitsWithoutId.length, 'of', transformedHabits.length);
+      }
 
       // Use Tinybird summary metrics (pre-computed!)
       const summary = summaryData.data || {};
       
       return {
         habits: transformedHabits,
+        tinybirdHabitMetrics, // Per-habit metrics with Tinybird-calculated % changes!
         summaryMetrics: {
           activeDays30: summary.active_days_30d || 0,
           avgEntriesPerDay30: summary.avg_entries_per_day_30d || 0,
@@ -369,24 +436,120 @@ export function AnalyticsClient() {
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [mounted, setMounted] = useState(false);
-  // Always initialize to default values to prevent hydration mismatch
+  // Auto-select all habits by default for immediate visualization
   const [selectedHabits, setSelectedHabits] = useState<string[]>([]);
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>({});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [expandedLogs, setExpandedLogs] = useState<any[]>([]);
   const [loadingExpandedLogs, setLoadingExpandedLogs] = useState(false);
+  
+  // Python API stats for expanded modal (single source of truth)
+  const [expandedStats, setExpandedStats] = useState<HabitStats | null>(null);
+  const [loadingExpandedStats, setLoadingExpandedStats] = useState(false);
+  
+  // Python API stats for ALL habits (single source of truth for cards)
+  const [allHabitStats, setAllHabitStats] = useState<Record<string, HabitStats>>({});
+  const [loadingAllStats, setLoadingAllStats] = useState(false);
   const [comparisonPeriod, setComparisonPeriod] = useState<'week' | 'month'>('week');
   // Always initialize to default value to prevent hydration mismatch
   const [viewMode, setViewMode] = useState<'chart' | 'ticker'>('chart');
 
   const availableHabits = data?.habits || [];
   const summaryMetrics = data?.summaryMetrics;
+  const defaultTinybirdMetrics = data?.tinybirdHabitMetrics || {}; // Default 7-day comparison from initial load
+  
+  // State for custom date range period comparison (updates when user changes date range)
+  const [customPeriodMetrics, setCustomPeriodMetrics] = useState<Record<string, any>>({});
+  const [loadingPeriodMetrics, setLoadingPeriodMetrics] = useState(false);
+  
+  // State for "progress since start" metrics (Tinybird-calculated first 7 days vs last 7 days)
+  const [progressMetrics, setProgressMetrics] = useState<Record<string, any>>({});
+  const [loadingProgressMetrics, setLoadingProgressMetrics] = useState(false);
+  
+  // Use custom period metrics when date range is selected, otherwise use default 7-day comparison
+  const tinybirdHabitMetrics = dateRange?.from && dateRange?.to 
+    ? customPeriodMetrics 
+    : defaultTinybirdMetrics;
+  
+  // Fetch "progress since start" from Tinybird (first 7 days vs last 7 days) - for All Time view
+  useEffect(() => {
+    const fetchProgressMetrics = async () => {
+      setLoadingProgressMetrics(true);
+      try {
+        const res = await fetch('/api/analytics/habits/progress');
+        
+        if (res.ok) {
+          const data = await res.json();
+          
+          if (data.success && data.data) {
+            console.log('✅ Progress since start loaded from Tinybird:', {
+              habitsCount: Object.keys(data.data).length,
+              sample: Object.values(data.data)[0]
+            });
+            setProgressMetrics(data.data);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch progress metrics:', error);
+      } finally {
+        setLoadingProgressMetrics(false);
+      }
+    };
+    
+    fetchProgressMetrics();
+  }, []); // Fetch once on mount
+
+  // Fetch period comparison from Tinybird when date range changes
+  useEffect(() => {
+    if (!dateRange?.from || !dateRange?.to) {
+      // Reset to default metrics when no date range selected
+      setCustomPeriodMetrics({});
+      return;
+    }
+    
+    const fetchPeriodComparison = async () => {
+      setLoadingPeriodMetrics(true);
+      try {
+        const startDate = format(dateRange.from!, 'yyyy-MM-dd');
+        const endDate = format(dateRange.to!, 'yyyy-MM-dd');
+        
+        console.log('📊 Fetching Tinybird period comparison:', { startDate, endDate });
+        
+        const res = await fetch(`/api/analytics/habits/summary?start_date=${startDate}&end_date=${endDate}`);
+        
+        if (res.ok) {
+          const data = await res.json();
+          
+          // Create lookup map by habit_id
+          const metricsMap: Record<string, any> = {};
+          (data.data || []).forEach((h: any) => {
+            metricsMap[h.habit_id] = h;
+          });
+          
+          console.log('✅ Tinybird period comparison loaded:', {
+            habitsCount: Object.keys(metricsMap).length,
+            period: `${startDate} to ${endDate}`,
+            sample: Object.values(metricsMap)[0]
+          });
+          
+          setCustomPeriodMetrics(metricsMap);
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch period comparison:', error);
+      } finally {
+        setLoadingPeriodMetrics(false);
+      }
+    };
+    
+    fetchPeriodComparison();
+  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   // Fetch individual logs when habit is expanded (from Tinybird!)
   useEffect(() => {
     if (!expandedHabit) {
       setExpandedLogs([]);
+      setExpandedStats(null);
       return;
     }
 
@@ -428,18 +591,107 @@ export function AnalyticsClient() {
     fetchExpandedLogs();
   }, [expandedHabit, dateRange]);
 
+  // Fetch stats for ALL habits from Python API (single source of truth)
+  useEffect(() => {
+    const fetchAllStats = async () => {
+      if (!selectedHabits.length) return;
+      
+      setLoadingAllStats(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const now = new Date();
+        const to = dateRange?.to || now;
+        const from = dateRange?.from || subDays(now, 30);
+
+        const result = await analyticsApi.getHabitStats(token, {
+          startDate: format(from, 'yyyy-MM-dd'),
+          endDate: format(to, 'yyyy-MM-dd'),
+        });
+
+        if (result.success && result.habits) {
+          const statsMap: Record<string, HabitStats> = {};
+          result.habits.forEach(stat => {
+            statsMap[stat.id] = stat;
+          });
+          setAllHabitStats(statsMap);
+          console.log('📊 All habit stats fetched from Python API:', Object.keys(statsMap).length, 'habits');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching all stats from Python API:', error);
+      } finally {
+        setLoadingAllStats(false);
+      }
+    };
+
+    fetchAllStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHabits.join(','), dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
+
+  // Fetch stats from Python API when habit is expanded (single source of truth)
+  useEffect(() => {
+    if (!expandedHabit) {
+      setExpandedStats(null);
+      return;
+    }
+
+    const fetchExpandedStats = async () => {
+      setLoadingExpandedStats(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const now = new Date();
+        const to = dateRange?.to || now;
+        const from = dateRange?.from || subDays(now, 30);
+
+        const result = await analyticsApi.getHabitStats(token, {
+          habitId: expandedHabit,
+          startDate: format(from, 'yyyy-MM-dd'),
+          endDate: format(to, 'yyyy-MM-dd'),
+        });
+
+        if (result.success && result.habits && result.habits.length > 0) {
+          setExpandedStats(result.habits[0]);
+          console.log('📊 Expanded stats fetched from Python API:', result.habits[0]);
+        } else {
+          setExpandedStats(null);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching stats from Python API:', error);
+        setExpandedStats(null);
+      } finally {
+        setLoadingExpandedStats(false);
+      }
+    };
+
+    fetchExpandedStats();
+  }, [expandedHabit, dateRange, getToken]);
+
   // Load from localStorage after mount (client-side only)
   useEffect(() => {
     setMounted(true);
-    const savedHabits = localStorage.getItem('analytics-selected-habits');
-    if (savedHabits) {
-      setSelectedHabits(JSON.parse(savedHabits));
-    }
+    // Default to ticker/spark view for better overview
     const savedViewMode = localStorage.getItem('analytics-view-mode');
     if (savedViewMode) {
       setViewMode(savedViewMode as 'chart' | 'ticker');
+    } else {
+      setViewMode('ticker'); // Default to spark view
     }
   }, []);
+
+  // Auto-select all habits when data loads (if not already selected)
+  useEffect(() => {
+    // Only run when we have habits and nothing is selected yet
+    if (availableHabits.length > 0 && selectedHabits.length === 0) {
+      const allHabitIds = availableHabits.map((h: HabitData) => h.habit_id).filter((id: string) => !!id);
+      if (allHabitIds.length > 0) {
+        console.log('📊 Auto-selecting all habits:', allHabitIds.length);
+        setSelectedHabits(allHabitIds);
+      }
+    }
+  }, [availableHabits, selectedHabits.length]);
 
   // Force refetch on mount to ensure fresh data
   useEffect(() => {
@@ -447,12 +699,7 @@ export function AnalyticsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
 
-  // Persist selectedHabits to localStorage
-  useEffect(() => {
-    if (mounted) {
-      localStorage.setItem('analytics-selected-habits', JSON.stringify(selectedHabits));
-    }
-  }, [selectedHabits, mounted]);
+  // Note: Not persisting selectedHabits anymore since we auto-select all
 
   // Persist viewMode to localStorage
   useEffect(() => {
@@ -461,15 +708,26 @@ export function AnalyticsClient() {
     }
   }, [viewMode, mounted]);
 
-  // Fetch analytics data when habits are selected
+  // Fetch analytics data when habits are selected OR available
   useEffect(() => {
-    if (selectedHabits.length === 0) {
+    // Use same fallback logic as display: validSelectedHabits or availableHabits
+    const validSelected = selectedHabits.filter((id: string) => !!id);
+    const habitsToFetch = validSelected.length > 0 
+      ? validSelected 
+      : availableHabits.map((h: HabitData) => h.habit_id).filter((id: string) => !!id);
+    
+    if (habitsToFetch.length === 0) {
       setLoading(false);
       return;
     }
 
     const fetchAnalytics = async () => {
-      setLoading(true);
+      // Only show loading skeleton if we have no existing data
+      // This prevents charts from disappearing during refetches
+      const hasExistingData = Object.keys(analyticsData).length > 0;
+      if (!hasExistingData) {
+        setLoading(true);
+      }
       try {
         // Determine timeframes
         const now = new Date();
@@ -492,13 +750,13 @@ export function AnalyticsClient() {
         const response = await logsRes.json();
         const allLogs = response.data || [];
 
-        const dataByHabit: any = {};
-        selectedHabits.forEach(habitId => {
+        const dataByHabit: Record<string, any[]> = {};
+        habitsToFetch.forEach((habitId: string) => {
           dataByHabit[habitId] = [];
         });
 
         allLogs.forEach((log: any) => {
-          if (selectedHabits.includes(log.habit_id)) {
+          if (habitsToFetch.includes(log.habit_id)) {
             dataByHabit[log.habit_id].push(log);
           }
         });
@@ -512,7 +770,8 @@ export function AnalyticsClient() {
     };
 
     fetchAnalytics();
-  }, [selectedHabits, dateRange, availableHabits]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHabits.join(','), availableHabits.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   const toggleHabit = (habitId: string) => {
     setSelectedHabits(prev =>
@@ -586,9 +845,13 @@ export function AnalyticsClient() {
       };
     }).sort((a: any, b: any) => a.rawDate.getTime() - b.rawDate.getTime()); // Ensure chronological order
 
-    // Calculate Averages
+    // Calculate Averages - per DAY with logs (not per entry or per period)
     const calculateAvg = (periodLogs: any[]) => {
       if (periodLogs.length === 0) return 0;
+
+      // Count unique days with logs in this period
+      const uniqueDays = new Set(periodLogs.map((log: any) => log.date || log.period)).size;
+      if (uniqueDays === 0) return 0;
 
       const total = periodLogs.reduce((sum: number, log: any) => {
         const unitLabel = (habit.unit_type || (habit as any).unit || '').toString();
@@ -609,25 +872,113 @@ export function AnalyticsClient() {
         return sum + val;
       }, 0);
 
-      // Average over the DURATION of the period, not just days with logs?
-      // Usually analytics show "Daily Average" over the period.
-      // If I selected 7 days, and logged 1 day. Average is Total / 7.
-      return total / durationDays;
+      // Average per day WITH logs (not per entry or per full period)
+      return total / uniqueDays;
     };
 
-    const currentAvg = calculateAvg(currentLogs);
-    const previousAvg = calculateAvg(prevLogs);
-    const change = previousAvg > 0 ? ((currentAvg - previousAvg) / previousAvg * 100) : 0;
+    // Use Python API stats (single source of truth) if available
+    const pythonStats = allHabitStats[habitId];
+    
+    // Get Tinybird-calculated metrics (includes proper % change calculations!)
+    const tbMetrics = tinybirdHabitMetrics[habitId];
+    
+    // Fall back to local calculation only if Tinybird/Python stats not available
+    const localCurrentAvg = calculateAvg(currentLogs);
+    const localPreviousAvg = calculateAvg(prevLogs);
+    
+    // Prefer Python API stats for accuracy
+    const currentAvg = pythonStats?.average ?? tbMetrics?.avg_amount ?? localCurrentAvg;
+    const totalValue = pythonStats?.total ?? tbMetrics?.total_amount ?? chartData.reduce((sum: number, d: { value: number }) => sum + d.value, 0);
+    const daysWithData = pythonStats?.days_with_data ?? tbMetrics?.days_with_data ?? chartData.length;
+    
+    // Calculate percentage change based on view mode
+    const isAllTimeView = !dateRange?.from && !dateRange?.to;
+    
+    let change = 0;
+    let absoluteChange = 0;
+    
+    // Get Tinybird "progress since start" metrics (first 7 days vs last 7 days)
+    const progressData = progressMetrics[habitId];
+    
+    if (isAllTimeView && progressData) {
+      // ALL TIME VIEW: Use Tinybird's "progress since start" calculation!
+      // Compares first 7 days of tracking to last 7 days of tracking
+      // This shows: "How much have I improved since I started tracking this habit?"
+      
+      // Determine if this habit uses amount or duration
+      // Use amount if there's any amount data, otherwise use duration
+      const hasAmountData = (progressData.first_period_avg_amount ?? 0) > 0 || (progressData.last_period_avg_amount ?? 0) > 0;
+      
+      if (hasAmountData) {
+        change = progressData.amount_progress_pct ?? 0;
+        absoluteChange = progressData.amount_absolute_change ?? 0;
+      } else {
+        // Use duration for habits like Sleep, Coding, Morning Workout
+        change = progressData.duration_progress_pct ?? 0;
+        absoluteChange = progressData.duration_absolute_change ?? 0;
+      }
+      
+      console.log(`📈 Progress for ${habit.habit_name}:`, {
+        usesAmount: hasAmountData,
+        firstPeriod: hasAmountData ? progressData.first_period_avg_amount : progressData.first_period_avg_duration,
+        lastPeriod: hasAmountData ? progressData.last_period_avg_amount : progressData.last_period_avg_duration,
+        change: change,
+        totalDaysTracked: progressData.total_days_tracked
+      });
+    } else if (isAllTimeView && tbMetrics) {
+      // Fallback: Compare recent performance to overall average
+      const recentAvg = tbMetrics.last_7_days_avg ?? 0;
+      const overallAvg = tbMetrics.avg_amount ?? 0;
+      
+      if (overallAvg > 0) {
+        change = ((recentAvg - overallAvg) / overallAvg) * 100;
+        absoluteChange = recentAvg - overallAvg;
+      } else if (recentAvg > 0) {
+        change = 100;
+      }
+    } else {
+      // SPECIFIC DATE RANGE: Use Tinybird's week-over-week calculation
+      const tinybirdChange = tbMetrics?.weekly_amount_change_pct ?? 0;
+      change = tbMetrics ? tinybirdChange : (localPreviousAvg > 0 ? ((localCurrentAvg - localPreviousAvg) / localPreviousAvg * 100) : 0);
+      
+      const last7Avg = tbMetrics?.last_7_days_avg ?? localCurrentAvg;
+      const prev7Avg = tbMetrics?.prev_7_days_avg ?? localPreviousAvg;
+      absoluteChange = last7Avg - prev7Avg;
+    }
 
-    const currentValue = chartData.length > 0 ? chartData[chartData.length - 1].value : 0;
+    // Get current value - use appropriate Tinybird metric based on view mode
+    // For "All time" view with progress data: show last period average (current performance)
+    // Otherwise: show overall average from Tinybird
+    let currentValue = 0;
+    
+    if (isAllTimeView && progressData) {
+      // Use last period average from progress data (most recent 7 days performance)
+      // Use amount or duration depending on which one has data
+      const hasAmountData = (progressData.first_period_avg_amount ?? 0) > 0 || (progressData.last_period_avg_amount ?? 0) > 0;
+      currentValue = hasAmountData 
+        ? (progressData.last_period_avg_amount ?? 0)
+        : (progressData.last_period_avg_duration ?? 0);
+    } else {
+      // Use Tinybird's overall average
+      const tinybirdAvg = tbMetrics?.avg_amount ?? tbMetrics?.last_7_days_avg;
+      currentValue = (tinybirdAvg ?? pythonStats?.average ?? localCurrentAvg) || 0;
+    }
 
     return {
       habitName: habit.habit_name,
       currentValue,
       unit: habit.unit_type || (habit as any).unit || 'count',
       change,
+      absoluteChange,
       chartData,
-      isPositive: change >= 0
+      isPositive: change >= 0,
+      // Include stats from various sources
+      total: totalValue,
+      average: currentAvg,
+      daysWithData,
+      pythonStats,
+      tinybirdMetrics: tbMetrics,
+      loadingStats: loadingAllStats,
     };
   };
 
@@ -729,9 +1080,11 @@ export function AnalyticsClient() {
       })
       .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
 
-    // Calculate totals
-    const totalValue = chartData.reduce((sum, d) => sum + d.value, 0);
-    const avgValue = chartData.length > 0 ? totalValue / chartData.length : 0;
+    // Use Python API stats (single source of truth) if available
+    // Otherwise fall back to local calculation
+    const totalValue = expandedStats?.total ?? chartData.reduce((sum, d) => sum + d.value, 0);
+    const avgValue = expandedStats?.average ?? (chartData.length > 0 ? totalValue / chartData.length : 0);
+    const daysWithData = expandedStats?.days_with_data ?? chartData.length;
 
     // Calculate change (compare first half vs second half of period)
     const midpoint = Math.floor(chartData.length / 2);
@@ -743,170 +1096,151 @@ export function AnalyticsClient() {
     
     const change = firstHalfAvg > 0 ? ((secondHalfAvg - firstHalfAvg) / firstHalfAvg * 100) : 0;
 
+    // Calculate min, max, and variance
+    const values = chartData.map(d => d.value);
+    const minValue = values.length > 0 ? Math.min(...values) : 0;
+    const maxValue = values.length > 0 ? Math.max(...values) : 0;
+    
+    // Calculate variance: avg of squared differences from mean
+    const variance = values.length > 0 
+      ? values.reduce((sum, val) => sum + Math.pow(val - avgValue, 2), 0) / values.length 
+      : 0;
+
     return {
       habit,
       chartData,
       totalValue,
       avgValue,
+      minValue,
+      maxValue,
+      variance,
+      daysWithData,
       change,
       isPositive: change >= 0,
-      individualLogs: uniqueLogs // ✅ Include deduplicated individual logs for detailed display
+      individualLogs: uniqueLogs, // ✅ Include deduplicated individual logs for detailed display
+      // Include Python API stats for display
+      pythonStats: expandedStats,
+      loadingStats: loadingExpandedStats,
     };
   };
 
   // Export to CSV function
 
-  // Show loading on first fetch only (AFTER all hooks)
-  if (isLoading && !data) {
+  // Show loading skeleton while habits are loading
+  // Check for actual data content, not just isLoading (which can be false with stale cache)
+  const hasValidHabitData = availableHabits.length > 0 && availableHabits[0]?.habit_id;
+  
+  if (!hasValidHabitData) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-end mb-6">
-          <div className="h-10 w-64 bg-gray-200 animate-pulse rounded" />
+          <div className="h-10 w-64 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-white border border-gray-300 p-5 h-24 animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="border border-gray-200 p-4 h-40 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100" />
           ))}
         </div>
-        <div className="h-64 bg-white border border-gray-300 animate-pulse" />
       </div>
     );
   }
 
   return (
     <>
-      {/* Top Bar: Habit Dropdown + View Toggle (left), Date Range Picker + Export (right) */}
-      <div className="flex items-center justify-between mb-5">
-        {/* Left Side: Habit Multi-Select Dropdown + View Toggle */}
-        <div className="flex items-end gap-3">
-          {/* Habit Multi-Select Dropdown */}
+      {/* Top Bar: View Toggle (left), Date Range Picker (right) */}
+      <div className="flex items-center justify-between mb-6">
+        {/* Left Side: View Toggle */}
+        <div className="flex items-center gap-3">
+          <AnalyticsViewToggle
+            currentView={viewMode}
+            onViewChange={setViewMode}
+            darkMode={false}
+          />
+          
+          {/* Habit Filter Dropdown - Optional filtering */}
           <div className="relative">
-            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-2">
-              Select
-            </label>
-            <div className="relative">
-              <button
-                id="habit-dropdown-button"
-                onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
-                className="w-full md:w-auto min-w-[280px] flex items-center justify-between gap-3 px-4 py-2.5 bg-white border border-gray-300 text-sm text-gray-700 hover:bg-[#F3F3F3] transition-colors"
-              >
-                <span className="text-sm">
-                  {selectedHabits.length === 0
-                    ? 'Select...'
-                    : `${selectedHabits.length} habit${selectedHabits.length > 1 ? 's' : ''} selected`
-                  }
-                </span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
+            <button
+              id="habit-dropdown-button"
+              onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-sm text-gray-600 hover:bg-[#F3F3F3] transition-colors"
+            >
+              <span>
+                {selectedHabits.length === availableHabits.length
+                  ? 'All habits'
+                  : `${selectedHabits.length} of ${availableHabits.length}`
+                }
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-              {habitDropdownOpen && (
-                <>
-                  <div
-                    className="fixed inset-0"
-                    style={{ zIndex: 999 }}
-                    onClick={() => setHabitDropdownOpen(false)}
-                  />
-                  <div
-                    className="fixed bg-white border border-gray-300 shadow-xl max-h-[400px] overflow-y-auto"
-                    style={{
-                      zIndex: 1000,
-                      top: typeof window !== 'undefined'
-                        ? (document.getElementById('habit-dropdown-button')?.getBoundingClientRect().bottom || 0) + 4 + window.scrollY
-                        : 0,
-                      left: typeof window !== 'undefined'
-                        ? document.getElementById('habit-dropdown-button')?.getBoundingClientRect().left || 0
-                        : 0,
-                      width: typeof window !== 'undefined'
-                        ? document.getElementById('habit-dropdown-button')?.offsetWidth || 280
-                        : 280
-                    }}
-                  >
-                    <div className="p-1">
-                      {availableHabits.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                          No habits found
-                        </div>
-                      ) : (
-                        availableHabits.map((habit: HabitData) => (
-                          <label
-                            key={habit.habit_id}
-                            className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F3F3F3] cursor-pointer transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedHabits.includes(habit.habit_id)}
-                              onChange={() => toggleHabit(habit.habit_id)}
-                              className="analytics-checkbox"
-                            />
-                            <span className="text-sm text-gray-900">{habit.habit_name}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
+            {habitDropdownOpen && (
+              <>
+                <div
+                  className="fixed inset-0"
+                  style={{ zIndex: 999 }}
+                  onClick={() => setHabitDropdownOpen(false)}
+                />
+                <div
+                  className="fixed bg-white border border-gray-300 shadow-xl max-h-[400px] overflow-y-auto"
+                  style={{
+                    zIndex: 1000,
+                    top: typeof window !== 'undefined'
+                      ? (document.getElementById('habit-dropdown-button')?.getBoundingClientRect().bottom || 0) + 4 + window.scrollY
+                      : 0,
+                    left: typeof window !== 'undefined'
+                      ? document.getElementById('habit-dropdown-button')?.getBoundingClientRect().left || 0
+                      : 0,
+                    width: '220px'
+                  }}
+                >
+                  <div className="p-1">
+                    {/* Select All / Deselect All */}
+                    <button
+                      onClick={() => {
+                        if (selectedHabits.length === availableHabits.length) {
+                          setSelectedHabits([]);
+                        } else {
+                          setSelectedHabits(availableHabits.map((h: HabitData) => h.habit_id));
+                        }
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-[#F3F3F3] border-b border-gray-200"
+                    >
+                      {selectedHabits.length === availableHabits.length ? 'Deselect all' : 'Select all'}
+                    </button>
+                    {availableHabits.map((habit: HabitData) => (
+                      <label
+                        key={habit.habit_id}
+                        className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F3F3F3] cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedHabits.includes(habit.habit_id)}
+                          onChange={() => toggleHabit(habit.habit_id)}
+                          className="analytics-checkbox"
+                        />
+                        <span className="text-sm text-gray-900">{habit.habit_name}</span>
+                      </label>
+                    ))}
                   </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* View Toggle - Next to Select */}
-          <div className="relative">
-            <label className="block text-xs font-medium text-gray-600 uppercase tracking-wide mb-2">
-              View
-            </label>
-            <AnalyticsViewToggle
-              currentView={viewMode}
-              onViewChange={setViewMode}
-              darkMode={false}
-            />
-
-
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Date Range Picker + Export Button - Top Right */}
-        <div className="flex items-center gap-2">
-          <DateRangePicker
-            className="w-auto"
-            onDateRangeChange={setDateRange}
-            initialDateRange={dateRange}
-          />
-
-
-        </div>
+        {/* Date Range Picker - Top Right */}
+        <DateRangePicker
+          className="w-auto"
+          onDateRangeChange={setDateRange}
+          initialDateRange={dateRange}
+        />
       </div>
-
-      {/* Summary Metrics Cards */}
-      {summaryMetrics && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          <MetricSummaryCard
-            label="Active Days (30d)"
-            value={summaryMetrics.activeDays30}
-            subtitle="days with at least one entry"
-          />
-          <MetricSummaryCard
-            label="Avg Entries/Day (30d)"
-            value={summaryMetrics.avgEntriesPerDay30}
-            subtitle="average logs per day"
-          />
-          <MetricSummaryCard
-            label="Current Streak"
-            value={`${summaryMetrics.currentStreakDays} day${summaryMetrics.currentStreakDays === 1 ? '' : 's'}`}
-            subtitle="consecutive days of activity"
-          />
-          <MetricSummaryCard
-            label="Most Consistent (30d)"
-            value={summaryMetrics.mostConsistentHabit ? `${summaryMetrics.mostConsistentHabit.pct}%` : 'N/A'}
-            subtitle={summaryMetrics.mostConsistentHabit ? summaryMetrics.mostConsistentHabit.name : 'No data yet'}
-          />
-        </div>
-      )}
 
       {/* Habit Metrics Grid */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="h-64 bg-white border border-gray-300 animate-pulse"></div>
+            <div key={i} className="h-64 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
           ))}
         </div>
       ) : availableHabits.length === 0 ? (
@@ -918,62 +1252,100 @@ export function AnalyticsClient() {
             </p>
           </div>
         </div>
-      ) : selectedHabits.length > 0 ? (
+      ) : selectedHabits.length > 0 || availableHabits.length > 0 ? (
         <>
           {/* Render based on view mode */}
-          {viewMode === 'chart' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {selectedHabits.map((habitId) => {
-                const cardData = getHabitCardData(habitId);
-                if (!cardData) return null;
+          {(() => {
+            // Use selectedHabits if it has valid IDs, otherwise fallback to availableHabits
+            // This handles the case where selectedHabits has items but they're all undefined
+            const validSelectedHabits = selectedHabits.filter((id: string): id is string => !!id);
+            const habitsToShow = validSelectedHabits.length > 0 
+              ? validSelectedHabits 
+              : availableHabits.map((h: HabitData) => h.habit_id).filter((id: string): id is string => !!id);
+            
+            if (viewMode === 'chart') {
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {habitsToShow.map((habitId: string) => {
+                    const cardData = getHabitCardData(habitId);
+                    if (!cardData) return null;
 
-                return (
-                  <HabitMetricCard
-                    key={habitId}
-                    {...cardData}
-                    onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
-                    onRemove={() => {
-                      setSelectedHabits(prev => prev.filter(id => id !== habitId));
-                      if (expandedHabit === habitId) {
-                        setExpandedHabit(null);
-                      }
-                    }}
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <HabitTickerGrid
-              habits={selectedHabits.map((habitId) => {
+                    return (
+                      <HabitMetricCard
+                        key={habitId}
+                        {...cardData}
+                        onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
+                        onRemove={() => {
+                          setSelectedHabits(prev => prev.filter((id: string) => id !== habitId));
+                          if (expandedHabit === habitId) {
+                            setExpandedHabit(null);
+                          }
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              );
+            } else {
+              // Build habit data, using available habits directly as fallback
+              const tickerHabits = habitsToShow.map((habitId: string) => {
                 const cardData = getHabitCardData(habitId);
                 const habit = availableHabits.find((h: HabitData) => h.habit_id === habitId);
+                
+                // If we have the habit but no card data yet (loading), show it anyway with defaults
+                if (habit && !cardData) {
+                  return {
+                    habit_id: habitId,
+                    habit_name: habit.habit_name || 'Unknown',
+                    category: habit.category || '',
+                    unit: habit.unit_type || 'count',
+                    last_7_days_avg: 0,
+                    prev_7_days_avg: 0,
+                    weekly_amount_change_pct: 0,
+                    chartData: [],
+                  };
+                }
+                
                 if (!cardData || !habit) return null;
 
                 return {
                   habit_id: habitId,
-                  habit_name: cardData.habitName,
-                  category: habit.category,
-                  unit: cardData.unit,
-                  last_7_days_avg: cardData.currentValue,
-                  prev_7_days_avg: cardData.currentValue - (cardData.change / 100 * cardData.currentValue),
-                  weekly_amount_change_pct: cardData.change,
-                  chartData: cardData.chartData.map((d: ChartDataPoint) => ({ value: d.value })),
+                  habit_name: cardData.habitName || habit.habit_name || 'Unknown',
+                  category: habit.category || '',
+                  unit: cardData.unit || habit.unit_type || 'count',
+                  last_7_days_avg: cardData.currentValue || 0,
+                  prev_7_days_avg: cardData.change !== 0 
+                    ? cardData.currentValue - (cardData.change / 100 * cardData.currentValue) 
+                    : cardData.currentValue,
+                  weekly_amount_change_pct: cardData.change || 0,
+                  chartData: (cardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 })),
                 };
-              }).filter(Boolean) as any}
-              onHabitClick={(habitId) => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
-              onHabitRemove={(habitId) => {
-                setSelectedHabits(prev => prev.filter(id => id !== habitId));
-                if (expandedHabit === habitId) {
-                  setExpandedHabit(null);
-                }
-              }}
-              darkMode={false}
-            />
-          )}
+              }).filter((item: { habit_id: string; habit_name: string; category: string; unit: string; last_7_days_avg: number; prev_7_days_avg: number; weekly_amount_change_pct: number; chartData: { value: number }[] } | null): item is NonNullable<typeof item> => item !== null);
+
+              // Debug: log what we're passing (can remove later)
+              if (tickerHabits.length === 0) {
+                console.log(`📊 Ticker: habitsToShow=${habitsToShow.length}, tickerHabits=0, selectedValid=${validSelectedHabits.length}`);
+              }
+
+              return (
+                <HabitTickerGrid
+                  habits={tickerHabits}
+                  onHabitClick={(habitId) => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
+                  onHabitRemove={(habitId) => {
+                    setSelectedHabits(prev => prev.filter(id => id !== habitId));
+                    if (expandedHabit === habitId) {
+                      setExpandedHabit(null);
+                    }
+                  }}
+                  darkMode={false}
+                />
+              );
+            }
+          })()}
 
           {/* Expanded View - Now with Individual Log Details from Tinybird! */}
           {expandedHabit && (
-            <div className="mt-4 bg-white border border-gray-300 p-4">
+            <div className="mt-4 bg-[#FAFAF9] border border-gray-300 p-4">
               {loadingExpandedLogs ? (
                 <div className="flex items-center justify-center h-[300px]">
                   <div className="text-center">
@@ -985,46 +1357,45 @@ export function AnalyticsClient() {
                 const expandedData = getExpandedData(expandedHabit);
                 if (!expandedData) return null;
 
-                const { habit, chartData, totalValue, avgValue, change, isPositive } = expandedData;
-                // Use same colors as ticker view
-                const emeraldGreen = '#059669'; // Darker emerald green (Tailwind emerald-600)
-                const darkRed = '#822503';
-                const trendColor = isPositive ? emeraldGreen : darkRed;
+                const { habit, chartData, totalValue, avgValue, minValue, maxValue, variance } = expandedData;
 
                 return (
                   <>
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-3">
                       <div>
-                        <h3 className="text-lg font-bold text-gray-900">{habit.habit_name}</h3>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <h3 className="text-lg font-medium text-gray-900">{habit.habit_name}</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
                           Detailed metrics · Powered by Tinybird
                         </p>
                       </div>
                       <button
                         onClick={() => setExpandedHabit(null)}
-                        className="p-2 hover:bg-[#F3F3F3] transition-colors"
+                        className="p-1.5 hover:bg-[#F3F3F3] transition-colors"
                       >
-                        <X className="w-5 h-5 text-gray-600" />
+                        <X className="w-4 h-4 text-gray-600" />
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3 mb-4">
-                      <div className="border border-gray-200 p-3">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Total</p>
-                        <p className="text-xl font-bold text-gray-900">{totalValue.toFixed(1)}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{habit.unit_type || (habit as any).unit || 'count'}</p>
+                    <div className="grid grid-cols-5 gap-2 mb-3">
+                      <div className="border border-gray-300 px-2.5 py-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Total</p>
+                        <p className="text-base font-medium text-gray-900 tabular-nums">{totalValue.toFixed(1)}</p>
                       </div>
-                      <div className="border border-gray-200 p-3">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Average</p>
-                        <p className="text-xl font-bold text-gray-900">{avgValue.toFixed(1)}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">per day with logs</p>
+                      <div className="border border-gray-300 px-2.5 py-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Average</p>
+                        <p className="text-base font-medium text-gray-900 tabular-nums">{avgValue.toFixed(1)}</p>
                       </div>
-                      <div className="border border-gray-200 p-3">
-                        <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Trend</p>
-                        <p className="text-xl font-bold" style={{ color: trendColor }}>
-                          {change > 0 ? '+' : ''}{change.toFixed(0)}%
-                        </p>
-                        <p className="text-xs text-gray-500 mt-0.5">1st half vs 2nd half</p>
+                      <div className="border border-gray-300 px-2.5 py-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Minimum</p>
+                        <p className="text-base font-medium text-gray-900 tabular-nums">{minValue.toFixed(1)}</p>
+                      </div>
+                      <div className="border border-gray-300 px-2.5 py-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Maximum</p>
+                        <p className="text-base font-medium text-gray-900 tabular-nums">{maxValue.toFixed(1)}</p>
+                      </div>
+                      <div className="border border-gray-300 px-2.5 py-2">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Variance</p>
+                        <p className="text-base font-medium text-gray-900 tabular-nums">{variance.toFixed(2)}</p>
                       </div>
                     </div>
 
@@ -1053,7 +1424,7 @@ export function AnalyticsClient() {
                             <Tooltip content={<CustomTooltip />} />
                             <Bar
                               dataKey="value"
-                              fill="#2e2d2a"
+                              fill="#4A4A4C"
                               radius={[0, 0, 0, 0]}
                               isAnimationActive={false}
                               name={habit.unit_type || (habit as any).unit || 'Value'}
@@ -1063,8 +1434,8 @@ export function AnalyticsClient() {
                           <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                             <defs>
                               <linearGradient id={`gradient-expanded-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={trendColor} stopOpacity={0.25} />
-                                <stop offset="100%" stopColor={trendColor} stopOpacity={0} />
+                                <stop offset="0%" stopColor="#4A4A4C" stopOpacity={0.25} />
+                                <stop offset="100%" stopColor="#4A4A4C" stopOpacity={0} />
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
@@ -1085,7 +1456,7 @@ export function AnalyticsClient() {
                             <Area
                               type="monotone"
                               dataKey="value"
-                              stroke={trendColor}
+                              stroke="#4A4A4C"
                               strokeWidth={2}
                               fill={`url(#gradient-expanded-${expandedHabit})`}
                               name={habit.unit_type || (habit as any).unit || 'Value'}
@@ -1104,4 +1475,6 @@ export function AnalyticsClient() {
     </>
   );
 }
+
+
 

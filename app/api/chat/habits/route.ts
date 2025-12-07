@@ -80,17 +80,68 @@ export async function POST(req: NextRequest) {
       : '\n\nNote: User has no habits set up yet. You may suggest creating new habits if appropriate.';
 
     // Get local date (not UTC) to avoid timezone issues
-    const getLocalDate = () => {
+    const getLocalDate = (daysOffset: number = 0) => {
       const now = new Date();
+      now.setDate(now.getDate() + daysOffset);
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const day = String(now.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
-    // Use selectedDate from request if provided (from date picker), otherwise use today
-    const today = selectedDate || getLocalDate();
+    
+    // Calculate reference dates for the AI to use
+    const today = selectedDate || getLocalDate(0);
+    const yesterday = getLocalDate(-1);
+    const twoDaysAgo = getLocalDate(-2);
+    const threeDaysAgo = getLocalDate(-3);
+    const fourDaysAgo = getLocalDate(-4);
+    const fiveDaysAgo = getLocalDate(-5);
+    const sixDaysAgo = getLocalDate(-6);
+    const sevenDaysAgo = getLocalDate(-7);
+    
+    // Get day of week names for the past week
+    const getDayName = (daysOffset: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() + daysOffset);
+      return date.toLocaleDateString('en-US', { weekday: 'long' });
+    };
+    
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
     
     const systemPrompt = `You are a helpful habit tracking assistant. Your job is to parse natural language descriptions of activities and extract structured habit data.
+
+CRITICAL: You MUST parse dates from user input. If no date is mentioned, use today's date.
+
+REFERENCE DATES (use these exact values):
+- "today" = ${today}
+- "yesterday" = ${yesterday}
+- "2 days ago" or "two days ago" = ${twoDaysAgo}
+- "3 days ago" or "three days ago" = ${threeDaysAgo}
+- "4 days ago" or "four days ago" = ${fourDaysAgo}
+- "5 days ago" or "five days ago" = ${fiveDaysAgo}
+- "6 days ago" or "six days ago" = ${sixDaysAgo}
+- "a week ago" or "7 days ago" = ${sevenDaysAgo}
+- "last ${getDayName(-1)}" = ${yesterday}
+- "last ${getDayName(-2)}" = ${twoDaysAgo}
+- "last ${getDayName(-3)}" = ${threeDaysAgo}
+- "last ${getDayName(-4)}" = ${fourDaysAgo}
+- "last ${getDayName(-5)}" = ${fiveDaysAgo}
+- "last ${getDayName(-6)}" = ${sixDaysAgo}
+- "last ${getDayName(-7)}" = ${sevenDaysAgo}
+- "on ${getDayName(-1)}" = ${yesterday}
+- "on ${getDayName(-2)}" = ${twoDaysAgo}
+- "on ${getDayName(-3)}" = ${threeDaysAgo}
+- "on ${getDayName(-4)}" = ${fourDaysAgo}
+- "on ${getDayName(-5)}" = ${fiveDaysAgo}
+- "on ${getDayName(-6)}" = ${sixDaysAgo}
+- "on ${getDayName(-7)}" = ${sevenDaysAgo}
+
+SPECIFIC DATE PARSING:
+- For dates like "December 3rd", "Dec 3", "12/3", use format: ${currentYear}-12-03
+- For dates like "November 28th", "Nov 28", "11/28", use format: ${currentYear}-11-28
+- Always use the current year (${currentYear}) unless a different year is specified
+- Format all dates as YYYY-MM-DD
 
 When a user describes an activity, analyze it and respond in this format:
 
@@ -102,7 +153,7 @@ For trackable activities, respond with JSON:
   "amount": number_if_quantity_based,
   "duration": number_in_minutes_if_time_based,
   "unit": "Count|Minutes|Hours|Miles|Kilometers|Steps|Calories|Pages|Milligrams|Grams|Kilograms|Pounds|Ounces|Liters|Cups|Glasses|Reps|Sets|Percentage|Points|Sessions|Chapters|Episodes|Articles|Words|Lines|Tasks|Projects|Emails|Calls|Meetings|Breaks",
-  "date": "${today}",
+  "date": "YYYY-MM-DD (parsed from user input or ${today} if not specified)",
   "notes": "additional context from user input"
 }
 
@@ -138,12 +189,20 @@ QUANTITY EXTRACTION:
 
 ${habitsContext}
 
-Examples with user's habits:
+DATE PARSING EXAMPLES:
+- "I walked 7.5 miles yesterday" → {"success": true, "habitName": "Daily Walk", "activity": "walking", "amount": 7.5, "unit": "Miles", "date": "${yesterday}"}
+- "Ran 3 miles 2 days ago" → {"success": true, "habitName": "Morning Run", "activity": "running", "amount": 3, "unit": "Miles", "date": "${twoDaysAgo}"}
+- "Read 50 pages on Monday" → use the correct date for last Monday from the reference dates above
+- "Worked out for 1 hour on December 3rd" → {"success": true, "habitName": "Morning Workout", "activity": "worked out", "duration": 60, "unit": "Minutes", "date": "${currentYear}-12-03"}
+- "Meditated 20 minutes last Friday" → use the correct date for last Friday from the reference dates above
+
+Examples WITHOUT date (use today):
 - "I just worked out for 1 hour" → {"success": true, "habitName": "Morning Workout", "activity": "worked out", "duration": 60, "unit": "Minutes", "date": "${today}"}
 - "Read 25 pages" → {"success": true, "habitName": "Daily Reading", "activity": "reading", "amount": 25, "unit": "Pages", "date": "${today}"}
 - "Ran 3 miles this morning" → {"success": true, "habitName": "Morning Run", "activity": "running", "amount": 3, "unit": "Miles", "date": "${today}"}
 
-Always use today's date (${today}) and be encouraging in your responses.`;
+IMPORTANT: Parse dates carefully! Users often log activities they forgot to record. Always extract the date from their message.
+Be encouraging in your responses!`;
 
     // Define the schema for structured habit logging
     const habitLogSchema = z.object({
@@ -179,7 +238,29 @@ Always use today's date (${today}) and be encouraging in your responses.`;
     if (habitData?.success) {
       // Pass already-fetched habits to avoid duplicate fetch
       await processHabitLog(habitData, effectiveUserId, effectiveToken, userHabits, selectedDate);
-      responseMessage = `Great! I've logged your ${habitData.activity} activity. ${habitData.amount ? `${habitData.amount} ${habitData.unit}` : `${habitData.duration} minutes`} has been added to your ${habitData.habitName} habit.`;
+      
+      // Format the date for display
+      const logDate = habitData.date || selectedDate || today;
+      const isToday = logDate === today;
+      const isYesterday = logDate === yesterday;
+      
+      let dateDisplay = '';
+      if (!isToday) {
+        if (isYesterday) {
+          dateDisplay = ' for yesterday';
+        } else {
+          // Format the date nicely (e.g., "December 3rd")
+          const dateObj = new Date(logDate + 'T12:00:00');
+          const options: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' };
+          dateDisplay = ` for ${dateObj.toLocaleDateString('en-US', options)}`;
+        }
+      }
+      
+      const amountDisplay = habitData.amount 
+        ? `${habitData.amount} ${habitData.unit}` 
+        : `${habitData.duration} minutes`;
+      
+      responseMessage = `Great! I've logged your ${habitData.activity} activity${dateDisplay}. ${amountDisplay} has been added to your ${habitData.habitName} habit.`;
       
       return new Response(JSON.stringify({ 
         message: responseMessage,
@@ -268,8 +349,16 @@ async function processHabitLog(habitData: any, userId: string, token: string | n
       const day = String(now.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     };
-    // Use selectedDate from request if provided (from date picker), otherwise use today
-    const logDate = selectedDate || getLocalDate();
+    
+    // IMPORTANT: Use the AI-parsed date first (from habitData.date), 
+    // then fall back to selectedDate (from date picker), then to today
+    // This allows users to log habits for past dates like "yesterday" or "2 days ago"
+    const logDate = habitData.date || selectedDate || getLocalDate();
+    logger.info('📅 Using log date:', { 
+      aiParsedDate: habitData.date, 
+      selectedDate, 
+      finalLogDate: logDate 
+    });
     const currentTimestamp = new Date().toISOString();
 
     let finalAmount = habitData.amount || null;

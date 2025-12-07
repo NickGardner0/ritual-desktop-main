@@ -1,346 +1,424 @@
-import { streamText } from 'ai';
-import { openai } from '@ai-sdk/openai';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { logger } from '@/lib/logger';
-import { tinybirdService } from '@/lib/tinybird-service';
+import OpenAI from 'openai';
 
-// Python backend API configuration
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
-// Check for OpenAI API key
-if (!process.env.OPENAI_API_KEY) {
-  logger.error('❌ OPENAI_API_KEY is not set in environment variables');
+// ====================
+// API HELPERS
+// ====================
+
+async function fetchPythonApi(endpoint: string, token: string, params?: Record<string, string | number>) {
+  const url = new URL(`${PYTHON_API_BASE}${endpoint}`);
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.append(key, String(value));
+      }
+    });
+  }
+  
+  console.log(`🐍 Calling Python API: ${url.toString()}`);
+  
+  const response = await fetch(url.toString(), {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`❌ Python API error: ${response.status}`, errorText);
+    throw new Error(`API error: ${response.status} - ${errorText}`);
+  }
+  
+  return response.json();
 }
+
+// ====================
+// TOOL DEFINITIONS
+// ====================
+
+const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'getHabitStats',
+      description: 'Get statistics for habits. Returns total, average (per day with data), min, max, variance. Use for questions about totals, averages, performance.',
+      parameters: {
+        type: 'object',
+        properties: {
+          habitName: { type: 'string', description: 'Specific habit name (e.g., "sleep", "workout", "daily walk"). Leave empty for all habits.' },
+          startDate: { type: 'string', description: 'Start date in YYYY-MM-DD format' },
+          endDate: { type: 'string', description: 'End date in YYYY-MM-DD format' },
+          daysBack: { type: 'number', description: 'Alternative to dates: look back N days from today (default 30)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getDailyBreakdown',
+      description: 'REQUIRED: Get day-by-day breakdown for a habit. MUST be called alongside getHabitStats for ANY habit question to populate the side panel table. Use same date range as getHabitStats.',
+      parameters: {
+        type: 'object',
+        properties: {
+          habitName: { type: 'string', description: 'Habit name to get breakdown for' },
+          startDate: { type: 'string', description: 'Start date in YYYY-MM-DD format (use same as getHabitStats)' },
+          endDate: { type: 'string', description: 'End date in YYYY-MM-DD format (use same as getHabitStats)' },
+          daysBack: { type: 'number', description: 'Alternative to dates: look back N days from today (default 30)' },
+        },
+        required: ['habitName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getCorrelation',
+      description: 'Calculate correlation between two habits. Use for questions like "Is there a connection between X and Y?"',
+      parameters: {
+        type: 'object',
+        properties: {
+          habit1Name: { type: 'string', description: 'First habit name' },
+          habit2Name: { type: 'string', description: 'Second habit name' },
+          daysBack: { type: 'number', description: 'Days to analyze (default 30)' },
+        },
+        required: ['habit1Name', 'habit2Name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'listHabits',
+      description: 'List all habits the user is tracking. Use to see what habits are available.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+];
+
+// ====================
+// TOOL EXECUTION - Calls Python Analytics API
+// ====================
+
+async function executeGetHabitStats(token: string, params: { 
+  habitName?: string; 
+  startDate?: string; 
+  endDate?: string;
+  daysBack?: number;
+}) {
+  console.log('📊 getHabitStats called:', params);
+  
+  try {
+    const result = await fetchPythonApi('/api/analytics/stats', token, {
+      habit_name: params.habitName || '',
+      start_date: params.startDate || '',
+      end_date: params.endDate || '',
+      days_back: params.daysBack || 30,
+    });
+    
+    if (!result.success) {
+      return JSON.stringify({
+        error: result.error,
+        available_habits: result.available_habits
+      });
+    }
+    
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ getHabitStats error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+async function executeGetDailyBreakdown(token: string, params: { 
+  habitName: string; 
+  startDate?: string;
+  endDate?: string;
+  daysBack?: number;
+}) {
+  console.log('📊 getDailyBreakdown called:', params);
+  
+  try {
+    const result = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
+      habit_name: params.habitName,
+      start_date: params.startDate || '',
+      end_date: params.endDate || '',
+      days_back: params.daysBack || 30,
+    });
+    
+    if (!result.success) {
+      return JSON.stringify({
+        error: result.error,
+        available_habits: result.available_habits
+      });
+    }
+    
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ getDailyBreakdown error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+async function executeGetCorrelation(token: string, params: { 
+  habit1Name: string; 
+  habit2Name: string;
+  daysBack?: number;
+}) {
+  console.log('📊 getCorrelation called:', params);
+  
+  try {
+    const result = await fetchPythonApi('/api/analytics/correlation', token, {
+      habit1_name: params.habit1Name,
+      habit2_name: params.habit2Name,
+      days_back: params.daysBack || 30,
+    });
+    
+    if (!result.success) {
+      return JSON.stringify({
+        error: result.error,
+        available_habits: result.available_habits
+      });
+    }
+    
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ getCorrelation error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+async function executeListHabits(token: string) {
+  console.log('📊 listHabits called');
+  
+  try {
+    const result = await fetchPythonApi('/api/analytics/list-habits', token);
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ listHabits error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+// ====================
+// MAIN API HANDLER
+// ====================
 
 export async function POST(req: NextRequest) {
   try {
-    logger.info('🔍 Chat stream API called');
-    
-    // Try to get token from Authorization header first (sent by frontend)
+    // Auth
     const authHeader = req.headers.get('Authorization');
     let token: string | null = null;
-    let clerkUserId: string | null = null;
     
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+    if (authHeader?.startsWith('Bearer ')) {
       token = authHeader.substring(7);
-      logger.info('✅ Got token from Authorization header');
     }
     
-    // Try Clerk auth as fallback
     try {
       const authResult = await auth();
-      if (authResult.userId) {
-        clerkUserId = authResult.userId;
-        if (!token) {
+      if (authResult.userId && !token) {
           token = await authResult.getToken();
-        }
       }
-    } catch (authError) {
-      logger.error('⚠️ Clerk auth() error (using header token if available):', authError);
+    } catch {
+      // Use header token
     }
 
-    if (!token && !clerkUserId) {
-      logger.error('❌ No authentication found');
+    if (!token) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        status: 401, headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    const { messages, userId } = await req.json();
-    
-    logger.info('📝 Received messages:', messages?.length);
-    
-    // Use userId from request if Clerk auth failed
-    const effectiveUserId = clerkUserId || userId;
-    const effectiveToken = token;
-    
-    logger.info('🔍 API /api/chat/stream called:', {
-      hasClerkUserId: !!clerkUserId,
-      hasToken: !!token,
-      messageLength: messages.length
+    const { messages, timezone } = await req.json();
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1; // 1-indexed
+
+    // System prompt
+    const systemPrompt = `You are a helpful habit tracking assistant for Ritual.
+You provide accurate insights about the user's habit data using the analytics tools.
+
+Current date: ${today}
+Current year: ${currentYear}
+Timezone: ${timezone || 'UTC'}
+
+IMPORTANT: All statistics come from the Python backend (single source of truth).
+- "average" means total divided by DAYS WITH DATA (not per entry)
+- Always use tools to get real data - never make up numbers
+
+CRITICAL - ALWAYS call BOTH tools for habit questions:
+1. getHabitStats - for totals, averages, min/max
+2. getDailyBreakdown - for the daily table in the side panel
+The user's side panel shows a daily breakdown table that REQUIRES getDailyBreakdown data.
+Even for simple questions like "What was my sleep in October?", call BOTH tools with the SAME date range.
+
+RESPONSE FORMAT - Keep it concise:
+1. Brief intro (1-2 sentences)
+2. Key findings with **bold** numbers
+3. For correlations: state the coefficient and what it means
+4. End with 1-2 actionable insights
+
+DATE RANGE INTERPRETATION - Use the current year (${currentYear}) unless explicitly specified:
+- "this month" → startDate = first of current month, endDate = today
+- "last week" → daysBack = 7
+- "October" → startDate = ${currentYear}-10-01, endDate = ${currentYear}-10-31
+- "November" → startDate = ${currentYear}-11-01, endDate = ${currentYear}-11-30
+- When a month is mentioned without a year, ALWAYS use ${currentYear}
+- Only use a past year if the user explicitly says "October 2024" or similar
+
+NEVER list every single day's data in your response - the user sees that in a side panel.
+Be encouraging and supportive!`;
+
+    // Build messages for OpenAI
+    const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map((m: { role: string; content: string }) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+    ];
+
+    // Call OpenAI
+    let response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: apiMessages,
+      tools,
+      tool_choice: 'auto',
+      temperature: 0.7,
     });
 
-    // Fetch user's current habits from Python backend AND analytics from Tinybird
-    let userHabits: any[] = [];
-    let habitStats: any = null;
-    let tinybirdSummary: any = null;
-    let tinybirdTrends: any = null;
-    
-    try {
-      const headers: Record<string, string> = {};
-      if (effectiveToken) {
-        headers['Authorization'] = `Bearer ${effectiveToken}`;
-      }
+    let assistantMessage = response.choices[0].message;
+
+    // Collect tool results for frontend canvas
+    const toolResults: { stats?: any; dailyBreakdown?: any; correlation?: any } = {};
+
+    // Handle tool calls (loop up to 5 times for complex queries)
+    let iterations = 0;
+    while (assistantMessage.tool_calls && iterations < 5) {
+      iterations++;
+      console.log(`🔧 Tool call iteration ${iterations}:`, assistantMessage.tool_calls.map(t => t.function.name));
       
-      // Fetch habits from Python backend (Turso)
-      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-        headers
-      });
-      if (habitsResponse.ok) {
-        userHabits = await habitsResponse.json();
-        logger.info('✅ Fetched habits from Python backend:', userHabits.length);
-      }
+      apiMessages.push(assistantMessage);
 
-      // Fetch analytics from Tinybird (much faster and richer analytics)
-      // Use 90 days to ensure AI has full month data for accurate monthly calculations
-      if (effectiveUserId) {
+      for (const toolCall of assistantMessage.tool_calls) {
+        const args = JSON.parse(toolCall.function.arguments || '{}');
+        let result: string;
+
         try {
-          // Get summary stats from Tinybird (90 days for full monthly context)
-          tinybirdSummary = await tinybirdService.getUserHabitsSummary(effectiveUserId, 90);
-          logger.info('✅ Fetched Tinybird summary:', tinybirdSummary);
-          
-          // Get trends from Tinybird (90 days for full monthly context)
-          tinybirdTrends = await tinybirdService.getHabitTrends(effectiveUserId, 'day', 90);
-          logger.info('✅ Fetched Tinybird trends:', tinybirdTrends);
-        } catch (tinybirdError) {
-          logger.error('⚠️ Error fetching from Tinybird (continuing with limited data):', tinybirdError);
-        }
-      }
-
-      // Fallback: Also fetch from Python backend if Tinybird data is unavailable
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const startDate = thirtyDaysAgo.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
-
-      // Get logs for all habits from Python backend
-      const logsPromises = userHabits.map(async (habit) => {
-        try {
-          const logsResponse = await fetch(
-            `${PYTHON_API_BASE}/api/habits/${habit.id}/logs?start_date=${startDate}&end_date=${today}`,
-            { headers }
-          );
-          if (logsResponse.ok) {
-            const logs = await logsResponse.json();
-            return { habitName: habit.name, logs };
+          switch (toolCall.function.name) {
+            case 'getHabitStats':
+              result = await executeGetHabitStats(token, args);
+              // Store stats for canvas
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success && parsed.data) {
+                  toolResults.stats = parsed.data;
+                }
+              } catch {}
+              break;
+            case 'getDailyBreakdown':
+              result = await executeGetDailyBreakdown(token, args);
+              // Store daily breakdown for canvas
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  // Extract the 'data' array which contains daily entries
+                  toolResults.dailyBreakdown = parsed.data || [];
+                  // Also store the habit info
+                  if (parsed.habit) {
+                    toolResults.dailyBreakdownHabit = parsed.habit;
+                  }
+                }
+              } catch {}
+              break;
+            case 'getCorrelation':
+              result = await executeGetCorrelation(token, args);
+              // Store correlation for canvas
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.correlation = parsed;
+                }
+              } catch {}
+              break;
+            case 'listHabits':
+              result = await executeListHabits(token);
+              break;
+            default:
+              result = JSON.stringify({ error: `Unknown tool: ${toolCall.function.name}` });
           }
         } catch (error) {
-          logger.error(`Failed to fetch logs for habit ${habit.name}:`, error);
+          console.error(`❌ Tool ${toolCall.function.name} error:`, error);
+          result = JSON.stringify({ error: String(error) });
         }
-        return null;
-      });
 
-      const logsData = await Promise.all(logsPromises);
-      habitStats = logsData.filter(Boolean);
-      
-    } catch (error) {
-      logger.error('❌ Error fetching habit data:', error);
-    }
+        console.log(`📊 Tool ${toolCall.function.name} result length:`, result.length);
 
-    // Build context about user's habits
-    const habitsContext = userHabits.length > 0 
-      ? `\n\nUSER'S HABITS:\n${userHabits.map(h => `- "${h.name}" (Category: ${h.category}${h.unit_type ? `, Unit: ${h.unit_type}` : ''})`).join('\n')}`
-      : '\n\nNote: User has no habits tracked yet.';
-
-    // Build context from Tinybird analytics (preferred - more detailed)
-    let tinybirdContext = '';
-    if (tinybirdSummary && tinybirdSummary.data && tinybirdSummary.data.length > 0) {
-      logger.info('🔍 Building Tinybird context from summary data:', {
-        dataLength: tinybirdSummary.data.length,
-        habitNames: tinybirdSummary.data.map((s: any) => s.habit_name)
-      });
-      
-      tinybirdContext = `\n\nANALYTICS DATA (Last 30 Days from Tinybird):\n${tinybirdSummary.data.map((stat: any) => {
-        const parts = [`- ${stat.habit_name}: ${stat.completed_count || 0} entries`];
-        if (stat.total_duration_seconds > 0) {
-          // Convert to hours for hour-based habits, minutes for minute-based
-          const unit = stat.unit || '';
-          if (unit.toLowerCase().includes('hour')) {
-            parts.push(`${Math.round((stat.total_duration_seconds / 3600) * 10) / 10} total hours`);
-            parts.push(`avg ${Math.round((stat.total_duration_seconds / stat.completed_count / 3600) * 10) / 10} hours per entry`);
-          } else {
-            parts.push(`${Math.round(stat.total_duration_seconds / 60)} total minutes`);
-          }
-        }
-        if (stat.total_amount > 0) {
-          parts.push(`${stat.total_amount} total ${stat.unit || 'units'}`);
-        }
-        if (stat.avg_amount > 0) {
-          parts.push(`avg ${Math.round(stat.avg_amount * 10) / 10} per entry`);
-        }
-        if (stat.current_streak > 0) {
-          parts.push(`${stat.current_streak}-day streak`);
-        }
-        if (stat.last_completed_date) {
-          parts.push(`last: ${stat.last_completed_date}`);
-        }
-        return parts.join(', ');
-      }).join('\n')}`;
-      
-      logger.info('✅ Tinybird context built, length:', tinybirdContext.length);
-    } else {
-      logger.warn('⚠️ No Tinybird summary data available:', {
-        hasSummary: !!tinybirdSummary,
-        hasData: !!tinybirdSummary?.data,
-        dataLength: tinybirdSummary?.data?.length || 0
-      });
-    }
-
-    // Add detailed trend information if available (day-by-day breakdown)
-    if (tinybirdTrends && tinybirdTrends.data && tinybirdTrends.data.length > 0) {
-      const trendsByHabit = new Map();
-      tinybirdTrends.data.forEach((trend: any) => {
-        if (!trendsByHabit.has(trend.habit_name)) {
-          trendsByHabit.set(trend.habit_name, []);
-        }
-        trendsByHabit.get(trend.habit_name).push(trend);
-      });
-      
-      tinybirdContext += `\n\nDAILY TRENDS (Last 90 Days - for calculating averages and analyzing patterns):\n${Array.from(trendsByHabit.entries()).map(([habitName, trends]: [string, any]) => {
-        // Show day-by-day data for month calculations
-        const dailyData = trends.map((t: any) => {
-          // Check if this is hour-based or minute-based
-          const matchingHabit = userHabits.find(h => h.name === habitName);
-          const unitType = matchingHabit?.unit_type || t.unit || '';
-          
-          let valueStr = '';
-          if (t.total_duration > 0) {
-            if (unitType.toLowerCase().includes('hour')) {
-              const hours = Math.round((t.total_duration / 3600) * 10) / 10;
-              valueStr = `${hours} hours`;
-            } else {
-              const minutes = Math.round(t.total_duration / 60);
-              valueStr = `${minutes} minutes`;
-            }
-          }
-          if (t.total_amount > 0) {
-            valueStr = valueStr ? `${valueStr}, ${t.total_amount} ${t.unit || 'units'}` : `${t.total_amount} ${t.unit || 'units'}`;
-          }
-          
-          return `${t.date}: ${valueStr || 'logged'}`;
+        apiMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: result,
         });
-        return `- ${habitName}:\n  ${dailyData.join('\n  ')}`;
-      }).join('\n')}`;
-      
-      logger.info('✅ Added detailed daily trends to context:', {
-        habitsWithTrends: Array.from(trendsByHabit.keys()),
-        totalDays: tinybirdTrends.data.length
-      });
-    }
+      }
 
-    // Build context about recent activity from Python backend (fallback)
-    const statsContext = habitStats && habitStats.length > 0 && !tinybirdContext
-      ? `\n\nRECENT ACTIVITY (Last 30 Days):\n${habitStats.map((stat: any) => {
-          const logs = stat.logs || [];
-          const totalEntries = logs.length;
-          const totalDuration = logs.reduce((sum: number, log: any) => sum + (log.duration || 0), 0);
-          const totalAmount = logs.reduce((sum: number, log: any) => sum + (log.amount || 0), 0);
-          return `- ${stat.habitName}: ${totalEntries} entries${totalDuration > 0 ? `, ${Math.round(totalDuration / 60)} total minutes` : ''}${totalAmount > 0 ? `, ${totalAmount} total` : ''}`;
-        }).join('\n')}`
-      : '';
-
-    const systemPrompt = `You are a helpful and insightful habit tracking assistant. You help users understand their habits, patterns, and progress.
-
-Current date: ${new Date().toISOString().split('T')[0]}
-
-Your capabilities:
-- Answer questions about their habits and tracking data
-- Provide insights and analysis of their behavior patterns
-- Offer encouragement and suggestions for improvement
-- Help them understand trends and correlations
-- Give actionable advice based on their data
-- Query analytics from Tinybird for rich insights
-
-Be conversational, friendly, and supportive. Use the data provided to give specific, personalized insights.
-
-${habitsContext}${tinybirdContext || statsContext}
-
-When the user asks questions:
-- Reference specific habits and data points when relevant
-- Calculate and explain trends if asked (use the trend data provided)
-- **CRITICAL DATE FILTERING**: If asked about a specific month (e.g., "November"), ONLY use dates from that month. For "November 2025", ONLY include dates starting with "2025-11-" in your calculations. Do NOT include October or December dates.
-- For time-based metrics, durations are stored in seconds - convert appropriately (hours or minutes based on the unit type)
-- Show your math when calculating averages (e.g., "Based on 25 days in November (2025-11-01 to 2025-11-26): 177 total hours / 25 days = 7.1 hours average")
-- Mention streaks and progress metrics when available
-- Be encouraging about progress
-- Suggest actionable next steps
-- Keep responses concise but informative (2-4 sentences usually)
-
-CRITICAL: If the analytics data shows entries with total_duration_seconds > 0, that means data EXISTS for that habit. Calculate averages and totals from the data provided. Don't say "no data" if there are entries listed above.
-
-ACCURACY RULE: You have 90 days of data. When calculating monthly statistics, filter by the exact month prefix (e.g., "2025-11-" for November 2025). Never mix data from different months.
-
-Remember: You're here to help them build better habits and understand their behavior patterns better. The analytics data comes from Tinybird which tracks all their habit logs.`;
-
-    logger.info('📋 System prompt length:', systemPrompt.length);
-    logger.info('📋 Context included:', {
-      hasHabitsContext: habitsContext.length > 0,
-      hasTinybirdContext: tinybirdContext.length > 0,
-      hasStatsContext: statsContext.length > 0,
-    });
-    
-    // Log the full system prompt for debugging (first 2000 chars)
-    logger.info('📋 System prompt preview:', systemPrompt.substring(0, 2000));
-
-    // Check for OpenAI API key before proceeding
-    if (!process.env.OPENAI_API_KEY) {
-      logger.error('❌ OPENAI_API_KEY is missing');
-      return new Response(JSON.stringify({ 
-        error: 'OpenAI API key not configured'
-      }), { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Stream the response using Vercel AI SDK with custom streaming
-    logger.info('🤖 Calling OpenAI with system prompt');
-    
-    try {
-      const result = await streamText({
-        model: openai('gpt-4o-mini'),
-        system: systemPrompt,
-        messages: messages,
+      response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: apiMessages,
+        tools,
+        tool_choice: 'auto',
         temperature: 0.7,
       });
 
-      logger.info('✅ Stream initialized, creating custom response');
-      
-      // Create a custom stream that's easier for our client to parse
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream({
-        async start(controller) {
-          try {
-            for await (const chunk of result.textStream) {
-              // Send each chunk in a simple format: just the text with a newline
-              const data = `0:"${chunk}"\n`;
-              controller.enqueue(encoder.encode(data));
-            }
-            controller.close();
-          } catch (error) {
-            logger.error('Error in stream:', error);
-            controller.error(error);
-          }
-        },
-      });
-
-      return new Response(stream, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Transfer-Encoding': 'chunked',
-        },
-      });
-    } catch (streamError) {
-      logger.error('❌ Error creating stream:', streamError);
-      return new Response(JSON.stringify({ 
-        error: 'Failed to generate response',
-        details: streamError instanceof Error ? streamError.message : 'Unknown error'
-      }), { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      assistantMessage = response.choices[0].message;
     }
+
+    const finalText = assistantMessage.content || 'I was unable to process your request.';
+    
+    // Log tool results being sent
+    console.log('📦 Tool results for canvas:', Object.keys(toolResults));
+
+    // Stream response word by word, then send tool data
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const words = finalText.split(' ');
+        for (let i = 0; i < words.length; i++) {
+          const chunk = (i === 0 ? '' : ' ') + words[i];
+          controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
+          await new Promise(resolve => setTimeout(resolve, 15));
+        }
+        
+        // Send tool results as metadata for canvas
+        if (Object.keys(toolResults).length > 0) {
+          controller.enqueue(encoder.encode(`\n__TOOL_DATA__${JSON.stringify(toolResults)}__END_TOOL_DATA__\n`));
+        }
+        
+        controller.close();
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+
   } catch (error) {
-    logger.error('❌ Error in streaming chat API:', error);
+    console.error('Chat API error:', error);
     return new Response(JSON.stringify({ 
       error: 'Error processing request',
       details: error instanceof Error ? error.message : 'Unknown error'
     }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      status: 500, headers: { 'Content-Type': 'application/json' }
     });
   }
 }
-

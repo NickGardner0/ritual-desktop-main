@@ -71,7 +71,7 @@ export function OptimizedImage({
       
       {/* Show loading state */}
       {isLoading && (
-        <div className="absolute inset-0 bg-gray-100 animate-pulse" />
+        <div className="absolute inset-0 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
       )}
     </div>
   );

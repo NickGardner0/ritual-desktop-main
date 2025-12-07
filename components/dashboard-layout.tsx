@@ -126,10 +126,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
       {!isFullScreenChat && (
-        <Sidebar 
-          onToggleChat={toggleAIChat}
-          isChatOpen={showAIChat}
-        />
+        <Sidebar />
       )}
 
       {/* Main Content Area */}
@@ -182,7 +179,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto border-0 bg-white">
+        <main className={`flex-1 overflow-auto border-0 ${isFullScreenChat ? 'bg-[#fbfbf9]' : 'bg-white'}`}>
           {children}
         </main>
       </div>

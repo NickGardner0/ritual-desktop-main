@@ -13,7 +13,10 @@ SQL >
         countIf(status = 'skipped') as skipped_count,
         SUM(duration) as total_duration_seconds,
         SUM(amount) as total_amount,
-        AVG(amount) as avg_amount,
+        -- Average per day with data (not per entry)
+        SUM(amount) / COUNT(DISTINCT date) as avg_amount,
+        SUM(duration) / COUNT(DISTINCT date) as avg_duration_per_day,
+        COUNT(DISTINCT date) as days_with_data,
         MAX(date) as last_completed_date,
         MIN(date) as first_log_date,
         any(unit) as unit
@@ -29,9 +32,12 @@ SQL >
         habit_id,
         habit_name,
         COUNT(*) as count_7d,
+        COUNT(DISTINCT date) as days_7d,
         SUM(amount) as amount_7d,
         SUM(duration) as duration_7d,
-        AVG(amount) as avg_amount_7d
+        -- Average per day with data (not per entry)
+        SUM(amount) / COUNT(DISTINCT date) as avg_amount_7d,
+        SUM(duration) / COUNT(DISTINCT date) as avg_duration_7d
     FROM habit_logs
     WHERE user_id = {{ String(user_id, required=True) }}
       AND date >= today() - INTERVAL 7 DAY
@@ -44,9 +50,11 @@ SQL >
     SELECT
         habit_id,
         COUNT(*) as count_prev_7d,
+        COUNT(DISTINCT date) as days_prev_7d,
         SUM(amount) as amount_prev_7d,
         SUM(duration) as duration_prev_7d,
-        AVG(amount) as avg_amount_prev_7d
+        SUM(amount) / COUNT(DISTINCT date) as avg_amount_prev_7d,
+        SUM(duration) / COUNT(DISTINCT date) as avg_duration_prev_7d
     FROM habit_logs
     WHERE user_id = {{ String(user_id, required=True) }}
       AND date >= today() - INTERVAL 14 DAY
@@ -60,9 +68,11 @@ SQL >
     SELECT
         habit_id,
         COUNT(*) as count_30d,
+        COUNT(DISTINCT date) as days_30d,
         SUM(amount) as amount_30d,
         SUM(duration) as duration_30d,
-        AVG(amount) as avg_amount_30d
+        SUM(amount) / COUNT(DISTINCT date) as avg_amount_30d,
+        SUM(duration) / COUNT(DISTINCT date) as avg_duration_30d
     FROM habit_logs
     WHERE user_id = {{ String(user_id, required=True) }}
       AND date >= today() - INTERVAL 30 DAY
@@ -75,9 +85,11 @@ SQL >
     SELECT
         habit_id,
         COUNT(*) as count_prev_30d,
+        COUNT(DISTINCT date) as days_prev_30d,
         SUM(amount) as amount_prev_30d,
         SUM(duration) as duration_prev_30d,
-        AVG(amount) as avg_amount_prev_30d
+        SUM(amount) / COUNT(DISTINCT date) as avg_amount_prev_30d,
+        SUM(duration) / COUNT(DISTINCT date) as avg_duration_prev_30d
     FROM habit_logs
     WHERE user_id = {{ String(user_id, required=True) }}
       AND date >= today() - INTERVAL 60 DAY
@@ -89,31 +101,36 @@ NODE summary_with_comparisons
 SQL >
     %
     SELECT 
-        h.habit_id,
-        h.habit_name,
-        h.unit,
-        h.total_logs,
-        h.completed_count,
-        h.skipped_count,
-        h.total_amount,
-        h.avg_amount,
-        h.last_completed_date,
-        h.first_log_date,
+        h.habit_id AS habit_id,
+        h.habit_name AS habit_name,
+        h.unit AS unit,
+        h.total_logs AS total_logs,
+        h.completed_count AS completed_count,
+        h.skipped_count AS skipped_count,
+        h.total_amount AS total_amount,
+        h.avg_amount AS avg_amount,
+        h.avg_duration_per_day AS avg_duration_per_day,
+        h.days_with_data AS days_with_data,
+        h.last_completed_date AS last_completed_date,
+        h.first_log_date AS first_log_date,
         
         -- Last 7 days metrics
         l7.count_7d as last_7_days_count,
+        l7.days_7d as last_7_days_with_data,
         l7.amount_7d as last_7_days_amount,
         l7.avg_amount_7d as last_7_days_avg,
+        l7.avg_duration_7d as last_7_days_avg_duration,
         p7.count_prev_7d as prev_7_days_count,
+        p7.days_prev_7d as prev_7_days_with_data,
         p7.avg_amount_prev_7d as prev_7_days_avg,
         
-        -- 7-day changes
-        l7.count_7d - p7.count_prev_7d as weekly_count_change,
+        -- 7-day changes (based on days with data, not entries)
+        l7.days_7d - p7.days_prev_7d as weekly_days_change,
         CASE 
-            WHEN p7.count_prev_7d > 0 
-            THEN ((l7.count_7d - p7.count_prev_7d) / p7.count_prev_7d * 100) 
+            WHEN p7.days_prev_7d > 0 
+            THEN ((l7.days_7d - p7.days_prev_7d) / p7.days_prev_7d * 100) 
             ELSE 0 
-        END as weekly_count_change_pct,
+        END as weekly_days_change_pct,
         
         CASE 
             WHEN p7.avg_amount_prev_7d > 0 
@@ -123,18 +140,21 @@ SQL >
         
         -- Last 30 days metrics
         l30.count_30d as last_30_days_count,
+        l30.days_30d as last_30_days_with_data,
         l30.amount_30d as last_30_days_amount,
         l30.avg_amount_30d as last_30_days_avg,
+        l30.avg_duration_30d as last_30_days_avg_duration,
         p30.count_prev_30d as prev_30_days_count,
+        p30.days_prev_30d as prev_30_days_with_data,
         p30.avg_amount_prev_30d as prev_30_days_avg,
         
         -- 30-day changes
-        l30.count_30d - p30.count_prev_30d as monthly_count_change,
+        l30.days_30d - p30.days_prev_30d as monthly_days_change,
         CASE 
-            WHEN p30.count_prev_30d > 0 
-            THEN ((l30.count_30d - p30.count_prev_30d) / p30.count_prev_30d * 100) 
+            WHEN p30.days_prev_30d > 0 
+            THEN ((l30.days_30d - p30.days_prev_30d) / p30.days_prev_30d * 100) 
             ELSE 0 
-        END as monthly_count_change_pct,
+        END as monthly_days_change_pct,
         
         CASE 
             WHEN p30.avg_amount_prev_30d > 0 

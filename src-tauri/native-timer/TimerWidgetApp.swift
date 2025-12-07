@@ -182,7 +182,7 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Create the panel with native macOS styling
         panel = NSPanel(
             contentRect: NSRect(x: 100, y: 100, width: 320, height: 50),
-            styleMask: [.nonactivatingPanel],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -198,11 +198,13 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         
-        // Create draggable view that handles mouse events
+        // Create draggable view that handles mouse events - make it transparent
         let draggableView = DraggableView(frame: panel.contentView!.bounds, timerWidget: self)
+        draggableView.wantsLayer = true
+        draggableView.layer?.backgroundColor = NSColor.clear.cgColor
         panel.contentView = draggableView
         
-        // Add visual effect view for blur background
+        // Add visual effect view for blur background with rounded corners
         let visualEffect = NSVisualEffectView(frame: draggableView.bounds)
         visualEffect.autoresizingMask = [.width, .height]
         visualEffect.material = .hudWindow
@@ -210,31 +212,42 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         visualEffect.state = .active
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 12
+        visualEffect.layer?.masksToBounds = true
         
         draggableView.addSubview(visualEffect)
         
-        // Create timer label
-        timerLabel = NSTextField(frame: NSRect(x: 16, y: 15, width: 80, height: 20))
+        // Create timer label - dark and prominent
+        timerLabel = NSTextField(frame: NSRect(x: 16, y: 15, width: 70, height: 20))
         timerLabel?.stringValue = "00:00"
         timerLabel?.isEditable = false
         timerLabel?.isBordered = false
         timerLabel?.backgroundColor = NSColor.clear
-        timerLabel?.textColor = NSColor.labelColor
-        timerLabel?.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .medium)
-        timerLabel?.alignment = .center
+        timerLabel?.textColor = NSColor.black
+        timerLabel?.font = NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+        timerLabel?.alignment = .left
         
-        // Create habit selection button with icon
-        habitButton = NSButton(frame: NSRect(x: 110, y: 12, width: 110, height: 26))
-        habitButton?.title = currentHabit
-        habitButton?.bezelStyle = .rounded
+        // Truncate long habit names to fit
+        let displayHabit = currentHabit.count > 10 ? String(currentHabit.prefix(9)) + "…" : currentHabit
+        
+        // Create habit selection button - clean pill style with icon
+        habitButton = NSButton(frame: NSRect(x: 95, y: 12, width: 115, height: 26))
+        habitButton?.bezelStyle = .roundRect
         habitButton?.font = NSFont.systemFont(ofSize: 12, weight: .medium)
         habitButton?.target = self
         habitButton?.action = #selector(showHabitMenu)
+        habitButton?.wantsLayer = true
+        habitButton?.isBordered = false
+        habitButton?.layer?.backgroundColor = NSColor(calibratedWhite: 0.0, alpha: 0.05).cgColor
+        habitButton?.layer?.cornerRadius = 13
         
-        // Set icon for current habit
-        if let icon = getIconForHabit(currentHabit) {
-            habitButton?.image = icon
-            habitButton?.imagePosition = .imageLeading
+        // Create attributed string with habit name + chevron symbol
+        let chevronSymbol = " ▾"
+        habitButton?.title = displayHabit + chevronSymbol
+        
+        // Configure button cell for single line
+        if let cell = habitButton?.cell as? NSButtonCell {
+            cell.lineBreakMode = .byTruncatingTail
+            cell.imagePosition = .noImage
         }
         
         // Create habit menu with custom styling
@@ -260,23 +273,27 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Set delegate for additional customization
         habitMenu?.delegate = self
         
-        // Create play/pause button with hover effects
-        playButton = HoverButton(frame: NSRect(x: 230, y: 12, width: 26, height: 26))
+        // Create play/pause button - clean icon only
+        playButton = PlayPauseButton(frame: NSRect(x: 228, y: 12, width: 26, height: 26))
         playButton?.title = ""
-        playButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")
-        playButton?.bezelStyle = .circular
-        playButton?.isBordered = true
+        let playConfig = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        playButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")?.withSymbolConfiguration(playConfig)
+        playButton?.bezelStyle = .regularSquare
+        playButton?.isBordered = false
         playButton?.target = self
         playButton?.action = #selector(toggleTimer)
+        playButton?.wantsLayer = true
         
-        // Create close button with hover effects
-        closeButton = HoverButton(frame: NSRect(x: 280, y: 12, width: 26, height: 26))
+        // Create close button - clean icon only
+        closeButton = HoverButton(frame: NSRect(x: 268, y: 12, width: 26, height: 26))
         closeButton?.title = ""
-        closeButton?.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
-        closeButton?.bezelStyle = .circular
-        closeButton?.isBordered = true
+        let closeConfig = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+        closeButton?.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")?.withSymbolConfiguration(closeConfig)
+        closeButton?.bezelStyle = .regularSquare
+        closeButton?.isBordered = false
         closeButton?.target = self
         closeButton?.action = #selector(closeWidget)
+        closeButton?.wantsLayer = true
         
         // Add all controls to the visual effect view
         if let timerLabel = timerLabel { visualEffect.addSubview(timerLabel) }
@@ -296,25 +313,34 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func toggleTimer() {
         isRunning.toggle()
         
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+        
         if isRunning {
             // Start timer
             startTime = Date()
-            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                self.seconds += 1
-                self.updateTimerDisplay()
+            timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                self?.seconds += 1
+                self?.updateTimerDisplay()
             }
-            playButton?.image = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: "Pause")
+            
+            // Change to stop icon when running
+            playButton?.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Stop")?.withSymbolConfiguration(config)
+            playButton?.contentTintColor = NSColor.systemRed
+            
             print("⏰ Timer started for \(currentHabit)")
         } else {
             // Stop timer and log time
             timer?.invalidate()
             timer = nil
-            playButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")
+            
+            // Reset to play icon
+            playButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Play")?.withSymbolConfiguration(config)
+            playButton?.contentTintColor = NSColor.labelColor
             
             if seconds > 0 {
                 logTimeToHabit()
             }
-            print("⏸️ Timer paused")
+            print("⏸️ Timer stopped")
         }
     }
     
@@ -455,13 +481,9 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     
     @objc func selectHabit(_ sender: NSMenuItem) {
         currentHabit = sender.title
-        habitButton?.title = currentHabit
-        
-        // Update button icon
-        if let icon = getIconForHabit(currentHabit) {
-            habitButton?.image = icon
-            habitButton?.imagePosition = .imageLeading
-        }
+        // Truncate long habit names and add chevron symbol
+        let displayHabit = currentHabit.count > 10 ? String(currentHabit.prefix(9)) + "…" : currentHabit
+        habitButton?.title = displayHabit + " ▾"
         
         print("🎯 Selected habit: \(currentHabit)")
     }
@@ -469,13 +491,10 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func selectHabitFromCustomMenu(_ sender: CustomHoverButton) {
         print("🎯 Habit selected from custom menu: \(sender.habitName)")
         currentHabit = sender.habitName
-        habitButton?.title = currentHabit
+        // Truncate long habit names and add chevron symbol
+        let displayHabit = currentHabit.count > 10 ? String(currentHabit.prefix(9)) + "…" : currentHabit
+        habitButton?.title = displayHabit + " ▾"
         
-        // Update button icon
-        if let icon = getIconForHabit(currentHabit) {
-            habitButton?.image = icon
-            habitButton?.imagePosition = .imageLeading
-        }
         customMenuPanel?.close()
         customMenuPanel = nil
         print("✅ Updated current habit to: \(currentHabit)")
@@ -760,7 +779,14 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
         let secs = seconds % 60
-        let timeString = String(format: "%02d:%02d:%02d", hours, minutes, secs)
+        
+        // Smart format: show hours only when needed (mm:ss → h:mm:ss)
+        let timeString: String
+        if hours > 0 {
+            timeString = String(format: "%d:%02d:%02d", hours, minutes, secs)
+        } else {
+            timeString = String(format: "%02d:%02d", minutes, secs)
+        }
         
         DispatchQueue.main.async {
             self.timerLabel?.stringValue = timeString
@@ -815,7 +841,7 @@ class DraggableView: NSView {
     }
 }
 
-// Custom button with hover effect for widget buttons
+// Custom button with subtle hover effect for widget buttons
 class HoverButton: NSButton {
     override func awakeFromNib() {
         super.awakeFromNib()
@@ -833,6 +859,7 @@ class HoverButton: NSButton {
     }
     
     private func setupHoverTracking() {
+        wantsLayer = true
         let trackingArea = NSTrackingArea(
             rect: bounds,
             options: [.mouseEnteredAndExited, .activeInActiveApp],
@@ -844,12 +871,36 @@ class HoverButton: NSButton {
     
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
-        self.alphaValue = 0.7
+        // Simple opacity change on hover
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.1
+            self.alphaValue = 0.6
+        })
     }
     
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        self.alphaValue = 1.0
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.1
+            self.alphaValue = 1.0
+        })
+    }
+}
+
+// Custom Play/Pause button with subtle hover effects
+class PlayPauseButton: HoverButton {
+    override func mouseEntered(with event: NSEvent) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.1
+            self.alphaValue = 0.6
+        })
+    }
+    
+    override func mouseExited(with event: NSEvent) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.1
+            self.alphaValue = 1.0
+        })
     }
 }
 

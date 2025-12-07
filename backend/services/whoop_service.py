@@ -232,15 +232,22 @@ class WhoopService:
         
         return integration.access_token
     
-    async def sync_whoop_data(self, user_id: str, days_back: int = 30) -> Dict[str, Any]:
+    async def sync_whoop_data(self, user_id: str, days_back: int = None, force_full_sync: bool = False) -> Dict[str, Any]:
         """
-        Sync data from Whoop API
-        Default syncs last 30 days to capture historical data
+        Sync data from Whoop API with smart incremental syncing.
+        
+        - First sync: fetches 30 days of historical data
+        - Subsequent syncs: only fetches data since last sync (with 2-day overlap)
+        - force_full_sync=True: always fetches 30 days
+        - days_back override: manual control over sync range
         """
         access_token = await self.get_valid_access_token(user_id)
         
         if not access_token:
             raise Exception("Whoop integration not found or token invalid")
+        
+        # Get integration to check last sync time
+        integration = await self.get_integration(user_id)
         
         synced_data = {
             "recovery": 0,
@@ -249,9 +256,32 @@ class WhoopService:
             "cycles": 0  # Daily metrics including steps
         }
         
-        # Calculate date range
+        # Smart date range calculation
         end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=days_back)
+        
+        if days_back is not None:
+            # Manual override - use specified days
+            start_date = end_date - timedelta(days=days_back)
+            print(f"📅 Manual sync: fetching last {days_back} days")
+        elif force_full_sync:
+            # Force full sync - fetch 30 days
+            start_date = end_date - timedelta(days=30)
+            print(f"📅 Full sync requested: fetching last 30 days")
+        elif integration and integration.last_sync_at:
+            # Incremental sync - fetch since last sync with 2-day overlap for safety
+            # The overlap ensures we don't miss any data due to timezone issues or partial syncs
+            last_sync = integration.last_sync_at
+            days_since_sync = (end_date - last_sync).days
+            
+            # Add 2 days overlap, but minimum 1 day, maximum 30 days
+            sync_days = min(max(days_since_sync + 2, 1), 30)
+            start_date = end_date - timedelta(days=sync_days)
+            
+            print(f"📅 Incremental sync: last sync was {days_since_sync} days ago, fetching last {sync_days} days")
+        else:
+            # First sync - fetch 30 days of historical data
+            start_date = end_date - timedelta(days=30)
+            print(f"📅 First sync: fetching last 30 days of historical data")
         
         async with httpx.AsyncClient() as client:
             try:
@@ -460,9 +490,17 @@ class WhoopService:
             except SQLAlchemyError as e:
                 print(f"⚠️  Error updating last_sync_at: {str(e)}")
         
+        # Calculate days synced for the response
+        days_synced = (end_date - start_date).days
+        
         return {
             "status": "success",
             "synced_at": datetime.utcnow().isoformat(),
+            "sync_period": {
+                "start_date": start_date.strftime('%Y-%m-%d'),
+                "end_date": end_date.strftime('%Y-%m-%d'),
+                "days": days_synced
+            },
             "data": synced_data
         }
     
@@ -492,11 +530,13 @@ class WhoopService:
             recovery_events = []
             for record in recovery_data['records']:
                 score = record.get('score', {})
+                # Use cycle_id as deterministic key for deduplication
+                whoop_cycle_id = str(record.get('cycle_id', ''))
                 recovery_events.append({
-                    'id': str(uuid.uuid4()),
+                    'id': f"whoop_recovery_{whoop_cycle_id}",  # Deterministic ID
                     'user_id': user_id,
                     'whoop_connection_id': whoop_connection_id,
-                    'cycle_id': str(record.get('cycle_id', '')),
+                    'cycle_id': whoop_cycle_id,
                     'date': record.get('created_at', '')[:10],  # Extract date from datetime
                     'recovery_score': score.get('recovery_score', 0),
                     'hrv_rmssd': score.get('hrv_rmssd_milli', 0),
@@ -524,11 +564,13 @@ class WhoopService:
                 light_sleep = stage_summary.get('total_light_sleep_time_milli', 0) // 60000
                 awake = stage_summary.get('total_awake_time_milli', 0) // 60000
                 
+                # Use Whoop's sleep ID as primary key to enable deduplication
+                whoop_sleep_id = str(record.get('id', ''))
                 sleep_events.append({
-                    'id': str(uuid.uuid4()),
+                    'id': f"whoop_sleep_{whoop_sleep_id}",  # Deterministic ID for deduplication
                     'user_id': user_id,
                     'whoop_connection_id': whoop_connection_id,
-                    'sleep_id': str(record.get('id', '')),
+                    'sleep_id': whoop_sleep_id,
                     'date': record.get('start', '')[:10],  # Extract date from datetime
                     'sleep_performance_percentage': score.get('sleep_performance_percentage', 0),
                     'total_sleep_duration_minutes': total_sleep,
@@ -557,11 +599,13 @@ class WhoopService:
                 end = datetime.fromisoformat(record.get('end', '').replace('Z', '+00:00'))
                 duration_minutes = int((end - start).total_seconds() / 60)
                 
+                # Use Whoop's workout ID as deterministic key for deduplication
+                whoop_workout_id = str(record.get('id', ''))
                 workout_events.append({
-                    'id': str(uuid.uuid4()),
+                    'id': f"whoop_workout_{whoop_workout_id}",  # Deterministic ID
                     'user_id': user_id,
                     'whoop_connection_id': whoop_connection_id,
-                    'workout_id': str(record.get('id', '')),
+                    'workout_id': whoop_workout_id,
                     'date': record.get('start', '')[:10],
                     'strain_score': score.get('strain', 0),
                     'activity_name': self._get_sport_name(record.get('sport_id', 0)),
@@ -739,6 +783,8 @@ class WhoopService:
                                         log_metadata=metadata_json  # Note: using log_metadata in SQLAlchemy
                                     )
                                     session.add(new_log)
+                                    # Flush to make this log visible for duplicate detection in same transaction
+                                    await session.flush()
                                     logs_created += 1
                                     print(f"✅ Created sleep log for {sleep_date}: {total_sleep_minutes} minutes")
                                     
@@ -806,6 +852,7 @@ class WhoopService:
                                         notes=f"Synced from Whoop (HRV: {score.get('hrv_rmssd_milli', 0)}ms, RHR: {score.get('resting_heart_rate', 0)}bpm)"
                                     )
                                     session.add(new_log)
+                                    await session.flush()  # Prevent duplicates in same transaction
                                     logs_created += 1
                             
                             break
@@ -849,6 +896,7 @@ class WhoopService:
                                         notes=f"Synced from Whoop ({self._get_sport_name(record.get('sport_id', 0))})"
                                     )
                                     session.add(new_log)
+                                    await session.flush()  # Prevent duplicates in same transaction
                                     logs_created += 1
                             
                             break
