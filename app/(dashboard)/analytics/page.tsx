@@ -1,38 +1,48 @@
 /**
- * Analytics Page - CLIENT Component with React Query
+ * Analytics Page - Server Component
  * 
- * Following Midday's REAL pattern for instant navigation:
- * - Client-side data fetching with React Query
- * - Aggressive caching (5 minutes)
- * - Prefetch on hover
- * - Shows cached data INSTANTLY on navigation
+ * Following best practices:
+ * - Server Component for metadata and initial shell
+ * - Client component for interactive React Query data fetching
+ * - Suspense boundary for streaming
  * 
- * This is how Midday achieves instant page loads!
+ * This gives you:
+ * - Better SEO with server-rendered metadata
+ * - Smaller initial JS bundle
+ * - Instant navigation with cached data (via React Query in client)
  */
-
-'use client';
 
 import { Suspense } from 'react';
 import { AnalyticsClient } from './analytics-client';
+import type { Metadata } from 'next';
 
-/**
- * Analytics Page - Fully client-side for instant caching
- */
+export const metadata: Metadata = {
+  title: 'Analytics | Ritual',
+  description: 'View insights and trends for your habits',
+};
+
+// Loading skeleton for analytics
+function AnalyticsLoading() {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map(i => (
+          <div 
+            key={i} 
+            className="border border-gray-300 p-5 h-24 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" 
+          />
+        ))}
+      </div>
+      <div className="h-64 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+    </div>
+  );
+}
+
 export default function AnalyticsPage() {
   return (
     <div className="flex-1 overflow-auto bg-white relative">
       <div className="max-w-7xl mx-auto p-6 lg:p-8">
-        {/* Client component fetches and caches data */}
-        <Suspense fallback={
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[1,2,3,4].map(i => (
-                <div key={i} className="border border-gray-300 p-5 h-24 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-              ))}
-            </div>
-            <div className="h-64 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-          </div>
-        }>
+        <Suspense fallback={<AnalyticsLoading />}>
           <AnalyticsClient />
         </Suspense>
       </div>

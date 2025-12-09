@@ -1,0 +1,253 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useUser, SignIn, SignUp } from '@clerk/nextjs'
+import { RitualLogo } from '@/components/ritual-logo'
+import { ArrowRight } from 'lucide-react'
+import { setOnboardingWindowSize } from '@/lib/tauri-utils'
+import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler'
+
+const TOTAL_PAGES = 4
+
+export function WelcomeClient() {
+  const searchParams = useSearchParams()
+  const pageParam = searchParams.get('page')
+  const authMode = searchParams.get('mode') // 'signup' or 'signin'
+  const [currentPage, setCurrentPage] = useState(pageParam ? parseInt(pageParam) : 1)
+  const [showSignUp, setShowSignUp] = useState(authMode === 'signup')
+  const router = useRouter()
+  const { isSignedIn, isLoaded } = useUser()
+
+  // Update showSignUp when URL changes
+  useEffect(() => {
+    setShowSignUp(authMode === 'signup')
+  }, [authMode])
+
+  // Set compact window size for onboarding
+  useEffect(() => {
+    setOnboardingWindowSize();
+  }, []);
+
+  useEffect(() => {
+    // If user is already signed in and has completed full onboarding flow, go to dashboard
+    if (isLoaded && isSignedIn) {
+      const hasCompletedWelcomeFlow = localStorage.getItem('ritual-onboarding-completed')
+      const hasCompletedBackendOnboarding = localStorage.getItem('ritual-onboarding-backend-completed')
+
+      // If returning from backend onboarding, continue to page 4
+      if (hasCompletedBackendOnboarding === 'true' && pageParam === '4') {
+        // Allow them to continue the flow
+        return
+      }
+
+      // If fully completed, go to dashboard
+      if (hasCompletedWelcomeFlow === 'true') {
+        router.replace('/dashboard')
+      }
+    }
+  }, [isSignedIn, isLoaded, router, pageParam])
+
+  const handleNext = () => {
+    if (currentPage === TOTAL_PAGES) {
+      // Mark onboarding as completed and clean up flags
+      localStorage.setItem('ritual-onboarding-completed', 'true')
+      localStorage.removeItem('ritual-from-welcome')
+      localStorage.removeItem('ritual-onboarding-backend-completed')
+      router.push('/dashboard')
+      return
+    }
+
+    setCurrentPage(prev => Math.min(prev + 1, TOTAL_PAGES))
+  }
+
+  // Set flag when user reaches page 3 (auth page) so we know they're coming from welcome flow
+  useEffect(() => {
+    if (currentPage === 3) {
+      localStorage.setItem('ritual-from-welcome', 'true')
+    }
+  }, [currentPage])
+
+  const handleBack = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1))
+  }
+
+  const handleDotClick = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  return (
+    <div className="min-h-screen bg-white dark:bg-gray-900 flex flex-col relative welcome-page">
+      <ClerkOAuthHandler />
+      <style jsx global>{`
+        /* Hide any profile components during welcome flow */
+        .welcome-page [class*="user"], 
+        .welcome-page [class*="profile"],
+        .welcome-page [class*="avatar"] {
+          display: none !important;
+        }
+      `}</style>
+
+      {/* Window Drag Region - Top bar that can be dragged */}
+      <div
+        data-tauri-drag-region
+        className="fixed top-0 left-0 w-full h-12 z-50"
+      />
+
+      {/* Main Content - properly centered */}
+      <div className="flex-1 flex items-center justify-center">
+        <div className={`w-full text-center ${currentPage === 2 ? 'max-w-none px-0' : currentPage === 3 ? 'max-w-none px-0' : '-mt-20 max-w-2xl px-8'}`}>
+          {/* Page 1: Welcome */}
+          {currentPage === 1 && (
+            <div className="animate-in fade-in duration-500">
+              <div className="flex justify-center mb-4">
+                <RitualLogo className="h-10 w-auto" />
+              </div>
+              <h1 className="text-3xl font-medium text-gray-900 dark:text-white">
+                Welcome to Ritual
+              </h1>
+            </div>
+          )}
+
+          {/* Page 2: Why Ritual */}
+          {currentPage === 2 && (
+            <div className="animate-in fade-in duration-500">
+              <div className="max-w-lg mx-auto text-left text-gray-900 dark:text-white px-8">
+                <p className="text-xl leading-relaxed">
+                  Ritual is a collection of self-tracking tools and integrations used to measure and quantify your behavior.
+                </p>
+                <p className="text-xl leading-relaxed mt-6">
+                  As you connect your wearable devices and create logs in the app, the system quietly generates metadata. Over time, your scattered behavior and patterns become structured data that start to form a model of your life.
+                </p>
+                <div className="mt-10 flex flex-col items-center gap-4">
+                  <button
+                    onClick={handleNext}
+                    className="px-5 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-none hover:bg-[#22211B] dark:hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
+                  >
+                    Next
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                  <div className="flex items-center gap-2">
+                    {Array.from({ length: TOTAL_PAGES }).map((_, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleDotClick(index + 1)}
+                        className={`w-[7px] h-[7px] rounded-full transition-all ${currentPage === index + 1
+                            ? 'bg-gray-900 dark:bg-white'
+                            : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500'
+                          }`}
+                        aria-label={`Go to page ${index + 1}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Page 3: Clerk Auth Components */}
+          {currentPage === 3 && (
+            <div className="animate-in fade-in duration-500 flex justify-center">
+              {showSignUp ? (
+                <SignUp
+                  routing="virtual"
+                  signInUrl="/welcome?page=3&mode=signin"
+                  afterSignUpUrl="/auth/sso-callback"
+                  redirectUrl="/auth/sso-callback"
+                  appearance={{
+                    elements: {
+                      socialButtonsBlockButton: {
+                        '&:hover': {
+                          cursor: 'pointer'
+                        }
+                      }
+                    }
+                  }}
+                />
+              ) : (
+                <SignIn
+                  routing="virtual"
+                  signUpUrl="/welcome?page=3&mode=signup"
+                  afterSignInUrl="/auth/sso-callback"
+                  redirectUrl="/auth/sso-callback"
+                  appearance={{
+                    elements: {
+                      socialButtonsBlockButton: {
+                        '&:hover': {
+                          cursor: 'pointer'
+                        }
+                      }
+                    }
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Page 4: Let's Begin */}
+          {currentPage === 4 && (
+            <div className="animate-in fade-in duration-500">
+              <div className="flex justify-center mb-8">
+                <RitualLogo className="h-10 w-auto" />
+              </div>
+              <h1 className="text-4xl font-medium text-gray-900 dark:text-white mb-4">
+                You're all set!
+              </h1>
+              <p className="text-lg text-gray-600 dark:text-gray-400 max-w-md mx-auto">
+                Let's start building your first ritual.
+              </p>
+            </div>
+          )}
+
+          {/* Navigation Buttons - Only show for pages 1 and 4 */}
+          {(currentPage === 1 || currentPage === 4) && (
+            <div className="mt-7 flex items-center justify-center gap-4">
+              <button
+                onClick={handleNext}
+                className="px-5 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-none hover:bg-[#22211B] dark:hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
+              >
+                {currentPage === 1 && 'Get Started'}
+                {currentPage === TOTAL_PAGES && 'Go to Dashboard'}
+              </button>
+            </div>
+          )}
+
+          {/* Page Dots - Only show on page 4 */}
+          {currentPage === 4 && (
+            <div className="mt-4 flex items-center justify-center gap-2.5">
+              {Array.from({ length: TOTAL_PAGES }).map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleDotClick(index + 1)}
+                  className={`w-2 h-2 rounded-full transition-all ${currentPage === index + 1
+                      ? 'bg-gray-900 dark:bg-white'
+                      : 'bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500'
+                    }`}
+                  aria-label={`Go to page ${index + 1}`}
+                />
+              ))}
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* Terms of Service - Very subtle on page 1, hidden on others */}
+      {currentPage === 1 && (
+        <div className="absolute bottom-8 left-0 right-0 text-center">
+          <p className="text-xs text-gray-400 dark:text-gray-500 opacity-50">
+            By signing in you agree to our{' '}
+            <a href="/terms" className="underline hover:text-gray-600 dark:hover:text-gray-400">
+              Terms of service
+            </a>
+            {' '}&{' '}
+            <a href="/privacy" className="underline hover:text-gray-600 dark:hover:text-gray-400">
+              Privacy policy
+            </a>
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+

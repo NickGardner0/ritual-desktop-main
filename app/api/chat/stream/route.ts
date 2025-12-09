@@ -141,8 +141,8 @@ async function executeGetDailyBreakdown(token: string, params: {
   startDate?: string;
   endDate?: string;
   daysBack?: number;
-}) {
-  console.log('📊 getDailyBreakdown called:', params);
+}, timezone?: string) {
+  console.log('📊 getDailyBreakdown called:', params, 'timezone:', timezone);
   
   try {
     const result = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
@@ -150,6 +150,7 @@ async function executeGetDailyBreakdown(token: string, params: {
       start_date: params.startDate || '',
       end_date: params.endDate || '',
       days_back: params.daysBack || 30,
+      timezone: timezone || '',
     });
     
     if (!result.success) {
@@ -259,11 +260,18 @@ CRITICAL - ALWAYS call BOTH tools for habit questions:
 The user's side panel shows a daily breakdown table that REQUIRES getDailyBreakdown data.
 Even for simple questions like "What was my sleep in October?", call BOTH tools with the SAME date range.
 
+TIME DATA: The getDailyBreakdown response includes an "entries" array for each day with individual log times.
+- Each entry has a "time" field (HH:MM format) showing when the habit was logged
+- For habits like caffeine, this shows what time each coffee was consumed
+- When relevant (e.g., asking about patterns), mention the times in your response
+- Example: "You had 200mg at 8:30 and another 100mg at 14:00"
+
 RESPONSE FORMAT - Keep it concise:
 1. Brief intro (1-2 sentences)
 2. Key findings with **bold** numbers
-3. For correlations: state the coefficient and what it means
-4. End with 1-2 actionable insights
+3. If time patterns are relevant, mention notable times
+4. For correlations: state the coefficient and what it means
+5. End with 1-2 actionable insights
 
 DATE RANGE INTERPRETATION - Use the current year (${currentYear}) unless explicitly specified:
 - "this month" → startDate = first of current month, endDate = today
@@ -272,6 +280,10 @@ DATE RANGE INTERPRETATION - Use the current year (${currentYear}) unless explici
 - "November" → startDate = ${currentYear}-11-01, endDate = ${currentYear}-11-30
 - When a month is mentioned without a year, ALWAYS use ${currentYear}
 - Only use a past year if the user explicitly says "October 2024" or similar
+
+MULTI-MONTH QUERIES: When the user asks about multiple months (e.g., "October and November"), use a SINGLE combined date range:
+- "October and November" → startDate = ${currentYear}-10-01, endDate = ${currentYear}-11-30
+- Do NOT make separate tool calls for each month - use one call with the full range
 
 NEVER list every single day's data in your response - the user sees that in a side panel.
 Be encouraging and supportive!`;
@@ -297,7 +309,18 @@ Be encouraging and supportive!`;
     let assistantMessage = response.choices[0].message;
 
     // Collect tool results for frontend canvas
-    const toolResults: { stats?: any; dailyBreakdown?: any; correlation?: any } = {};
+    // Note: For multi-habit/multi-period queries, we accumulate results
+    const toolResults: { 
+      stats?: any[]; 
+      dailyBreakdown?: any; 
+      dailyBreakdownHabit?: any; 
+      correlation?: any;
+      allStats?: any[];  // Accumulate all stats calls
+      allBreakdowns?: { habit: any; data: any[] }[];  // Accumulate all breakdown calls
+    } = {
+      allStats: [],
+      allBreakdowns: []
+    };
 
     // Handle tool calls (loop up to 5 times for complex queries)
     let iterations = 0;
@@ -315,25 +338,39 @@ Be encouraging and supportive!`;
           switch (toolCall.function.name) {
             case 'getHabitStats':
               result = await executeGetHabitStats(token, args);
-              // Store stats for canvas
+              // Store stats for canvas - accumulate all calls
               try {
                 const parsed = JSON.parse(result);
-                if (parsed.success && parsed.data) {
-                  toolResults.stats = parsed.data;
+                if (parsed.success && parsed.habits) {
+                  // Accumulate all stats calls for multi-habit queries
+                  toolResults.allStats = toolResults.allStats || [];
+                  toolResults.allStats.push(...parsed.habits);
+                  // Also keep the most recent for backwards compatibility
+                  toolResults.stats = parsed.habits;
                 }
               } catch {}
               break;
             case 'getDailyBreakdown':
-              result = await executeGetDailyBreakdown(token, args);
-              // Store daily breakdown for canvas
+              result = await executeGetDailyBreakdown(token, args, timezone);
+              // Store daily breakdown for canvas - accumulate all calls
               try {
                 const parsed = JSON.parse(result);
                 if (parsed.success) {
-                  // Extract the 'data' array which contains daily entries
-                  toolResults.dailyBreakdown = parsed.data || [];
-                  // Also store the habit info
-                  if (parsed.habit) {
-                    toolResults.dailyBreakdownHabit = parsed.habit;
+                  // Accumulate all breakdown calls for multi-period queries
+                  toolResults.allBreakdowns = toolResults.allBreakdowns || [];
+                  if (parsed.habit && parsed.data) {
+                    toolResults.allBreakdowns.push({
+                      habit: parsed.habit,
+                      data: parsed.data
+                    });
+                  }
+                  // Keep the most recent/primary for backwards compatibility
+                  // Use the FIRST breakdown (usually the main habit being asked about)
+                  if (!toolResults.dailyBreakdown || toolResults.dailyBreakdown.length === 0) {
+                    toolResults.dailyBreakdown = parsed.data || [];
+                    if (parsed.habit) {
+                      toolResults.dailyBreakdownHabit = parsed.habit;
+                    }
                   }
                 }
               } catch {}
@@ -381,18 +418,55 @@ Be encouraging and supportive!`;
 
     const finalText = assistantMessage.content || 'I was unable to process your request.';
     
+    // Merge breakdown data if multiple calls were made for the same habit
+    if (toolResults.allBreakdowns && toolResults.allBreakdowns.length > 1) {
+      // Check if all breakdowns are for the same habit
+      const habitIds = toolResults.allBreakdowns.map(b => b.habit?.id).filter(Boolean);
+      const uniqueHabitIds = [...new Set(habitIds)];
+      
+      if (uniqueHabitIds.length === 1) {
+        // Same habit, different periods - merge the data
+        const mergedData: any[] = [];
+        const seenDates = new Set<string>();
+        
+        for (const breakdown of toolResults.allBreakdowns) {
+          for (const entry of (breakdown.data || [])) {
+            if (!seenDates.has(entry.date)) {
+              seenDates.add(entry.date);
+              mergedData.push(entry);
+            }
+          }
+        }
+        
+        // Sort by date
+        mergedData.sort((a, b) => a.date.localeCompare(b.date));
+        
+        // Update the primary breakdown with merged data
+        toolResults.dailyBreakdown = mergedData;
+        toolResults.dailyBreakdownHabit = toolResults.allBreakdowns[0].habit;
+        
+        console.log('📦 Merged breakdown data from', toolResults.allBreakdowns.length, 'calls:', mergedData.length, 'entries');
+      }
+    }
+    
     // Log tool results being sent
     console.log('📦 Tool results for canvas:', Object.keys(toolResults));
 
-    // Stream response word by word, then send tool data
+    // Stream response in chunks for faster perceived performance
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        // Stream in larger chunks (sentences or phrases) for faster delivery
+        // while still providing a streaming feel
         const words = finalText.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          const chunk = (i === 0 ? '' : ' ') + words[i];
+        const chunkSize = 5; // Send 5 words at a time for balance
+        
+        for (let i = 0; i < words.length; i += chunkSize) {
+          const chunkWords = words.slice(i, i + chunkSize);
+          const chunk = (i === 0 ? '' : ' ') + chunkWords.join(' ');
           controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
-          await new Promise(resolve => setTimeout(resolve, 15));
+          // Minimal delay just to give streaming feel without slowing down
+          await new Promise(resolve => setTimeout(resolve, 5));
         }
         
         // Send tool results as metadata for canvas

@@ -7,6 +7,7 @@ import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
+import { useAnalytics } from '@/lib/analytics';
 
 type InputMode = 'log' | 'chat';
 
@@ -34,6 +35,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const { user } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
+  const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
 
   // Smart habit parsing that uses your actual habits
   const parseHabitInput = (text: string) => {
@@ -55,6 +57,13 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       { regex: /(\d+(?:\.\d+)?)\s*(liters?|litres?|l)\b/i, unit: 'Liters', isDuration: false },
       { regex: /(\d+)\s*(cups?|cup)/i, unit: 'Cups', isDuration: false },
       { regex: /(\d+)\s*(glasses?|glass)/i, unit: 'Glasses', isDuration: false },
+      // Count-based exercises (reps)
+      { regex: /(\d+)\s*(pull-?ups?|pullups?)/i, unit: 'Count', isDuration: false },
+      { regex: /(\d+)\s*(push-?ups?|pushups?)/i, unit: 'Count', isDuration: false },
+      { regex: /(\d+)\s*(sit-?ups?|situps?)/i, unit: 'Count', isDuration: false },
+      { regex: /(\d+)\s*(squats?)/i, unit: 'Count', isDuration: false },
+      { regex: /(\d+)\s*(reps?|repetitions?)/i, unit: 'Count', isDuration: false },
+      { regex: /(\d+)\s*(sets?)/i, unit: 'Sets', isDuration: false },
     ];
 
     // Find the best matching habit from your actual habits
@@ -78,6 +87,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           { terms: ['water', 'hydrat', 'drank'], habitWord: 'water' },
           { terms: ['sleep', 'slept'], habitWord: 'sleep' },
           { terms: ['code', 'coding', 'programm'], habitWord: 'cod' },
+          { terms: ['pull-up', 'pullup', 'pull up'], habitWord: 'pull' },
+          { terms: ['push-up', 'pushup', 'push up'], habitWord: 'push' },
+          { terms: ['squat'], habitWord: 'squat' },
+          { terms: ['run', 'running', 'ran'], habitWord: 'run' },
         ];
 
         for (const match of matches) {
@@ -136,6 +149,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     if (mode === 'chat') {
       const encodedQuery = encodeURIComponent(inputText);
       setInput('');
+      // Track AI chat message
+      trackAIChatMessageSent({ messageLength: inputText.length });
       router.push(`/chat?q=${encodedQuery}`);
       return;
     }
@@ -152,7 +167,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         h.name.toLowerCase() === parsedHabit.habitName.toLowerCase()
       );
 
-      if (matchingHabit) {
+      if (matchingHabit && matchingHabit.id) {
         onHabitUpdate({
           success: true,
           refreshNeeded: false,
@@ -164,8 +179,20 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           unit: parsedHabit.unit,
           notes: `Logged via AI: ${parsedHabit.activity}`
         });
+        
+        // Track habit logged via AI
+        trackHabitLogged({
+          habitId: matchingHabit.id,
+          habitName: matchingHabit.name,
+          value: parsedHabit.amount ?? parsedHabit.duration ?? undefined,
+          unit: parsedHabit.unit || undefined,
+          source: 'ai_chat',
+        });
       }
     }
+    
+    // Track AI chat message for logging mode
+    trackAIChatMessageSent({ messageLength: inputText.length });
 
     setInput('');
     setTimeout(() => setIsLoading(false), 500);
@@ -193,6 +220,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           onHabitUpdate({
             success: true,
             refreshNeeded: true,
+            // Play sound on backend success if local parsing didn't already play it
+            playSound: !parsedHabit,
             message: result.message || 'Habit logged successfully!'
           });
         }

@@ -7,14 +7,14 @@ import { useEffect, useState, lazy, Suspense } from "react";
 import {
   LineChart,
   Timer,
-  Calendar,
   Settings,
   Download,
   Plug2,
   ChevronDown,
   TableProperties,
 } from "lucide-react";
-import { usePrefetchDashboard, usePrefetchAnalytics, usePrefetchCalendar, usePrefetchTimer } from "@/hooks/use-prefetch";
+import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
+import { useAuth } from "@clerk/nextjs";
 
 // Lazy load SettingsModal since it's only shown when clicked
 const SettingsModal = lazy(() => import("./settings-modal").then(m => ({ default: m.SettingsModal })));
@@ -46,7 +46,6 @@ const icons = {
   "/analytics": () => <LineChart className="w-5 h-5" strokeWidth={2.1} />,
   "/activity": () => <TableProperties className="w-5 h-5" strokeWidth={2.1} />,
   "/timer": () => <Timer className="w-5 h-5" strokeWidth={2.1} />,
-  "/calendar": () => <Calendar className="w-5 h-5" strokeWidth={2.1} />,
   "/integrations": () => <Plug2 className="w-5 h-5" strokeWidth={2.1} />,
   "/data-export": () => <Download className="w-5 h-5" strokeWidth={2.1} />,
   "/settings": () => <Settings className="w-5 h-5" strokeWidth={2.1} />,
@@ -63,18 +62,11 @@ const items = [
   },
   {
     path: "/activity",
-    name: "Activity",
+    name: "Logs",
   },
   {
     path: "/timer",
     name: "Timer",
-    children: [
-      { path: "/timer?create=true", name: "Create new session" },
-    ],
-  },
-  {
-    path: "/calendar",
-    name: "Calendar",
   },
   {
     path: "/integrations",
@@ -177,7 +169,8 @@ const Item = ({
   onToggle,
   onSelect,
   onSettingsClick,
-}: ItemProps & { onSettingsClick?: () => void }) => {
+  onTimerClick,
+}: ItemProps & { onSettingsClick?: () => void; onTimerClick?: () => void }) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
@@ -185,16 +178,12 @@ const Item = ({
   // Prefetch data on hover (Midday-style optimization)
   const prefetchDashboard = usePrefetchDashboard();
   const prefetchAnalytics = usePrefetchAnalytics();
-  const prefetchCalendar = usePrefetchCalendar();
-  const prefetchTimer = usePrefetchTimer();
   
   // Get the right prefetch function for this item
   const getPrefetchProps = () => {
     switch (item.path) {
       case '/dashboard': return prefetchDashboard;
       case '/analytics': return prefetchAnalytics;
-      case '/calendar': return prefetchCalendar;
-      case '/timer': return prefetchTimer;
       default: return {};
     }
   };
@@ -212,6 +201,9 @@ const Item = ({
     if (item.path === "/settings") {
       e.preventDefault();
       onSettingsClick?.();
+    } else if (item.path === "/timer") {
+      e.preventDefault();
+      onTimerClick?.();
     } else {
       onSelect?.();
     }
@@ -220,7 +212,7 @@ const Item = ({
   return (
     <div className="group">
       <Link
-        href={item.path === "/settings" ? "#" : item.path}
+        href={item.path === "/settings" || item.path === "/timer" ? "#" : item.path}
         onClick={handleItemClick}
         className="group"
         prefetch={true}
@@ -320,11 +312,61 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   const pathname = usePathname();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const { getToken } = useAuth();
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
     setExpandedItem(null);
   }, [isExpanded]);
+
+  // Open native Swift timer widget
+  const openNativeTimer = async () => {
+    console.log('🖱️ Timer menu clicked - creating native Swift timer widget');
+    
+    if (typeof window !== 'undefined') {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        
+        // Get Clerk JWT token for authentication
+        const token = await getToken();
+        
+        if (token) {
+          console.log('🔐 Writing auth token for Swift widget...');
+          await invoke('write_auth_token_to_file', { token });
+        }
+        
+        await invoke('create_native_timer_widget');
+        console.log('✅ Native Swift timer widget created successfully!');
+        
+      } catch (error) {
+        console.error('❌ Failed to create native Swift timer widget:', error);
+        // Fallback to Tauri widget
+        try {
+          const { WebviewWindow } = await import('@tauri-apps/api/window');
+          
+          const windowLabel = `timer-widget-${Date.now()}`;
+          const trackerWindow = new WebviewWindow(windowLabel, {
+            url: '/widget',
+            width: 320,
+            height: 50,
+            alwaysOnTop: true,
+            decorations: false,
+            resizable: false,
+            skipTaskbar: true,
+            center: true,
+            title: 'Focus Timer',
+            transparent: true,
+          });
+          
+          trackerWindow.once('tauri://created', function () {
+            console.log('✅ Fallback Tauri timer widget created successfully!');
+          });
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError);
+        }
+      }
+    }
+  };
 
   return (
     <div className="mt-6 w-full">
@@ -350,6 +392,7 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
                 }}
                 onSelect={onSelect}
                 onSettingsClick={() => setShowSettingsModal(true)}
+                onTimerClick={openNativeTimer}
               />
             );
           })}

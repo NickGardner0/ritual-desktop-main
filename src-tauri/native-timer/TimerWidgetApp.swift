@@ -744,29 +744,11 @@ class TimerWidget: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     func clearMetricsCache() {
-        // Call the API endpoint to clear metrics cache for immediate dashboard update
-        guard let url = URL(string: "http://localhost:3000/api/clear-metrics-cache") else {
-            print("❌ Invalid URL for clearing metrics cache")
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        
-        let task = URLSession.shared.dataTask(with: request) { _, response, error in
-            if let error = error {
-                print("❌ Error clearing metrics cache: \(error.localizedDescription)")
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                print("✅ Metrics cache cleared successfully")
-            } else {
-                print("⚠️ Unexpected response when clearing metrics cache")
-            }
-        }
-        
-        task.resume()
+        // NOTE: This function is intentionally a no-op.
+        // The dashboard refresh is handled via file-based trigger (notifyDashboardRefresh)
+        // which the Next.js app monitors via Tauri IPC.
+        // If you need real-time cache invalidation, implement /api/clear-metrics-cache endpoint.
+        print("ℹ️ Dashboard refresh triggered via file notification")
     }
     
     @objc func closeWidget() {

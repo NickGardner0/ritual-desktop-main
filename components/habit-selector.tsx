@@ -2,12 +2,12 @@
 
 import * as React from "react";
 import { Command } from "cmdk";
-import { Search, Calendar, List, BarChart3, Wifi, Bot, Timer, Focus, Eye, FileText, TrendingUp, Download } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Search, List, BarChart3, Wifi, Bot, Timer, Focus, Eye, FileText, TrendingUp, Download } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { SearchFooter } from "./search-footer";
+import { useAnalytics } from "@/lib/analytics";
 
 // Define the structure for quick actions menu items
 interface QuickActionItem {
@@ -20,7 +20,6 @@ interface QuickActionItem {
 const quickActionItems: QuickActionItem[] = [
   // Quick Actions section
   { id: 'search-logs', name: 'Search logs', icon: <Search className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
-  { id: 'calendar-view', name: 'Calendar view', icon: <Calendar className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
   { id: 'create-task', name: 'Create task', icon: <List className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
   { id: 'view-analytics', name: 'View analytics', icon: <BarChart3 className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
   { id: 'connect-wearables', name: 'Connect wearables', icon: <Wifi className="h-4 w-4 text-gray-700" />, section: 'quick_actions' },
@@ -45,6 +44,7 @@ interface HabitSelectorProps {
 
 export default function CommandPalette({ className, initialOpen = false, initialCategory = null }: HabitSelectorProps) {
   const [open, setOpen] = React.useState(initialOpen);
+  const { trackQuickActionsOpened, track } = useAnalytics();
 
   // Add key listener for keyboard shortcut
   React.useEffect(() => {
@@ -53,15 +53,19 @@ export default function CommandPalette({ className, initialOpen = false, initial
         if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
           e.preventDefault();
           setOpen(true);
+          // Track quick actions opened
+          trackQuickActionsOpened();
         }
       };
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, []);
+  }, [trackQuickActionsOpened]);
 
   const handleActionSelect = (actionId: string) => {
     console.log("Selected action:", actionId);
+    // Track which action was selected
+    track('quick_action_selected', { actionId });
     // Here you could handle the specific action (navigate, open modal, etc.)
     setOpen(false);
   };
@@ -71,7 +75,10 @@ export default function CommandPalette({ className, initialOpen = false, initial
       variant="outline"
       role="combobox"
       aria-expanded={open}
-      onClick={() => setOpen(true)}
+      onClick={() => {
+        setOpen(true);
+        trackQuickActionsOpened();
+      }}
       className={cn("justify-between border border-gray-200 shadow-sm hover:bg-[#F5F5F5] rounded-none", className)}
     >
       <div className="flex items-center gap-2">
@@ -89,6 +96,7 @@ export default function CommandPalette({ className, initialOpen = false, initial
         className="overflow-hidden p-0 max-w-full w-full md:max-w-[740px] h-[475px] m-0 select-text bg-transparent border-none"
         style={{ borderRadius: '0px' }}
       >
+        <DialogTitle className="sr-only">Quick Actions</DialogTitle>
         <div 
           className="bg-white shadow-lg border border-gray-300 overflow-hidden h-full flex flex-col" 
           style={{ 
@@ -125,7 +133,7 @@ export default function CommandPalette({ className, initialOpen = false, initial
                   <Command.Item 
                     key={action.id}
                     onSelect={() => handleActionSelect(action.id)}
-                    className="flex items-center px-3 py-1.5 mx-2 mb-1 cursor-pointer rounded-none transition-colors hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                    className="flex items-center px-3 py-1.5 mx-2 mb-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                   >
                     <div className="flex items-center gap-3">
                       {action.icon}
@@ -142,7 +150,7 @@ export default function CommandPalette({ className, initialOpen = false, initial
                   <Command.Item 
                     key={action.id}
                     onSelect={() => handleActionSelect(action.id)}
-                    className="flex items-center px-3 py-1.5 mx-2 mb-1 cursor-pointer rounded-none transition-colors hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                    className="flex items-center px-3 py-1.5 mx-2 mb-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                   >
                     <div className="flex items-center gap-3">
                       {action.icon}
@@ -159,7 +167,7 @@ export default function CommandPalette({ className, initialOpen = false, initial
                   <Command.Item 
                     key={action.id}
                     onSelect={() => handleActionSelect(action.id)}
-                    className="flex items-center px-3 py-1.5 mx-2 mb-1 cursor-pointer rounded-none transition-colors hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                    className="flex items-center px-3 py-1.5 mx-2 mb-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                   >
                     <div className="flex items-center gap-3">
                       {action.icon}
@@ -171,8 +179,10 @@ export default function CommandPalette({ className, initialOpen = false, initial
             </Command>
           </div>
           
-          {/* Footer */}
-          <SearchFooter />
+          {/* Footer with keyboard hints */}
+          <div className="px-4 py-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+            <span>Press ⌘K to open • ESC to close</span>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

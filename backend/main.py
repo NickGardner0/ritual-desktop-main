@@ -361,6 +361,7 @@ async def get_daily_breakdown(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     days_back: int = 30,
+    timezone: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
     """
@@ -373,6 +374,7 @@ async def get_daily_breakdown(
     - start_date: Start date (YYYY-MM-DD) - overrides days_back
     - end_date: End date (YYYY-MM-DD) - overrides days_back
     - days_back: Days to look back (default 30, ignored if dates provided)
+    - timezone: User's timezone for time display (e.g., 'America/New_York')
     """
     try:
         result = await analytics_service.get_daily_breakdown(
@@ -381,7 +383,8 @@ async def get_daily_breakdown(
             habit_name=habit_name,
             start_date=start_date,
             end_date=end_date,
-            days_back=days_back
+            days_back=days_back,
+            timezone=timezone
         )
         return result
     except Exception as e:

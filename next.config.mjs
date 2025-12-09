@@ -2,10 +2,14 @@ import { withSentryConfig } from '@sentry/nextjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Output as static files for Tauri
-  // NOTE: Static export (output: 'export') is NOT compatible with Server Components
-  // For now, we run as a regular Next.js server even for Tauri
-  // output: process.env.TAURI_BUILD ? 'export' : undefined,
+  // For Tauri desktop builds:
+  // - Development: Uses Next.js dev server (npm run dev + npm run tauri:dev)
+  // - Production: Requires Next.js server running (API routes need server)
+  // 
+  // To enable static export (no server needed), you would need to:
+  // 1. Move /api/chat/stream and /api/whisper to Python backend
+  // 2. Handle Whoop OAuth callback in Python backend
+  // 3. Uncomment: output: 'export',
   
   // Enable strict mode for better development experience and catching potential issues
   reactStrictMode: true,

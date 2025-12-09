@@ -38,7 +38,7 @@ export function ClerkOAuthHandler() {
                      urlString.includes('accounts.dev'); // Clerk's OAuth domain
 
       if (isOAuth) {
-        console.log('🔐 OAuth URL detected, opening in system browser');
+        console.log('🔐 OAuth URL detected in window.open, opening in system browser');
         
         // Use Tauri's shell to open in system browser
         import('@tauri-apps/api/shell').then(({ open }) => {
@@ -54,6 +54,50 @@ export function ClerkOAuthHandler() {
 
       // For non-OAuth URLs, use the original window.open
       return originalWindowOpen.call(window, url, target, features);
+    };
+    
+    // Intercept history.pushState and replaceState to catch OAuth redirects
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    
+    window.history.pushState = function(...args) {
+      const url = args[2];
+      if (url) {
+        const urlString = url.toString();
+        const isOAuth = urlString.includes('accounts.google.com') ||
+                       urlString.includes('appleid.apple.com') ||
+                       urlString.includes('oauth.clerk.com') ||
+                       urlString.includes('accounts.dev');
+        
+        if (isOAuth) {
+          console.log('🔐 OAuth URL detected in pushState, opening in system browser:', urlString);
+          import('@tauri-apps/api/shell').then(({ open }) => {
+            open(urlString);
+          });
+          return; // Don't actually push state
+        }
+      }
+      return originalPushState.apply(window.history, args);
+    };
+    
+    window.history.replaceState = function(...args) {
+      const url = args[2];
+      if (url) {
+        const urlString = url.toString();
+        const isOAuth = urlString.includes('accounts.google.com') ||
+                       urlString.includes('appleid.apple.com') ||
+                       urlString.includes('oauth.clerk.com') ||
+                       urlString.includes('accounts.dev');
+        
+        if (isOAuth) {
+          console.log('🔐 OAuth URL detected in replaceState, opening in system browser:', urlString);
+          import('@tauri-apps/api/shell').then(({ open }) => {
+            open(urlString);
+          });
+          return; // Don't actually replace state
+        }
+      }
+      return originalReplaceState.apply(window.history, args);
     };
 
     // Also intercept navigation attempts (in case Clerk redirects instead of using window.open)
@@ -78,36 +122,51 @@ export function ClerkOAuthHandler() {
       }
     };
 
+    // Function to attach OAuth interceptors to buttons
+    const attachOAuthInterceptors = () => {
+      // Find all potential OAuth buttons
+      const buttons = document.querySelectorAll('button');
+      buttons.forEach((button) => {
+        const buttonText = button.textContent?.toLowerCase() || '';
+        const buttonHTML = button.outerHTML?.toLowerCase() || '';
+        const isGoogleButton = buttonText.includes('google') || buttonHTML.includes('google');
+        const isAppleButton = buttonText.includes('apple') || buttonHTML.includes('apple');
+        
+        if ((isGoogleButton || isAppleButton) && !button.hasAttribute('data-oauth-intercepted')) {
+          button.setAttribute('data-oauth-intercepted', 'true');
+          const provider = isGoogleButton ? 'Google' : 'Apple';
+          console.log(`🔐 Attaching interceptor to ${provider} button`);
+          
+          // Don't prevent the click - let Clerk start the OAuth flow
+          // Our overrides of location.assign/replace will catch the redirect
+          console.log(`🔐 ${provider} button ready - navigation interceptors are active`);
+        }
+      });
+    };
+    
+    // Initial attachment
+    attachOAuthInterceptors();
+    
+    // Watch for new OAuth buttons being added (Clerk renders them dynamically)
+    const observer = new MutationObserver(() => {
+      attachOAuthInterceptors();
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
     // Intercept clicks on OAuth buttons
     const handleClick = async (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const button = target.closest('button');
       const link = target.closest('a');
       
-      console.log('🖱️ Click detected:', { 
-        button: button?.textContent?.trim(), 
-        buttonHTML: button?.outerHTML?.substring(0, 200),
-        link: link?.href,
-        target: target.tagName,
-        targetText: target.textContent?.trim()
-      });
-      
       // Check if this is a Clerk OAuth button (Google or Apple)
-      if (button) {
-        const buttonText = button.textContent?.toLowerCase() || '';
-        const buttonHTML = button.outerHTML?.toLowerCase() || '';
-        const isGoogleButton = buttonText.includes('google') || buttonHTML.includes('google');
-        const isAppleButton = buttonText.includes('apple') || buttonHTML.includes('apple');
-        
-        if (isGoogleButton || isAppleButton) {
-          const provider = isGoogleButton ? 'Google' : 'Apple';
-          console.log(`🔐 ${provider} OAuth button clicked!`);
-          console.log(`🌐 Letting Clerk start ${provider} OAuth flow (window.open will intercept)...`);
-          
-          // Don't prevent default - let Clerk's OAuth flow start
-          // Our window.open override will catch the popup
-          return;
-        }
+      if (button && button.hasAttribute('data-oauth-intercepted')) {
+        // Already handled by our interceptor
+        return;
       }
       
       // Also check for direct OAuth links
@@ -125,18 +184,64 @@ export function ClerkOAuthHandler() {
           import('@tauri-apps/api/shell').then(({ open }) => {
             open(link.href);
           });
+          return false;
         }
       }
     };
+    
+    let currentHref = window.location.href;
+    let redirectIntercepted = false;
+    
+    // Monitor for location changes (Clerk uses window.location.href = ...)
+    const checkLocation = () => {
+      if (window.location.href !== currentHref && !redirectIntercepted) {
+        const newUrl = window.location.href;
+        
+        const isOAuth = newUrl.includes('accounts.google.com') ||
+                       newUrl.includes('appleid.apple.com') ||
+                       newUrl.includes('oauth.clerk.com') ||
+                       newUrl.includes('accounts.dev');
+        
+        if (isOAuth) {
+          redirectIntercepted = true;
+          console.log('🔐 OAuth redirect detected, opening in system browser:', newUrl);
+          
+          // Restore the original href immediately
+          window.history.replaceState(null, '', currentHref);
+          
+          // Open in system browser
+          import('@tauri-apps/api/shell').then(({ open }) => {
+            open(newUrl);
+          });
+          
+          // Reset flag after a delay
+          setTimeout(() => {
+            redirectIntercepted = false;
+            currentHref = window.location.href;
+          }, 1000);
+          
+          return;
+        }
+        
+        currentHref = newUrl;
+      }
+    };
+    
+    // Poll for location changes frequently to catch redirects
+    const locationCheckInterval = setInterval(checkLocation, 10);
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     document.addEventListener('click', handleClick, true);
 
-    // Cleanup: restore original window.open and remove event listeners
+    // Cleanup: restore original methods and remove event listeners
     return () => {
       window.open = originalWindowOpen;
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('click', handleClick, true);
+      observer.disconnect();
+      clearInterval(locationCheckInterval);
     };
   }, []);
 

@@ -6,6 +6,7 @@
  * - Optimistic updates
  * - Background refetching
  * - Deduplication of requests
+ * - Analytics tracking via OpenPanel
  * 
  * Inspired by Midday's approach
  */
@@ -15,6 +16,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import type { Habit, HabitLog } from '@/contexts/HabitsContext';
+import { useAnalytics } from '@/lib/analytics';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL;
 if (!PYTHON_API_BASE) {
@@ -125,9 +127,10 @@ export function useLogHabitMutation() {
   const queryClient = useQueryClient();
   const { user } = useUser();
   const { getToken } = useAuth();
+  const { trackHabitLogged } = useAnalytics();
 
   return useMutation({
-    mutationFn: async (habitLog: Omit<HabitLog, 'id'>) => {
+    mutationFn: async (habitLog: Omit<HabitLog, 'id'> & { habit_name?: string }) => {
       const token = await getToken();
       console.log('📝 [React Query] Logging habit:', habitLog);
 
@@ -157,6 +160,15 @@ export function useLogHabitMutation() {
 
       const result = await response.json();
       console.log('✅ Habit logged and synced to Tinybird!');
+      
+      // Track analytics event
+      trackHabitLogged({
+        habitId: habitLog.habit_id,
+        habitName: habitLog.habit_name || result.habit_name || 'Unknown',
+        value: habitLog.amount ?? habitLog.duration ?? undefined,
+        unit: habitLog.unit,
+      });
+      
       return result;
     },
 
@@ -217,6 +229,7 @@ export function useCreateHabitMutation() {
   const queryClient = useQueryClient();
   const { user } = useUser();
   const { getToken } = useAuth();
+  const { trackHabitCreated } = useAnalytics();
 
   return useMutation({
     mutationFn: async (habitData: any) => {
@@ -239,10 +252,18 @@ export function useCreateHabitMutation() {
       return response.json();
     },
 
-    onSuccess: () => {
+    onSuccess: (data) => {
       console.log('✅ [React Query] Habit created, refetching...');
       queryClient.invalidateQueries({ 
         queryKey: habitKeys.list(user?.id || 'anonymous') 
+      });
+      
+      // Track analytics event
+      trackHabitCreated({
+        habitId: data.id,
+        habitName: data.name,
+        category: data.category,
+        source: data.integration_source || 'manual',
       });
     },
   });
@@ -255,9 +276,10 @@ export function useDeleteHabitMutation() {
   const queryClient = useQueryClient();
   const { user } = useUser();
   const { getToken } = useAuth();
+  const { trackHabitDeleted } = useAnalytics();
 
   return useMutation({
-    mutationFn: async (habitId: string) => {
+    mutationFn: async ({ habitId, habitName, category }: { habitId: string; habitName?: string; category?: string }) => {
       const token = await getToken();
       console.log('🗑️ [React Query] Deleting habit:', habitId);
 
@@ -272,11 +294,11 @@ export function useDeleteHabitMutation() {
         throw new Error(`Failed to delete habit: ${response.status}`);
       }
 
-      return habitId;
+      return { habitId, habitName, category };
     },
 
     // Optimistic update
-    onMutate: async (habitId) => {
+    onMutate: async ({ habitId }) => {
       const queryKey = habitKeys.list(user?.id || 'anonymous');
 
       await queryClient.cancelQueries({ queryKey });
@@ -295,7 +317,7 @@ export function useDeleteHabitMutation() {
       return { previousHabits };
     },
 
-    onError: (err, habitId, context) => {
+    onError: (err, { habitId }, context) => {
       console.error('❌ [React Query] Delete failed, rolling back:', err);
       if (context?.previousHabits) {
         queryClient.setQueryData(
@@ -303,6 +325,15 @@ export function useDeleteHabitMutation() {
           context.previousHabits
         );
       }
+    },
+
+    onSuccess: (data) => {
+      // Track analytics event
+      trackHabitDeleted({
+        habitId: data.habitId,
+        habitName: data.habitName || 'Unknown',
+        category: data.category,
+      });
     },
 
     onSettled: () => {

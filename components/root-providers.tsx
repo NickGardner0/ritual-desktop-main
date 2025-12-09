@@ -5,6 +5,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { ClerkProvider } from '@clerk/nextjs';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
+import { OpenPanelProvider } from '@/components/openpanel-provider';
 
 /**
  * Root Providers Wrapper
@@ -24,11 +25,13 @@ export function RootProviders({ children }: { children: ReactNode }) {
         signUpUrl="/auth"
         afterSignOutUrl="/welcome"
       >
+        <OpenPanelProvider>
         <QueryProvider>
           <HabitsProvider>
             {children}
           </HabitsProvider>
         </QueryProvider>
+        </OpenPanelProvider>
       </ClerkProvider>
     </ThemeProvider>
   );

@@ -119,11 +119,15 @@ class AnalyticsService:
         habit_name: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        days_back: int = 30
+        days_back: int = 30,
+        timezone: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get day-by-day breakdown for a habit.
         Returns list of {date, value, unit} sorted chronologically.
+        
+        Args:
+            timezone: User's timezone (e.g., 'America/New_York') for time conversion
         """
         async with get_db_session() as session:
             # Use explicit dates if provided, otherwise fall back to days_back
@@ -157,16 +161,183 @@ class AnalyticsService:
             # Aggregate by date
             daily_data = self._aggregate_by_date(habit, logs)
             
-            # Sort chronologically
-            sorted_days = sorted(daily_data.items(), key=lambda x: x[0])
+            # Set up timezone conversion if provided
+            user_tz = None
+            if timezone:
+                try:
+                    from zoneinfo import ZoneInfo
+                    user_tz = ZoneInfo(timezone)
+                except:
+                    try:
+                        import pytz
+                        user_tz = pytz.timezone(timezone)
+                    except:
+                        pass
+            
+            # Group individual log entries by LOCAL date (after timezone conversion)
+            # This is critical - we must use the local date, not the UTC date
+            logs_by_local_date: Dict[str, List[Dict[str, Any]]] = {}
+            local_date_mapping: Dict[str, str] = {}  # Maps UTC date to local date
+            
+            for log in logs:
+                log_time = None
+                local_date = log.date  # Default to stored date
+                
+                if log.completed_at:
+                    try:
+                        from datetime import datetime as dt
+                        # Parse the ISO datetime
+                        completed_dt = dt.fromisoformat(log.completed_at.replace('Z', '+00:00'))
+                        
+                        # Convert to user's timezone if available
+                        if user_tz:
+                            try:
+                                from zoneinfo import ZoneInfo
+                                utc = ZoneInfo('UTC')
+                                if completed_dt.tzinfo is None:
+                                    completed_dt = completed_dt.replace(tzinfo=utc)
+                                completed_dt = completed_dt.astimezone(user_tz)
+                            except:
+                                try:
+                                    import pytz
+                                    utc = pytz.UTC
+                                    if completed_dt.tzinfo is None:
+                                        completed_dt = utc.localize(completed_dt)
+                                    completed_dt = completed_dt.astimezone(user_tz)
+                                except:
+                                    pass
+                        
+                        # Extract the LOCAL date after timezone conversion
+                        local_date = completed_dt.strftime('%Y-%m-%d')
+                        
+                        # Format as 12-hour time with AM/PM (e.g., "5:32pm")
+                        hour = completed_dt.hour
+                        minute = completed_dt.minute
+                        period = "am" if hour < 12 else "pm"
+                        display_hour = hour % 12
+                        if display_hour == 0:
+                            display_hour = 12
+                        log_time = f"{display_hour}:{minute:02d}{period}"
+                    except Exception as e:
+                        print(f"Time parsing error: {e}")
+                        pass
+                
+                # Group by LOCAL date
+                if local_date not in logs_by_local_date:
+                    logs_by_local_date[local_date] = []
+                
+                # Parse metadata for sleep start/end times
+                sleep_start = None
+                sleep_end = None
+                if log.log_metadata:
+                    try:
+                        import json
+                        metadata = json.loads(log.log_metadata) if isinstance(log.log_metadata, str) else log.log_metadata
+                        sleep_start_raw = metadata.get('sleep_onset')
+                        sleep_end_raw = metadata.get('sleep_end')
+                        
+                        # Convert sleep times to user's timezone if available
+                        if sleep_start_raw and user_tz:
+                            try:
+                                from datetime import datetime as dt
+                                sleep_start_dt = dt.fromisoformat(sleep_start_raw.replace('Z', '+00:00'))
+                                if sleep_start_dt.tzinfo is None:
+                                    from zoneinfo import ZoneInfo
+                                    sleep_start_dt = sleep_start_dt.replace(tzinfo=ZoneInfo('UTC'))
+                                sleep_start_dt = sleep_start_dt.astimezone(user_tz)
+                                hour = sleep_start_dt.hour
+                                minute = sleep_start_dt.minute
+                                period = "am" if hour < 12 else "pm"
+                                display_hour = hour % 12 or 12
+                                sleep_start = f"{display_hour}:{minute:02d}{period}"
+                            except:
+                                sleep_start = sleep_start_raw
+                        elif sleep_start_raw:
+                            sleep_start = sleep_start_raw
+                            
+                        if sleep_end_raw and user_tz:
+                            try:
+                                from datetime import datetime as dt
+                                sleep_end_dt = dt.fromisoformat(sleep_end_raw.replace('Z', '+00:00'))
+                                if sleep_end_dt.tzinfo is None:
+                                    from zoneinfo import ZoneInfo
+                                    sleep_end_dt = sleep_end_dt.replace(tzinfo=ZoneInfo('UTC'))
+                                sleep_end_dt = sleep_end_dt.astimezone(user_tz)
+                                hour = sleep_end_dt.hour
+                                minute = sleep_end_dt.minute
+                                period = "am" if hour < 12 else "pm"
+                                display_hour = hour % 12 or 12
+                                sleep_end = f"{display_hour}:{minute:02d}{period}"
+                            except:
+                                sleep_end = sleep_end_raw
+                        elif sleep_end_raw:
+                            sleep_end = sleep_end_raw
+                    except:
+                        pass
+                
+                logs_by_local_date[local_date].append({
+                    "time": log_time,
+                    "amount": log.amount,
+                    "duration_seconds": log.duration,
+                    "notes": log.notes,
+                    "sleep_start": sleep_start,
+                    "sleep_end": sleep_end,
+                })
+                
+                # Track mapping from UTC date to local date
+                local_date_mapping[log.date] = local_date
+            
+            # Sort logs within each day by time
+            for date_key in logs_by_local_date:
+                logs_by_local_date[date_key].sort(key=lambda x: x["time"] or "00:00")
+            
+            # Reaggregate by LOCAL date instead of UTC date
+            # This ensures dates match the timezone-converted times
+            local_daily_data: Dict[str, Dict[str, Any]] = {}
+            for local_date, entries in logs_by_local_date.items():
+                if local_date not in local_daily_data:
+                    local_daily_data[local_date] = {
+                        "duration_seconds": 0,
+                        "amount": 0,
+                        "count": 0,
+                        "value": 0
+                    }
+                
+                for entry in entries:
+                    if entry.get("duration_seconds") and entry["duration_seconds"] > 0:
+                        # For duration: take max
+                        local_daily_data[local_date]["duration_seconds"] = max(
+                            local_daily_data[local_date]["duration_seconds"],
+                            entry["duration_seconds"]
+                        )
+                    if entry.get("amount") is not None:
+                        local_daily_data[local_date]["amount"] += entry["amount"]
+                    local_daily_data[local_date]["count"] += 1
+                
+                # Calculate value based on habit type
+                unit = (habit.unit_type or "").lower()
+                data = local_daily_data[local_date]
+                if "hour" in unit:
+                    data["value"] = data["duration_seconds"] / 3600 if data["duration_seconds"] > 0 else data["amount"]
+                elif "minute" in unit:
+                    data["value"] = data["duration_seconds"] / 60 if data["duration_seconds"] > 0 else data["amount"]
+                elif data["amount"] > 0:
+                    data["value"] = data["amount"]
+                elif data["duration_seconds"] > 0:
+                    data["value"] = data["duration_seconds"] / 3600
+                else:
+                    data["value"] = data["count"]
+            
+            # Sort chronologically by local date
+            sorted_days = sorted(local_daily_data.items(), key=lambda x: x[0])
             
             # Calculate stats
-            values = [v["value"] for v in daily_data.values()]
+            values = [v["value"] for v in local_daily_data.values()]
             total = sum(values) if values else 0
             avg = total / len(values) if values else 0
             
             # Determine if this is a duration-based habit (hours) or amount-based
-            is_duration = any(d.get("duration_seconds", 0) > 0 for d in daily_data.values())
+            is_duration = any(d.get("duration_seconds", 0) > 0 for d in local_daily_data.values())
             
             return {
                 "success": True,
@@ -180,19 +351,20 @@ class AnalyticsService:
                     "start": str(start_dt),
                     "end": str(end_dt),
                 },
-                "days_with_data": len(daily_data),
+                "days_with_data": len(local_daily_data),
                 "total": round(total, 2),
                 "average_per_day": round(avg, 2),
                 "data": [
                     {
-                        "date": date_str,
+                        "date": local_date_str,
                         "total_hours": round(data.get("duration_seconds", 0) / 3600, 2) if is_duration else None,
                         "total_duration_seconds": data.get("duration_seconds", 0) if is_duration else None,
                         "total_amount": data.get("amount", 0) if not is_duration else None,
                         "value": round(data["value"], 2),
-                        "unit": habit.unit_type or "sessions"
+                        "unit": habit.unit_type or "sessions",
+                        "entries": logs_by_local_date.get(local_date_str, [])  # Individual log entries with times
                     }
-                    for date_str, data in sorted_days
+                    for local_date_str, data in sorted_days
                 ]
             }
     

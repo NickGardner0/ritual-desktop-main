@@ -31,18 +31,7 @@
 }
 
 @layer base {
-  /* FK Grotesk Neue is loaded via @font-face declarations below */
-
-  @font-face {
-    font-family: 'Departure Mono';
-    src: url('/fonts/DepartureMono-1.500/DepartureMono-Regular.otf') format('opentype');
-    font-weight: 400;
-    font-style: normal;
-    font-display: block;
-  }
-
-
-
+  /* Geist Mono for code/monospace text */
   @font-face {
     font-family: 'Geist Mono';
     src: url('/fonts/Geist_Mono/static/GeistMono-Medium.ttf') format('truetype');
@@ -108,42 +97,6 @@
     font-display: swap;
   }
 
-  /* Ensure Departure Mono renders with crisp, pixelated edges for Tauri */
-  .departure-mono {
-    font-family: 'Departure Mono', 'Courier New', monospace;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: geometricPrecision;
-  }
-
-  /* Clerk component font overrides - use FK Grotesk Neue */
-  .cl-headerTitle,
-  .cl-headerSubtitle,
-  .cl-rootBox,
-  .cl-card,
-  .cl-socialButtonsBlockButton,
-  .cl-socialButtonsBlockButtonText,
-  .cl-formButtonPrimary,
-  .cl-formFieldLabel,
-  .cl-formFieldInput,
-  .cl-footerActionText,
-  .cl-footerActionLink,
-  .cl-dividerText,
-  .cl-formFieldInputShowPasswordButton,
-  .cl-formFieldAction,
-  .cl-formFieldSuccessText,
-  .cl-formFieldErrorText,
-  .cl-alertText {
-    font-family: inherit !important;
-  }
-
-  /* Clerk card border radius overrides for square corners */
-  .cl-card,
-  .cl-cardBox,
-  .cl-main,
-  .cl-rootBox {
-    border-radius: 0 !important;
-  }
 
 }
 
@@ -420,5 +373,15 @@
   .analytics-checkbox:focus {
     outline: none;
     box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.2);
+  }
+
+  /* Midday-style scrollbar hide utility */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }

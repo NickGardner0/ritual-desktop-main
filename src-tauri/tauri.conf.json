@@ -61,7 +61,7 @@
     },
     "bundle": {
       "active": true,
-      "category": "DeveloperTool",
+      "category": "Productivity",
       "copyright": "",
       "deb": {
         "depends": []
@@ -93,15 +93,13 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src 'self'"
     },
     "updater": {
-      "active": true,
-      "endpoints": [
-        "https://releases.yourdomain.com/{{target}}/{{current_version}}"
-      ],
-      "dialog": true,
-      "pubkey": "YOUR_PUBLIC_KEY_HERE"
+      "active": false,
+      "endpoints": [],
+      "dialog": false,
+      "pubkey": ""
     },
     "systemTray": {
       "iconPath": "icons/icon.png",

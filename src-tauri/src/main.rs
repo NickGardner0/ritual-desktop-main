@@ -70,9 +70,10 @@ fn main() {
             println!("🔗 Deep link received: {}", payload);
             
             // Forward the deep link to the frontend
+            // In production, the app loads from tauri://localhost, so we use relative navigation
             if let Some(window) = handle.get_window("main") {
               let _ = window.eval(&format!(
-                "window.location.href = 'http://localhost:3000/auth/callback?deepLink={}';",
+                "window.location.href = '/auth/callback?deepLink={}';",
                 payload
               ));
             }

@@ -11,10 +11,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/integrations/whoop/callback(.*)', // Public for OAuth callback
   '/api/integrations/whoop/store-code(.*)', // Public for OAuth polling
   '/integrations/success(.*)', // Public for OAuth success page (closes browser)
-  '/sentry-test(.*)', // Public for testing Sentry error tracking
-  '/api/chat/stream(.*)', // Temporarily public for testing - handles auth internally
-  // Removed /api/chat/habits and /api/whisper from public routes
-  // These routes now require authentication
+  // Note: /api/chat/stream handles auth internally via Bearer token
+  // Note: Debug routes (/debug, /api/debug/*) are protected by default
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

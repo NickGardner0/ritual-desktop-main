@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { format, parseISO, subDays } from 'date-fns';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { HabitLogsSearchFilter } from '@/components/habit-logs-search-filter';
@@ -104,7 +104,8 @@ export function ActivityClient() {
   }, [filters, sortColumn, sortDirection]);
 
   // Fetch habit logs with filters
-  const { data: logsData, isLoading, refetch } = useQuery({
+  // Using keepPreviousData to prevent skeleton flash during search/filter changes
+  const { data: logsData, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['habit-logs', user?.id, queryParams],
     queryFn: async () => {
       const res = await fetch(`/api/analytics/habits/logs/all?${queryParams}`);
@@ -113,6 +114,7 @@ export function ActivityClient() {
     },
     enabled: !!user?.id,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   // Delete mutation
@@ -227,7 +229,7 @@ export function ActivityClient() {
   return (
     <div className="flex flex-col h-full">
       {/* Header: Search/Filter + Actions */}
-      <div className="flex justify-between items-center py-6 px-6 border-b border-gray-200">
+      <div className="flex justify-between items-center py-6 px-8">
         <HabitLogsSearchFilter
           filters={filters}
           onFilterChange={handleFilterChange}
@@ -238,15 +240,11 @@ export function ActivityClient() {
         <HabitLogsActions
           columnVisibility={columnVisibility}
           onColumnVisibilityChange={setColumnVisibility}
-          selectedCount={selectedCount}
-          onDelete={() => deleteMutation.mutate(Object.keys(rowSelection))}
-          isDeleting={deleteMutation.isPending}
-          onClearSelection={() => setRowSelection({})}
         />
       </div>
 
       {/* Data Table */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden px-8">
         <HabitLogsDataTable
           logs={logs}
           rowSelection={rowSelection}

@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, User, Palette, Globe, Bell, Shield, Database, HelpCircle, LogOut, Upload, Key, MessageSquare, Link, FileText, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, ExternalLink } from 'lucide-react';
+import { useUser, useClerk } from '@clerk/nextjs';
+import { useRouter } from 'next/navigation';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,10 +12,12 @@ interface SettingsModalProps {
   onOpen?: () => void;
 }
 
-type SettingsSection = 'general' | 'import' | 'system-prompt' | 'api-keys' | 'ambient-chat' | 'connections' | 'tool-permissions' | 'base-url' | 'documentation';
-
 export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general');
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const router = useRouter();
+  const [aiDataRetention, setAiDataRetention] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   // Call onOpen when modal opens to close sidebar
   useEffect(() => {
@@ -24,255 +28,186 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   
   if (!isOpen) return null;
 
-  const navigationItems = [
-    {
-      id: 'general' as SettingsSection,
-      icon: User,
-      title: 'General'
-    },
-    {
-      id: 'import' as SettingsSection,
-      icon: Upload,
-      title: 'Import'
-    },
-    {
-      id: 'system-prompt' as SettingsSection,
-      icon: MessageSquare,
-      title: 'System Prompt'
-    },
-    {
-      id: 'api-keys' as SettingsSection,
-      icon: Key,
-      title: 'API Keys'
-    },
-    {
-      id: 'ambient-chat' as SettingsSection,
-      icon: MessageSquare,
-      title: 'Ambient Chat'
-    },
-    {
-      id: 'connections' as SettingsSection,
-      icon: Link,
-      title: 'Connections'
-    },
-    {
-      id: 'tool-permissions' as SettingsSection,
-      icon: Settings,
-      title: 'Tool Permissions'
-    },
-    {
-      id: 'base-url' as SettingsSection,
-      icon: Globe,
-      title: 'Base URL'
-    },
-    {
-      id: 'documentation' as SettingsSection,
-      icon: FileText,
-      title: 'Documentation'
+  const userEmail = user?.primaryEmailAddress?.emailAddress || '';
+  const userName = user?.username || user?.firstName || userEmail.split('@')[0];
+  const userInitial = userEmail.charAt(0).toUpperCase();
+
+  const handleClearHistory = () => {
+    // TODO: Implement clear history functionality
+    console.log('Clear history clicked');
+  };
+
+  const handleDeleteAccount = () => {
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteAccount = async () => {
+    // TODO: Implement account deletion
+    console.log('Account deletion confirmed');
+    setShowDeleteConfirm(false);
+  };
+
+  const handleManageAccount = () => {
+    // Open Clerk's user profile management
+    if (user) {
+      window.open('https://accounts.clerk.dev/user', '_blank');
     }
-  ];
+  };
 
-  const renderGeneralContent = () => (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">General</h3>
-        <div className="text-sm text-gray-600 mb-6">nickgardner0651@gmail.com</div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="bg-gray-50 p-4 rounded-none border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h4 className="font-medium text-gray-900">Free Plan</h4>
-              <p className="text-sm text-gray-600">10 / 50 free requests</p>
-            </div>
-            <button className="px-4 py-2 bg-black text-white text-sm rounded-none hover:bg-gray-800 transition-colors">
-              Upgrade to Plus
-            </button>
-          </div>
-          <p className="text-sm text-gray-600">
-            Upgrade to Plus for access to more models, or bring your own API keys.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Theme</label>
-            <select className="w-full p-2 border border-gray-300 rounded-none bg-white text-sm focus:outline-none focus:border-gray-400">
-              <option>System</option>
-              <option>Light</option>
-              <option>Dark</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Sans Font</label>
-            <select className="w-full p-2 border border-gray-300 rounded-none bg-white text-sm focus:outline-none focus:border-gray-400">
-              <option>Geist</option>
-              <option>Inter</option>
-              <option>Roboto</option>
-            </select>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-medium text-gray-900">Auto-convert long text</h4>
-                <p className="text-xs text-gray-500">Automatically convert pasted text longer than 5000 characters to a file attachment</p>
-              </div>
-              <button className="relative inline-flex h-5 w-9 items-center rounded-full bg-black transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
-                <span className="inline-block h-3 w-3 transform rounded-full bg-white translate-x-5 transition-transform" />
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-medium text-gray-900">Auto-scrape URLs</h4>
-                <p className="text-xs text-gray-500">Automatically scrape and attach content from URLs in your messages</p>
-              </div>
-              <button className="relative inline-flex h-5 w-9 items-center rounded-full bg-black transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
-                <span className="inline-block h-3 w-3 transform rounded-full bg-white translate-x-5 transition-transform" />
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-medium text-gray-900">Cautious Enter key</h4>
-                <p className="text-xs text-gray-500">Use Cmd+Enter to send messages instead of Enter</p>
-              </div>
-              <button className="relative inline-flex h-5 w-9 items-center rounded-full bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
-                <span className="inline-block h-3 w-3 transform rounded-full bg-white translate-x-1 transition-transform" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSectionContent = () => {
-    switch (activeSection) {
-      case 'general':
-        return renderGeneralContent();
-      case 'import':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Import</h3>
-            <p className="text-gray-600">Import settings and data from other sources.</p>
-          </div>
-        );
-      case 'system-prompt':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">System Prompt</h3>
-            <p className="text-gray-600">Configure system prompts and AI behavior.</p>
-          </div>
-        );
-      case 'api-keys':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">API Keys</h3>
-            <p className="text-gray-600">Manage your API keys and integrations.</p>
-          </div>
-        );
-      case 'ambient-chat':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Ambient Chat</h3>
-            <p className="text-gray-600">Configure ambient chat settings.</p>
-          </div>
-        );
-      case 'connections':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Connections</h3>
-            <p className="text-gray-600">Manage external connections and integrations.</p>
-          </div>
-        );
-      case 'tool-permissions':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Tool Permissions</h3>
-            <p className="text-gray-600">Configure tool access and permissions.</p>
-          </div>
-        );
-      case 'base-url':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Base URL</h3>
-            <p className="text-gray-600">Configure base URL settings.</p>
-          </div>
-        );
-      case 'documentation':
-        return (
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Documentation</h3>
-            <p className="text-gray-600">Access help and documentation resources.</p>
-          </div>
-        );
-      default:
-        return renderGeneralContent();
-    }
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/welcome');
   };
 
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80" 
+        className="absolute inset-0 bg-[#f6f6f3]/60" 
         onClick={onClose}
       />
       
-      {/* Main Modal Container - Extra Tall */}
-      <div className="relative bg-white w-[80vw] max-w-4xl h-[75vh] flex shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-none overflow-hidden">
-        
-        {/* Side Navigation */}
-        <div className="w-48 bg-white border-r border-gray-200 flex-shrink-0">
-          
-          <nav className="p-2">
-            {navigationItems.map((item) => {
-              const IconComponent = item.icon;
-              const isActive = activeSection === item.id;
-              
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveSection(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 text-left rounded-none transition-colors ${
-                    isActive 
-                      ? 'text-gray-900' 
-                      : 'text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-900'
+      {/* Modal */}
+      <div className="relative bg-[#fafaf8] w-full max-w-lg rounded-none shadow-xl border border-gray-200 z-10 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60">
+          <button
+            onClick={onClose}
+            className="p-1 rounded-none transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5 text-gray-700" />
+          </button>
+          <h2 className="text-base font-normal text-gray-900">Account</h2>
+          <div className="w-7" /> {/* Spacer for centering */}
+        </div>
+
+        {/* Content */}
+        <div className="px-6 py-4">
+          {/* Avatar */}
+          <div className="flex justify-center mb-4">
+            <div className="relative">
+              <div className="w-14 h-14 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-lg font-normal">
+                {userInitial}
+              </div>
+              <button 
+                onClick={handleManageAccount}
+                className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-white rounded-full border border-gray-200/80 flex items-center justify-center shadow-sm transition-colors"
+              >
+                <ExternalLink className="w-2.5 h-2.5 text-gray-500" />
+              </button>
+            </div>
+          </div>
+
+          {/* User Info Rows */}
+          <div className="space-y-0 border-t border-gray-200/50">
+            {/* Username */}
+            <button 
+              onClick={handleManageAccount}
+              className="w-full flex items-center justify-between py-3 border-b border-gray-200/50"
+            >
+              <span className="text-sm font-normal text-gray-900">Username</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">{userName}</span>
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </div>
+            </button>
+
+            {/* Email */}
+            <div className="flex items-center justify-between py-3 border-b border-gray-200/50">
+              <span className="text-sm font-normal text-gray-900">Email</span>
+              <span className="text-sm text-gray-500">{userEmail}</span>
+            </div>
+
+            {/* AI Data Retention */}
+            <div className="py-3 border-b border-gray-200/50">
+              <div className="flex items-start justify-between">
+                <div className="flex-1 pr-4">
+                  <h4 className="text-sm font-normal text-gray-900">AI Data Retention</h4>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                    AI Data Retention allows Ritual to use your data to improve AI models. Turn this setting off if you wish to exclude your data from this process.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setAiDataRetention(!aiDataRetention)}
+                  className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+                    aiDataRetention ? 'bg-black' : 'bg-gray-300'
                   }`}
                 >
-                  <IconComponent className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-sm font-medium">{item.title}</span>
+                  <span 
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                      aiDataRetention ? 'translate-x-[18px]' : 'translate-x-1'
+                    }`} 
+                  />
                 </button>
-              );
-            })}
-          </nav>
-        </div>
+              </div>
+            </div>
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col">
-          {/* Header with Close Button */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Settings
-            </h2>
+            {/* Clear History */}
             <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              onClick={handleClearHistory}
+              className="w-full text-left py-3 text-red-500 text-sm font-normal transition-colors"
             >
-              <X className="w-5 h-5" />
+              Clear history
             </button>
           </div>
+        </div>
 
-          {/* Content Area - Scrollable */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {renderSectionContent()}
-          </div>
+        {/* Delete Account Section */}
+        <div className="px-6 py-3 border-t border-gray-200/50 bg-[#f5f5f3]">
+          <button
+            onClick={handleDeleteAccount}
+            className="flex items-center gap-2 text-red-500 transition-colors"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span className="text-sm font-normal">Delete account</span>
+          </button>
+          <p className="text-xs text-gray-500 mt-0.5">
+            For deleting your account permanently
+          </p>
+        </div>
+
+        {/* Sign Out */}
+        <div className="px-6 py-2.5 border-t border-gray-200/50">
+          <button
+            onClick={handleSignOut}
+            className="w-full py-1.5 text-sm font-normal text-gray-700 rounded-none transition-colors"
+          >
+            Sign out
+          </button>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 flex items-center justify-center z-20">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative bg-white rounded-none border border-gray-200 p-6 max-w-sm mx-4 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-none bg-red-100 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-base font-normal text-gray-900">Delete Account?</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-6">
+              This action cannot be undone. All your data, habits, and history will be permanently deleted.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2 text-sm font-normal text-gray-700 bg-gray-100 rounded-none transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteAccount}
+                className="flex-1 py-2 text-sm font-normal text-white bg-red-600 rounded-none transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

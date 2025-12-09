@@ -11,7 +11,6 @@ import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 // Lazy load heavy components that are only used when opened
 const TimeTrackerWidget = lazy(() => import('@/components/timer/TimeTrackerWidget').then(m => ({ default: m.TimeTrackerWidget })));
 const CommandPalette = lazy(() => import('@/components/habit-selector'));
-const FeedbackModal = lazy(() => import('@/components/feedback-modal').then(m => ({ default: m.FeedbackModal })));
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -19,7 +18,6 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
   const { user } = useUser();
   const { getToken } = useAuth();
@@ -162,16 +160,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </Button>
             </div>
 
-            {/* Right side - Feedback button and User dropdown */}
+            {/* Right side - User dropdown */}
             <div className="flex items-center space-x-3">
-              {/* Feedback Button */}
-              <button
-                onClick={() => setShowFeedback(true)}
-                className="px-3.5 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-full hover:bg-[#F5F5F5] transition-colors"
-              >
-                Feedback
-              </button>
-              
               <TeamDropdown isExpanded={true} placement="header" />
             </div>
           </div>
@@ -193,15 +183,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         />
       </Suspense>
 
-      {/* Feedback Modal */}
-      {showFeedback && (
-        <Suspense fallback={null}>
-          <FeedbackModal 
-            isOpen={showFeedback} 
-            onClose={() => setShowFeedback(false)} 
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

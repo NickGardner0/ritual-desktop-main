@@ -564,9 +564,12 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               )}
               <h2 className="text-lg font-medium text-gray-900">
                 {selectedCategory 
-                  ? selectedCategory === 'whoop' ? 'Whoop Habits' 
-                  : selectedCategory === 'fitness' ? 'Fitness & Health Habits'
-                  : `${selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} Habits` 
+                  ? selectedCategory === 'whoop' ? 'Whoop' 
+                  : selectedCategory === 'fitness' ? 'Fitness & Health'
+                  : selectedCategory === 'education' ? 'Learning'
+                  : selectedCategory === 'experiments' ? 'Experiments'
+                  : selectedCategory === 'productivity' ? 'Productivity'
+                  : selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)
                   : 'Start tracking anything'}
               </h2>
             </div>
@@ -593,7 +596,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           <div className="px-5 pb-2 flex-shrink-0">
             <input
               type="text"
-              placeholder="Search habits..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-none focus:outline-none focus:border-gray-400 text-sm"
@@ -616,7 +619,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Title</label>
                   <input
                     type="text"
-                    placeholder={selectedCategory === 'custom' ? 'Enter habit name...' : selectedHabit?.label}
+                    placeholder="Name"
                     value={selectedCategory === 'custom' ? customHabitName : (selectedHabit?.label || '')}
                     onChange={(e) => {
                       if (selectedCategory === 'custom') {
@@ -724,7 +727,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             // Category Selection
             <div>
                 {/* Custom - Manual */}
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <Plus className="w-6 h-6 text-gray-900" />
@@ -740,7 +743,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 </div>
 
                 {/* Wearables & Devices - Connect */}
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-7 h-7" onError={(e) => {
@@ -762,7 +765,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
@@ -779,7 +782,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/oura.svg" alt="Oura Ring" className="h-14" />
@@ -794,7 +797,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/whoop.svg" alt="Whoop" className="h-6" />
@@ -819,7 +822,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   )}
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/fitbit.svg" alt="Fitbit" className="h-6" />
@@ -834,7 +837,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <img src="/images/garmin.svg" alt="Garmin" className="h-6" />
@@ -850,7 +853,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 </div>
 
                 {/* Manual Tracking Categories */}
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <Brain className="w-5 h-5 text-gray-900" />
@@ -865,7 +868,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <BookOpen className="w-5 h-5 text-gray-900" />
@@ -880,7 +883,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <Activity className="w-5 h-5 text-gray-900" />
@@ -895,7 +898,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11 hover:bg-[#FAFAF9] transition-colors">
+                <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
                     <div className="flex h-11 w-11 items-center justify-center">
                       <FlaskConical className="w-5 h-5 text-gray-900" />
@@ -915,7 +918,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             <div>
                 {displayedHabits.length > 0 ? (
                   displayedHabits.map((habit, index) => (
-                    <div key={habit.value} className="flex justify-between items-center h-12 px-3 hover:bg-[#FAFAF9] transition-colors">
+                    <div key={habit.value} className="flex justify-between items-center h-12 px-3">
                       <p className="text-sm font-normal text-gray-900">{habit.label}</p>
                       <button
                         onClick={() => handleHabitClick(habit)}
