@@ -63,6 +63,11 @@ fn main() {
       // Handle deep link URLs (ritual://)
       let handle = app.handle();
       
+      // Force window size to override macOS state restoration
+      if let Some(window) = app.get_window("main") {
+        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 1100, height: 800 }));
+      }
+      
       #[cfg(target_os = "macos")]
       {
         app.listen_global("open-url", move |event| {

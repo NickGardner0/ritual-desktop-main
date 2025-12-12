@@ -1,0 +1,64 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradient for subtle background -->
+    <radialGradient id="bgGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#FAFAFA;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F0F0F0;stop-opacity:1" />
+    </radialGradient>
+    
+    <!-- Shadow filter -->
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="4" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.15"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Outer shadow container -->
+  <g filter="url(#shadow)">
+    <!-- Main rounded square background -->
+    <rect x="64" y="64" width="896" height="896" rx="180" ry="180" 
+          fill="url(#bgGradient)"/>
+    
+    <!-- Inner border -->
+    <rect x="64" y="64" width="896" height="896" rx="180" ry="180" 
+          fill="none" stroke="#E0E0E0" stroke-width="2"/>
+  </g>
+  
+  <!-- 6-petal flower/knot symbol in center -->
+  <g transform="translate(512, 512)">
+    <!-- Each petal is a rounded path, arranged in a radial pattern -->
+    <!-- Petal 1 (top) -->
+    <path d="M 0,-120 Q 30,-90 40,-60 Q 45,-40 40,-20 Q 30,0 0,0 Q -30,0 -40,-20 Q -45,-40 -40,-60 Q -30,-90 0,-120 Z" 
+          fill="#000000"/>
+    
+    <!-- Petal 2 (60 degrees) -->
+    <path d="M 103.92,-60 Q 108.92,-30 103.92,0 Q 95.92,15 77.94,20 Q 60,20 51.96,10 Q 45,0 51.96,-10 Q 60,-20 77.94,-20 Q 95.92,-15 103.92,-60 Z" 
+          fill="#000000"/>
+    
+    <!-- Petal 3 (120 degrees) -->
+    <path d="M 103.92,60 Q 95.92,75 77.94,80 Q 60,80 51.96,70 Q 45,60 51.96,50 Q 60,40 77.94,40 Q 95.92,45 108.92,30 Q 103.92,0 103.92,60 Z" 
+          fill="#000000"/>
+    
+    <!-- Petal 4 (bottom) -->
+    <path d="M 0,120 Q -30,90 -40,60 Q -45,40 -40,20 Q -30,0 0,0 Q 30,0 40,20 Q 45,40 40,60 Q 30,90 0,120 Z" 
+          fill="#000000"/>
+    
+    <!-- Petal 5 (240 degrees) -->
+    <path d="M -103.92,60 Q -108.92,30 -103.92,0 Q -95.92,-15 -77.94,-20 Q -60,-20 -51.96,-10 Q -45,0 -51.96,10 Q -60,20 -77.94,20 Q -95.92,15 -103.92,60 Z" 
+          fill="#000000"/>
+    
+    <!-- Petal 6 (300 degrees) -->
+    <path d="M -103.92,-60 Q -95.92,-75 -77.94,-80 Q -60,-80 -51.96,-70 Q -45,-60 -51.96,-50 Q -60,-40 -77.94,-40 Q -95.92,-45 -108.92,-30 Q -103.92,0 -103.92,-60 Z" 
+          fill="#000000"/>
+    
+    <!-- Center circle to connect all petals -->
+    <circle cx="0" cy="0" r="35" fill="#000000"/>
+  </g>
+</svg>

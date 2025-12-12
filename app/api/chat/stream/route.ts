@@ -46,7 +46,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'getHabitStats',
-      description: 'Get statistics for habits. Returns total, average (per day with data), min, max, variance. Use for questions about totals, averages, performance.',
+      description: 'Get statistics for habits. Returns total, average (per day with data), min, max, standard deviation. Use for questions about totals, averages, performance.',
       parameters: {
         type: 'object',
         properties: {

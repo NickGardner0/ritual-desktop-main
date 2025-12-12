@@ -4,7 +4,7 @@ import { useState, FormEvent, useEffect } from 'react'
 import { useSignIn, useSignUp, useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler'
-import { Loader2 } from 'lucide-react'
+import { Loader } from 'lucide-react'
 import { RitualLogo } from '@/components/ritual-logo'
 import { setOnboardingWindowSize } from '@/lib/tauri-utils'
 
@@ -43,9 +43,7 @@ export default function AuthPage() {
   if (!userLoaded) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
-          <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
-        </div>
+        <Loader className="h-8 w-8 animate-spin text-gray-900" />
       </div>
     )
   }
@@ -248,7 +246,7 @@ export default function AuthPage() {
           >
             {loading ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader className="w-4 h-4 animate-spin" />
                 {isSignUp ? 'Creating account...' : 'Logging in...'}
               </>
             ) : (

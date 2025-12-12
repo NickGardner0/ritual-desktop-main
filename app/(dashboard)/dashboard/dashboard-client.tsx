@@ -88,7 +88,7 @@ export function DashboardClient() {
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
 
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
-  
+
   // Cached stats from Python analytics API (single source of truth)
   const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>({});
   const [statsLoading, setStatsLoading] = useState(false);
@@ -102,12 +102,12 @@ export function DashboardClient() {
   useEffect(() => {
     const fetchStats = async () => {
       if (!habits.length) return;
-      
+
       try {
         setStatsLoading(true);
         const token = await getToken();
         if (!token) return;
-        
+
         // Build date params
         const params: { startDate?: string; endDate?: string; daysBack?: number } = {};
         if (dateRange?.from) {
@@ -118,11 +118,13 @@ export function DashboardClient() {
             params.endDate = params.startDate;
           }
         } else {
-          params.daysBack = 30; // Default to last 30 days
+          // If no date range is selected (All Time), fetch all history
+          // Using a large number (100 years) effectively gets all data
+          params.daysBack = 36500;
         }
-        
+
         const result = await analyticsApi.getHabitStats(token, params);
-        
+
         if (result.success && result.habits) {
           // Index by habit ID for quick lookup
           const statsMap: Record<string, HabitStats> = {};
@@ -138,9 +140,9 @@ export function DashboardClient() {
         setStatsLoading(false);
       }
     };
-    
+
     fetchStats();
-  }, [habits, dateRange, getToken]);
+  }, [habits, habitLogs.length, dateRange, getToken]);
 
   // Initialize ordered habits from localStorage or use habits from context
   useEffect(() => {
@@ -363,10 +365,12 @@ export function DashboardClient() {
           // For date ranges, use isWithinInterval
           isInRange = isWithinInterval(logDate, { start: dateRange.from!, end: dateRange.to });
         } else {
-          // For single date, compare just the date part (ignore time)
-          const logDateOnly = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate());
-          const filterDateOnly = new Date(dateRange.from!.getFullYear(), dateRange.from!.getMonth(), dateRange.from!.getDate());
-          isInRange = logDateOnly.getTime() === filterDateOnly.getTime(); // Use === for exact date match
+          // For single date, compare just the date part using string formatting to avoid timezone issues
+          // dateRange.from is a Date object (local time)
+          const filterDateStr = dateRange.from!.toLocaleDateString('en-CA'); // YYYY-MM-DD
+          const logDateStr = typeof log.date === 'string' ? log.date.split('T')[0] : '';
+
+          isInRange = logDateStr === filterDateStr;
         }
 
 
@@ -387,10 +391,11 @@ export function DashboardClient() {
         if (log.duration && log.duration > 0) {
           return sum + log.duration;
         } else if (log.amount && log.amount > 0) {
-          // If no duration but has amount, convert based on unit
-          if (log.unit === 'Hours' || log.unit === 'hours') {
+          // If no duration but has amount, convert based on the HABIT's unit_type (not log.unit which doesn't exist)
+          // Screen Time and similar habits store amount directly in hours/minutes
+          if (unitType.toLowerCase().includes('hour')) {
             return sum + (log.amount * 3600); // Convert hours to seconds
-          } else if (log.unit === 'Minutes' || log.unit === 'minutes') {
+          } else if (unitType.toLowerCase().includes('minute')) {
             return sum + (log.amount * 60); // Convert minutes to seconds
           } else {
             return sum + log.amount; // Use amount directly for other units
@@ -418,13 +423,13 @@ export function DashboardClient() {
   // Detailed stats for tooltip - uses cached stats from Python API (single source of truth)
   const getHabitMetricStats = React.useCallback((habit: Habit) => {
     const formatNum = (n: number) => {
-      const rounded = Math.round(n * 10) / 10;
-      return rounded.toLocaleString(undefined, { maximumFractionDigits: 1 });
+      const rounded = Math.round(n * 100) / 100;
+      return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
     };
-    
+
     // Use cached stats from Python API
     const stats = cachedStats[habit.id || ''];
-    
+
     if (stats) {
       // Stats from Python API (single source of truth)
       const unitLabel = stats.unit || habit.unit_type || 'sessions';
@@ -434,11 +439,11 @@ export function DashboardClient() {
         avgFormatted: `${formatNum(stats.average)} ${unitLabel}`,
         minFormatted: `${formatNum(stats.min)} ${unitLabel}`,
         maxFormatted: `${formatNum(stats.max)} ${unitLabel}`,
-        varianceFormatted: `${formatNum(stats.variance)} ${unitLabel}`,
+        stdDevFormatted: `${formatNum(stats.std_dev || Math.sqrt(stats.variance || 0))} ${unitLabel}`,
         daysWithData: stats.days_with_data,
       };
     }
-    
+
     // Fallback while loading or if API fails - show loading state
     const unitLabel = habit.unit_type || 'sessions';
     if (statsLoading) {
@@ -448,10 +453,10 @@ export function DashboardClient() {
         avgFormatted: `Loading...`,
         minFormatted: `Loading...`,
         maxFormatted: `Loading...`,
-        varianceFormatted: `Loading...`,
+        stdDevFormatted: `Loading...`,
       };
     }
-    
+
     // No data available
     return {
       unitLabel,
@@ -459,7 +464,7 @@ export function DashboardClient() {
       avgFormatted: `0 ${unitLabel}`,
       minFormatted: `0 ${unitLabel}`,
       maxFormatted: `0 ${unitLabel}`,
-      varianceFormatted: `0 ${unitLabel}`,
+      stdDevFormatted: `0 ${unitLabel}`,
     };
   }, [cachedStats, statsLoading]);
 
@@ -476,7 +481,11 @@ export function DashboardClient() {
   }, [fetchHabits]);
 
   // Handle habit deletion
-  const confirmDelete = (habitId: string) => {
+  const confirmDelete = (habitId: string | undefined) => {
+    if (!habitId) {
+      console.error('❌ Cannot delete habit: No habit ID');
+      return;
+    }
     setHabitToDelete(habitId);
   };
 
@@ -484,7 +493,12 @@ export function DashboardClient() {
     setHabitToDelete(null);
   };
 
-  const handleDeleteHabit = async (habitId: string) => {
+  const handleDeleteHabit = async (habitId: string | null) => {
+    if (!habitId) {
+      console.error('❌ Cannot delete habit: No habit ID provided');
+      setHabitToDelete(null);
+      return;
+    }
     setDeletingHabit(habitId);
     try {
       console.log('🗑️ Deleting habit:', habitId);
@@ -546,11 +560,11 @@ export function DashboardClient() {
 
       {/* Spacer between header and habits */}
       {!isFullScreenChat && <div className="h-4" />}
-      
+
       {/* Habits List - Hidden in Chat Mode */}
       {!isFullScreenChat && (
         <div>
-          <div className="max-w-[680px] mx-auto w-full">
+          <div className="max-w-[620px] mx-auto w-full">
             <DragDropContext onDragEnd={handleDragEnd}>
               <Droppable droppableId="habits">
                 {(provided) => (
@@ -593,7 +607,7 @@ export function DashboardClient() {
                                 {getHabitMetricDisplay(habit)}
                               </span>
                               <button
-                                onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id || ''); }}
+                                onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
                                 disabled={deletingHabit === habit.id}
                                 className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
                                 title="Delete habit"
@@ -627,8 +641,8 @@ export function DashboardClient() {
                                           <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
                                         </div>
                                         <div className="flex items-center justify-between">
-                                          <span className="text-gray-900">Variance</span>
-                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.varianceFormatted}</span>
+                                          <span className="text-gray-900">Std Dev</span>
+                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
                                         </div>
                                       </div>
                                     );

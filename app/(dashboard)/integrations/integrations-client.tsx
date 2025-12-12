@@ -17,12 +17,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
-import { Hourglass, Power } from 'lucide-react';
+import { Loader, Power } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Slider } from '@/components/ui/slider';
+import { useHabits } from '@/contexts/HabitsContext';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
@@ -99,7 +100,7 @@ const IntegrationCard = memo(({
     <p className="text-gray-600 text-sm mb-5 flex-grow">
       {description}
     </p>
-    
+
     <div className="flex items-center gap-3 mt-auto">
       {isConnected ? (
         <>
@@ -119,7 +120,7 @@ const IntegrationCard = memo(({
             >
               {isSyncing ? (
                 <>
-                  <Hourglass className="w-4 h-4 mr-2 animate-spin inline-block" />
+                  <Loader className="w-4 h-4 mr-2 animate-spin inline-block" />
                   Syncing...
                 </>
               ) : (
@@ -155,7 +156,7 @@ const IntegrationCard = memo(({
           >
             {isConnecting ? (
               <>
-                <Hourglass className="w-4 h-4 mr-2 animate-spin inline-block" />
+                <Loader className="w-4 h-4 mr-2 animate-spin inline-block" />
                 Connecting...
               </>
             ) : (
@@ -182,6 +183,7 @@ IntegrationCard.displayName = 'IntegrationCard';
 
 export function IntegrationsClient() {
   const { getToken } = useAuth();
+  const { fetchHabits, fetchHabitLogs } = useHabits();
   const { data: whoopStatusData, isLoading, refetch: refetchWhoopStatus } = useWhoopStatus();
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopSyncHour, setWhoopSyncHour] = useState(9); // Default to 9 AM
@@ -419,6 +421,12 @@ export function IntegrationsClient() {
       const { recovery, sleep, workouts } = result.data || {};
       const total = (recovery || 0) + (sleep || 0) + (workouts || 0);
 
+      // Refresh habits and logs to reflect new data
+      await Promise.all([
+        fetchHabits(),
+        fetchHabitLogs()
+      ]);
+
       if (total > 0) {
         alert(`Synced ${total} record(s) successfully!\n\n` +
           `- Recovery: ${recovery || 0}\n` +
@@ -475,7 +483,7 @@ export function IntegrationsClient() {
 
       const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync-hour`, {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -498,7 +506,7 @@ export function IntegrationsClient() {
 
   // Show loading skeleton on first fetch only
   const shimmerClass = "animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200";
-  
+
   if (isLoading && whoopStatusData === undefined) {
     return (
       <>

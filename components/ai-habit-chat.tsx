@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { ArrowUp, AudioLines, Hourglass } from 'lucide-react';
+import { ArrowUp, AudioLines, Loader, Paperclip } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -23,6 +23,7 @@ interface AIHabitChatProps {
  */
 export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +31,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [mode, setMode] = useState<InputMode>('log');
+  const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
 
   const { habits } = useHabits();
   const { user } = useUser();
@@ -333,6 +335,90 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     setIsListening(false);
   };
 
+  // Screen Time screenshot upload handlers
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (PNG, JPG, etc.)');
+      e.target.value = '';
+      return;
+    }
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size must be under 10MB');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploadingScreenshot(true);
+    setError(null);
+
+    try {
+      const sessionToken = await getToken();
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Get the Python API URL from environment
+      const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+      
+      // Use the smart screenshot analyzer endpoint
+      const res = await fetch(`${apiUrl}/api/screenshot/analyze`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
+        },
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMessage = errorData.detail || 'Failed to process screenshot';
+        setError(errorMessage);
+        return;
+      }
+
+      const data = await res.json();
+      
+      // Clear any existing input
+      setInput('');
+      
+      // Trigger habit update callback to refresh dashboard data
+      if (onHabitUpdate) {
+        onHabitUpdate({
+          success: true,
+          refreshNeeded: true,
+          playSound: true,
+          message: data.message || `Logged ${data.value} ${data.unit} of ${data.habit_name}.`,
+        });
+      }
+
+      // Track the successful upload
+      trackHabitLogged({
+        habitId: data.habit_id,
+        habitName: data.habit_name,
+        value: data.value,
+        unit: data.unit,
+        source: 'screenshot',
+      });
+
+    } catch (err: any) {
+      console.error('Screenshot upload error:', err);
+      setError(err.message || 'Failed to upload screenshot. Please try again.');
+    } finally {
+      setIsUploadingScreenshot(false);
+      // Reset input so the same file can be selected again if needed
+      e.target.value = '';
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -355,7 +441,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           <div className="px-5 py-3">
             {/* Input Area */}
             <div className="mb-2 h-[42px] flex items-center">
-              {(isListening || isProcessingVoice) ? (
+              {isUploadingScreenshot ? (
+                <div className="w-full flex items-center justify-center text-gray-500 text-sm gap-2">
+                  <Loader className="w-4 h-4 animate-spin" />
+                  <span>Analyzing screenshot...</span>
+                </div>
+              ) : (isListening || isProcessingVoice) ? (
                 <div className="w-full flex items-center justify-center">
                   <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
                 </div>
@@ -386,7 +477,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
             {/* Bottom Row */}
             <div className="flex justify-between items-center mt-2">
               {/* Left side: Mode Toggle + Voice Button */}
-              <div className="flex items-center gap-3 text-gray-600">
+              <div className="flex items-center gap-2 text-gray-600">
                 {/* Mode Toggle - iOS style (FIRST) */}
                 <div className="flex items-center gap-1.5">
                   <button
@@ -420,7 +511,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                       "w-8 h-8 flex items-center justify-center transition-all duration-200",
                       isListening || isProcessingVoice
                         ? "text-gray-900"
-                        : "text-gray-400 hover:text-gray-600"
+                        : "text-gray-600 hover:text-gray-800"
                     )}
                     onClick={startVoiceRecognition}
                     aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
@@ -428,7 +519,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     {isListening ? (
                       <VoiceWaveformMini isActive={true} />
                     ) : isProcessingVoice ? (
-                      <Hourglass className="w-4 h-4 animate-spin" />
+                      <Loader className="w-4 h-4 animate-spin" />
                     ) : (
                       <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                     )}
@@ -437,6 +528,42 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   {!isListening && !isProcessingVoice && (
                     <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                       Voice Mode
+                    </div>
+                  )}
+                </div>
+
+                {/* Screen Time Upload Button (THIRD) */}
+                <div className="relative group">
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                      isUploadingScreenshot
+                        ? "text-gray-900"
+                        : "text-gray-600 hover:text-gray-800"
+                    )}
+                    onClick={handleUploadClick}
+                    disabled={isUploadingScreenshot}
+                    aria-label="Upload Screen Time screenshot"
+                  >
+                    {isUploadingScreenshot ? (
+                      <Loader className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="w-4 h-4 stroke-[1.5]" />
+                    )}
+                  </button>
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                  {/* Tooltip */}
+                  {!isUploadingScreenshot && (
+                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                      Attach file
                     </div>
                   )}
                 </div>
@@ -449,7 +576,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                 className="px-3 py-2 min-w-[40px] flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all duration-200 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
-                  <Hourglass className="w-4 h-4 animate-spin" />
+                  <Loader className="w-4 h-4 animate-spin" />
                 ) : (
                   <ArrowUp className="w-4 h-4" />
                 )}

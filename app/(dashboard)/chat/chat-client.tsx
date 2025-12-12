@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, Loader2, ArrowLeft, AudioLines, Hourglass } from 'lucide-react';
+import { ArrowUp, Loader, ArrowLeft, AudioLines } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -775,7 +775,7 @@ export function ChatClient() {
                       {isListening ? (
                         <VoiceWaveformMini isActive={true} />
                       ) : isProcessingVoice ? (
-                        <Hourglass className="w-4 h-4 animate-spin" />
+                        <Loader className="w-4 h-4 animate-spin" />
                       ) : (
                         <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                       )}
@@ -922,7 +922,7 @@ export function ChatClient() {
                       {isListening ? (
                         <VoiceWaveformMini isActive={true} />
                       ) : isProcessingVoice ? (
-                        <Hourglass className="w-4 h-4 animate-spin" />
+                        <Loader className="w-4 h-4 animate-spin" />
                       ) : (
                         <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                       )}
@@ -941,7 +941,7 @@ export function ChatClient() {
                     className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
                   >
                     {isLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader className="w-4 h-4 animate-spin" />
                     ) : (
                       <ArrowUp className="w-4 h-4" />
                     )}

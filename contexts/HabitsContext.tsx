@@ -172,8 +172,14 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   
   const deleteHabit = React.useCallback(async (habitId: string) => {
     console.log('🗑️ [Compat] deleteHabit called - using React Query mutation');
-    await deleteHabitMutation.mutateAsync(habitId);
-  }, [deleteHabitMutation]);
+    // Find the habit to get its name and category for analytics
+    const habit = habits.find(h => h.id === habitId);
+    await deleteHabitMutation.mutateAsync({ 
+      habitId, 
+      habitName: habit?.name, 
+      category: habit?.category 
+    });
+  }, [deleteHabitMutation, habits]);
   
   const fetchHabitsFromApi = fetchHabits; // Alias for backward compatibility
   

@@ -1,16 +1,12 @@
 import { withSentryConfig } from '@sentry/nextjs';
+import bundleAnalyzer from '@next/bundle-analyzer';
+
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === 'true',
+});
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // For Tauri desktop builds:
-  // - Development: Uses Next.js dev server (npm run dev + npm run tauri:dev)
-  // - Production: Requires Next.js server running (API routes need server)
-  // 
-  // To enable static export (no server needed), you would need to:
-  // 1. Move /api/chat/stream and /api/whisper to Python backend
-  // 2. Handle Whoop OAuth callback in Python backend
-  // 3. Uncomment: output: 'export',
-  
   // Enable strict mode for better development experience and catching potential issues
   reactStrictMode: true,
   
@@ -108,4 +104,4 @@ const sentryWebpackPluginOptions = {
 };
 
 // Make sure adding Sentry options is the last code to run before exporting
-export default withSentryConfig(nextConfig, sentryWebpackPluginOptions);
+export default withBundleAnalyzer(withSentryConfig(nextConfig, sentryWebpackPluginOptions));

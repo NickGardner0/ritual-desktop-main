@@ -3,7 +3,7 @@ Ritual FastAPI Backend
 Mirrors the current TypeScript habits-service.ts interface exactly
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Header, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -28,6 +28,7 @@ from services.auth_service import AuthService
 from services.tinybird_service import TinybirdService
 from services.whoop_service import WhoopService
 from services.user_service import UserService
+from services.screenshot_analyzer import analyze_screenshot_for_habits
 from models.habit_models import Habit, HabitLog, HabitCreate, HabitUpdate, HabitLogCreate
 from models.user_models import OnboardingData, UserProfile
 from database.connection import get_db_session
@@ -697,6 +698,195 @@ async def update_whoop_sync_hour(
     except Exception as e:
         print(f"❌ Error updating sync hour: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ================================
+# SCREENSHOT ANALYSIS ENDPOINTS - Smart screenshot upload for any habit
+# ================================
+
+@app.post("/api/screenshot/analyze")
+@limiter.limit("10/minute")  # Max 10 screenshot uploads per minute
+async def analyze_and_log_screenshot(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
+):
+    """
+    Upload a screenshot and intelligently detect which habit to update.
+    Uses OpenAI vision to analyze the screenshot and determine:
+    - What type of data it contains (screen time, meetings, workouts, etc.)
+    - Which habit it should update
+    - What value to extract
+    
+    Returns:
+        - habit_id: The ID of the matched/created habit
+        - habit_name: Name of the habit
+        - value: The extracted value
+        - unit: The unit of the value
+        - description: What was detected
+        - logged_at: When the log was created
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file must be an image (PNG, JPG, etc.)",
+            )
+        
+        # Read image bytes
+        image_bytes = await file.read()
+        
+        if len(image_bytes) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+        
+        if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size exceeds 10MB limit",
+            )
+        
+        print(f"📸 Analyzing screenshot for user {current_user['id']} ({len(image_bytes)} bytes)")
+        
+        # Get user's existing habits
+        user_habits = await habits_service.get_habits(current_user["id"])
+        habits_for_analysis = [
+            {"id": h.id, "name": h.name, "unit_type": h.unit_type}
+            for h in user_habits
+        ]
+        
+        print(f"📋 User has {len(habits_for_analysis)} habits to match against")
+        
+        # Analyze screenshot using OpenAI vision
+        analysis = analyze_screenshot_for_habits(image_bytes, habits_for_analysis)
+        
+        if analysis is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Could not extract useful data from this screenshot. "
+                    "Please make sure the screenshot clearly shows trackable data like "
+                    "screen time, workout stats, reading progress, meeting times, etc."
+                ),
+            )
+        
+        print(f"✅ Analysis result: {analysis}")
+        
+        habit_id = analysis.get("habit_id")
+        habit_name = analysis.get("habit_name", "Unknown")
+        value = analysis.get("value")
+        unit = analysis.get("unit", "Count")
+        
+        # If no habit matched, create a new one
+        if not habit_id:
+            print(f"🆕 Creating new habit: {habit_name}")
+            
+            # Determine category based on detected type
+            detected_type = analysis.get("detected_type", "other")
+            category_map = {
+                "screen_time": "wellness",
+                "meetings": "productivity", 
+                "workout": "health",
+                "reading": "learning",
+                "sleep": "health",
+                "meditation": "wellness",
+                "steps": "health",
+                "distance": "health",
+            }
+            category = category_map.get(detected_type, "other")
+            
+            new_habit = await habits_service.create_habit(
+                HabitCreate(
+                    name=habit_name,
+                    category=category,
+                    unit_type=unit,
+                    is_custom=True,
+                    integration_source="screenshot",
+                ),
+                current_user["id"]
+            )
+            habit_id = new_habit.id
+            habit_name = new_habit.name
+            print(f"✅ Created new habit: {habit_name} ({habit_id})")
+        
+        # Get the habit to verify it exists
+        habit = await habits_service.get_habit_by_id(habit_id, current_user["id"])
+        if not habit:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Habit not found: {habit_id}",
+            )
+        
+        # Convert value to appropriate format for logging
+        # For time-based habits, we might need to convert
+        duration = None
+        amount = value
+        
+        habit_unit = (habit.unit_type or "").lower()
+        if "hour" in habit_unit:
+            # Store as amount in hours
+            if unit.lower() == "minutes":
+                amount = value / 60  # Convert minutes to hours
+        elif "minute" in habit_unit:
+            # Store as amount in minutes
+            if unit.lower() == "hours":
+                amount = value * 60  # Convert hours to minutes
+        
+        # Log the habit
+        from datetime import datetime, timezone
+        logged_at = datetime.now(timezone.utc)
+        date_str = logged_at.strftime("%Y-%m-%d")
+        
+        log_data = HabitLogCreate(
+            duration=duration,
+            amount=amount,
+            date=date_str,
+            completed_at=logged_at.isoformat(),
+            status="completed",
+            notes=f"Logged via screenshot: {analysis.get('description', '')}",
+        )
+        
+        habit_log = await habits_service.log_habit(habit_id, log_data, current_user["id"])
+        
+        # Format display value
+        display_value = f"{amount:.1f}" if isinstance(amount, float) else str(amount)
+        
+        return {
+            "success": True,
+            "habit_id": habit_id,
+            "habit_name": habit_name,
+            "value": amount,
+            "unit": habit.unit_type or unit,
+            "description": analysis.get("description", ""),
+            "detected_type": analysis.get("detected_type", "other"),
+            "confidence": analysis.get("confidence", 0.5),
+            "logged_at": logged_at.isoformat(),
+            "message": f"Successfully logged {display_value} {habit.unit_type or unit} of {habit_name}.",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Screenshot analysis error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Legacy endpoint for backward compatibility
+@app.post("/api/screentime/from-screenshot")
+@limiter.limit("10/minute")
+async def log_screentime_from_screenshot_legacy(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
+):
+    """
+    Legacy endpoint - redirects to the new smart analyzer.
+    """
+    return await analyze_and_log_screenshot(request, file, current_user)
 
 # ================================
 # MIGRATION ENDPOINTS - For data migration

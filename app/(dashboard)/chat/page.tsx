@@ -15,18 +15,10 @@ export const metadata: Metadata = {
 };
 
 // Loading state while chat client initializes
+// We return an empty container with matching bg to prevent flash
 function ChatLoading() {
-    return (
-      <div className="h-full flex flex-col bg-[#fbfbf9] relative">
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-gray-500">Loading chat...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  return <div className="h-full w-full bg-[#fafaf8]" />;
+}
 
 export default function ChatPage() {
   return (

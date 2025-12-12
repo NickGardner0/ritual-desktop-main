@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, AlertTriangle, ExternalLink } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, ExternalLink, ChevronDown } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
+import { useFont, FontOption } from '@/contexts/FontContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,12 +13,19 @@ interface SettingsModalProps {
   onOpen?: () => void;
 }
 
+const fontOptions: { value: FontOption; label: string }[] = [
+  { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
+  { value: 'geist-sans', label: 'Geist Sans' },
+];
+
 export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   const { user } = useUser();
   const { signOut } = useClerk();
   const router = useRouter();
+  const { font, setFont } = useFont();
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showFontDropdown, setShowFontDropdown] = useState(false);
   
   // Call onOpen when modal opens to close sidebar
   useEffect(() => {
@@ -139,6 +147,56 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
                     }`} 
                   />
                 </button>
+              </div>
+            </div>
+
+            {/* Font Selection */}
+            <div className="py-3 border-b border-gray-200/50">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 pr-4">
+                  <h4 className="text-sm font-normal text-gray-900">App Font</h4>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                    Choose your preferred font for the app interface.
+                  </p>
+                </div>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowFontDropdown(!showFontDropdown)}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-200 rounded-none hover:bg-gray-50 transition-colors min-w-[140px] justify-between"
+                  >
+                    <span className={font === 'geist-sans' ? 'font-geist' : ''}>
+                      {fontOptions.find(f => f.value === font)?.label}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showFontDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showFontDropdown && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setShowFontDropdown(false)} 
+                      />
+                      <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 shadow-lg z-20 min-w-[140px]">
+                        {fontOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            onClick={() => {
+                              setFont(option.value);
+                              setShowFontDropdown(false);
+                            }}
+                            className={`w-full px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors flex items-center justify-between ${
+                              font === option.value ? 'bg-gray-50' : ''
+                            } ${option.value === 'geist-sans' ? 'font-geist' : ''}`}
+                          >
+                            {option.label}
+                            {font === option.value && (
+                              <span className="text-black">✓</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 

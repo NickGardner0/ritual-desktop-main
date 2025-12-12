@@ -3,6 +3,7 @@
  * 
  * This wraps the client-only parts:
  * - AIProvider (uses context)
+ * - FontProvider (for font preference)
  * - DashboardLayout (has interactive sidebar)
  * - Prefetching logic
  */
@@ -11,6 +12,7 @@
 
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { AIProvider } from '@/contexts/AIContext';
+import { FontProvider } from '@/contexts/FontContext';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { setDashboardWindowSize } from '@/lib/tauri-utils';
@@ -34,11 +36,13 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
   }, []);
   
   return (
+    <FontProvider>
     <AIProvider>
       <DashboardLayout>
         {children}
       </DashboardLayout>
     </AIProvider>
+    </FontProvider>
   );
 }
 

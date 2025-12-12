@@ -22,7 +22,6 @@ import {
   HabitCell,
   ValueCell,
   CategoryCell,
-  StatusCell,
   SourceCell,
   NotesCell,
   ActionsCell,
@@ -52,11 +51,10 @@ interface DataTableProps {
 const COLUMNS = [
   { id: 'select', label: '', width: 'w-[50px]', sortable: false, sticky: true },
   { id: 'date', label: 'Date', width: 'w-[100px]', sortable: true, sticky: true },
-  { id: 'time', label: 'Time', width: 'w-[90px]', sortable: true, sticky: false },
+  { id: 'time', label: 'Time', width: 'w-[110px]', sortable: true, sticky: true },
   { id: 'habit', label: 'Name', width: 'w-[180px] min-w-[180px]', sortable: true, sticky: true },
   { id: 'value', label: 'Value', width: 'w-[160px]', sortable: true, sticky: false },
   { id: 'category', label: 'Category', width: 'w-[170px]', sortable: true, sticky: false },
-  { id: 'status', label: 'Status', width: 'w-[120px]', sortable: true, sticky: false },
   { id: 'source', label: 'Source', width: 'w-[100px]', sortable: true, sticky: false },
   { id: 'notes', label: 'Notes', width: 'w-[180px]', sortable: false, sticky: false },
   { id: 'actions', label: '', width: 'w-[60px]', sortable: false, sticky: true, stickyRight: true },
@@ -160,12 +158,12 @@ export function HabitLogsDataTable({
       return { position: 'sticky', right: 0, zIndex: 10 };
     }
     
-    const stickyColumns = ['select', 'date', 'habit'];
+    const stickyColumns = ['select', 'date', 'time', 'habit'];
     const index = stickyColumns.indexOf(columnId);
     if (index === -1) return {};
     
     // Calculate left position based on previous sticky columns
-    const widths = [50, 100, 200]; // Approximate widths
+    const widths = [50, 100, 110, 180]; // Approximate widths
     let left = 0;
     for (let i = 0; i < index; i++) {
       if (columnVisibility[stickyColumns[i]] !== false) {
@@ -226,6 +224,7 @@ export function HabitLogsDataTable({
                       col.width,
                       col.sticky && 'md:sticky md:left-[var(--stick-left)] z-10',
                       col.id === 'select' && 'text-center',
+                      col.sticky && col.id !== 'select' && 'border-l border-gray-300',
                     )}
                     style={getStickyStyle(col.id)}
                   >
@@ -295,7 +294,7 @@ export function HabitLogsDataTable({
                     {columnVisibility.date !== false && (
                       <TableCell
                         className={cn(
-                          "md:sticky z-10",
+                          "md:sticky z-10 border-l border-gray-300",
                           isSelected ? "bg-[#F5F5F5] dark:bg-[#0f0f0f]" : "bg-background",
                           "group-hover:bg-[#F5F5F5] group-hover:dark:bg-[#0f0f0f]"
                         )}
@@ -306,7 +305,14 @@ export function HabitLogsDataTable({
                     )}
                     
                     {columnVisibility.time !== false && (
-                      <TableCell>
+                      <TableCell
+                        className={cn(
+                          "md:sticky z-10 border-l border-gray-300",
+                          isSelected ? "bg-[#F5F5F5] dark:bg-[#0f0f0f]" : "bg-background",
+                          "group-hover:bg-[#F5F5F5] group-hover:dark:bg-[#0f0f0f]"
+                        )}
+                        style={getStickyStyle('time')}
+                      >
                         <TimeCell completedAt={log.completed_at} />
                       </TableCell>
                     )}
@@ -314,7 +320,7 @@ export function HabitLogsDataTable({
                     {columnVisibility.habit !== false && (
                       <TableCell
                         className={cn(
-                          "md:sticky z-10",
+                          "md:sticky z-10 border-l border-gray-300",
                           isSelected ? "bg-[#F5F5F5] dark:bg-[#0f0f0f]" : "bg-background",
                           "group-hover:bg-[#F5F5F5] group-hover:dark:bg-[#0f0f0f]"
                         )}
@@ -337,12 +343,6 @@ export function HabitLogsDataTable({
                     {columnVisibility.category !== false && (
                       <TableCell>
                         <CategoryCell category={log.category} />
-                      </TableCell>
-                    )}
-                    
-                    {columnVisibility.status !== false && (
-                      <TableCell>
-                        <StatusCell status={log.status} />
                       </TableCell>
                     )}
                     

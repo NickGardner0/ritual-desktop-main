@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
+import { Loader } from 'lucide-react'
 
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState('Processing authentication...')
@@ -63,9 +64,7 @@ export default function AuthCallbackPage() {
           {/* Elegant Loading Spinner */}
           <div className="mb-6">
             <div className="w-8 h-8 mx-auto">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
-                <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
-              </div>
+              <Loader className="h-8 w-8 animate-spin text-gray-900" />
             </div>
           </div>
           

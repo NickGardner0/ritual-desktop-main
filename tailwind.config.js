@@ -134,6 +134,7 @@ module.exports = {
       },
       fontFamily: {
         sans: ["'FK Grotesk Neue'", '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        geist: ['var(--font-geist-sans)', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       opacity: {
         '0': '0',

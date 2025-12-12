@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser, useAuth } from '@clerk/nextjs'
 
+import { Loader } from 'lucide-react'
+
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 export default function SSOCallback() {
@@ -106,9 +108,7 @@ export default function SSOCallback() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-2 border-gray-200 mx-auto mb-4">
-          <div className="rounded-full h-12 w-12 border-2 border-transparent border-t-gray-900"></div>
-        </div>
+        <Loader className="h-12 w-12 animate-spin text-gray-900 mx-auto mb-4" />
         <p className="text-sm text-gray-600">{status}</p>
       </div>
     </div>

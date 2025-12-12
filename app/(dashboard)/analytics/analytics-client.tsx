@@ -19,7 +19,8 @@ import {
   TrendingUp,
   TrendingDown,
   X,
-  ChevronDown
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { DateRangePicker } from '@/components/date-range-picker';
 import { DateRange } from 'react-day-picker';
@@ -104,8 +105,8 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   const warmRed = '#B91C1C';
   const isNeutral = change === undefined || Math.abs(change) < 0.5;
   const chartColor = isNeutral ? '#6B7280' : (isPositive ? tealGreen : warmRed);
-  const bgColor = isNeutral 
-    ? 'rgba(107, 114, 128, 0.08)' 
+  const bgColor = isNeutral
+    ? 'rgba(107, 114, 128, 0.08)'
     : (isPositive ? 'rgba(13, 148, 136, 0.08)' : 'rgba(185, 28, 28, 0.08)');
 
   return (
@@ -137,20 +138,20 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             {unit}
           </p>
         </div>
-        
+
         {/* Right side: Badge + Absolute Change */}
         <div className="flex flex-col items-end flex-shrink-0">
           {/* % Badge */}
-          <div 
+          <div
             className="flex items-center gap-1 px-2 py-0.5"
             style={{ backgroundColor: bgColor }}
           >
             {!isNeutral && (
-              isPositive 
+              isPositive
                 ? <span className="text-[11px]" style={{ color: chartColor }}>↗</span>
                 : <span className="text-[11px]" style={{ color: chartColor }}>↘</span>
             )}
-            <span 
+            <span
               className="text-[11px] font-medium tabular-nums"
               style={{ color: chartColor }}
             >
@@ -159,7 +160,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
           </div>
           {/* Absolute change */}
           {absoluteChange !== undefined && (
-            <span 
+            <span
               className="text-[11px] font-medium tabular-nums mt-1"
               style={{ color: chartColor }}
             >
@@ -212,7 +213,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
                       return (
-                        <div 
+                        <div
                           className="text-gray-900 px-3 py-2 text-xs shadow-lg border border-gray-300/60"
                           style={{
                             background: 'rgba(255, 255, 255, 0.72)',
@@ -249,32 +250,20 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
-    
+
     // Format time helper - converts UTC timestamp to local time
     const formatTimeString = (timeStr: string) => {
       try {
         if (!timeStr) return '';
-        
-        // Handle different timestamp formats from Tinybird/backend
-        // Tinybird returns: "2025-12-06 17:02:00" (UTC, no timezone indicator)
-        // ISO format: "2025-12-06T17:02:00Z" or "2025-12-06T17:02:00.000Z"
-        
         let date: Date;
-        
         if (timeStr.includes('T')) {
-          // ISO format - parseISO handles this correctly
           date = parseISO(timeStr);
         } else if (timeStr.includes(' ')) {
-          // Tinybird format: "2025-12-06 17:02:00" - treat as UTC
-          // Append 'Z' to force UTC interpretation
           date = new Date(timeStr.replace(' ', 'T') + 'Z');
         } else {
-          // Just a time string like "17:02:00"
           return timeStr;
         }
-        
         if (!isNaN(date.getTime())) {
-          // Format in user's local timezone
           return format(date, 'h:mm a');
         }
         return timeStr;
@@ -282,52 +271,50 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         return timeStr;
       }
     };
-    
+
     return (
-      <div 
-        className="p-2.5 min-w-[180px] border border-gray-300/60 shadow-lg"
+      <div
+        className="p-3 min-w-[200px] border border-gray-300/60 shadow-lg rounded-md"
         style={{
-          background: 'rgba(255, 255, 255, 0.72)',
+          background: 'rgba(255, 255, 255, 0.85)',
           backdropFilter: 'blur(12px) saturate(180%)',
           WebkitBackdropFilter: 'blur(12px) saturate(180%)',
         }}
       >
-        <p className="text-xs font-medium text-gray-900 mb-1.5">{label}</p>
-        <div className="space-y-1 text-xs">
-          {/* Value */}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-gray-700 font-medium">{payload[0].name}</span>
-            <span className="text-gray-900 font-medium tabular-nums">
-              {typeof payload[0].value === 'number' ? payload[0].value.toFixed(1) : payload[0].value}
-            </span>
-          </div>
-          
-          {/* Sleep Start/End Times */}
+        <p className="text-xs font-semibold text-gray-900 mb-2">{label}</p>
+        <div className="space-y-2 text-xs">
+          {/* Iterate over all payloads (Main + Comparison) */}
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center justify-between gap-4">
+              <span className="font-medium flex items-center gap-1.5" style={{ color: entry.stroke }}>
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.stroke }}></div>
+                {entry.name}
+              </span>
+              <span className="text-gray-900 font-bold tabular-nums">
+                {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
+                {/* Add unit if available in data key or name? Name usually has unit */}
+              </span>
+            </div>
+          ))}
+
+          <div className="h-px bg-gray-200 my-2 opacity-50"></div>
+
+          {/* Sleep Start/End Times (Only for main habit currently) */}
           {data.sleepOnset && data.sleepEnd && (
             <>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">Sleep Start</span>
-                <span className="text-gray-800 tabular-nums font-medium">
+                <span className="text-gray-500">Sleep Start</span>
+                <span className="text-gray-700 tabular-nums">
                   {format(parseISO(data.sleepOnset), 'h:mm a')}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">Sleep End</span>
-                <span className="text-gray-800 tabular-nums font-medium">
+                <span className="text-gray-500">Sleep End</span>
+                <span className="text-gray-700 tabular-nums">
                   {format(parseISO(data.sleepEnd), 'h:mm a')}
                 </span>
               </div>
             </>
-          )}
-          
-          {/* General Time (for non-sleep habits) */}
-          {data.time && !data.sleepOnset && (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-gray-600">Time</span>
-              <span className="text-gray-800 tabular-nums font-medium">
-                {formatTimeString(data.time)}
-              </span>
-            </div>
           )}
         </div>
       </div>
@@ -394,7 +381,7 @@ function useAnalyticsSummary() {
         icon: h.icon,
         unit_type: h.unit_type,
       }));
-      
+
       // Debug: verify all habits have valid habit_id
       const habitsWithoutId = transformedHabits.filter((h: any) => !h.habit_id);
       if (habitsWithoutId.length > 0) {
@@ -403,7 +390,7 @@ function useAnalyticsSummary() {
 
       // Use Tinybird summary metrics (pre-computed!)
       const summary = summaryData.data || {};
-      
+
       return {
         habits: transformedHabits,
         tinybirdHabitMetrics, // Per-habit metrics with Tinybird-calculated % changes!
@@ -411,12 +398,12 @@ function useAnalyticsSummary() {
           activeDays30: summary.active_days_30d || 0,
           avgEntriesPerDay30: summary.avg_entries_per_day_30d || 0,
           currentStreakDays: summary.current_streak_days || 0,
-          mostConsistentHabit: summary.most_consistent_habit_name 
+          mostConsistentHabit: summary.most_consistent_habit_name
             ? {
-                name: summary.most_consistent_habit_name,
-                days: Math.round((summary.most_consistent_habit_pct || 0) * 30 / 100),
-                pct: summary.most_consistent_habit_pct || 0
-              }
+              name: summary.most_consistent_habit_name,
+              days: Math.round((summary.most_consistent_habit_pct || 0) * 30 / 100),
+              pct: summary.most_consistent_habit_pct || 0
+            }
             : null
         }
       };
@@ -428,6 +415,83 @@ function useAnalyticsSummary() {
     refetchOnMount: true, // Refetch when Analytics page mounts (if stale)
   });
 }
+
+// Helper to determine start/end dates for expanded view ranges
+const getRangeDates = (range: string) => {
+  const now = new Date();
+
+  switch (range) {
+    case '1D': return { from: subDays(now, 1), to: now };
+    case '1W': return { from: subDays(now, 7), to: now };
+    case '1M': return { from: subDays(now, 30), to: now };
+    case '3M': return { from: subDays(now, 90), to: now };
+    case '6M': return { from: subDays(now, 180), to: now };
+    case 'YTD': return { from: startOfDay(new Date(now.getFullYear(), 0, 1)), to: now };
+    case '1Y': return { from: subDays(now, 365), to: now };
+    case 'ALL': return { from: subDays(now, 365 * 5), to: now }; // Cap at 5 years
+    default: return { from: subDays(now, 30), to: now };
+  }
+};
+
+// Custom Dropdown Component for clean styling
+const CustomSelect = ({ value, options, onChange, placeholder = 'Select' }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectedLabel = options.find((o: any) => o.value === value)?.label || placeholder;
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between w-[180px] px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] focus:outline-none focus:ring-1 focus:ring-gray-400 transition-colors"
+      >
+        <span className="truncate mr-2">{selectedLabel}</span>
+        <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 z-50 w-[200px] mt-1 bg-white border border-gray-200 shadow-xl rounded-sm py-1 max-h-[300px] overflow-auto">
+          <div className="px-3 py-2 border-b border-gray-100 mb-1">
+            <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Compare with...</span>
+          </div>
+          {options.map((option: any) => (
+            <div
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+              className={`px-3 py-2 text-xs cursor-pointer flex items-center justify-between group hover:bg-[#F3F3F3] ${value === option.value ? 'bg-[#F3F3F3] text-gray-900 font-medium' : 'text-gray-600'
+                }`}
+            >
+              <span>{option.label}</span>
+              {value === option.value && <Check className="w-3 h-3 text-gray-900" />}
+            </div>
+          ))}
+          {value && value !== '' && (
+            <div
+              onClick={() => { onChange(''); setIsOpen(false); }}
+              className="px-3 py-2 text-xs text-red-600 hover:bg-red-50 cursor-pointer border-t border-gray-100 mt-1"
+            >
+              Clear Comparison
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export function AnalyticsClient() {
   const { getToken } = useAuth();
@@ -443,45 +507,51 @@ export function AnalyticsClient() {
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [expandedLogs, setExpandedLogs] = useState<any[]>([]);
   const [loadingExpandedLogs, setLoadingExpandedLogs] = useState(false);
-  
+
   // Python API stats for expanded modal (single source of truth)
   const [expandedStats, setExpandedStats] = useState<HabitStats | null>(null);
   const [loadingExpandedStats, setLoadingExpandedStats] = useState(false);
-  
+
   // Python API stats for ALL habits (single source of truth for cards)
   const [allHabitStats, setAllHabitStats] = useState<Record<string, HabitStats>>({});
   const [loadingAllStats, setLoadingAllStats] = useState(false);
   const [comparisonPeriod, setComparisonPeriod] = useState<'week' | 'month'>('week');
+
+  // Expanded View Controls (Perplexity-style)
+  const [expandedTimeRange, setExpandedTimeRange] = useState<'1D' | '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'ALL'>('1M');
+  const [compareHabitId, setCompareHabitId] = useState<string | null>(null);
+  const [comparisonLogs, setComparisonLogs] = useState<any[]>([]);
+  const [loadingComparison, setLoadingComparison] = useState(false);
   // Always initialize to default value to prevent hydration mismatch
   const [viewMode, setViewMode] = useState<'chart' | 'ticker'>('chart');
 
   const availableHabits = data?.habits || [];
   const summaryMetrics = data?.summaryMetrics;
   const defaultTinybirdMetrics = data?.tinybirdHabitMetrics || {}; // Default 7-day comparison from initial load
-  
+
   // State for custom date range period comparison (updates when user changes date range)
   const [customPeriodMetrics, setCustomPeriodMetrics] = useState<Record<string, any>>({});
   const [loadingPeriodMetrics, setLoadingPeriodMetrics] = useState(false);
-  
+
   // State for "progress since start" metrics (Tinybird-calculated first 7 days vs last 7 days)
   const [progressMetrics, setProgressMetrics] = useState<Record<string, any>>({});
   const [loadingProgressMetrics, setLoadingProgressMetrics] = useState(false);
-  
+
   // Use custom period metrics when date range is selected, otherwise use default 7-day comparison
-  const tinybirdHabitMetrics = dateRange?.from && dateRange?.to 
-    ? customPeriodMetrics 
+  const tinybirdHabitMetrics = dateRange?.from && dateRange?.to
+    ? customPeriodMetrics
     : defaultTinybirdMetrics;
-  
+
   // Fetch "progress since start" from Tinybird (first 7 days vs last 7 days) - for All Time view
   useEffect(() => {
     const fetchProgressMetrics = async () => {
       setLoadingProgressMetrics(true);
       try {
         const res = await fetch('/api/analytics/habits/progress');
-        
+
         if (res.ok) {
           const data = await res.json();
-          
+
           if (data.success && data.data) {
             console.log('✅ Progress since start loaded from Tinybird:', {
               habitsCount: Object.keys(data.data).length,
@@ -496,7 +566,7 @@ export function AnalyticsClient() {
         setLoadingProgressMetrics(false);
       }
     };
-    
+
     fetchProgressMetrics();
   }, []); // Fetch once on mount
 
@@ -507,32 +577,32 @@ export function AnalyticsClient() {
       setCustomPeriodMetrics({});
       return;
     }
-    
+
     const fetchPeriodComparison = async () => {
       setLoadingPeriodMetrics(true);
       try {
         const startDate = format(dateRange.from!, 'yyyy-MM-dd');
         const endDate = format(dateRange.to!, 'yyyy-MM-dd');
-        
+
         console.log('📊 Fetching Tinybird period comparison:', { startDate, endDate });
-        
+
         const res = await fetch(`/api/analytics/habits/summary?start_date=${startDate}&end_date=${endDate}`);
-        
+
         if (res.ok) {
           const data = await res.json();
-          
+
           // Create lookup map by habit_id
           const metricsMap: Record<string, any> = {};
           (data.data || []).forEach((h: any) => {
             metricsMap[h.habit_id] = h;
           });
-          
+
           console.log('✅ Tinybird period comparison loaded:', {
             habitsCount: Object.keys(metricsMap).length,
             period: `${startDate} to ${endDate}`,
             sample: Object.values(metricsMap)[0]
           });
-          
+
           setCustomPeriodMetrics(metricsMap);
         }
       } catch (error) {
@@ -541,7 +611,7 @@ export function AnalyticsClient() {
         setLoadingPeriodMetrics(false);
       }
     };
-    
+
     fetchPeriodComparison();
   }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
@@ -550,34 +620,32 @@ export function AnalyticsClient() {
     if (!expandedHabit) {
       setExpandedLogs([]);
       setExpandedStats(null);
+      // Reset expanded view controls
+      setExpandedTimeRange('1M');
+      setCompareHabitId(null);
+      setComparisonLogs([]);
       return;
     }
 
     const fetchExpandedLogs = async () => {
       setLoadingExpandedLogs(true);
       try {
-        const now = new Date();
-        const to = dateRange?.to || now;
-        const from = dateRange?.from || subDays(now, 30);
+        const { from, to } = getRangeDates(expandedTimeRange);
 
         const startDate = format(from, 'yyyy-MM-dd');
         const endDate = format(to, 'yyyy-MM-dd');
 
+        console.log(`📊 Fetching expanded logs for ${expandedHabit} (${expandedTimeRange})`);
+
         const response = await fetch(
           `/api/analytics/habits/logs?habit_id=${expandedHabit}&start_date=${startDate}&end_date=${endDate}`
         );
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
-          console.log('✅ Detailed logs fetched from Tinybird:', {
-            habitId: expandedHabit,
-            logsCount: result.data.length,
-            dateRange: `${startDate} to ${endDate}`
-          });
           setExpandedLogs(result.data);
         } else {
-          console.error('❌ Failed to fetch detailed logs:', result.error);
           setExpandedLogs([]);
         }
       } catch (error) {
@@ -589,13 +657,50 @@ export function AnalyticsClient() {
     };
 
     fetchExpandedLogs();
-  }, [expandedHabit, dateRange]);
+  }, [expandedHabit, expandedTimeRange]);
+
+  // Fetch Comparison Logs
+  useEffect(() => {
+    if (!expandedHabit || !compareHabitId) {
+      setComparisonLogs([]);
+      return;
+    }
+
+    const fetchComparisonLogs = async () => {
+      setLoadingComparison(true);
+      try {
+        const { from, to } = getRangeDates(expandedTimeRange);
+        const startDate = format(from, 'yyyy-MM-dd');
+        const endDate = format(to, 'yyyy-MM-dd');
+
+        console.log(`📊 Fetching comparison logs for ${compareHabitId}`);
+
+        const response = await fetch(
+          `/api/analytics/habits/logs?habit_id=${compareHabitId}&start_date=${startDate}&end_date=${endDate}`
+        );
+
+        const result = await response.json();
+        if (result.success) {
+          setComparisonLogs(result.data);
+        } else {
+          setComparisonLogs([]);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching comparison logs:', error);
+        setComparisonLogs([]);
+      } finally {
+        setLoadingComparison(false);
+      }
+    };
+
+    fetchComparisonLogs();
+  }, [compareHabitId, expandedTimeRange, expandedHabit]);
 
   // Fetch stats for ALL habits from Python API (single source of truth)
   useEffect(() => {
     const fetchAllStats = async () => {
       if (!selectedHabits.length) return;
-      
+
       setLoadingAllStats(true);
       try {
         const token = await getToken();
@@ -712,10 +817,10 @@ export function AnalyticsClient() {
   useEffect(() => {
     // Use same fallback logic as display: validSelectedHabits or availableHabits
     const validSelected = selectedHabits.filter((id: string) => !!id);
-    const habitsToFetch = validSelected.length > 0 
-      ? validSelected 
+    const habitsToFetch = validSelected.length > 0
+      ? validSelected
       : availableHabits.map((h: HabitData) => h.habit_id).filter((id: string) => !!id);
-    
+
     if (habitsToFetch.length === 0) {
       setLoading(false);
       return;
@@ -878,37 +983,37 @@ export function AnalyticsClient() {
 
     // Use Python API stats (single source of truth) if available
     const pythonStats = allHabitStats[habitId];
-    
+
     // Get Tinybird-calculated metrics (includes proper % change calculations!)
     const tbMetrics = tinybirdHabitMetrics[habitId];
-    
+
     // Fall back to local calculation only if Tinybird/Python stats not available
     const localCurrentAvg = calculateAvg(currentLogs);
     const localPreviousAvg = calculateAvg(prevLogs);
-    
+
     // Prefer Python API stats for accuracy
     const currentAvg = pythonStats?.average ?? tbMetrics?.avg_amount ?? localCurrentAvg;
     const totalValue = pythonStats?.total ?? tbMetrics?.total_amount ?? chartData.reduce((sum: number, d: { value: number }) => sum + d.value, 0);
     const daysWithData = pythonStats?.days_with_data ?? tbMetrics?.days_with_data ?? chartData.length;
-    
+
     // Calculate percentage change based on view mode
     const isAllTimeView = !dateRange?.from && !dateRange?.to;
-    
+
     let change = 0;
     let absoluteChange = 0;
-    
+
     // Get Tinybird "progress since start" metrics (first 7 days vs last 7 days)
     const progressData = progressMetrics[habitId];
-    
+
     if (isAllTimeView && progressData) {
       // ALL TIME VIEW: Use Tinybird's "progress since start" calculation!
       // Compares first 7 days of tracking to last 7 days of tracking
       // This shows: "How much have I improved since I started tracking this habit?"
-      
+
       // Determine if this habit uses amount or duration
       // Use amount if there's any amount data, otherwise use duration
       const hasAmountData = (progressData.first_period_avg_amount ?? 0) > 0 || (progressData.last_period_avg_amount ?? 0) > 0;
-      
+
       if (hasAmountData) {
         change = progressData.amount_progress_pct ?? 0;
         absoluteChange = progressData.amount_absolute_change ?? 0;
@@ -917,7 +1022,7 @@ export function AnalyticsClient() {
         change = progressData.duration_progress_pct ?? 0;
         absoluteChange = progressData.duration_absolute_change ?? 0;
       }
-      
+
       console.log(`📈 Progress for ${habit.habit_name}:`, {
         usesAmount: hasAmountData,
         firstPeriod: hasAmountData ? progressData.first_period_avg_amount : progressData.first_period_avg_duration,
@@ -929,7 +1034,7 @@ export function AnalyticsClient() {
       // Fallback: Compare recent performance to overall average
       const recentAvg = tbMetrics.last_7_days_avg ?? 0;
       const overallAvg = tbMetrics.avg_amount ?? 0;
-      
+
       if (overallAvg > 0) {
         change = ((recentAvg - overallAvg) / overallAvg) * 100;
         absoluteChange = recentAvg - overallAvg;
@@ -940,7 +1045,7 @@ export function AnalyticsClient() {
       // SPECIFIC DATE RANGE: Use Tinybird's week-over-week calculation
       const tinybirdChange = tbMetrics?.weekly_amount_change_pct ?? 0;
       change = tbMetrics ? tinybirdChange : (localPreviousAvg > 0 ? ((localCurrentAvg - localPreviousAvg) / localPreviousAvg * 100) : 0);
-      
+
       const last7Avg = tbMetrics?.last_7_days_avg ?? localCurrentAvg;
       const prev7Avg = tbMetrics?.prev_7_days_avg ?? localPreviousAvg;
       absoluteChange = last7Avg - prev7Avg;
@@ -950,12 +1055,12 @@ export function AnalyticsClient() {
     // For "All time" view with progress data: show last period average (current performance)
     // Otherwise: show overall average from Tinybird
     let currentValue = 0;
-    
+
     if (isAllTimeView && progressData) {
       // Use last period average from progress data (most recent 7 days performance)
       // Use amount or duration depending on which one has data
       const hasAmountData = (progressData.first_period_avg_amount ?? 0) > 0 || (progressData.last_period_avg_amount ?? 0) > 0;
-      currentValue = hasAmountData 
+      currentValue = hasAmountData
         ? (progressData.last_period_avg_amount ?? 0)
         : (progressData.last_period_avg_duration ?? 0);
     } else {
@@ -986,141 +1091,133 @@ export function AnalyticsClient() {
     const habit = availableHabits.find((h: HabitData) => h.habit_id === habitId);
     if (!habit) return null;
 
-    // Use individual logs from Tinybird (expandedLogs state)
-    const logs = expandedLogs || [];
-    
-    // Deduplicate logs by ID (handle Tinybird duplicates)
-    const uniqueLogs = logs.reduce((acc: any[], log: any) => {
-      // Check if this log ID already exists
-      const existingIndex = acc.findIndex((l: any) => l.id === log.id);
-      if (existingIndex >= 0) {
-        // If duplicate found, prefer the one with metadata
-        if (log.metadata && log.metadata !== '{}' && (!acc[existingIndex].metadata || acc[existingIndex].metadata === '{}')) {
-          acc[existingIndex] = log; // Replace with the one that has metadata
+    // Helper to process logs list into date-aggregated map
+    const processLogsToMap = (logsSource: any[], unitType: any) => {
+      if (!logsSource || !logsSource.length) return { byDate: {}, logs: {} };
+
+      // Deduplicate logs first
+      const uniqueLogs = logsSource.reduce((acc: any[], log: any) => {
+        const existingIndex = acc.findIndex((l: any) => l.id === log.id);
+        if (existingIndex >= 0) {
+          if (log.metadata && log.metadata !== '{}' && (!acc[existingIndex].metadata || acc[existingIndex].metadata === '{}')) {
+            acc[existingIndex] = log;
+          }
+        } else {
+          acc.push(log);
         }
-        // Otherwise keep the existing one (first occurrence)
-      } else {
-        // Not a duplicate, add it
-        acc.push(log);
-      }
-      return acc;
-    }, []);
-    
-    // Group logs by date for chart display
-    const logsByDate = uniqueLogs.reduce((acc: any, log: any) => {
-      if (!acc[log.date]) {
-        acc[log.date] = [];
-      }
-      acc[log.date].push(log);
-      return acc;
-    }, {});
+        return acc;
+      }, []);
 
-    // Create chart data (aggregated by date)
-    const chartData = Object.keys(logsByDate)
-      .map(dateStr => {
-        const date = parseISO(dateStr);
-        const dayLogs = logsByDate[dateStr];
-        const unitLabel = (habit.unit_type || (habit as any).unit || '').toString();
+      // Group by Date
+      const logsMap = uniqueLogs.reduce((acc: any, log: any) => {
+        if (!acc[log.date]) acc[log.date] = [];
+        acc[log.date].push(log);
+        return acc;
+      }, {});
 
-        // Sum up all logs for this date
-        let totalValue = 0;
+      // Calculate Totals per Date
+      const valuesMap: Record<string, number> = {};
+      const unit = (unitType || '').toString().toLowerCase();
+
+      Object.keys(logsMap).forEach(dateStr => {
+        let total = 0;
+        const dayLogs = logsMap[dateStr];
         dayLogs.forEach((log: any) => {
           const duration = Number(log.duration || 0);
           const amount = Number(log.amount || 0);
 
-          if (unitLabel === 'Hours') {
-            if (duration > 0) {
-              // Duration is stored in seconds
-              totalValue += duration / 3600;
-            } else if (amount > 0) {
-              totalValue += amount;
-            }
-          } else if (unitLabel === 'Minutes') {
-            if (duration > 0) {
-              totalValue += duration / 60;
-            } else if (amount > 0) {
-              totalValue += amount;
-            }
+          if (unit.includes('hour')) {
+            if (duration > 0) total += duration / 3600;
+            else if (amount > 0) total += amount;
+          } else if (unit.includes('minute')) {
+            if (duration > 0) total += duration / 60;
+            else if (amount > 0) total += amount;
           } else {
-            totalValue += amount > 0 ? amount : (duration > 0 ? 1 : 0);
+            total += amount > 0 ? amount : (duration > 0 ? 1 : 0);
           }
         });
+        valuesMap[dateStr] = total;
+      });
 
-        // Parse metadata for sleep start/end times (for Whoop sleep logs)
-        // Prioritize logs with non-empty metadata (in case of duplicates)
-        let sleepOnset = null;
-        let sleepEnd = null;
-        const logWithMetadata = dayLogs.find((log: any) => 
-          log.metadata && log.metadata !== '{}' && log.metadata !== '{}'
-        ) || dayLogs[0];
-        
-        if (logWithMetadata?.metadata) {
-          try {
-            const metadata = typeof logWithMetadata.metadata === 'string' 
-              ? JSON.parse(logWithMetadata.metadata) 
-              : logWithMetadata.metadata;
-            sleepOnset = metadata.sleep_onset || null;
-            sleepEnd = metadata.sleep_end || null;
-          } catch (e) {
-            // Ignore parsing errors
-          }
-        }
+      return { byDate: valuesMap, logs: logsMap };
+    };
 
-        return {
-          date: format(date, 'MMM dd'),
-          shortDate: format(date, 'M/d'),
-          value: totalValue,
-          time: dayLogs[0]?.timestamp || null,
-          notes: dayLogs.map((l: any) => l.notes).filter((n: any) => n && n !== 'none').join('; ') || null,
-          sleepOnset,
-          sleepEnd,
-          rawDate: date,
-          logCount: dayLogs.length
-        };
-      })
-      .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
+    // Process Main Habit Data
+    const mainData = processLogsToMap(expandedLogs, habit.unit_type || (habit as any).unit);
 
-    // Use Python API stats (single source of truth) if available
-    // Otherwise fall back to local calculation
-    const totalValue = expandedStats?.total ?? chartData.reduce((sum, d) => sum + d.value, 0);
-    const avgValue = expandedStats?.average ?? (chartData.length > 0 ? totalValue / chartData.length : 0);
-    const daysWithData = expandedStats?.days_with_data ?? chartData.length;
+    // Process Comparison Habit Data
+    let compData = { byDate: {}, logs: {} };
+    let compHabit: any = null;
+    if (compareHabitId) {
+      compHabit = availableHabits.find((h: HabitData) => h.habit_id === compareHabitId);
+      if (compHabit) {
+        compData = processLogsToMap(comparisonLogs, compHabit.unit_type || (compHabit as any).unit);
+      }
+    }
 
-    // Calculate change (compare first half vs second half of period)
-    const midpoint = Math.floor(chartData.length / 2);
-    const firstHalf = chartData.slice(0, midpoint);
-    const secondHalf = chartData.slice(midpoint);
-    
-    const firstHalfAvg = firstHalf.length > 0 ? firstHalf.reduce((sum, d) => sum + d.value, 0) / firstHalf.length : 0;
-    const secondHalfAvg = secondHalf.length > 0 ? secondHalf.reduce((sum, d) => sum + d.value, 0) / secondHalf.length : 0;
-    
-    const change = firstHalfAvg > 0 ? ((secondHalfAvg - firstHalfAvg) / firstHalfAvg * 100) : 0;
+    // Combine Dates
+    const allDates = Array.from(new Set([...Object.keys(mainData.byDate), ...Object.keys(compData.byDate)])).sort();
 
-    // Calculate min, max, and variance
-    const values = chartData.map(d => d.value);
-    const minValue = values.length > 0 ? Math.min(...values) : 0;
-    const maxValue = values.length > 0 ? Math.max(...values) : 0;
-    
-    // Calculate variance: avg of squared differences from mean
-    const variance = values.length > 0 
-      ? values.reduce((sum, val) => sum + Math.pow(val - avgValue, 2), 0) / values.length 
-      : 0;
+    // Stats calculations (Main Habit Only for stats grid)
+    const values = Object.values(mainData.byDate) as number[];
+    const totalValue = values.reduce((a, b) => a + b, 0);
+    const avgValue = values.length ? totalValue / values.length : 0;
+    const minValue = values.length ? Math.min(...values) : 0;
+    const maxValue = values.length ? Math.max(...values) : 0;
+    const variance = values.length ? values.reduce((a, b) => a + Math.pow(b - avgValue, 2), 0) / values.length : 0;
+    const stdDev = Math.sqrt(variance);
+
+    // Create Chart Data
+    const chartData = allDates.map(dateStr => {
+      const date = parseISO(dateStr);
+      // Main values
+      const val = (mainData.byDate as any)[dateStr] || 0;
+      // Comp values
+      const cVal = (compData.byDate as any)[dateStr]; // Undefined if no data, which allows gaps
+
+      // Metadata (from main habit only for now)
+      const dayLogs = (mainData.logs as any)[dateStr] || [];
+      const logsWithMeta = dayLogs.filter((l: any) => l.metadata && l.metadata !== '{}');
+      const logToUse = logsWithMeta.length > 0 ? logsWithMeta[0] : dayLogs[0];
+
+      let metadata = {};
+      if (logToUse && logToUse.metadata) {
+        try {
+          const meta = typeof logToUse.metadata === 'string' ? JSON.parse(logToUse.metadata) : logToUse.metadata;
+          if (meta.sleep_onset) metadata = { ...metadata, sleepOnset: meta.sleep_onset };
+          if (meta.sleep_end) metadata = { ...metadata, sleepEnd: meta.sleep_end };
+        } catch (e) { }
+      }
+
+      if (logToUse && logToUse.completed_at) {
+        try {
+          // Basic time extraction
+          const dt = new Date(logToUse.completed_at);
+          const h = dt.getHours();
+          const m = dt.getMinutes();
+          const ampm = h >= 12 ? 'pm' : 'am';
+          metadata = { ...metadata, time: `${h % 12 || 12}:${m.toString().padStart(2, '0')}${ampm}` };
+        } catch { }
+      }
+
+      return {
+        date: format(date, 'MMM d, yyyy'),
+        shortDate: format(date, 'MMM d'),
+        value: val,
+        compValue: cVal !== undefined ? cVal : 0,
+        ...metadata
+      };
+    });
 
     return {
       habit,
+      compHabit,
       chartData,
       totalValue,
       avgValue,
       minValue,
       maxValue,
-      variance,
-      daysWithData,
-      change,
-      isPositive: change >= 0,
-      individualLogs: uniqueLogs, // ✅ Include deduplicated individual logs for detailed display
-      // Include Python API stats for display
-      pythonStats: expandedStats,
-      loadingStats: loadingExpandedStats,
+      stdDev
     };
   };
 
@@ -1129,7 +1226,7 @@ export function AnalyticsClient() {
   // Show loading skeleton while habits are loading
   // Check for actual data content, not just isLoading (which can be false with stale cache)
   const hasValidHabitData = availableHabits.length > 0 && availableHabits[0]?.habit_id;
-  
+
   if (!hasValidHabitData) {
     return (
       <div className="space-y-4">
@@ -1156,7 +1253,7 @@ export function AnalyticsClient() {
             onViewChange={setViewMode}
             darkMode={false}
           />
-          
+
           {/* Habit Filter Dropdown - Optional filtering */}
           <div className="relative">
             <button
@@ -1259,10 +1356,10 @@ export function AnalyticsClient() {
             // Use selectedHabits if it has valid IDs, otherwise fallback to availableHabits
             // This handles the case where selectedHabits has items but they're all undefined
             const validSelectedHabits = selectedHabits.filter((id: string): id is string => !!id);
-            const habitsToShow = validSelectedHabits.length > 0 
-              ? validSelectedHabits 
+            const habitsToShow = validSelectedHabits.length > 0
+              ? validSelectedHabits
               : availableHabits.map((h: HabitData) => h.habit_id).filter((id: string): id is string => !!id);
-            
+
             if (viewMode === 'chart') {
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1291,7 +1388,7 @@ export function AnalyticsClient() {
               const tickerHabits = habitsToShow.map((habitId: string) => {
                 const cardData = getHabitCardData(habitId);
                 const habit = availableHabits.find((h: HabitData) => h.habit_id === habitId);
-                
+
                 // If we have the habit but no card data yet (loading), show it anyway with defaults
                 if (habit && !cardData) {
                   return {
@@ -1305,7 +1402,7 @@ export function AnalyticsClient() {
                     chartData: [],
                   };
                 }
-                
+
                 if (!cardData || !habit) return null;
 
                 return {
@@ -1314,8 +1411,8 @@ export function AnalyticsClient() {
                   category: habit.category || '',
                   unit: cardData.unit || habit.unit_type || 'count',
                   last_7_days_avg: cardData.currentValue || 0,
-                  prev_7_days_avg: cardData.change !== 0 
-                    ? cardData.currentValue - (cardData.change / 100 * cardData.currentValue) 
+                  prev_7_days_avg: cardData.change !== 0
+                    ? cardData.currentValue - (cardData.change / 100 * cardData.currentValue)
                     : cardData.currentValue,
                   weekly_amount_change_pct: cardData.change || 0,
                   chartData: (cardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 })),
@@ -1345,125 +1442,228 @@ export function AnalyticsClient() {
 
           {/* Expanded View - Now with Individual Log Details from Tinybird! */}
           {expandedHabit && (
-            <div className="mt-4 bg-[#FAFAF9] border border-gray-300 p-4">
+            <div className="mt-4 bg-[#FAFAF9] border border-gray-300 p-6 shadow-sm rounded-sm">
               {loadingExpandedLogs ? (
-                <div className="flex items-center justify-center h-[300px]">
+                <div className="flex items-center justify-center h-[400px]">
                   <div className="text-center">
                     <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin mx-auto mb-2"></div>
-                    <p className="text-sm text-gray-500">Loading detailed logs from Tinybird...</p>
+                    <p className="text-sm text-gray-500">Loading metrics...</p>
                   </div>
                 </div>
               ) : (() => {
                 const expandedData = getExpandedData(expandedHabit);
                 if (!expandedData) return null;
 
-                const { habit, chartData, totalValue, avgValue, minValue, maxValue, variance } = expandedData;
+                const { habit, compHabit, chartData, totalValue, avgValue, minValue, maxValue, stdDev } = expandedData;
+                const ranges = ['1D', '1W', '1M', '3M', '6M', 'YTD', '1Y', 'ALL'];
+
+                // Prepare options for custom select
+                const compareOptions = availableHabits
+                  .filter((h: any) => h.habit_id !== expandedHabit)
+                  .map((h: any) => ({ label: h.habit_name, value: h.habit_id }));
 
                 return (
                   <>
-                    <div className="flex items-center justify-between mb-3">
+                    {/* Header Row */}
+                    <div className="flex items-start justify-between mb-8">
                       <div>
-                        <h3 className="text-lg font-medium text-gray-900">{habit.habit_name}</h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Detailed metrics · Powered by Tinybird
-                        </p>
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-2xl font-medium text-gray-900 tracking-tight">{habit.habit_name}</h3>
+                          {compHabit && (
+                            <span className="text-gray-400 text-xl font-medium flex items-center">
+                              <span className="mr-2">vs</span>
+                              <span className="text-orange-600">{compHabit.habit_name}</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <button
                         onClick={() => setExpandedHabit(null)}
-                        className="p-1.5 hover:bg-[#F3F3F3] transition-colors"
+                        className="p-2 hover:bg-gray-200/50 rounded-full transition-colors"
                       >
-                        <X className="w-4 h-4 text-gray-600" />
+                        <X className="w-5 h-5 text-gray-500" />
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-2 mb-3">
-                      <div className="border border-gray-300 px-2.5 py-2">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Total</p>
-                        <p className="text-base font-medium text-gray-900 tabular-nums">{totalValue.toFixed(1)}</p>
+                    {/* Toolbar: Time Range & Compare */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+                      {/* Time Ranges - Perplexity Style */}
+                      <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+                        {ranges.map((range) => (
+                          <button
+                            key={range}
+                            onClick={() => setExpandedTimeRange(range as any)}
+                            className={`px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${expandedTimeRange === range
+                              ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
+                              : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
+                              }`}
+                          >
+                            {range}
+                          </button>
+                        ))}
                       </div>
-                      <div className="border border-gray-300 px-2.5 py-2">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Average</p>
-                        <p className="text-base font-medium text-gray-900 tabular-nums">{avgValue.toFixed(1)}</p>
+
+                      {/* Compare Dropdown */}
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-widest">Compare</span>
+                        <CustomSelect
+                          value={compareHabitId}
+                          options={compareOptions}
+                          onChange={(val: string) => setCompareHabitId(val || null)}
+                          placeholder="None"
+                        />
                       </div>
-                      <div className="border border-gray-300 px-2.5 py-2">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Minimum</p>
-                        <p className="text-base font-medium text-gray-900 tabular-nums">{minValue.toFixed(1)}</p>
+                    </div>
+
+                    {/* Stats Grid - Square Compact Style */}
+                    <div className="grid grid-cols-5 gap-3 mb-8">
+                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Total</p>
+                        <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{totalValue.toFixed(1)}</p>
                       </div>
-                      <div className="border border-gray-300 px-2.5 py-2">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Maximum</p>
-                        <p className="text-base font-medium text-gray-900 tabular-nums">{maxValue.toFixed(1)}</p>
+                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Average</p>
+                        <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{avgValue.toFixed(1)}</p>
                       </div>
-                      <div className="border border-gray-300 px-2.5 py-2">
-                        <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Variance</p>
-                        <p className="text-base font-medium text-gray-900 tabular-nums">{variance.toFixed(2)}</p>
+                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Min</p>
+                        <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{minValue.toFixed(1)}</p>
+                      </div>
+                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Max</p>
+                        <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{maxValue.toFixed(1)}</p>
+                      </div>
+                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Std Dev</p>
+                        <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{stdDev.toFixed(1)}</p>
                       </div>
                     </div>
 
                     <Suspense fallback={
-                      <div className="flex items-center justify-center h-[250px]">
+                      <div className="flex items-center justify-center h-[300px]">
                         <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
                       </div>
                     }>
-                      <ResponsiveContainer width="100%" height={250}>
-                        {viewMode === 'chart' ? (
-                          <BarChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                            <XAxis
-                              dataKey="shortDate"
-                              stroke={COLORS.gray[400]}
-                              tick={{ fill: COLORS.gray[600], fontSize: 12 }}
-                              axisLine={{ stroke: COLORS.gray[300] }}
-                              label={{ value: 'Date', position: 'insideBottom', offset: -5, style: { fill: COLORS.gray[600], fontSize: 12 } }}
-                            />
-                            <YAxis
-                              stroke={COLORS.gray[400]}
-                              tick={{ fill: COLORS.gray[600], fontSize: 12 }}
-                              axisLine={{ stroke: COLORS.gray[300] }}
-                              label={{ value: habit.unit_type || (habit as any).unit || 'Value', angle: -90, position: 'insideLeft', style: { fill: COLORS.gray[600], fontSize: 12 } }}
-                            />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar
-                              dataKey="value"
-                              fill="#4A4A4C"
-                              radius={[0, 0, 0, 0]}
-                              isAnimationActive={false}
-                              name={habit.unit_type || (habit as any).unit || 'Value'}
-                            />
-                          </BarChart>
-                        ) : (
-                          <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                            <defs>
-                              <linearGradient id={`gradient-expanded-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#4A4A4C" stopOpacity={0.25} />
-                                <stop offset="100%" stopColor="#4A4A4C" stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                            <XAxis
-                              dataKey="shortDate"
-                              stroke={COLORS.gray[400]}
-                              tick={{ fill: COLORS.gray[600], fontSize: 12 }}
-                              axisLine={{ stroke: COLORS.gray[300] }}
-                              label={{ value: 'Date', position: 'insideBottom', offset: -5, style: { fill: COLORS.gray[600], fontSize: 12 } }}
-                            />
-                            <YAxis
-                              stroke={COLORS.gray[400]}
-                              tick={{ fill: COLORS.gray[600], fontSize: 12 }}
-                              axisLine={{ stroke: COLORS.gray[300] }}
-                              label={{ value: habit.unit_type || (habit as any).unit || 'Value', angle: -90, position: 'insideLeft', style: { fill: COLORS.gray[600], fontSize: 12 } }}
-                            />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Area
-                              type="monotone"
-                              dataKey="value"
-                              stroke="#4A4A4C"
-                              strokeWidth={2}
-                              fill={`url(#gradient-expanded-${expandedHabit})`}
-                              name={habit.unit_type || (habit as any).unit || 'Value'}
-                            />
-                          </AreaChart>
-                        )}
-                      </ResponsiveContainer>
+                      <div className="h-[350px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          {viewMode === 'chart' ? (
+                            <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
+                              <XAxis
+                                dataKey="shortDate"
+                                stroke={COLORS.gray[400]}
+                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
+                                axisLine={{ stroke: COLORS.gray[200] }}
+                                tickLine={false}
+                                dy={10}
+                              />
+                              <YAxis
+                                yAxisId="left"
+                                stroke={COLORS.gray[400]}
+                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
+                                axisLine={false}
+                                tickLine={false}
+                                label={{ value: habit.unit_type || (habit as any).unit || '', angle: -90, position: 'insideLeft', style: { fill: COLORS.gray[400], fontSize: 10, fontWeight: 600 } }}
+                              />
+                              {compHabit && (
+                                <YAxis
+                                  yAxisId="right"
+                                  orientation="right"
+                                  stroke="#EA580C"
+                                  tick={{ fill: "#EA580C", fontSize: 11, fontWeight: 500 }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#EA580C", fontSize: 10, fontWeight: 600 } }}
+                                />
+                              )}
+                              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
+                              <Bar
+                                yAxisId="left"
+                                dataKey="value"
+                                fill="#4A4A4C"
+                                radius={[0, 0, 0, 0]}
+                                maxBarSize={50}
+                              />
+                              {compHabit && (
+                                <Bar
+                                  yAxisId="right"
+                                  dataKey="compValue"
+                                  fill="#EA580C"
+                                  radius={[0, 0, 0, 0]}
+                                  maxBarSize={50}
+                                />
+                              )}
+                            </BarChart>
+                          ) : (
+                            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id={`gradient-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#4A4A4C" stopOpacity={0.15} />
+                                  <stop offset="95%" stopColor="#4A4A4C" stopOpacity={0} />
+                                </linearGradient>
+                                {compHabit && (
+                                  <linearGradient id={`gradient-comp`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#EA580C" stopOpacity={0.15} />
+                                    <stop offset="95%" stopColor="#EA580C" stopOpacity={0} />
+                                  </linearGradient>
+                                )}
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
+                              <XAxis
+                                dataKey="shortDate"
+                                stroke={COLORS.gray[400]}
+                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
+                                axisLine={{ stroke: COLORS.gray[200] }}
+                                tickLine={false}
+                                dy={10}
+                              />
+                              <YAxis
+                                yAxisId="left"
+                                stroke={COLORS.gray[400]}
+                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
+                                axisLine={false}
+                                tickLine={false}
+                                label={{ value: habit.unit_type || (habit as any).unit || '', angle: -90, position: 'insideLeft', style: { fill: COLORS.gray[400], fontSize: 10, fontWeight: 600 } }}
+                              />
+                              {compHabit && (
+                                <YAxis
+                                  yAxisId="right"
+                                  orientation="right"
+                                  stroke="#EA580C"
+                                  tick={{ fill: "#EA580C", fontSize: 11, fontWeight: 500 }}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#EA580C", fontSize: 10, fontWeight: 600 } }}
+                                />
+                              )}
+                              <Tooltip content={<CustomTooltip />} cursor={{ stroke: COLORS.gray[300], strokeWidth: 1, strokeDasharray: '4 4' }} />
+                              <Area
+                                yAxisId="left"
+                                type="monotone"
+                                dataKey="value"
+                                stroke="#4A4A4C"
+                                strokeWidth={2}
+                                fill={`url(#gradient-${expandedHabit})`}
+                                name={habit.habit_name}
+                                activeDot={{ r: 4, fill: '#4A4A4C', stroke: '#fff', strokeWidth: 2 }}
+                              />
+
+                              {compHabit && (
+                                <Area
+                                  yAxisId="right"
+                                  type="monotone"
+                                  dataKey="compValue"
+                                  stroke="#EA580C"
+                                  strokeWidth={2}
+                                  fill={`url(#gradient-comp)`}
+                                  name={compHabit.habit_name}
+                                  activeDot={{ r: 4, fill: '#EA580C', stroke: '#fff', strokeWidth: 2 }}
+                                />
+                              )}
+                            </AreaChart>
+                          )}
+                        </ResponsiveContainer>
+                      </div>
                     </Suspense>
                   </>
                 );

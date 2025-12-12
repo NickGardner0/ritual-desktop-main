@@ -6,6 +6,7 @@ import { TeamDropdown } from '@/components/team-dropdown';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
+import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 
 // Lazy load heavy components that are only used when opened
@@ -19,6 +20,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
+  const { fontClass } = useFont();
   const { user } = useUser();
   const { getToken } = useAuth();
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
@@ -108,7 +110,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [getToken, lastTokenRefreshCheck]);
 
   return (
-    <div className="app-container flex h-screen bg-white overflow-x-hidden max-w-full w-full border-0">
+    <div className={`app-container flex h-screen bg-white overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
       {/* Handle URL search parameters (wrapped in Suspense for prerendering) */}
       <Suspense fallback={null}>
         <DashboardSearchHandler 
