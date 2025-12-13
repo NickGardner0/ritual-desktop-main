@@ -96,90 +96,6 @@ async function saveMessage(
 }
 
 // ====================
-// MEMORY HELPERS
-// ====================
-
-interface EffectiveMemory {
-  default_time_window_days: number;
-  preferred_timezone: string | null;
-  preferred_response_style: 'concise' | 'balanced' | 'detailed';
-  preferred_units: Record<string, string> | null;
-  preferred_focus_habits: string[] | null;
-}
-
-const DEFAULT_MEMORY: EffectiveMemory = {
-  default_time_window_days: 30,
-  preferred_timezone: null,
-  preferred_response_style: 'balanced',
-  preferred_units: null,
-  preferred_focus_habits: null,
-};
-
-async function getEffectiveMemory(
-  token: string,
-  conversationId?: string | null
-): Promise<EffectiveMemory> {
-  try {
-    const url = new URL(`${PYTHON_API_BASE}/api/chat/memory/effective`);
-    if (conversationId) {
-      url.searchParams.append('conversation_id', conversationId);
-    }
-    
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (response.ok) {
-      const memory = await response.json();
-      console.log('🧠 Loaded effective memory:', memory);
-      return {
-        default_time_window_days: memory.default_time_window_days ?? DEFAULT_MEMORY.default_time_window_days,
-        preferred_timezone: memory.preferred_timezone ?? DEFAULT_MEMORY.preferred_timezone,
-        preferred_response_style: memory.preferred_response_style ?? DEFAULT_MEMORY.preferred_response_style,
-        preferred_units: memory.preferred_units ?? DEFAULT_MEMORY.preferred_units,
-        preferred_focus_habits: memory.preferred_focus_habits ?? DEFAULT_MEMORY.preferred_focus_habits,
-      };
-    }
-    console.warn('⚠️ Failed to load memory, using defaults');
-    return DEFAULT_MEMORY;
-  } catch (error) {
-    console.error('❌ Error loading memory:', error);
-    return DEFAULT_MEMORY;
-  }
-}
-
-function buildMemoryPromptSection(memory: EffectiveMemory): string {
-  const styleDescriptions: Record<string, string> = {
-    concise: 'Keep responses brief and to-the-point. Use bullet points. Limit to 3-4 key insights.',
-    balanced: 'Provide moderate detail. Include context but stay focused.',
-    detailed: 'Give thorough explanations. Include more analysis and context.',
-  };
-
-  const lines: string[] = [
-    '',
-    '--- USER PREFERENCES ---',
-    `Default analysis window: Last ${memory.default_time_window_days} days (use this when no specific dates mentioned)`,
-    `Response style: ${memory.preferred_response_style} - ${styleDescriptions[memory.preferred_response_style] || styleDescriptions.balanced}`,
-  ];
-
-  if (memory.preferred_timezone) {
-    lines.push(`Preferred timezone: ${memory.preferred_timezone} (use for interpreting "yesterday", "last week", etc.)`);
-  }
-
-  if (memory.preferred_focus_habits && memory.preferred_focus_habits.length > 0) {
-    lines.push(`Focus habits: ${memory.preferred_focus_habits.join(', ')} (suggest these when relevant, but don't assume intent)`);
-  }
-
-  lines.push('--- END PREFERENCES ---');
-  lines.push('');
-
-  return lines.join('\n');
-}
-
-// ====================
 // TOOL DEFINITIONS
 // ====================
 
@@ -249,21 +165,19 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 // ====================
 
 async function executeGetHabitStats(token: string, params: { 
-  habitName?: string;
-  startDate?: string;
+  habitName?: string; 
+  startDate?: string; 
   endDate?: string;
   daysBack?: number;
-}, defaultDaysBack: number = 30) {
-  // Use memory's default if no explicit date params provided
-  const effectiveDaysBack = params.daysBack || (params.startDate || params.endDate ? undefined : defaultDaysBack);
-  console.log('📊 getHabitStats called:', params, 'defaultDaysBack:', defaultDaysBack, 'effective:', effectiveDaysBack);
+}) {
+  console.log('📊 getHabitStats called:', params);
   
   try {
     const result = await fetchPythonApi('/api/analytics/stats', token, {
       habit_name: params.habitName || '',
       start_date: params.startDate || '',
       end_date: params.endDate || '',
-      days_back: effectiveDaysBack || defaultDaysBack,
+      days_back: params.daysBack || 30,
     });
     
     if (!result.success) {
@@ -285,17 +199,15 @@ async function executeGetDailyBreakdown(token: string, params: {
   startDate?: string;
   endDate?: string;
   daysBack?: number;
-}, timezone?: string, defaultDaysBack: number = 30) {
-  // Use memory's default if no explicit date params provided
-  const effectiveDaysBack = params.daysBack || (params.startDate || params.endDate ? undefined : defaultDaysBack);
-  console.log('📊 getDailyBreakdown called:', params, 'timezone:', timezone, 'defaultDaysBack:', defaultDaysBack, 'effective:', effectiveDaysBack);
+}, timezone?: string) {
+  console.log('📊 getDailyBreakdown called:', params, 'timezone:', timezone);
   
   try {
     const result = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
       habit_name: params.habitName,
       start_date: params.startDate || '',
       end_date: params.endDate || '',
-      days_back: effectiveDaysBack || defaultDaysBack,
+      days_back: params.daysBack || 30,
       timezone: timezone || '',
     });
     
@@ -317,16 +229,14 @@ async function executeGetCorrelation(token: string, params: {
   habit1Name: string; 
   habit2Name: string;
   daysBack?: number;
-}, defaultDaysBack: number = 30) {
-  // Use memory's default if no explicit daysBack provided
-  const effectiveDaysBack = params.daysBack || defaultDaysBack;
-  console.log('📊 getCorrelation called:', params, 'defaultDaysBack:', defaultDaysBack, 'effective:', effectiveDaysBack);
+}) {
+  console.log('📊 getCorrelation called:', params);
   
   try {
     const result = await fetchPythonApi('/api/analytics/correlation', token, {
       habit1_name: params.habit1Name,
       habit2_name: params.habit2Name,
-      days_back: effectiveDaysBack,
+      days_back: params.daysBack || 30,
     });
     
     if (!result.success) {
@@ -393,10 +303,6 @@ export async function POST(req: NextRequest) {
       console.log('📝 New conversation created:', conversationId);
     }
     
-    // Load effective memory (user preferences + conversation overrides)
-    const effectiveMemory = await getEffectiveMemory(token, conversationId);
-    const defaultDaysBack = effectiveMemory.default_time_window_days;
-    
     // Get the latest user message to save
     const latestUserMessage = messages[messages.length - 1];
     
@@ -412,9 +318,6 @@ export async function POST(req: NextRequest) {
     const today = now.toISOString().split('T')[0];
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // 1-indexed
-    
-    // Build memory prompt section
-    const memorySection = buildMemoryPromptSection(effectiveMemory);
 
     // System prompt
     const systemPrompt = `You are a helpful habit tracking assistant for Ritual.
@@ -460,8 +363,7 @@ MULTI-MONTH QUERIES: When the user asks about multiple months (e.g., "October an
 - Do NOT make separate tool calls for each month - use one call with the full range
 
 NEVER list every single day's data in your response - the user sees that in a side panel.
-Be encouraging and supportive!
-${memorySection}`;
+Be encouraging and supportive!`;
 
     // Build messages for OpenAI
     const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -512,7 +414,7 @@ ${memorySection}`;
         try {
           switch (toolCall.function.name) {
             case 'getHabitStats':
-              result = await executeGetHabitStats(token, args, defaultDaysBack);
+              result = await executeGetHabitStats(token, args);
               // Store stats for canvas - accumulate all calls
               try {
                 const parsed = JSON.parse(result);
@@ -526,7 +428,7 @@ ${memorySection}`;
               } catch {}
               break;
             case 'getDailyBreakdown':
-              result = await executeGetDailyBreakdown(token, args, timezone, defaultDaysBack);
+              result = await executeGetDailyBreakdown(token, args, timezone);
               // Store daily breakdown for canvas - accumulate all calls
               try {
                 const parsed = JSON.parse(result);
@@ -551,7 +453,7 @@ ${memorySection}`;
               } catch {}
               break;
             case 'getCorrelation':
-              result = await executeGetCorrelation(token, args, defaultDaysBack);
+              result = await executeGetCorrelation(token, args);
               // Store correlation for canvas
               try {
                 const parsed = JSON.parse(result);
