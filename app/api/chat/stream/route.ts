@@ -158,6 +158,40 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'getHabitTrends',
+      description: 'Compare habit performance between current period and previous period. Returns direction (up/down/flat), percent change, and confidence level. Use for questions about "what changed", "insights", "overview", "how am I doing", "progress".',
+      parameters: {
+        type: 'object',
+        properties: {
+          habitName: { type: 'string', description: 'Specific habit name. Leave empty to get trends for ALL habits.' },
+          windowDays: { type: 'number', description: 'Period length in days (default 30). Compares last N days vs previous N days.' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getHabitAnomalies',
+      description: 'Identify unusual days (spikes or drops) for a habit using statistical analysis. Use for questions about "weird days", "spikes", "drops", "unusual", "outliers", "anomalies".',
+      parameters: {
+        type: 'object',
+        properties: {
+          habitName: { type: 'string', description: 'Habit name to analyze for anomalies' },
+          startDate: { type: 'string', description: 'Start date in YYYY-MM-DD format' },
+          endDate: { type: 'string', description: 'End date in YYYY-MM-DD format' },
+          daysBack: { type: 'number', description: 'Alternative to dates: look back N days (default 30)' },
+          zThreshold: { type: 'number', description: 'Z-score threshold for anomaly detection (default 2.0, higher = fewer anomalies)' },
+          maxResults: { type: 'number', description: 'Maximum anomalies to return (default 5)' },
+        },
+        required: ['habitName'],
+      },
+    },
+  },
 ];
 
 // ====================
@@ -265,6 +299,66 @@ async function executeListHabits(token: string) {
   }
 }
 
+async function executeGetHabitTrends(token: string, params: {
+  habitName?: string;
+  windowDays?: number;
+}) {
+  console.log('📊 getHabitTrends called:', params);
+  
+  try {
+    const result = await fetchPythonApi('/api/analytics/trends', token, {
+      habit_name: params.habitName || '',
+      window_days: params.windowDays || 30,
+    });
+    
+    if (!result.success) {
+      return JSON.stringify({
+        error: result.error,
+        available_habits: result.available_habits
+      });
+    }
+    
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ getHabitTrends error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+async function executeGetHabitAnomalies(token: string, params: {
+  habitName: string;
+  startDate?: string;
+  endDate?: string;
+  daysBack?: number;
+  zThreshold?: number;
+  maxResults?: number;
+}) {
+  console.log('📊 getHabitAnomalies called:', params);
+  
+  try {
+    const result = await fetchPythonApi('/api/analytics/anomalies', token, {
+      habit_name: params.habitName,
+      start_date: params.startDate || '',
+      end_date: params.endDate || '',
+      days_back: params.daysBack || 30,
+      z_threshold: params.zThreshold || 2.0,
+      max_results: params.maxResults || 5,
+    });
+    
+    if (!result.success) {
+      return JSON.stringify({
+        error: result.error,
+        available_habits: result.available_habits
+      });
+    }
+    
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ getHabitAnomalies error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
 // ====================
 // MAIN API HANDLER
 // ====================
@@ -331,39 +425,48 @@ IMPORTANT: All statistics come from the Python backend (single source of truth).
 - "average" means total divided by DAYS WITH DATA (not per entry)
 - Always use tools to get real data - never make up numbers
 
-CRITICAL - ALWAYS call BOTH tools for habit questions:
-1. getHabitStats - for totals, averages, min/max
-2. getDailyBreakdown - for the daily table in the side panel
-The user's side panel shows a daily breakdown table that REQUIRES getDailyBreakdown data.
-Even for simple questions like "What was my sleep in October?", call BOTH tools with the SAME date range.
+=== TOOL ROUTING GUIDE ===
 
-TIME DATA: The getDailyBreakdown response includes an "entries" array for each day with individual log times.
-- Each entry has a "time" field (HH:MM format) showing when the habit was logged
-- For habits like caffeine, this shows what time each coffee was consumed
-- When relevant (e.g., asking about patterns), mention the times in your response
-- Example: "You had 200mg at 8:30 and another 100mg at 14:00"
+FOR OVERVIEW/INSIGHTS QUESTIONS ("what changed", "insights", "how am I doing", "overview", "progress", "lately"):
+→ Use getHabitTrends (leave habitName empty to get ALL habits)
+→ Summarize top 3 improving and top 3 declining habits
+→ Include percent change and confidence level in your response
+→ If confidence is "low", mention "limited data"
 
-RESPONSE FORMAT - Keep it concise:
+FOR SPECIFIC HABIT QUESTIONS ("How's my sleep?", "Tell me about my workouts"):
+→ Call BOTH getHabitStats AND getDailyBreakdown with same date range
+→ The user sees a side panel with daily breakdown - it REQUIRES getDailyBreakdown data
+
+FOR ANOMALY/OUTLIER QUESTIONS ("weird days", "spikes", "drops", "unusual", "outliers"):
+→ Use getHabitAnomalies for the specific habit mentioned
+→ Reference specific dates and values in your response
+→ If a trend shows extreme change with high confidence, suggest checking anomalies
+
+FOR RELATIONSHIP QUESTIONS ("connection between X and Y", "correlation"):
+→ Use getCorrelation
+→ State the coefficient and what it means
+
+=== RESPONSE FORMAT ===
 1. Brief intro (1-2 sentences)
 2. Key findings with **bold** numbers
-3. If time patterns are relevant, mention notable times
-4. For correlations: state the coefficient and what it means
-5. End with 1-2 actionable insights
+3. For trends: mention direction (↑/↓) and percent change
+4. For anomalies: cite specific dates
+5. For low confidence data: say "Note: limited data for this period"
+6. End with 1-2 actionable insights
 
-DATE RANGE INTERPRETATION - Use the current year (${currentYear}) unless explicitly specified:
+Keep it concise - the user sees detailed data in a side panel.
+
+=== DATE HANDLING ===
+- Use current year (${currentYear}) unless explicitly specified
 - "this month" → startDate = first of current month, endDate = today
 - "last week" → daysBack = 7
-- "October" → startDate = ${currentYear}-10-01, endDate = ${currentYear}-10-31
-- "November" → startDate = ${currentYear}-11-01, endDate = ${currentYear}-11-30
-- When a month is mentioned without a year, ALWAYS use ${currentYear}
-- Only use a past year if the user explicitly says "October 2024" or similar
+- Month names without year → use ${currentYear}
 
-MULTI-MONTH QUERIES: When the user asks about multiple months (e.g., "October and November"), use a SINGLE combined date range:
-- "October and November" → startDate = ${currentYear}-10-01, endDate = ${currentYear}-11-30
-- Do NOT make separate tool calls for each month - use one call with the full range
-
-NEVER list every single day's data in your response - the user sees that in a side panel.
-Be encouraging and supportive!`;
+=== CONSTRAINTS ===
+- NEVER list every single day's data - user sees that in side panel
+- NEVER make up numbers - all data comes from tools
+- Max 2 tool call rounds for performance
+- Be encouraging and supportive!`;
 
     // Build messages for OpenAI
     const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -392,8 +495,11 @@ Be encouraging and supportive!`;
       dailyBreakdown?: any; 
       dailyBreakdownHabit?: any; 
       correlation?: any;
+      trends?: any;  // Phase 3: Habit trends data
+      anomalies?: any;  // Phase 3: Anomaly detection data
       allStats?: any[];  // Accumulate all stats calls
       allBreakdowns?: { habit: any; data: any[] }[];  // Accumulate all breakdown calls
+      suggested_followups?: string[];  // Phase 3: Follow-up suggestions
     } = {
       allStats: [],
       allBreakdowns: []
@@ -464,6 +570,37 @@ Be encouraging and supportive!`;
               break;
             case 'listHabits':
               result = await executeListHabits(token);
+              break;
+            case 'getHabitTrends':
+              result = await executeGetHabitTrends(token, args);
+              // Store trends for canvas
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.trends = parsed;
+                  // Capture suggested follow-ups
+                  if (parsed.suggested_followups) {
+                    toolResults.suggested_followups = parsed.suggested_followups;
+                  }
+                }
+              } catch {}
+              break;
+            case 'getHabitAnomalies':
+              result = await executeGetHabitAnomalies(token, args);
+              // Store anomalies for canvas
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.anomalies = parsed;
+                  // Capture suggested follow-ups (merge with existing)
+                  if (parsed.suggested_followups) {
+                    toolResults.suggested_followups = [
+                      ...(toolResults.suggested_followups || []),
+                      ...parsed.suggested_followups
+                    ].slice(0, 3);  // Max 3 suggestions
+                  }
+                }
+              } catch {}
               break;
             default:
               result = JSON.stringify({ error: `Unknown tool: ${toolCall.function.name}` });

@@ -505,6 +505,319 @@ class AnalyticsService:
             }
     
     # ====================
+    # PHASE 3: PROACTIVE INSIGHTS
+    # ====================
+    
+    async def get_habit_trends(
+        self,
+        user_id: str,
+        habit_id: Optional[str] = None,
+        habit_name: Optional[str] = None,
+        window_days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Compare current period vs previous period to identify trends.
+        
+        Returns per habit:
+        - current_avg, previous_avg (per day with data)
+        - absolute_change, percent_change
+        - direction: up | down | flat
+        - confidence: high | medium | low (based on data availability)
+        
+        Confidence rules:
+        - high: both periods have >= 10 days with data
+        - medium: both periods have >= 5 days with data
+        - low: otherwise
+        """
+        async with get_db_session() as session:
+            # Calculate date ranges
+            end_dt = datetime.utcnow().date()
+            current_start = end_dt - timedelta(days=window_days)
+            previous_end = current_start - timedelta(days=1)
+            previous_start = previous_end - timedelta(days=window_days)
+            
+            # Get habits
+            habits_query = select(HabitDB).where(HabitDB.user_id == user_id)
+            if habit_id:
+                habits_query = habits_query.where(HabitDB.id == habit_id)
+            
+            habits_result = await session.execute(habits_query)
+            habits = habits_result.scalars().all()
+            
+            # Filter by name if provided
+            if habit_name and not habit_id:
+                habits = self._find_habits_by_name(habits, habit_name)
+            
+            if not habits:
+                return {
+                    "success": False,
+                    "error": f"No habit found matching '{habit_name or habit_id}'",
+                    "available_habits": await self._get_habit_names(session, user_id)
+                }
+            
+            # Get logs for both periods
+            habit_ids = [h.id for h in habits]
+            logs_query = select(HabitLogDB).where(
+                and_(
+                    HabitLogDB.habit_id.in_(habit_ids),
+                    HabitLogDB.date >= str(previous_start),
+                    HabitLogDB.date <= str(end_dt)
+                )
+            )
+            logs_result = await session.execute(logs_query)
+            all_logs = logs_result.scalars().all()
+            
+            # Calculate trends per habit
+            trends = []
+            for habit in habits:
+                habit_logs = [l for l in all_logs if l.habit_id == habit.id]
+                
+                # Split logs by period
+                current_logs = [l for l in habit_logs if l.date >= str(current_start)]
+                previous_logs = [l for l in habit_logs if l.date < str(current_start)]
+                
+                # Aggregate by date
+                current_daily = self._aggregate_by_date(habit, current_logs)
+                previous_daily = self._aggregate_by_date(habit, previous_logs)
+                
+                # Calculate averages (per day with data)
+                current_values = [v["value"] for v in current_daily.values()]
+                previous_values = [v["value"] for v in previous_daily.values()]
+                
+                days_current = len(current_values)
+                days_previous = len(previous_values)
+                
+                current_avg = sum(current_values) / days_current if days_current > 0 else 0
+                previous_avg = sum(previous_values) / days_previous if days_previous > 0 else 0
+                
+                # Calculate change
+                absolute_change = current_avg - previous_avg
+                if previous_avg > 0:
+                    percent_change = ((current_avg - previous_avg) / previous_avg) * 100
+                elif current_avg > 0:
+                    percent_change = 100.0  # Went from 0 to something
+                else:
+                    percent_change = 0.0
+                
+                # Determine direction (threshold: 5% change)
+                if percent_change > 5:
+                    direction = "up"
+                elif percent_change < -5:
+                    direction = "down"
+                else:
+                    direction = "flat"
+                
+                # Determine confidence
+                if days_current >= 10 and days_previous >= 10:
+                    confidence = "high"
+                elif days_current >= 5 and days_previous >= 5:
+                    confidence = "medium"
+                else:
+                    confidence = "low"
+                
+                trends.append({
+                    "habit_id": habit.id,
+                    "habit_name": habit.name,
+                    "unit": habit.unit_type or "sessions",
+                    "category": habit.category,
+                    "window_days": window_days,
+                    "current_avg": round(current_avg, 2),
+                    "previous_avg": round(previous_avg, 2),
+                    "absolute_change": round(absolute_change, 2),
+                    "percent_change": round(percent_change, 1),
+                    "days_with_data_current": days_current,
+                    "days_with_data_previous": days_previous,
+                    "direction": direction,
+                    "confidence": confidence,
+                })
+            
+            # Sort by absolute percent change (most changed first)
+            trends.sort(key=lambda x: abs(x["percent_change"]), reverse=True)
+            
+            # Generate suggested follow-ups based on results
+            suggested_followups = self._generate_trend_followups(trends)
+            
+            return {
+                "success": True,
+                "window_days": window_days,
+                "current_period": {
+                    "start": str(current_start),
+                    "end": str(end_dt)
+                },
+                "previous_period": {
+                    "start": str(previous_start),
+                    "end": str(previous_end)
+                },
+                "trends": trends,
+                "summary": {
+                    "total_habits": len(trends),
+                    "improving": len([t for t in trends if t["direction"] == "up"]),
+                    "declining": len([t for t in trends if t["direction"] == "down"]),
+                    "stable": len([t for t in trends if t["direction"] == "flat"]),
+                },
+                "suggested_followups": suggested_followups
+            }
+    
+    def _generate_trend_followups(self, trends: List[Dict[str, Any]]) -> List[str]:
+        """Generate suggested follow-up questions based on trend results."""
+        followups = []
+        
+        # Find most changed habits
+        significant_changes = [t for t in trends if abs(t["percent_change"]) > 10 and t["confidence"] != "low"]
+        
+        if significant_changes:
+            # Suggest anomaly check for biggest change
+            biggest = significant_changes[0]
+            followups.append(f"Show anomalies for {biggest['habit_name']}")
+        
+        # Find habits with good data for correlation
+        high_data_habits = [t for t in trends if t["days_with_data_current"] >= 15]
+        if len(high_data_habits) >= 2:
+            h1, h2 = high_data_habits[0], high_data_habits[1]
+            followups.append(f"Compare {h1['habit_name']} vs {h2['habit_name']} (correlation)")
+        
+        # Suggest breakdown for a specific habit
+        if trends:
+            top = trends[0]
+            followups.append(f"Break down {top['habit_name']} by day for the last 30 days")
+        
+        return followups[:3]  # Max 3 suggestions
+    
+    async def get_habit_anomalies(
+        self,
+        user_id: str,
+        habit_id: Optional[str] = None,
+        habit_name: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_back: int = 30,
+        z_threshold: float = 2.0,
+        max_results: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Identify unusual days (spikes/drops) for a habit using z-score analysis.
+        
+        Returns:
+        - baseline_avg, baseline_std_dev
+        - anomalies: list of unusual days with date, value, z_score, type (spike/drop)
+        """
+        async with get_db_session() as session:
+            # Calculate date range
+            if end_date:
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+            else:
+                end_dt = datetime.utcnow().date()
+                
+            if start_date:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            else:
+                start_dt = end_dt - timedelta(days=days_back)
+            
+            # Find the habit
+            habit = await self._find_habit(session, user_id, habit_id, habit_name)
+            if not habit:
+                return {
+                    "success": False,
+                    "error": f"No habit found matching '{habit_name or habit_id}'",
+                    "available_habits": await self._get_habit_names(session, user_id)
+                }
+            
+            # Get logs
+            logs_query = select(HabitLogDB).where(
+                and_(
+                    HabitLogDB.habit_id == habit.id,
+                    HabitLogDB.date >= str(start_dt),
+                    HabitLogDB.date <= str(end_dt)
+                )
+            )
+            logs_result = await session.execute(logs_query)
+            logs = logs_result.scalars().all()
+            
+            # Aggregate by date
+            daily_data = self._aggregate_by_date(habit, logs)
+            
+            if len(daily_data) < 3:
+                return {
+                    "success": False,
+                    "error": f"Not enough data for anomaly detection. Need at least 3 days, found {len(daily_data)}.",
+                    "habit": {"id": habit.id, "name": habit.name, "unit": habit.unit_type}
+                }
+            
+            # Calculate baseline statistics
+            values = [v["value"] for v in daily_data.values()]
+            mean = sum(values) / len(values)
+            variance = sum((v - mean) ** 2 for v in values) / len(values)
+            std_dev = math.sqrt(variance)
+            
+            if std_dev == 0:
+                return {
+                    "success": True,
+                    "habit": {"id": habit.id, "name": habit.name, "unit": habit.unit_type or "sessions"},
+                    "date_range": {"start": str(start_dt), "end": str(end_dt)},
+                    "baseline_avg": round(mean, 2),
+                    "baseline_std_dev": 0,
+                    "anomalies": [],
+                    "message": "No variance in data - all values are the same",
+                    "suggested_followups": []
+                }
+            
+            # Find anomalies
+            anomalies = []
+            for date_str, data in daily_data.items():
+                value = data["value"]
+                z_score = (value - mean) / std_dev
+                
+                if abs(z_score) >= z_threshold:
+                    anomalies.append({
+                        "date": date_str,
+                        "value": round(value, 2),
+                        "z_score": round(z_score, 2),
+                        "type": "spike" if z_score > 0 else "drop",
+                        "entries_count": data.get("entries", 1),
+                        "deviation_from_avg": round(value - mean, 2)
+                    })
+            
+            # Sort by absolute z-score and limit results
+            anomalies.sort(key=lambda x: abs(x["z_score"]), reverse=True)
+            anomalies = anomalies[:max_results]
+            
+            # Generate follow-ups
+            suggested_followups = self._generate_anomaly_followups(habit.name, anomalies)
+            
+            return {
+                "success": True,
+                "habit": {"id": habit.id, "name": habit.name, "unit": habit.unit_type or "sessions"},
+                "date_range": {"start": str(start_dt), "end": str(end_dt)},
+                "days_analyzed": len(daily_data),
+                "baseline_avg": round(mean, 2),
+                "baseline_std_dev": round(std_dev, 2),
+                "z_threshold": z_threshold,
+                "anomalies": anomalies,
+                "summary": {
+                    "total_anomalies": len(anomalies),
+                    "spikes": len([a for a in anomalies if a["type"] == "spike"]),
+                    "drops": len([a for a in anomalies if a["type"] == "drop"])
+                },
+                "suggested_followups": suggested_followups
+            }
+    
+    def _generate_anomaly_followups(self, habit_name: str, anomalies: List[Dict[str, Any]]) -> List[str]:
+        """Generate suggested follow-up questions based on anomaly results."""
+        followups = []
+        
+        if anomalies:
+            # Suggest trends to see overall pattern
+            followups.append(f"Show trends for {habit_name} over the last 90 days")
+            
+            # Suggest correlation if there are significant anomalies
+            if len(anomalies) >= 2:
+                followups.append(f"What habits might be affecting my {habit_name}?")
+        else:
+            followups.append(f"Show me my {habit_name} breakdown by day")
+        
+        return followups[:3]
+    
+    # ====================
     # HELPER METHODS
     # ====================
     

@@ -277,7 +277,15 @@ function extractCanvasData(content: string, question: string): HabitCanvasData |
 
 // Build canvas data directly from tool results (more reliable than text parsing)
 function buildCanvasFromToolData(
-  toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any } | null,
+  toolData: { 
+    stats?: any; 
+    dailyBreakdown?: any; 
+    dailyBreakdownHabit?: any; 
+    correlation?: any;
+    trends?: any;
+    anomalies?: any;
+    suggested_followups?: string[];
+  } | null,
   question: string
 ): HabitCanvasData | undefined {
   if (!toolData) return undefined;
@@ -288,6 +296,33 @@ function buildCanvasFromToolData(
   const habitName = habitMatch 
     ? habitMatch[0].charAt(0).toUpperCase() + habitMatch[0].slice(1).toLowerCase() 
     : 'Activity';
+  
+  // Phase 3: Handle trends data
+  if (toolData.trends && toolData.trends.success) {
+    return {
+      type: 'trends',
+      title: 'Habit Trends',
+      dateRange: {
+        start: toolData.trends.current_period?.start || '',
+        end: toolData.trends.current_period?.end || '',
+      },
+      trends: toolData.trends,
+    };
+  }
+  
+  // Phase 3: Handle anomalies data
+  if (toolData.anomalies && toolData.anomalies.success) {
+    return {
+      type: 'anomalies',
+      title: `${toolData.anomalies.habit?.name || habitName} Anomalies`,
+      habitName: toolData.anomalies.habit?.name || habitName,
+      dateRange: {
+        start: toolData.anomalies.date_range?.start || '',
+        end: toolData.anomalies.date_range?.end || '',
+      },
+      anomalies: toolData.anomalies,
+    };
+  }
   
   // If we have daily breakdown data, build trends canvas (with table)
   if (toolData.dailyBreakdown && Array.isArray(toolData.dailyBreakdown) && toolData.dailyBreakdown.length > 0) {
@@ -547,7 +582,7 @@ export function ChatClient() {
               // Build canvasData from tool_payload if available
               let messageCanvasData: HabitCanvasData | undefined;
               if (m.tool_payload && m.role === 'assistant') {
-                const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown };
+                const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown; trends?: unknown; anomalies?: unknown; suggested_followups?: string[] };
                 // Find the original user question (previous message)
                 const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
                 const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
@@ -721,7 +756,7 @@ export function ChatClient() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
-      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any } | null = null;
+      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; suggested_followups?: string[] } | null = null;
       
       while (true) {
         const { done, value } = await reader.read();

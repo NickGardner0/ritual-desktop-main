@@ -438,6 +438,75 @@ async def list_habits_for_analytics(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/api/analytics/trends")
+@limiter.limit("20/minute")
+async def get_analytics_trends(
+    request: Request,
+    habit_id: Optional[str] = None,
+    habit_name: Optional[str] = None,
+    window_days: int = 30,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get habit trends comparing current period vs previous period.
+    Returns direction (up/down/flat), percent change, and confidence.
+    
+    Query params:
+    - habit_id: Specific habit ID (optional, returns all habits if not provided)
+    - habit_name: Habit name to search for (flexible matching)
+    - window_days: Period length in days (default 30)
+    """
+    try:
+        result = await analytics_service.get_habit_trends(
+            user_id=current_user["id"],
+            habit_id=habit_id,
+            habit_name=habit_name,
+            window_days=window_days
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/analytics/anomalies")
+@limiter.limit("20/minute")
+async def get_analytics_anomalies(
+    request: Request,
+    habit_id: Optional[str] = None,
+    habit_name: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days_back: int = 30,
+    z_threshold: float = 2.0,
+    max_results: int = 5,
+    current_user = Depends(get_current_user)
+):
+    """
+    Identify unusual days (spikes/drops) for a habit using z-score analysis.
+    
+    Query params:
+    - habit_id: Specific habit ID
+    - habit_name: Habit name to search for (flexible matching)
+    - start_date: Start date YYYY-MM-DD
+    - end_date: End date YYYY-MM-DD
+    - days_back: Days to look back (default 30, used if no dates provided)
+    - z_threshold: Z-score threshold for anomaly detection (default 2.0)
+    - max_results: Maximum anomalies to return (default 5)
+    """
+    try:
+        result = await analytics_service.get_habit_anomalies(
+            user_id=current_user["id"],
+            habit_id=habit_id,
+            habit_name=habit_name,
+            start_date=start_date,
+            end_date=end_date,
+            days_back=days_back,
+            z_threshold=z_threshold,
+            max_results=max_results
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # ================================
 # REAL-TIME ENDPOINTS - WebSocket for live updates
 # ================================
