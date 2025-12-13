@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { ArrowUp, AudioLines, Loader, Paperclip } from 'lucide-react';
+import { ArrowUp, AudioLines, Loader, Paperclip, X, Check, AlertTriangle, ChevronDown } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -13,6 +13,56 @@ type InputMode = 'log' | 'chat';
 
 interface AIHabitChatProps {
   onHabitUpdate?: (habitData: any) => void;
+}
+
+// Screenshot preview data from the preview endpoint
+interface ScreenshotPreview {
+  habit_id: string | null;
+  habit_name: string;
+  value: number;
+  unit: string;
+  description: string;
+  detected_type: string;
+  confidence: number;
+  low_confidence: boolean;
+  validation: {
+    is_valid: boolean;
+    reason?: string;
+    suggested_value?: number;
+  };
+  is_new_habit: boolean;
+  available_habits: Array<{ id: string; name: string; unit_type: string }>;
+}
+
+// Phase 5A: Multi-intent logging types
+interface LogResult {
+  index: number;
+  success: boolean;
+  habit_id?: string;
+  habit_name?: string;
+  value?: number;
+  unit?: string;
+  date?: string;
+  error?: string;
+}
+
+interface Clarification {
+  index: number;
+  habit_hint: string;
+  value: number | null;
+  unit: string | null;
+  date: string;
+  alternatives: Array<{ id: string; name: string; confidence: number }>;
+  reason: string;
+}
+
+interface LoggingResult {
+  success: boolean;
+  message: string;
+  logged: LogResult[];
+  clarifications: Clarification[];
+  refreshNeeded?: boolean;
+  affectedHabitIds?: string[];
 }
 
 /**
@@ -32,6 +82,17 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [mode, setMode] = useState<InputMode>('log');
   const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
+  
+  // Screenshot confirmation flow state
+  const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotPreview | null>(null);
+  const [editedValue, setEditedValue] = useState<string>('');
+  const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [showHabitDropdown, setShowHabitDropdown] = useState(false);
+  
+  // Phase 5A: Multi-intent logging state
+  const [clarifications, setClarifications] = useState<Clarification[]>([]);
+  const [clarificationDropdownIndex, setClarificationDropdownIndex] = useState<number | null>(null);
 
   const { habits } = useHabits();
   const { user } = useUser();
@@ -157,54 +218,48 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       return;
     }
 
-    // Log mode: existing behavior
+    // Log mode: Phase 5A multi-intent processing
     setIsLoading(true);
     setError(null);
-
-    // Instant optimistic update
-    const parsedHabit = parseHabitInput(inputText);
-
-    if (parsedHabit && onHabitUpdate) {
-      const matchingHabit = habits.find(h =>
-        h.name.toLowerCase() === parsedHabit.habitName.toLowerCase()
-      );
-
-      if (matchingHabit && matchingHabit.id) {
-        onHabitUpdate({
-          success: true,
-          refreshNeeded: false,
-          optimisticUpdate: true,
-          playSound: true,
-          habitId: matchingHabit.id,
-          duration: parsedHabit.duration || 0,
-          amount: parsedHabit.amount || null,
-          unit: parsedHabit.unit,
-          notes: `Logged via AI: ${parsedHabit.activity}`
-        });
-        
-        // Track habit logged via AI
-        trackHabitLogged({
-          habitId: matchingHabit.id,
-          habitName: matchingHabit.name,
-          value: parsedHabit.amount ?? parsedHabit.duration ?? undefined,
-          unit: parsedHabit.unit || undefined,
-          source: 'ai_chat',
-        });
-      }
-    }
+    setClarifications([]);
     
     // Track AI chat message for logging mode
     trackAIChatMessageSent({ messageLength: inputText.length });
 
     setInput('');
-    setTimeout(() => setIsLoading(false), 500);
 
-    // Process in background
+    // OPTIMISTIC UPDATE: Try to parse locally first for instant feedback
+    const localParsed = parseHabitInput(inputText);
+    if (localParsed?.success && localParsed.habitName && onHabitUpdate) {
+      // Find the matching habit to get the ID
+      const matchedHabit = habits.find(h => 
+        h.name.toLowerCase() === localParsed.habitName?.toLowerCase()
+      );
+      
+      if (matchedHabit) {
+        // Send optimistic update IMMEDIATELY (before API call)
+        onHabitUpdate({
+          success: true,
+          optimisticUpdate: true,
+          habitId: matchedHabit.id,
+          duration: localParsed.duration || undefined,
+          amount: localParsed.amount || undefined,
+          unit: localParsed.unit || matchedHabit.unit || undefined,
+          playSound: true,
+          refreshNeeded: false, // Don't refresh yet, wait for API
+        });
+        console.log('⚡ Optimistic update sent for:', matchedHabit.name);
+      }
+    }
+
     try {
       if (!user) throw new Error('User not authenticated');
       const sessionToken = await getToken();
+      
+      // Generate client event ID for idempotency
+      const clientEventId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      fetch('/api/chat/habits', {
+      const response = await fetch('/api/chat/habits', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -213,27 +268,130 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         body: JSON.stringify({
           messages: [{ role: 'user', content: inputText }],
           userId: user.id,
+          clientEventId,
         }),
-      }).then(async (response) => {
-        if (!response.ok) return;
-        const result = await response.json();
+      });
 
-        if (result?.success && onHabitUpdate) {
-          onHabitUpdate({
-            success: true,
-            refreshNeeded: true,
-            // Play sound on backend success if local parsing didn't already play it
-            playSound: !parsedHabit,
-            message: result.message || 'Habit logged successfully!'
+      const result: LoggingResult = await response.json();
+      
+      // Handle successful logs
+      if (result.logged && result.logged.length > 0) {
+        const successfulLogs = result.logged.filter(r => r.success);
+        
+        if (successfulLogs.length > 0) {
+          // Track each logged habit
+          successfulLogs.forEach(log => {
+            if (log.habit_id && log.habit_name) {
+              trackHabitLogged({
+                habitId: log.habit_id,
+                habitName: log.habit_name,
+                value: log.value,
+                unit: log.unit || undefined,
+                source: 'ai_chat',
+              });
+            }
           });
+          
+          // Trigger background refresh to sync with server (no sound - already played)
+          if (onHabitUpdate && result.refreshNeeded) {
+            onHabitUpdate({
+              success: true,
+              refreshNeeded: true,
+              playSound: false, // Sound already played in optimistic update
+              affectedHabitIds: result.affectedHabitIds,
+              message: result.message
+            });
+          }
         }
-      }).catch(console.error);
+      }
+      
+      // Handle clarifications needed
+      if (result.clarifications && result.clarifications.length > 0) {
+        setClarifications(result.clarifications);
+      }
+      
+      // Show error if nothing worked
+      if (!result.success && result.clarifications?.length === 0) {
+        setError(result.message || 'Could not log any habits. Please try again.');
+      }
 
     } catch (err) {
-      if (!parsedHabit) {
-        setError('Failed to process your request. Please try again.');
-      }
+      console.error('Log error:', err);
+      setError('Failed to process your request. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
+  };
+  
+  // Phase 5A: Handle clarification selection
+  const handleClarificationSelect = async (clarificationIndex: number, habitId: string, habitName: string) => {
+    const clarification = clarifications[clarificationIndex];
+    if (!clarification) return;
+    
+    setIsLoading(true);
+    setClarificationDropdownIndex(null);
+    
+    try {
+      const sessionToken = await getToken();
+      const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+      
+      // Direct log to the selected habit
+      const response = await fetch(`${apiUrl}/api/logs/batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
+        },
+        body: JSON.stringify({
+          items: [{
+            habit_id: habitId,
+            date: clarification.date,
+            amount: clarification.value,
+            unit: clarification.unit,
+            source: 'ai_log_v2',
+            notes: `Logged via clarification: ${clarification.habit_hint}`
+          }],
+          client_event_id: `clarify-${Date.now()}`
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          // Remove from clarifications
+          setClarifications(prev => prev.filter((_, i) => i !== clarificationIndex));
+          
+          // Refresh dashboard + play sound (no popup)
+          if (onHabitUpdate) {
+            onHabitUpdate({
+              success: true,
+              refreshNeeded: true,
+              playSound: true,
+              affectedHabitIds: [habitId]
+            });
+          }
+          
+          // Track
+          trackHabitLogged({
+            habitId,
+            habitName,
+            value: clarification.value ?? undefined,
+            unit: clarification.unit || undefined,
+            source: 'ai_chat',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Clarification log error:', err);
+      setError('Failed to log. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Phase 5A: Dismiss clarification
+  const dismissClarification = (index: number) => {
+    setClarifications(prev => prev.filter((_, i) => i !== index));
   };
 
   // Voice recording
@@ -369,8 +527,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       // Get the Python API URL from environment
       const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
       
-      // Use the smart screenshot analyzer endpoint
-      const res = await fetch(`${apiUrl}/api/screenshot/analyze`, {
+      // Use the preview endpoint for confirmation flow
+      const res = await fetch(`${apiUrl}/api/screenshot/preview`, {
         method: 'POST',
         body: formData,
         headers: {
@@ -385,10 +543,71 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         return;
       }
 
-      const data = await res.json();
+      const data: ScreenshotPreview = await res.json();
+      
+      // Set preview data for confirmation
+      setScreenshotPreview(data);
+      setEditedValue(String(data.value));
+      setSelectedHabitId(data.habit_id);
       
       // Clear any existing input
       setInput('');
+
+    } catch (err: any) {
+      console.error('Screenshot upload error:', err);
+      setError(err.message || 'Failed to upload screenshot. Please try again.');
+    } finally {
+      setIsUploadingScreenshot(false);
+      // Reset input so the same file can be selected again if needed
+      e.target.value = '';
+    }
+  };
+
+  // Confirm and log the screenshot data
+  const handleConfirmScreenshot = async () => {
+    if (!screenshotPreview) return;
+    
+    setIsConfirming(true);
+    setError(null);
+
+    try {
+      const sessionToken = await getToken();
+      const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+      
+      // Find the selected habit name
+      const selectedHabit = screenshotPreview.available_habits.find(h => h.id === selectedHabitId);
+      const habitName = selectedHabit?.name || screenshotPreview.habit_name;
+      const habitUnit = selectedHabit?.unit_type || screenshotPreview.unit;
+      
+      const res = await fetch(`${apiUrl}/api/screenshot/confirm`, {
+        method: 'POST',
+        headers: {
+          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          habit_id: selectedHabitId,
+          habit_name: habitName,
+          value: parseFloat(editedValue) || screenshotPreview.value,
+          unit: habitUnit,
+          detected_type: screenshotPreview.detected_type,
+          description: screenshotPreview.description,
+          create_new_habit: screenshotPreview.is_new_habit && !selectedHabitId,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        setError(errorData.detail || 'Failed to log screenshot data');
+        return;
+      }
+
+      const data = await res.json();
+      
+      // Clear preview
+      setScreenshotPreview(null);
+      setEditedValue('');
+      setSelectedHabitId(null);
       
       // Trigger habit update callback to refresh dashboard data
       if (onHabitUpdate) {
@@ -410,13 +629,19 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       });
 
     } catch (err: any) {
-      console.error('Screenshot upload error:', err);
-      setError(err.message || 'Failed to upload screenshot. Please try again.');
+      console.error('Screenshot confirm error:', err);
+      setError(err.message || 'Failed to confirm. Please try again.');
     } finally {
-      setIsUploadingScreenshot(false);
-      // Reset input so the same file can be selected again if needed
-      e.target.value = '';
+      setIsConfirming(false);
     }
+  };
+
+  // Cancel the screenshot preview
+  const handleCancelScreenshot = () => {
+    setScreenshotPreview(null);
+    setEditedValue('');
+    setSelectedHabitId(null);
+    setError(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -436,6 +661,224 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   return (
     <div className="w-full">
+      {/* Phase 5A: Clarification Modal */}
+      {clarifications.length > 0 && (
+        <div className="mb-3 border border-amber-200 bg-amber-50 shadow-sm">
+          <div className="px-4 py-3">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span className="text-sm font-medium text-amber-800">
+                Which habit did you mean?
+              </span>
+            </div>
+            <div className="space-y-2">
+              {clarifications.map((clarification, idx) => (
+                <div key={idx} className="bg-white border border-amber-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-gray-700">
+                      &quot;{clarification.habit_hint}&quot; 
+                      {clarification.value && (
+                        <span className="text-gray-500">
+                          {' '}— {clarification.value} {clarification.unit}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => dismissClarification(idx)}
+                      className="text-gray-400 hover:text-gray-600 text-xs"
+                    >
+                      Skip
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setClarificationDropdownIndex(clarificationDropdownIndex === idx ? null : idx)}
+                      className="w-full flex items-center justify-between px-3 py-2 text-sm border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="text-gray-600">Select a habit...</span>
+                      <ChevronDown className={cn(
+                        "w-4 h-4 text-gray-400 transition-transform",
+                        clarificationDropdownIndex === idx && "rotate-180"
+                      )} />
+                    </button>
+                    {clarificationDropdownIndex === idx && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 shadow-lg max-h-48 overflow-y-auto">
+                        {clarification.alternatives.map((alt) => (
+                          <button
+                            key={alt.id}
+                            type="button"
+                            onClick={() => handleClarificationSelect(idx, alt.id, alt.name)}
+                            disabled={isLoading}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 flex items-center justify-between"
+                          >
+                            <span>{alt.name}</span>
+                            <span className="text-xs text-gray-400">
+                              {Math.round(alt.confidence * 100)}% match
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Screenshot Confirmation UI */}
+      {screenshotPreview && (
+        <div className="mb-3 border border-gray-300 bg-white shadow-sm">
+          <div className="px-4 py-3">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-900">Confirm Screenshot Data</span>
+                {screenshotPreview.low_confidence && (
+                  <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
+                    <AlertTriangle className="w-3 h-3" />
+                    Low confidence
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelScreenshot}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Description */}
+            {screenshotPreview.description && (
+              <p className="text-xs text-gray-500 mb-3">{screenshotPreview.description}</p>
+            )}
+
+            {/* Validation Warning */}
+            {!screenshotPreview.validation.is_valid && (
+              <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 mb-3">
+                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                <span>{screenshotPreview.validation.reason}</span>
+              </div>
+            )}
+
+            {/* Editable Fields */}
+            <div className="flex items-center gap-3 mb-3">
+              {/* Value Input */}
+              <div className="flex-1">
+                <label className="block text-xs text-gray-500 mb-1">Value</label>
+                <input
+                  type="number"
+                  value={editedValue}
+                  onChange={(e) => setEditedValue(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 text-sm focus:outline-none focus:border-gray-400"
+                  step="0.1"
+                  min="0"
+                />
+              </div>
+
+              {/* Unit Display */}
+              <div className="w-24">
+                <label className="block text-xs text-gray-500 mb-1">Unit</label>
+                <div className="px-3 py-2 border border-gray-200 bg-gray-50 text-sm text-gray-700">
+                  {screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.unit_type || screenshotPreview.unit}
+                </div>
+              </div>
+            </div>
+
+            {/* Habit Selector */}
+            <div className="mb-3 relative">
+              <label className="block text-xs text-gray-500 mb-1">Habit</label>
+              <button
+                type="button"
+                onClick={() => setShowHabitDropdown(!showHabitDropdown)}
+                className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 text-sm text-left hover:border-gray-400 transition-colors"
+              >
+                <span>
+                  {selectedHabitId 
+                    ? screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.name 
+                    : screenshotPreview.is_new_habit 
+                      ? `Create new: ${screenshotPreview.habit_name}`
+                      : screenshotPreview.habit_name
+                  }
+                </span>
+                <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", showHabitDropdown && "rotate-180")} />
+              </button>
+              
+              {/* Dropdown */}
+              {showHabitDropdown && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-lg max-h-48 overflow-y-auto z-50">
+                  {/* Create new habit option */}
+                  {screenshotPreview.is_new_habit && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedHabitId(null);
+                        setShowHabitDropdown(false);
+                      }}
+                      className={cn(
+                        "w-full px-3 py-2 text-sm text-left hover:bg-gray-100 flex items-center gap-2",
+                        !selectedHabitId && "bg-gray-50"
+                      )}
+                    >
+                      <span className="text-green-600">+</span>
+                      <span>Create new: {screenshotPreview.habit_name}</span>
+                    </button>
+                  )}
+                  {/* Existing habits */}
+                  {screenshotPreview.available_habits.map((habit) => (
+                    <button
+                      key={habit.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedHabitId(habit.id);
+                        setShowHabitDropdown(false);
+                      }}
+                      className={cn(
+                        "w-full px-3 py-2 text-sm text-left hover:bg-gray-100",
+                        selectedHabitId === habit.id && "bg-gray-50"
+                      )}
+                    >
+                      {habit.name}
+                      <span className="text-gray-400 text-xs ml-2">({habit.unit_type})</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCancelScreenshot}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                disabled={isConfirming}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmScreenshot}
+                disabled={isConfirming || !editedValue}
+                className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isConfirming ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="relative border border-gray-300 bg-[#F2F2F2] shadow-sm">
         <form onSubmit={handleFormSubmit}>
           <div className="px-5 py-3">

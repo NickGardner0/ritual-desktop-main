@@ -20,7 +20,12 @@ class ConversationService:
     Service for managing AI chat conversations and messages.
     """
     
-    async def create_conversation(self, user_id: str, title: Optional[str] = None) -> Dict[str, Any]:
+    async def create_conversation(
+        self, 
+        user_id: str, 
+        title: Optional[str] = None,
+        response_mode: str = "text"
+    ) -> Dict[str, Any]:
         """
         Create a new conversation for a user.
         """
@@ -29,6 +34,7 @@ class ConversationService:
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 title=title,
+                response_mode=response_mode,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
@@ -39,6 +45,7 @@ class ConversationService:
                 "id": conversation.id,
                 "user_id": conversation.user_id,
                 "title": conversation.title,
+                "response_mode": conversation.response_mode,
                 "created_at": conversation.created_at.isoformat(),
                 "updated_at": conversation.updated_at.isoformat(),
                 "messages": []
@@ -173,6 +180,69 @@ class ConversationService:
             
             return True
     
+    async def update_response_mode(
+        self,
+        conversation_id: str,
+        user_id: str,
+        response_mode: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Update the response mode of a conversation.
+        Returns the updated conversation or None if not found.
+        """
+        if response_mode not in ('text', 'voice'):
+            return None
+            
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(AIConversationDB).where(
+                    and_(
+                        AIConversationDB.id == conversation_id,
+                        AIConversationDB.user_id == user_id
+                    )
+                )
+            )
+            conversation = result.scalars().first()
+            
+            if not conversation:
+                return None
+            
+            conversation.response_mode = response_mode
+            conversation.updated_at = datetime.utcnow()
+            await session.commit()
+            await session.refresh(conversation)
+            
+            return {
+                "id": conversation.id,
+                "response_mode": conversation.response_mode,
+                "updated_at": conversation.updated_at.isoformat()
+            }
+    
+    async def get_response_mode(
+        self,
+        conversation_id: str,
+        user_id: str
+    ) -> str:
+        """
+        Get the response mode for a conversation.
+        Returns 'text' as default if conversation not found.
+        """
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(AIConversationDB).where(
+                    and_(
+                        AIConversationDB.id == conversation_id,
+                        AIConversationDB.user_id == user_id
+                    )
+                )
+            )
+            conversation = result.scalars().first()
+            
+            if not conversation:
+                return "text"
+            
+            return conversation.response_mode or "text"
+    
     async def list_conversations(
         self,
         user_id: str,
@@ -226,6 +296,7 @@ class ConversationService:
             "id": conversation.id,
             "user_id": conversation.user_id,
             "title": conversation.title,
+            "response_mode": conversation.response_mode or "text",
             "created_at": conversation.created_at.isoformat(),
             "updated_at": conversation.updated_at.isoformat(),
             "messages": [self._serialize_message(m) for m in messages]

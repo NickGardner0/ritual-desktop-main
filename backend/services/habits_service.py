@@ -12,9 +12,29 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
 from database.connection import get_db_session
-from database.models import HabitDB, HabitLogDB, UserDB
+from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
 from services.tinybird_service import TinybirdService
+
+
+# Phase 5A: Built-in synonym map for common habit types
+HABIT_SYNONYMS = {
+    "walk": ["walking", "walked", "stroll", "strolled", "hike", "hiked"],
+    "run": ["running", "ran", "jog", "jogging", "jogged"],
+    "workout": ["work out", "worked out", "exercise", "exercised", "gym", "training", "trained"],
+    "meditation": ["meditate", "meditated", "mindfulness", "mindful"],
+    "sleep": ["slept", "sleeping", "rest", "rested"],
+    "read": ["reading", "book", "books"],
+    "code": ["coding", "coded", "programming", "programmed", "develop", "developed"],
+    "write": ["writing", "wrote", "written"],
+    "study": ["studying", "studied", "learn", "learning", "learned"],
+    "stretch": ["stretching", "stretched", "yoga"],
+    "swim": ["swimming", "swam"],
+    "bike": ["biking", "biked", "cycling", "cycled", "bicycle"],
+    "water": ["hydrate", "hydrated", "hydration", "drink", "drank"],
+    "caffeine": ["coffee", "espresso", "tea"],
+    "screen": ["screentime", "screen time", "phone", "device"],
+}
 
 class HabitsService:
     """Service class for habit operations"""
@@ -248,6 +268,119 @@ class HabitsService:
                 await session.rollback()
                 raise Exception(f"Failed to log habit: {str(e)}")
     
+    async def batch_log_habits(
+        self, 
+        items: List[Dict], 
+        user_id: str, 
+        client_event_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Phase 5A: Batch log multiple habits at once.
+        Returns per-item results with success/error status.
+        """
+        results = []
+        
+        async with get_db_session() as session:
+            try:
+                # Check for idempotency if client_event_id provided
+                if client_event_id:
+                    existing = await session.execute(
+                        select(HabitLogDB).where(HabitLogDB.client_event_id == client_event_id)
+                    )
+                    existing_logs = existing.scalars().all()
+                    if existing_logs:
+                        print(f"⚠️ Duplicate client_event_id detected: {client_event_id}")
+                        return {
+                            "success": True,
+                            "duplicate": True,
+                            "results": [
+                                {"index": i, "success": True, "log_id": log.id, "duplicate": True}
+                                for i, log in enumerate(existing_logs)
+                            ]
+                        }
+                
+                # Pre-fetch all user habits for validation
+                user_habits = await self.get_habits(user_id)
+                habits_by_id = {h.id: h for h in user_habits}
+                
+                created_logs = []
+                
+                for index, item in enumerate(items):
+                    try:
+                        habit_id = item.get("habit_id")
+                        
+                        # Validate habit ownership
+                        if habit_id not in habits_by_id:
+                            results.append({
+                                "index": index,
+                                "success": False,
+                                "error": f"Habit not found or not authorized: {habit_id}"
+                            })
+                            continue
+                        
+                        habit = habits_by_id[habit_id]
+                        
+                        # Create habit log
+                        log_id = str(uuid.uuid4())
+                        log_db = HabitLogDB(
+                            id=log_id,
+                            habit_id=habit_id,
+                            habit_name=habit.name,
+                            duration=item.get("duration"),
+                            amount=item.get("amount"),
+                            date=item.get("date"),
+                            completed_at=item.get("completed_at") or datetime.utcnow().isoformat(),
+                            status="completed",
+                            notes=item.get("notes"),
+                            client_event_id=client_event_id,
+                            source=item.get("source", "ai_log_v2")
+                        )
+                        
+                        session.add(log_db)
+                        created_logs.append((index, log_db, habit))
+                        
+                        results.append({
+                            "index": index,
+                            "success": True,
+                            "log_id": log_id,
+                            "habit_id": habit_id,
+                            "habit_name": habit.name
+                        })
+                        
+                    except Exception as item_error:
+                        results.append({
+                            "index": index,
+                            "success": False,
+                            "error": str(item_error)
+                        })
+                
+                # Commit all successful logs
+                await session.commit()
+                
+                # Sync to Tinybird for all created logs
+                if self.tinybird_enabled and created_logs:
+                    for index, log_db, habit in created_logs:
+                        try:
+                            await session.refresh(log_db)
+                            habit_log = habit_log_db_to_pydantic(log_db)
+                            await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
+                        except Exception as e:
+                            print(f"⚠️ Tinybird sync failed for log {log_db.id}: {e}")
+                
+                return {
+                    "success": True,
+                    "results": results,
+                    "logged_count": sum(1 for r in results if r.get("success"))
+                }
+                
+            except SQLAlchemyError as e:
+                await session.rollback()
+                return {
+                    "success": False,
+                    "error": f"Database error: {str(e)}",
+                    "results": results
+                }
+    
     async def get_habit_logs(self, habit_id: Optional[str], user_id: str) -> List[HabitLog]:
         """
         Get habit logs - mirrors habitsService.getHabitLogs()
@@ -374,3 +507,139 @@ class HabitsService:
             except SQLAlchemyError as e:
                 print(f"❌ Error fetching category breakdown: {e}")
                 raise
+    
+    # ================================
+    # Phase 5A: Alias Management
+    # ================================
+    
+    async def get_habit_aliases(self, habit_id: str, user_id: str) -> List[str]:
+        """
+        Get all aliases for a habit.
+        """
+        async with get_db_session() as session:
+            try:
+                # Verify habit belongs to user
+                habit = await self.get_habit_by_id(habit_id, user_id)
+                if not habit:
+                    return []
+                
+                result = await session.execute(
+                    select(HabitAliasDB.alias_text)
+                    .where(HabitAliasDB.habit_id == habit_id)
+                )
+                return [row[0] for row in result.all()]
+                
+            except SQLAlchemyError as e:
+                print(f"❌ Error fetching habit aliases: {e}")
+                return []
+    
+    async def add_habit_alias(self, habit_id: str, alias_text: str, user_id: str) -> bool:
+        """
+        Add an alias to a habit.
+        """
+        async with get_db_session() as session:
+            try:
+                # Verify habit belongs to user
+                habit = await self.get_habit_by_id(habit_id, user_id)
+                if not habit:
+                    return False
+                
+                normalized_alias = alias_text.lower().strip()
+                
+                # Check if alias already exists
+                existing = await session.execute(
+                    select(HabitAliasDB)
+                    .where(HabitAliasDB.habit_id == habit_id)
+                    .where(HabitAliasDB.alias_text == normalized_alias)
+                )
+                if existing.scalar_one_or_none():
+                    return True  # Already exists
+                
+                alias_db = HabitAliasDB(
+                    id=str(uuid.uuid4()),
+                    habit_id=habit_id,
+                    alias_text=normalized_alias,
+                    created_at=datetime.utcnow()
+                )
+                session.add(alias_db)
+                await session.commit()
+                return True
+                
+            except SQLAlchemyError as e:
+                await session.rollback()
+                print(f"❌ Error adding habit alias: {e}")
+                return False
+    
+    async def auto_generate_aliases(self, habit: Habit) -> List[str]:
+        """
+        Auto-generate aliases from habit name and built-in synonyms.
+        Returns list of generated aliases.
+        """
+        aliases = []
+        habit_name_lower = habit.name.lower()
+        
+        # Extract tokens from habit name
+        tokens = habit_name_lower.replace("-", " ").replace("_", " ").split()
+        
+        # Add each token as potential alias
+        for token in tokens:
+            if len(token) >= 3:  # Skip very short tokens
+                aliases.append(token)
+                
+                # Add synonyms from the built-in map
+                for base_word, synonyms in HABIT_SYNONYMS.items():
+                    if base_word == token or token in synonyms:
+                        aliases.append(base_word)
+                        aliases.extend(synonyms)
+        
+        # Remove duplicates
+        return list(set(aliases))
+    
+    async def ensure_habit_aliases(self, habit_id: str, user_id: str) -> int:
+        """
+        Ensure a habit has auto-generated aliases.
+        Returns number of aliases added.
+        """
+        habit = await self.get_habit_by_id(habit_id, user_id)
+        if not habit:
+            return 0
+        
+        existing_aliases = await self.get_habit_aliases(habit_id, user_id)
+        generated_aliases = await self.auto_generate_aliases(habit)
+        
+        added = 0
+        for alias in generated_aliases:
+            if alias not in existing_aliases:
+                if await self.add_habit_alias(habit_id, alias, user_id):
+                    added += 1
+        
+        return added
+    
+    async def get_all_aliases_for_user(self, user_id: str) -> Dict[str, List[str]]:
+        """
+        Get all aliases for all habits owned by a user.
+        Returns dict mapping habit_id -> [aliases]
+        """
+        async with get_db_session() as session:
+            try:
+                # Get all user habits
+                habits = await self.get_habits(user_id)
+                habit_ids = [h.id for h in habits]
+                
+                if not habit_ids:
+                    return {}
+                
+                result = await session.execute(
+                    select(HabitAliasDB.habit_id, HabitAliasDB.alias_text)
+                    .where(HabitAliasDB.habit_id.in_(habit_ids))
+                )
+                
+                aliases_map: Dict[str, List[str]] = {hid: [] for hid in habit_ids}
+                for row in result.all():
+                    aliases_map[row[0]].append(row[1])
+                
+                return aliases_map
+                
+            except SQLAlchemyError as e:
+                print(f"❌ Error fetching user aliases: {e}")
+                return {}

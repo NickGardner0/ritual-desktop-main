@@ -579,7 +579,7 @@ export function DashboardClient() {
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            className={`w-full flex justify-between items-center h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
+                            className={`w-full max-w-xl flex justify-between items-center h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
                               }`}
                           >
                             <div className="flex items-center min-w-0 space-x-2">
@@ -597,13 +597,13 @@ export function DashboardClient() {
                                   <span className="text-xl">{getHabitIcon(habit.name, habit.category)}</span>
                                 )}
                               </span>
-                              <span className="text-[17px] font-normal text-gray-900 truncate">{habit.name}</span>
+                              <span className="text-[16px] font-normal text-gray-900 truncate">{habit.name}</span>
                             </div>
                             <div
                               className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
                               onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
                             >
-                              <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
+                              <span className="text-[16px] font-normal text-gray-900 select-none tabular-nums">
                                 {getHabitMetricDisplay(habit)}
                               </span>
                               <button
@@ -795,6 +795,12 @@ export function DashboardClient() {
                   } else if (habitData.refreshNeeded) {
                     // Backend confirmed - now refresh from database and clear optimistic logs
                     console.log('🔄 Backend confirmed success, refreshing from database...');
+                    
+                    // Phase 5A: Log affected habits for debugging
+                    if (habitData.affectedHabitIds && habitData.affectedHabitIds.length > 0) {
+                      console.log('📝 Affected habits:', habitData.affectedHabitIds);
+                    }
+                    
                     try {
                       await Promise.all([
                         fetchHabits(),
@@ -803,6 +809,41 @@ export function DashboardClient() {
                       // Clear optimistic logs since we now have real data
                       setOptimisticLogs([]);
                       console.log('✅ Dashboard data refreshed after habit log, optimistic logs cleared');
+                      
+                      // Phase 5A: Play sound on successful multi-intent log
+                      if (habitData.playSound) {
+                        try {
+                          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                          if (audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                          }
+
+                          const oscillator1 = audioContext.createOscillator();
+                          const oscillator2 = audioContext.createOscillator();
+                          const gainNode = audioContext.createGain();
+
+                          oscillator1.connect(gainNode);
+                          oscillator2.connect(gainNode);
+                          gainNode.connect(audioContext.destination);
+
+                          oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
+                          oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
+
+                          gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                          gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
+                          gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+
+                          oscillator1.type = 'sine';
+                          oscillator2.type = 'sine';
+
+                          oscillator1.start(audioContext.currentTime);
+                          oscillator2.start(audioContext.currentTime);
+                          oscillator1.stop(audioContext.currentTime + 0.6);
+                          oscillator2.stop(audioContext.currentTime + 0.6);
+                        } catch (e) {
+                          console.log('Sound playback failed:', e);
+                        }
+                      }
                     } catch (error) {
                       console.error('❌ Error refreshing dashboard data:', error);
                     }

@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeftClose, PanelLeft, MessageSquare } from 'lucide-react';
+import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeftClose, PanelLeft, MessageSquare, Volume2 } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -126,6 +126,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   canvasData?: HabitCanvasData;
+  replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
 }
 
 // Smarter canvas data extraction - looks for patterns in the response
@@ -496,6 +497,7 @@ interface PersistedConversation {
   id: string;
   user_id: string;
   title: string | null;
+  response_mode?: 'text' | 'voice';
   created_at: string;
   updated_at: string;
   messages: PersistedMessage[];
@@ -536,11 +538,14 @@ export function ChatClient() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   
-  // Voice mode state
+  // Voice mode state (transcription)
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  
+  // Voice style mode (Phase 4A - conversational responses)
+  const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
 
   // Set full screen chat mode on mount, reset on unmount
   useEffect(() => {
@@ -601,6 +606,9 @@ export function ChatClient() {
             
             setMessages(loadedMessages);
             setConversationId(conversation.id);
+            
+            // Initialize voice style from conversation's response_mode
+            setVoiceStyleEnabled(conversation.response_mode === 'voice');
             
             // Set canvas data from the last assistant message that has it
             const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
@@ -696,6 +704,9 @@ export function ChatClient() {
           setMessages(loadedMessages);
           setConversationId(conversation.id);
           
+          // Initialize voice style from conversation's response_mode
+          setVoiceStyleEnabled(conversation.response_mode === 'voice');
+          
           const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
           if (lastMessageWithCanvas?.canvasData) {
             setCanvasData(lastMessageWithCanvas.canvasData);
@@ -716,7 +727,33 @@ export function ChatClient() {
     setCanvasData(null);
     setStreamingContent('');
     setInput('');
+    setVoiceStyleEnabled(false); // Reset voice style for new conversations
   }, []);
+
+  // Toggle voice style mode and persist to conversation (Phase 4A)
+  const toggleVoiceStyle = useCallback(async (enabled: boolean) => {
+    setVoiceStyleEnabled(enabled);
+    
+    // Persist to conversation if we have one
+    if (conversationId) {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        
+        await fetch(`${PYTHON_API_BASE}/api/conversations/${conversationId}/response-mode`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ response_mode: enabled ? 'voice' : 'text' }),
+        });
+        console.log('💬 Updated conversation response mode:', enabled ? 'voice' : 'text');
+      } catch (error) {
+        console.error('Failed to persist voice style:', error);
+      }
+    }
+  }, [conversationId, getToken]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (isLoading || !text.trim()) return;
@@ -747,6 +784,7 @@ export function ChatClient() {
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           conversationId: conversationId, // Include conversation ID for persistence
+          responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
         }),
       });
       
@@ -756,7 +794,7 @@ export function ChatClient() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
-      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; suggested_followups?: string[] } | null = null;
+      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
       
       while (true) {
         const { done, value } = await reader.read();
@@ -841,6 +879,7 @@ export function ChatClient() {
         role: 'assistant',
         content: displayContent || 'I was unable to process your request.',
         canvasData: extractedCanvas,
+        replyChips: voiceStyleEnabled ? toolData?.reply_chips : undefined,  // Phase 4A
       };
       
       setMessages([...newMessages, assistantMessage]);
@@ -857,7 +896,7 @@ export function ChatClient() {
       setIsLoading(false);
       setCurrentQuestion('');
     }
-  }, [messages, isLoading, getToken, conversationId, loadConversationsList]);
+  }, [messages, isLoading, getToken, conversationId, loadConversationsList, voiceStyleEnabled]);
 
   useEffect(() => {
     // Wait for conversation loading to complete before processing initial question
@@ -1123,9 +1162,14 @@ export function ChatClient() {
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
             <div className="max-w-lg w-full space-y-6">
-              <div className="text-center space-y-2">
-                <h1 className="text-xl font-medium text-gray-900">Ask about your personal data</h1>
-                <p className="text-gray-500 text-sm">Get insights, trends, and analysis of your tracking data.</p>
+              {/* Faded Logo - Perplexity style watermark */}
+              <div className="flex justify-center mb-4">
+                <img
+                  src="/images/logo_fix1.svg"
+                  alt="Ritual"
+                  className="w-10 h-10 opacity-[0.08]"
+                  style={{ filter: 'grayscale(100%)' }}
+                />
               </div>
 
               <form onSubmit={handleSubmit} className="relative">
@@ -1135,37 +1179,51 @@ export function ChatClient() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="How have I been sleeping this week?"
+                    placeholder="Ask about your personal data"
                     className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-4 py-4 min-h-[60px] max-h-[120px]"
                     rows={1}
                   />
                   <div className="flex justify-between items-center px-3 pb-3">
-                    {/* Voice Button */}
-                    <div className="flex items-center gap-2 group">
+                    {/* Voice Input + Voice Style Toggle */}
+                    <div className="flex items-center gap-3">
+                      {/* Voice Recording Button */}
+                      <div className="flex items-center gap-2 group">
+                        <button
+                          type="button"
+                          onClick={startVoiceRecognition}
+                          className={cn(
+                            "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                            isListening || isProcessingVoice
+                              ? "text-gray-900"
+                              : "text-gray-400 hover:text-gray-600"
+                          )}
+                          aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                        >
+                          {isListening ? (
+                            <VoiceWaveformMini isActive={true} />
+                          ) : isProcessingVoice ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
+                          )}
+                        </button>
+                      </div>
+                      
+                      {/* Voice Style Toggle (Phase 4A) */}
                       <button
                         type="button"
-                        onClick={startVoiceRecognition}
+                        onClick={() => toggleVoiceStyle(!voiceStyleEnabled)}
                         className={cn(
-                          "w-8 h-8 flex items-center justify-center transition-all duration-200",
-                          isListening || isProcessingVoice
-                            ? "text-gray-900"
-                            : "text-gray-400 hover:text-gray-600"
+                          "flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all",
+                          voiceStyleEnabled
+                            ? "bg-gray-900 text-white"
+                            : "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700"
                         )}
-                        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                        title={voiceStyleEnabled ? 'Voice style: ON - Conversational responses' : 'Voice style: OFF - Detailed responses'}
                       >
-                        {isListening ? (
-                          <VoiceWaveformMini isActive={true} />
-                        ) : isProcessingVoice ? (
-                          <Loader className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
-                        )}
+                        <Volume2 className="w-3 h-3" />
+                        <span>{voiceStyleEnabled ? 'Voice' : 'Text'}</span>
                       </button>
-                      {!isListening && !isProcessingVoice && (
-                        <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                          Voice
-                        </span>
-                      )}
                     </div>
                     
                     {/* Submit Button */}
@@ -1192,7 +1250,7 @@ export function ChatClient() {
                       setInput(suggestion);
                       textareaRef.current?.focus();
                     }}
-                    className="px-3 py-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                    className="px-3 py-1.5 text-xs text-gray-500 bg-white border border-gray-200 hover:bg-[#F3F3F3] hover:text-gray-700 transition-all"
                   >
                     {suggestion}
                   </button>
@@ -1348,7 +1406,7 @@ export function ChatClient() {
             "mx-auto px-8 pt-4 pb-32 transition-all duration-300",
             canvasData ? "max-w-2xl" : "max-w-3xl"
           )}>
-            {messages.map((message) => (
+            {messages.map((message, messageIndex) => (
               <div key={message.id}>
                 {message.role === 'user' ? (
                   <h1 className="text-2xl font-medium text-gray-900 leading-snug mb-6">
@@ -1359,6 +1417,27 @@ export function ChatClient() {
                     <Response className="text-[15px] leading-[1.7] text-gray-700">
                       {message.content}
                     </Response>
+                    {/* Reply Chips (Phase 4A) - Only show for last assistant message in voice mode */}
+                    {voiceStyleEnabled && 
+                     message.replyChips && 
+                     message.replyChips.length > 0 && 
+                     messageIndex === messages.length - 1 && (
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {message.replyChips.map((chip, chipIndex) => (
+                          <button
+                            key={chipIndex}
+                            onClick={() => {
+                              setInput(chip);
+                              sendMessage(chip);
+                            }}
+                            disabled={isLoading}
+                            className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800 rounded-full transition-colors disabled:opacity-50"
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1405,34 +1484,50 @@ export function ChatClient() {
                   />
                 </div>
                 <div className="flex justify-between items-center px-3 pb-3">
-                  {/* Voice Button */}
-                  <div className="flex items-center gap-2 group">
+                  {/* Voice Input + Voice Style Toggle */}
+                  <div className="flex items-center gap-3">
+                    {/* Voice Recording Button */}
+                    <div className="flex items-center gap-2 group">
+                      <button
+                        type="button"
+                        onClick={startVoiceRecognition}
+                        disabled={isLoading}
+                        className={cn(
+                          "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                          isListening || isProcessingVoice
+                            ? "text-gray-900"
+                            : "text-gray-400 hover:text-gray-600",
+                          "disabled:opacity-50"
+                        )}
+                        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                      >
+                        {isListening ? (
+                          <VoiceWaveformMini isActive={true} />
+                        ) : isProcessingVoice ? (
+                          <Loader className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
+                        )}
+                      </button>
+                    </div>
+                    
+                    {/* Voice Style Toggle (Phase 4A) */}
                     <button
                       type="button"
-                      onClick={startVoiceRecognition}
+                      onClick={() => toggleVoiceStyle(!voiceStyleEnabled)}
                       disabled={isLoading}
                       className={cn(
-                        "w-8 h-8 flex items-center justify-center transition-all duration-200",
-                        isListening || isProcessingVoice
-                          ? "text-gray-900"
-                          : "text-gray-400 hover:text-gray-600",
+                        "flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all",
+                        voiceStyleEnabled
+                          ? "bg-gray-900 text-white"
+                          : "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700",
                         "disabled:opacity-50"
                       )}
-                      aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                      title={voiceStyleEnabled ? 'Voice style: ON - Conversational responses' : 'Voice style: OFF - Detailed responses'}
                     >
-                      {isListening ? (
-                        <VoiceWaveformMini isActive={true} />
-                      ) : isProcessingVoice ? (
-                        <Loader className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
-                      )}
+                      <Volume2 className="w-3 h-3" />
+                      <span>{voiceStyleEnabled ? 'Voice' : 'Text'}</span>
                     </button>
-                    {!isListening && !isProcessingVoice && !isLoading && (
-                      <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        Voice
-                      </span>
-                    )}
                   </div>
                   
                   {/* Submit Button */}

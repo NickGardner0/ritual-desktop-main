@@ -55,7 +55,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -186,6 +186,55 @@ async def get_habits(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+@app.get("/api/habits/aliases")
+async def get_all_habit_aliases(current_user = Depends(get_current_user)):
+    """
+    Phase 5A: Get all aliases for all habits owned by the user.
+    Returns a dict mapping habit_id -> [aliases]
+    """
+    try:
+        aliases_map = await habits_service.get_all_aliases_for_user(current_user["id"])
+        return aliases_map
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/habits/{habit_id}/aliases")
+async def add_habit_alias(
+    habit_id: str,
+    alias_text: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Phase 5A: Add an alias to a habit.
+    """
+    try:
+        success = await habits_service.add_habit_alias(habit_id, alias_text, current_user["id"])
+        if not success:
+            raise HTTPException(status_code=404, detail="Habit not found or alias could not be added")
+        return {"success": True, "alias": alias_text.lower().strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/habits/{habit_id}/generate-aliases")
+async def generate_habit_aliases(
+    habit_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Phase 5A: Auto-generate aliases for a habit from its name and synonyms.
+    """
+    try:
+        count = await habits_service.ensure_habit_aliases(habit_id, current_user["id"])
+        return {"success": True, "aliases_added": count}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.put("/api/habits/{habit_id}", response_model=Habit)
 async def update_habit(habit_id: str, updates: HabitUpdate, current_user = Depends(get_current_user)):
     """
@@ -256,6 +305,69 @@ async def get_all_habit_logs(current_user = Depends(get_current_user)):
         return logs
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ================================
+# PHASE 5A: BATCH LOGGING ENDPOINT
+# ================================
+
+class BatchLogItem(BaseModel):
+    habit_id: str
+    date: str  # YYYY-MM-DD
+    amount: Optional[float] = None
+    duration: Optional[int] = None  # in seconds
+    unit: Optional[str] = None
+    source: str = "ai_log_v2"
+    notes: Optional[str] = None
+    completed_at: Optional[str] = None
+
+class BatchLogRequest(BaseModel):
+    items: List[BatchLogItem]
+    client_event_id: Optional[str] = None  # For idempotency
+
+@app.post("/api/logs/batch")
+@limiter.limit("30/minute")  # Max 30 batch log requests per minute
+async def batch_log_habits(
+    request: Request,
+    batch_request: BatchLogRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Phase 5A: Batch log multiple habits at once.
+    Supports multi-intent logging from natural language parsing.
+    
+    Returns per-item success/error results for reliability.
+    Uses client_event_id for idempotency to prevent duplicate logs.
+    """
+    try:
+        if not batch_request.items:
+            raise HTTPException(status_code=400, detail="No items provided")
+        
+        if len(batch_request.items) > 10:
+            raise HTTPException(status_code=400, detail="Maximum 10 items per batch")
+        
+        # Convert Pydantic models to dicts for the service
+        items = [item.model_dump() for item in batch_request.items]
+        
+        result = await habits_service.batch_log_habits(
+            items=items,
+            user_id=current_user["id"],
+            client_event_id=batch_request.client_event_id
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Batch log failed"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Batch log error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ================================
 # ANALYTICS ENDPOINTS - Powered by Tinybird
@@ -944,6 +1056,232 @@ async def analyze_and_log_screenshot(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ================================
+# SCREENSHOT PREVIEW & CONFIRM ENDPOINTS (User Confirmation Flow)
+# ================================
+
+@app.post("/api/screenshot/preview")
+@limiter.limit("10/minute")
+async def preview_screenshot_analysis(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
+):
+    """
+    Analyze a screenshot and return preview data WITHOUT logging.
+    User can review and confirm before the data is actually logged.
+    
+    Returns:
+        - requires_confirmation: True (always for this endpoint)
+        - habit_id: The ID of the matched habit (or None if new)
+        - habit_name: Name of the habit
+        - value: The extracted value
+        - unit: The unit of the value
+        - confidence: How confident the AI is (0-1)
+        - validation: Whether the value passes sanity checks
+        - available_habits: List of user's habits for selection
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file must be an image (PNG, JPG, etc.)",
+            )
+        
+        # Read image bytes
+        image_bytes = await file.read()
+        
+        if len(image_bytes) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+        
+        if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File size exceeds 10MB limit",
+            )
+        
+        print(f"📸 Preview analyzing screenshot for user {current_user['id']} ({len(image_bytes)} bytes)")
+        
+        # Get user's existing habits
+        user_habits = await habits_service.get_habits(current_user["id"])
+        habits_for_analysis = [
+            {"id": h.id, "name": h.name, "unit_type": h.unit_type}
+            for h in user_habits
+        ]
+        
+        print(f"📋 User has {len(habits_for_analysis)} habits to match against")
+        
+        # Analyze screenshot using OpenAI vision
+        analysis = analyze_screenshot_for_habits(image_bytes, habits_for_analysis)
+        
+        if analysis is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Could not extract useful data from this screenshot. "
+                    "Please make sure the screenshot clearly shows trackable data like "
+                    "screen time, workout stats, reading progress, meeting times, etc."
+                ),
+            )
+        
+        print(f"✅ Preview analysis result: {analysis}")
+        
+        # Check confidence threshold
+        confidence = analysis.get("confidence", 0.5)
+        low_confidence = confidence < 0.6
+        
+        # Get validation info
+        validation = analysis.get("validation", {"is_valid": True})
+        
+        return {
+            "requires_confirmation": True,
+            "habit_id": analysis.get("habit_id"),
+            "habit_name": analysis.get("habit_name", "Unknown"),
+            "value": analysis.get("value"),
+            "unit": analysis.get("unit", "Count"),
+            "description": analysis.get("description", ""),
+            "detected_type": analysis.get("detected_type", "other"),
+            "raw_text": analysis.get("raw_text", ""),
+            "confidence": confidence,
+            "low_confidence": low_confidence,
+            "validation": validation,
+            "is_new_habit": analysis.get("habit_id") is None,
+            "available_habits": [
+                {"id": h.id, "name": h.name, "unit_type": h.unit_type}
+                for h in user_habits
+            ],
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Screenshot preview error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ScreenshotConfirmRequest(BaseModel):
+    habit_id: Optional[str] = None  # None if creating new habit
+    habit_name: str
+    value: float
+    unit: str
+    detected_type: str = "other"
+    description: str = ""
+    create_new_habit: bool = False
+
+
+@app.post("/api/screenshot/confirm")
+async def confirm_screenshot_log(
+    request: ScreenshotConfirmRequest,
+    current_user = Depends(get_current_user),
+):
+    """
+    Confirm and log the screenshot analysis after user review.
+    User can modify the value, habit, or unit before confirming.
+    """
+    try:
+        from datetime import datetime, timezone
+        
+        habit_id = request.habit_id
+        habit_name = request.habit_name
+        value = request.value
+        unit = request.unit
+        
+        # If no habit_id or create_new_habit is True, create a new habit
+        if not habit_id or request.create_new_habit:
+            print(f"🆕 Creating new habit: {habit_name}")
+            
+            # Determine category based on detected type
+            category_map = {
+                "screen_time": "wellness",
+                "meetings": "productivity", 
+                "workout": "health",
+                "reading": "learning",
+                "sleep": "health",
+                "meditation": "wellness",
+                "steps": "health",
+                "distance": "health",
+            }
+            category = category_map.get(request.detected_type, "other")
+            
+            new_habit = await habits_service.create_habit(
+                HabitCreate(
+                    name=habit_name,
+                    category=category,
+                    unit_type=unit,
+                    is_custom=True,
+                    integration_source="screenshot",
+                ),
+                current_user["id"]
+            )
+            habit_id = new_habit.id
+            habit_name = new_habit.name
+            print(f"✅ Created new habit: {habit_name} ({habit_id})")
+        
+        # Get the habit to verify it exists
+        habit = await habits_service.get_habit_by_id(habit_id, current_user["id"])
+        if not habit:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Habit not found: {habit_id}",
+            )
+        
+        # Convert value to appropriate format for logging
+        duration = None
+        amount = value
+        
+        habit_unit = (habit.unit_type or "").lower()
+        if "hour" in habit_unit:
+            if unit.lower() == "minutes":
+                amount = value / 60
+        elif "minute" in habit_unit:
+            if unit.lower() == "hours":
+                amount = value * 60
+        
+        # Log the habit
+        logged_at = datetime.now(timezone.utc)
+        date_str = logged_at.strftime("%Y-%m-%d")
+        
+        log_data = HabitLogCreate(
+            duration=duration,
+            amount=amount,
+            date=date_str,
+            completed_at=logged_at.isoformat(),
+            status="completed",
+            notes=f"Logged via screenshot: {request.description}",
+        )
+        
+        habit_log = await habits_service.log_habit(habit_id, log_data, current_user["id"])
+        
+        # Format display value
+        display_value = f"{amount:.1f}" if isinstance(amount, float) else str(amount)
+        
+        return {
+            "success": True,
+            "habit_id": habit_id,
+            "habit_name": habit_name,
+            "value": amount,
+            "unit": habit.unit_type or unit,
+            "description": request.description,
+            "detected_type": request.detected_type,
+            "logged_at": logged_at.isoformat(),
+            "message": f"Successfully logged {display_value} {habit.unit_type or unit} of {habit_name}.",
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Screenshot confirm error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Legacy endpoint for backward compatibility
 @app.post("/api/screentime/from-screenshot")
 @limiter.limit("10/minute")
@@ -1065,6 +1403,36 @@ async def list_conversations(
         return {"conversations": conversations}
     except Exception as e:
         print(f"❌ Error listing conversations: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ResponseModeUpdate(BaseModel):
+    response_mode: str  # 'text' or 'voice'
+
+@app.patch("/api/conversations/{conversation_id}/response-mode")
+async def update_conversation_response_mode(
+    conversation_id: str,
+    update: ResponseModeUpdate,
+    current_user = Depends(get_current_user)
+):
+    """
+    Update the response mode for a conversation.
+    """
+    try:
+        if update.response_mode not in ('text', 'voice'):
+            raise HTTPException(status_code=400, detail="response_mode must be 'text' or 'voice'")
+        
+        result = await conversation_service.update_response_mode(
+            conversation_id,
+            current_user["id"],
+            update.response_mode
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error updating response mode: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ================================
