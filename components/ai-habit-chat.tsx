@@ -498,9 +498,20 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                       )}
                     />
                   </button>
-                  <span className="text-xs text-gray-500 font-medium">
-                    {mode === 'chat' ? 'Chat' : 'Log'}
-                  </span>
+                  {mode === 'chat' ? (
+                    <button
+                      type="button"
+                      onClick={() => router.push('/chat')}
+                      className="text-xs text-gray-600 font-medium hover:text-gray-900 hover:underline transition-colors"
+                      title="Open chat history"
+                    >
+                      Chat
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-500 font-medium">
+                      Log
+                    </span>
+                  )}
                 </div>
 
                 {/* Voice Button (SECOND) */}

@@ -85,3 +85,33 @@ class WhoopIntegrationDB(Base):
     
     # Relationships
     user = relationship("UserDB", backref="whoop_integration")
+
+
+class AIConversationDB(Base):
+    """AI Chat conversation model for database"""
+    __tablename__ = "ai_conversations"
+    
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    title = Column(String, nullable=True)  # Optional title for the conversation
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("UserDB", backref="ai_conversations")
+    messages = relationship("AIMessageDB", back_populates="conversation", cascade="all, delete-orphan", order_by="AIMessageDB.created_at")
+
+
+class AIMessageDB(Base):
+    """AI Chat message model for database"""
+    __tablename__ = "ai_messages"
+    
+    id = Column(String, primary_key=True)
+    conversation_id = Column(String, ForeignKey("ai_conversations.id"), nullable=False)
+    role = Column(String, nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    tool_payload = Column(Text, nullable=True)  # JSON string of tool results for canvas rehydration
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    conversation = relationship("AIConversationDB", back_populates="messages")

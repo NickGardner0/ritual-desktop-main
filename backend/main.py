@@ -889,6 +889,116 @@ async def log_screentime_from_screenshot_legacy(
     return await analyze_and_log_screenshot(request, file, current_user)
 
 # ================================
+# AI CONVERSATION ENDPOINTS - Chat persistence
+# ================================
+
+from services.conversation_service import conversation_service
+
+class MessageCreate(BaseModel):
+    role: str  # 'user' or 'assistant'
+    content: str
+    tool_payload: Optional[dict] = None
+
+@app.post("/api/conversations")
+async def create_conversation(
+    current_user = Depends(get_current_user)
+):
+    """
+    Create a new AI conversation for the user.
+    Returns the new conversation with its ID.
+    """
+    try:
+        conversation = await conversation_service.create_conversation(current_user["id"])
+        return conversation
+    except Exception as e:
+        print(f"❌ Error creating conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/conversations/latest")
+async def get_latest_conversation(
+    current_user = Depends(get_current_user)
+):
+    """
+    Get the most recently updated conversation for the user.
+    Returns null if no conversations exist.
+    """
+    try:
+        conversation = await conversation_service.get_latest_conversation(current_user["id"])
+        if not conversation:
+            return None
+        return conversation
+    except Exception as e:
+        print(f"❌ Error getting latest conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get a specific conversation by ID.
+    Only returns if the conversation belongs to the user.
+    """
+    try:
+        conversation = await conversation_service.get_conversation(
+            conversation_id, 
+            current_user["id"]
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return conversation
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error getting conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/conversations/{conversation_id}/messages")
+async def add_message(
+    conversation_id: str,
+    message_data: MessageCreate,
+    current_user = Depends(get_current_user)
+):
+    """
+    Add a message to a conversation.
+    """
+    try:
+        message = await conversation_service.add_message(
+            conversation_id=conversation_id,
+            user_id=current_user["id"],
+            role=message_data.role,
+            content=message_data.content,
+            tool_payload=message_data.tool_payload
+        )
+        if not message:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return message
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error adding message: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/conversations")
+async def list_conversations(
+    limit: int = 20,
+    current_user = Depends(get_current_user)
+):
+    """
+    List conversations for the user.
+    """
+    try:
+        conversations = await conversation_service.list_conversations(
+            current_user["id"],
+            limit=limit
+        )
+        return {"conversations": conversations}
+    except Exception as e:
+        print(f"❌ Error listing conversations: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ================================
 # MIGRATION ENDPOINTS - For data migration
 # ================================
 

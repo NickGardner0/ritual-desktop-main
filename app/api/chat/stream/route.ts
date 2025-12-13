@@ -38,6 +38,64 @@ async function fetchPythonApi(endpoint: string, token: string, params?: Record<s
 }
 
 // ====================
+// CONVERSATION PERSISTENCE HELPERS
+// ====================
+
+async function createConversation(token: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${PYTHON_API_BASE}/api/conversations`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      console.log('💬 Created new conversation:', data.id);
+      return data.id;
+    }
+    console.error('❌ Failed to create conversation:', await response.text());
+    return null;
+  } catch (error) {
+    console.error('❌ Error creating conversation:', error);
+    return null;
+  }
+}
+
+async function saveMessage(
+  token: string,
+  conversationId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  toolPayload?: Record<string, unknown> | null
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${PYTHON_API_BASE}/api/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        role,
+        content,
+        tool_payload: toolPayload || null,
+      }),
+    });
+    if (response.ok) {
+      console.log(`💾 Saved ${role} message to conversation ${conversationId}`);
+      return true;
+    }
+    console.error('❌ Failed to save message:', await response.text());
+    return false;
+  } catch (error) {
+    console.error('❌ Error saving message:', error);
+    return false;
+  }
+}
+
+// ====================
 // TOOL DEFINITIONS
 // ====================
 
@@ -236,7 +294,26 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { messages, timezone } = await req.json();
+    const { messages, timezone, conversationId: providedConversationId } = await req.json();
+    
+    // Get or create conversation ID for persistence
+    let conversationId = providedConversationId;
+    if (!conversationId) {
+      conversationId = await createConversation(token);
+      console.log('📝 New conversation created:', conversationId);
+    }
+    
+    // Get the latest user message to save
+    const latestUserMessage = messages[messages.length - 1];
+    
+    // Save the user message to the conversation (don't block on this)
+    if (conversationId && latestUserMessage?.role === 'user') {
+      // Fire and forget - don't block the response
+      saveMessage(token, conversationId, 'user', latestUserMessage.content).catch(err => {
+        console.error('❌ Failed to save user message:', err);
+      });
+    }
+    
     const now = new Date();
     const today = now.toISOString().split('T')[0];
     const currentYear = now.getFullYear();
@@ -452,10 +529,23 @@ Be encouraging and supportive!`;
     // Log tool results being sent
     console.log('📦 Tool results for canvas:', Object.keys(toolResults));
 
+    // Save assistant message with tool payload (fire and forget)
+    if (conversationId) {
+      const toolPayloadToSave = Object.keys(toolResults).length > 0 ? toolResults : null;
+      saveMessage(token, conversationId, 'assistant', finalText, toolPayloadToSave).catch(err => {
+        console.error('❌ Failed to save assistant message:', err);
+      });
+    }
+
     // Stream response in chunks for faster perceived performance
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
+        // Send conversation ID first so client can track it
+        if (conversationId) {
+          controller.enqueue(encoder.encode(`__CONVERSATION_ID__${conversationId}__END_CONVERSATION_ID__\n`));
+        }
+        
         // Stream in larger chunks (sentences or phrases) for faster delivery
         // while still providing a streaming feel
         const words = finalText.split(' ');

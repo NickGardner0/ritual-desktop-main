@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, Loader, ArrowLeft, AudioLines } from 'lucide-react';
+import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeftClose, PanelLeft, MessageSquare } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Streamdown } from 'streamdown';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useAI } from '@/contexts/AIContext';
+import { RitualLogo } from '@/components/ritual-logo';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
@@ -444,6 +445,36 @@ function cleanContentForDisplay(content: string): string {
   return cleaned;
 }
 
+// Python API base URL
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+// Persisted conversation types
+interface PersistedMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  tool_payload?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+interface PersistedConversation {
+  id: string;
+  user_id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: PersistedMessage[];
+}
+
+// Sidebar conversation item (without full messages)
+interface ConversationListItem {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  first_message?: string;
+}
+
 export function ChatClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -461,6 +492,15 @@ export function ChatClient() {
   const [canvasData, setCanvasData] = useState<HabitCanvasData | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState('');
   
+  // Conversation persistence state
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
+  
+  // Sidebar state
+  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  
   // Voice mode state
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
@@ -472,6 +512,176 @@ export function ChatClient() {
     setIsFullScreenChat(true);
     return () => setIsFullScreenChat(false);
   }, [setIsFullScreenChat]);
+  
+  // Load latest conversation on mount (only if no initial question)
+  useEffect(() => {
+    const loadLatestConversation = async () => {
+      // Skip loading if there's an initial question - we'll start fresh
+      if (initialQuestion) {
+        setIsLoadingConversation(false);
+        return;
+      }
+      
+      try {
+        const token = await getToken();
+        if (!token) {
+          setIsLoadingConversation(false);
+          return;
+        }
+        
+        const response = await fetch(`${PYTHON_API_BASE}/api/conversations/latest`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const conversation: PersistedConversation | null = await response.json();
+          
+          if (conversation && conversation.messages && conversation.messages.length > 0) {
+            console.log('📥 Loaded conversation:', conversation.id, 'with', conversation.messages.length, 'messages');
+            
+            // Convert persisted messages to our Message format
+            const loadedMessages: Message[] = conversation.messages.map((m) => {
+              // Build canvasData from tool_payload if available
+              let messageCanvasData: HabitCanvasData | undefined;
+              if (m.tool_payload && m.role === 'assistant') {
+                const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown };
+                // Find the original user question (previous message)
+                const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
+                const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
+                const question = previousUserMessage?.role === 'user' ? previousUserMessage.content : '';
+                
+                messageCanvasData = buildCanvasFromToolData(toolData, question);
+              }
+              
+              return {
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                canvasData: messageCanvasData,
+              };
+            });
+            
+            setMessages(loadedMessages);
+            setConversationId(conversation.id);
+            
+            // Set canvas data from the last assistant message that has it
+            const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
+            if (lastMessageWithCanvas?.canvasData) {
+              setCanvasData(lastMessageWithCanvas.canvasData);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load conversation:', error);
+      } finally {
+        setIsLoadingConversation(false);
+      }
+    };
+    
+    loadLatestConversation();
+  }, [getToken, initialQuestion]);
+
+  // Load conversations list for sidebar
+  const loadConversationsList = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      
+      setIsLoadingConversations(true);
+      const response = await fetch(`${PYTHON_API_BASE}/api/conversations?limit=10`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.conversations) {
+          setConversations(data.conversations);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load conversations list:', error);
+    } finally {
+      setIsLoadingConversations(false);
+    }
+  }, [getToken]);
+
+  // Load conversations list on mount
+  useEffect(() => {
+    loadConversationsList();
+  }, [loadConversationsList]);
+
+  // Switch to a different conversation
+  const switchConversation = useCallback(async (targetConversationId: string) => {
+    if (targetConversationId === conversationId) return;
+    
+    try {
+      const token = await getToken();
+      if (!token) return;
+      
+      setIsLoadingConversation(true);
+      setMessages([]);
+      setCanvasData(null);
+      setStreamingContent('');
+      
+      const response = await fetch(`${PYTHON_API_BASE}/api/conversations/${targetConversationId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const conversation: PersistedConversation = await response.json();
+        
+        if (conversation && conversation.messages && conversation.messages.length > 0) {
+          const loadedMessages: Message[] = conversation.messages.map((m) => {
+            let messageCanvasData: HabitCanvasData | undefined;
+            if (m.tool_payload && m.role === 'assistant') {
+              const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown };
+              const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
+              const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
+              const question = previousUserMessage?.role === 'user' ? previousUserMessage.content : '';
+              messageCanvasData = buildCanvasFromToolData(toolData, question);
+            }
+            
+            return {
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              canvasData: messageCanvasData,
+            };
+          });
+          
+          setMessages(loadedMessages);
+          setConversationId(conversation.id);
+          
+          const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
+          if (lastMessageWithCanvas?.canvasData) {
+            setCanvasData(lastMessageWithCanvas.canvasData);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to switch conversation:', error);
+    } finally {
+      setIsLoadingConversation(false);
+    }
+  }, [getToken, conversationId]);
+
+  // Start a new conversation
+  const startNewConversation = useCallback(() => {
+    setConversationId(null);
+    setMessages([]);
+    setCanvasData(null);
+    setStreamingContent('');
+    setInput('');
+  }, []);
 
   const sendMessage = useCallback(async (text: string) => {
     if (isLoading || !text.trim()) return;
@@ -501,6 +711,7 @@ export function ChatClient() {
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          conversationId: conversationId, // Include conversation ID for persistence
         }),
       });
       
@@ -521,6 +732,19 @@ export function ChatClient() {
         
         for (const line of lines) {
           if (!line.trim()) continue;
+          
+          // Check for conversation ID (sent first by server)
+          if (line.includes('__CONVERSATION_ID__')) {
+            const match = line.match(/__CONVERSATION_ID__(.+?)__END_CONVERSATION_ID__/);
+            if (match) {
+              const newConversationId = match[1];
+              console.log('💬 Received conversation ID:', newConversationId);
+              setConversationId(newConversationId);
+              // Refresh conversations list to include the new conversation
+              loadConversationsList();
+            }
+            continue;
+          }
           
           // Check for tool data
           if (line.includes('__TOOL_DATA__')) {
@@ -544,9 +768,9 @@ export function ChatClient() {
                 setStreamingContent(fullResponse);
               }
             } catch {
-              const text = line.substring(2).trim();
-              if (text && !text.startsWith('{')) {
-                fullResponse += text;
+              const lineText = line.substring(2).trim();
+              if (lineText && !lineText.startsWith('{')) {
+                fullResponse += lineText;
                 setStreamingContent(fullResponse);
               }
             }
@@ -598,14 +822,24 @@ export function ChatClient() {
       setIsLoading(false);
       setCurrentQuestion('');
     }
-  }, [messages, isLoading, getToken]);
+  }, [messages, isLoading, getToken, conversationId, loadConversationsList]);
 
   useEffect(() => {
-    if (initialQuestion && !hasSubmittedInitial && messages.length === 0) {
+    // Wait for conversation loading to complete before processing initial question
+    if (isLoadingConversation) return;
+    
+    if (initialQuestion && !hasSubmittedInitial) {
       setHasSubmittedInitial(true);
+      // Start a new conversation when coming from ?q= query param
+      setConversationId(null);
+      setMessages([]);
       sendMessage(initialQuestion);
+      
+      // Clear the ?q= param from URL so refresh doesn't re-ask the question
+      // Use replace to avoid adding to history
+      router.replace('/chat', { scroll: false });
     }
-  }, [initialQuestion, hasSubmittedInitial, messages.length, sendMessage]);
+  }, [initialQuestion, hasSubmittedInitial, isLoadingConversation, sendMessage, router]);
 
   useEffect(() => {
     if (messages.length > 0 || streamingContent) {
@@ -726,96 +960,209 @@ export function ChatClient() {
     setIsListening(false);
   };
 
+  // Loading conversation state
+  if (isLoadingConversation) {
+    return (
+      <div className="h-full flex flex-col bg-[#fafaf8] relative">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex items-center gap-2">
+            <Loader className="w-5 h-5 animate-spin text-gray-400" />
+            <span className="text-gray-500 text-sm">Loading conversation...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Empty state
   if (messages.length === 0 && !isLoading) {
     return (
-      <div className="h-full flex flex-col bg-[#fafaf8] relative">
-        {/* Back Button */}
-        <div className="px-6 pt-4">
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="w-9 h-9 flex items-center justify-center bg-white border border-gray-200 hover:bg-[#F3F3F3] text-gray-500 hover:text-gray-700 transition-all"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <div className="max-w-lg w-full space-y-6">
-            <div className="text-center space-y-2">
-              <h1 className="text-xl font-medium text-gray-900">Ask about your personal data</h1>
-              <p className="text-gray-500 text-sm">Get insights, trends, and analysis of your tracking data.</p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="relative">
-              <div className="bg-[#fafaf8] border border-gray-200 shadow-sm overflow-hidden transition-shadow hover:shadow-md focus-within:shadow-md focus-within:border-gray-300">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="How have I been sleeping this week?"
-                  className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-4 py-4 min-h-[60px] max-h-[120px]"
-                  rows={1}
-                />
-                <div className="flex justify-between items-center px-3 pb-3">
-                  {/* Voice Button */}
-                  <div className="flex items-center gap-2 group">
-                    <button
-                      type="button"
-                      onClick={startVoiceRecognition}
-                      className={cn(
-                        "w-8 h-8 flex items-center justify-center transition-all duration-200",
-                        isListening || isProcessingVoice
-                          ? "text-gray-900"
-                          : "text-gray-400 hover:text-gray-600"
-                      )}
-                      aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
-                    >
-                      {isListening ? (
-                        <VoiceWaveformMini isActive={true} />
-                      ) : isProcessingVoice ? (
-                        <Loader className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
-                      )}
-                    </button>
-                    {!isListening && !isProcessingVoice && (
-                      <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        Voice
-                      </span>
-                    )}
-                  </div>
-                  
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={!input.trim()}
-                    className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
-                  >
-                    <ArrowUp className="w-4 h-4" />
-                  </button>
-                </div>
+      <div className="h-full flex bg-[#fafaf8] relative">
+        {/* Conversation History Sidebar - Also shown in empty state */}
+        <motion.div
+          initial={false}
+          animate={{ width: isSidebarCollapsed ? 48 : 220 }}
+          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+          className="h-full border-r border-gray-100 bg-[#fafaf8] flex flex-col overflow-hidden"
+        >
+          {/* Sidebar Header with Logo */}
+          <div className="flex items-center justify-between p-3 pt-8 pb-3">
+            {!isSidebarCollapsed ? (
+              <div className="flex items-center gap-1.5">
+                <RitualLogo className="w-4 h-4" />
+                <span className="text-sm font-semibold text-gray-900">Ritual</span>
               </div>
-            </form>
-
-            <div className="flex flex-wrap gap-2 justify-center">
-              {[
-                "How's my sleep this week?",
-                "Show my workout progress",
-                "What habits need attention?",
-              ].map((suggestion) => (
+            ) : (
+              <div className="mx-auto">
+                <RitualLogo className="w-4 h-4" />
+              </div>
+            )}
+            {!isSidebarCollapsed && (
+              <button
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors"
+                title="Collapse sidebar"
+              >
+                <PanelLeftClose className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          
+          {/* Conversations List */}
+          <div className="flex-1 overflow-y-auto py-1">
+            {isSidebarCollapsed ? (
+              <div className="flex flex-col items-center gap-0.5 px-2">
                 <button
-                  key={suggestion}
-                  onClick={() => {
-                    setInput(suggestion);
-                    textareaRef.current?.focus();
-                  }}
-                  className="px-3 py-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors mb-1"
+                  title="Expand sidebar"
                 >
-                  {suggestion}
+                  <PanelLeft className="w-4 h-4" />
                 </button>
-              ))}
+                {conversations.slice(0, 10).map((conv, index) => (
+                  <button
+                    key={conv.id}
+                    onClick={() => switchConversation(conv.id)}
+                    className={cn(
+                      "w-8 h-8 flex items-center justify-center rounded transition-colors",
+                      conv.id === conversationId
+                        ? "bg-[#E8E8E8] text-gray-900"
+                        : "text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3]"
+                    )}
+                    title={conv.first_message || conv.title || `Conversation ${index + 1}`}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5 px-2">
+                {isLoadingConversations ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                  </div>
+                ) : conversations.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-gray-400 text-center">
+                    No conversations yet
+                  </div>
+                ) : (
+                  conversations.slice(0, 10).map((conv) => {
+                    const displayTitle = conv.first_message || conv.title || 'New conversation';
+                    const truncatedTitle = displayTitle.length > 26 
+                      ? displayTitle.substring(0, 26) + '...' 
+                      : displayTitle;
+                    
+                    return (
+                      <button
+                        key={conv.id}
+                        onClick={() => switchConversation(conv.id)}
+                        className={cn(
+                          "w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors truncate",
+                          conv.id === conversationId
+                            ? "bg-[#E8E8E8] text-gray-900 font-medium"
+                            : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
+                        )}
+                        title={displayTitle}
+                      >
+                        {truncatedTitle}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col">
+          {/* Back Button */}
+          <div className="px-6 pt-10">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="w-9 h-9 flex items-center justify-center bg-white border border-gray-200 hover:bg-[#F3F3F3] text-gray-500 hover:text-gray-700 transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex-1 flex flex-col items-center justify-center p-6">
+            <div className="max-w-lg w-full space-y-6">
+              <div className="text-center space-y-2">
+                <h1 className="text-xl font-medium text-gray-900">Ask about your personal data</h1>
+                <p className="text-gray-500 text-sm">Get insights, trends, and analysis of your tracking data.</p>
+              </div>
+
+              <form onSubmit={handleSubmit} className="relative">
+                <div className="bg-[#fafaf8] border border-gray-200 shadow-sm overflow-hidden transition-shadow hover:shadow-md focus-within:shadow-md focus-within:border-gray-300">
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="How have I been sleeping this week?"
+                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-4 py-4 min-h-[60px] max-h-[120px]"
+                    rows={1}
+                  />
+                  <div className="flex justify-between items-center px-3 pb-3">
+                    {/* Voice Button */}
+                    <div className="flex items-center gap-2 group">
+                      <button
+                        type="button"
+                        onClick={startVoiceRecognition}
+                        className={cn(
+                          "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                          isListening || isProcessingVoice
+                            ? "text-gray-900"
+                            : "text-gray-400 hover:text-gray-600"
+                        )}
+                        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                      >
+                        {isListening ? (
+                          <VoiceWaveformMini isActive={true} />
+                        ) : isProcessingVoice ? (
+                          <Loader className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
+                        )}
+                      </button>
+                      {!isListening && !isProcessingVoice && (
+                        <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          Voice
+                        </span>
+                      )}
+                    </div>
+                    
+                    {/* Submit Button */}
+                    <button
+                      type="submit"
+                      disabled={!input.trim()}
+                      className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <div className="flex flex-wrap gap-2 justify-center">
+                {[
+                  "How's my sleep this week?",
+                  "Show my workout progress",
+                  "What habits need attention?",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    onClick={() => {
+                      setInput(suggestion);
+                      textareaRef.current?.focus();
+                    }}
+                    className="px-3 py-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100 hover:text-gray-700 transition-all"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -826,6 +1173,125 @@ export function ChatClient() {
   // Chat view
   return (
     <div className="h-full flex bg-[#fafaf8] relative">
+      {/* Conversation History Sidebar */}
+      <motion.div
+        initial={false}
+        animate={{ width: isSidebarCollapsed ? 48 : 220 }}
+        transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+        className="h-full border-r border-gray-100 bg-[#fafaf8] flex flex-col overflow-hidden"
+      >
+        {/* Sidebar Header with Logo */}
+        <div className="flex items-center justify-between p-3 pt-8 pb-3">
+          {!isSidebarCollapsed ? (
+            <div className="flex items-center gap-1.5">
+              <RitualLogo className="w-4 h-4" />
+              <span className="text-sm font-semibold text-gray-900">Ritual</span>
+            </div>
+          ) : (
+            <div className="mx-auto">
+              <RitualLogo className="w-4 h-4" />
+            </div>
+          )}
+          {!isSidebarCollapsed && (
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        
+        {/* New Chat Button */}
+        <div className="px-2 pb-2">
+          {!isSidebarCollapsed ? (
+            <button
+              onClick={startNewConversation}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-200 hover:bg-[#F3F3F3] rounded transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Chat</span>
+            </button>
+          ) : (
+            <button
+              onClick={startNewConversation}
+              className="w-8 h-8 mx-auto flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-[#F3F3F3] rounded transition-colors"
+              title="New Chat"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        
+        {/* Conversations List */}
+        <div className="flex-1 overflow-y-auto py-1">
+          {isSidebarCollapsed ? (
+            // Collapsed state - show icons only
+            <div className="flex flex-col items-center gap-0.5 px-2">
+              <button
+                onClick={() => setIsSidebarCollapsed(false)}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors mb-1"
+                title="Expand sidebar"
+              >
+                <PanelLeft className="w-4 h-4" />
+              </button>
+              {conversations.slice(0, 10).map((conv, index) => (
+                <button
+                  key={conv.id}
+                  onClick={() => switchConversation(conv.id)}
+                  className={cn(
+                    "w-8 h-8 flex items-center justify-center rounded transition-colors",
+                    conv.id === conversationId
+                      ? "bg-[#E8E8E8] text-gray-900"
+                      : "text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3]"
+                  )}
+                  title={conv.first_message || conv.title || `Conversation ${index + 1}`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            // Expanded state - show full list
+            <div className="flex flex-col gap-0.5 px-2">
+              {isLoadingConversations ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                </div>
+              ) : conversations.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-gray-400 text-center">
+                  No conversations yet
+                </div>
+              ) : (
+                conversations.slice(0, 10).map((conv) => {
+                  const displayTitle = conv.first_message || conv.title || 'New conversation';
+                  const truncatedTitle = displayTitle.length > 26 
+                    ? displayTitle.substring(0, 26) + '...' 
+                    : displayTitle;
+                  
+                  return (
+                    <button
+                      key={conv.id}
+                      onClick={() => switchConversation(conv.id)}
+                      className={cn(
+                        "w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors truncate",
+                        conv.id === conversationId
+                          ? "bg-[#E8E8E8] text-gray-900 font-medium"
+                          : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
+                      )}
+                      title={displayTitle}
+                    >
+                      {truncatedTitle}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      </motion.div>
+
       {/* Chat Area */}
       <div className={cn(
         "flex-1 flex flex-col transition-all duration-300 ease-out",
