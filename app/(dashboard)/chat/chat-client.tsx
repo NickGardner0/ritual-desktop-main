@@ -833,7 +833,8 @@ export function ChatClient() {
       // Start a new conversation when coming from ?q= query param
       setConversationId(null);
       setMessages([]);
-      sendMessage(initialQuestion);
+      // Use startFresh to avoid stale messages from closure
+      sendMessage(initialQuestion, { startFresh: true });
       
       // Clear the ?q= param from URL so refresh doesn't re-ask the question
       // Use replace to avoid adding to history
@@ -1439,4 +1440,3 @@ export function ChatClient() {
     </div>
   );
 }
-
