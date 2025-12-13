@@ -12,7 +12,7 @@
 
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useRef, useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -20,8 +20,12 @@ import {
   TrendingDown,
   X,
   ChevronDown,
-  Check
+  Check,
+  Share2,
+  Copy,
+  Download
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { DateRangePicker } from '@/components/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { format, parseISO, startOfDay, differenceInDays, subDays, isWithinInterval, sub } from 'date-fns';
@@ -100,7 +104,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   onClick,
   onRemove
 }) => {
-  // Match spark card colors
+  // Match spark card colors - Perplexity style
   const tealGreen = '#0D9488';
   const warmRed = '#B91C1C';
   const isNeutral = change === undefined || Math.abs(change) < 0.5;
@@ -111,7 +115,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
 
   return (
     <div
-      className="group relative bg-[#FAFAF9] border border-gray-300 p-4 hover:bg-[#F5F5F4] transition-colors duration-150 cursor-pointer"
+      className="group relative bg-[#FAFAF9] border border-gray-300 p-2.5 hover:bg-[#F5F5F4] transition-colors duration-150 cursor-pointer overflow-hidden min-w-0"
       onClick={onClick}
     >
       {/* Close Button - Top right corner, appears on hover */}
@@ -121,7 +125,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             e.stopPropagation();
             onRemove();
           }}
-          className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10"
           aria-label="Remove habit"
         >
           <X className="w-3 h-3 text-gray-400 hover:text-gray-600" />
@@ -129,39 +133,39 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
       )}
 
       {/* Header Row: Name + Badge + Change */}
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0 pr-3">
-          <h3 className="font-medium text-[15px] text-gray-900 truncate leading-tight">
+      <div className="flex items-start justify-between gap-1 mb-1">
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <h3 className="font-medium text-[12px] text-gray-900 truncate leading-tight">
             {habitName}
           </h3>
-          <p className="text-[11px] text-gray-500 uppercase tracking-wider mt-0.5">
+          <p className="text-[9px] text-gray-500 uppercase tracking-wider truncate">
             {unit}
           </p>
         </div>
 
         {/* Right side: Badge + Absolute Change */}
-        <div className="flex flex-col items-end flex-shrink-0">
+        <div className="flex flex-col items-end shrink-0">
           {/* % Badge */}
           <div
-            className="flex items-center gap-1 px-2 py-0.5"
+            className="flex items-center gap-0.5 px-1 py-0.5 rounded-sm whitespace-nowrap"
             style={{ backgroundColor: bgColor }}
           >
             {!isNeutral && (
               isPositive
-                ? <span className="text-[11px]" style={{ color: chartColor }}>↗</span>
-                : <span className="text-[11px]" style={{ color: chartColor }}>↘</span>
+                ? <span className="text-[9px]" style={{ color: chartColor }}>↗</span>
+                : <span className="text-[9px]" style={{ color: chartColor }}>↘</span>
             )}
             <span
-              className="text-[11px] font-medium tabular-nums"
+              className="text-[9px] font-medium tabular-nums"
               style={{ color: chartColor }}
             >
-              {Math.abs(change || 0).toFixed(2)}%
+              {Math.abs(change || 0).toFixed(1)}%
             </span>
           </div>
           {/* Absolute change */}
           {absoluteChange !== undefined && (
             <span
-              className="text-[11px] font-medium tabular-nums mt-1"
+              className="text-[9px] font-medium tabular-nums mt-0.5"
               style={{ color: chartColor }}
             >
               {absoluteChange >= 0 ? '+' : ''}{absoluteChange.toFixed(1)}
@@ -170,79 +174,37 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
         </div>
       </div>
 
-      {/* Value */}
-      <div className="mb-2">
-        <p className="text-xl font-medium text-gray-900 tabular-nums">
-          {currentValue.toFixed(currentValue < 10 ? 2 : 0)}
-        </p>
-      </div>
-
-      <div className="h-[110px] -mx-2">
+      {/* Mini Bar Chart */}
+      <div className="h-[40px] my-1 overflow-hidden w-full min-w-0">
         {chartData.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <p className="text-xs text-gray-400">No data for selected period</p>
+            <p className="text-[10px] text-gray-400">No data</p>
           </div>
         ) : (
           <Suspense fallback={
             <div className="flex items-center justify-center h-full">
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+              <div className="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
             </div>
           }>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 5, right: 5, left: -15, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                <XAxis
-                  dataKey="shortDate"
-                  stroke={COLORS.gray[400]}
-                  tick={{ fill: COLORS.gray[500], fontSize: 10 }}
-                  axisLine={{ stroke: COLORS.gray[300] }}
-                  tickLine={{ stroke: COLORS.gray[300] }}
-                  interval="preserveStartEnd"
-                  minTickGap={30}
-                />
-                <YAxis
-                  stroke={COLORS.gray[400]}
-                  tick={{ fill: COLORS.gray[500], fontSize: 10 }}
-                  axisLine={{ stroke: COLORS.gray[300] }}
-                  tickLine={{ stroke: COLORS.gray[300] }}
-                  width={35}
-                  tickFormatter={(value) => value.toFixed(0)}
-                />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div
-                          className="text-gray-900 px-3 py-2 text-xs shadow-lg border border-gray-300/60"
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.72)',
-                            backdropFilter: 'blur(12px) saturate(180%)',
-                            WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-                          }}
-                        >
-                          <p className="font-medium mb-1">{data.date}</p>
-                          <p>{data.value.toFixed(1)} {unit}</p>
-                          {data.time && <p className="text-gray-500 mt-0.5">{data.time}</p>}
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                  cursor={{ fill: 'rgba(0, 0, 0, 0.05)' }}
-                />
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={chartData} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
                 <Bar
                   dataKey="value"
                   fill="#4A4A4C"
-                  radius={[0, 0, 0, 0]}
+                  radius={[1, 1, 0, 0]}
                   isAnimationActive={false}
-                  maxBarSize={40}
+                  maxBarSize={12}
                 />
               </BarChart>
             </ResponsiveContainer>
           </Suspense>
         )}
       </div>
+
+      {/* Value - Bottom */}
+      <p className="text-base font-semibold text-gray-900 tabular-nums leading-tight">
+        {currentValue.toFixed(currentValue < 10 ? 2 : 0)}
+      </p>
     </div>
   );
 };
@@ -272,45 +234,53 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       }
     };
 
+    // Get the primary value (first payload)
+    const primaryValue = payload[0]?.value;
+    const comparisonValue = payload[1]?.value;
+
     return (
       <div
-        className="p-3 min-w-[200px] border border-gray-300/60 shadow-lg rounded-md"
+        className="p-3 min-w-[160px]"
         style={{
-          background: 'rgba(255, 255, 255, 0.85)',
-          backdropFilter: 'blur(12px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+          background: 'rgba(255, 255, 255, 0.7)',
+          backdropFilter: 'blur(20px) saturate(150%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(150%)',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
         }}
       >
-        <p className="text-xs font-semibold text-gray-900 mb-2">{label}</p>
-        <div className="space-y-2 text-xs">
-          {/* Iterate over all payloads (Main + Comparison) */}
-          {payload.map((entry: any, index: number) => (
-            <div key={index} className="flex items-center justify-between gap-4">
-              <span className="font-medium flex items-center gap-1.5" style={{ color: entry.stroke }}>
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.stroke }}></div>
-                {entry.name}
-              </span>
-              <span className="text-gray-900 font-bold tabular-nums">
-                {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
-                {/* Add unit if available in data key or name? Name usually has unit */}
+        <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
+        <div className="space-y-1.5 text-xs">
+          {/* Primary value */}
+          <div className="flex items-center justify-between gap-6">
+            <span className="text-gray-500">{payload.length > 1 ? payload[0]?.name || 'Value' : 'Value'}</span>
+            <span className="text-gray-900 font-semibold tabular-nums">
+              {typeof primaryValue === 'number' ? primaryValue.toFixed(1) : primaryValue}
+            </span>
+          </div>
+
+          {/* Comparison value if exists */}
+          {comparisonValue !== undefined && (
+            <div className="flex items-center justify-between gap-6">
+              <span className="text-slate-500">{payload[1]?.name || 'Comparison'}</span>
+              <span className="text-slate-500 font-semibold tabular-nums">
+                {typeof comparisonValue === 'number' ? comparisonValue.toFixed(1) : comparisonValue}
               </span>
             </div>
-          ))}
+          )}
 
-          <div className="h-px bg-gray-200 my-2 opacity-50"></div>
-
-          {/* Sleep Start/End Times (Only for main habit currently) */}
+          {/* Sleep Start/End Times */}
           {data.sleepOnset && data.sleepEnd && (
             <>
-              <div className="flex items-center justify-between gap-3">
+              <div className="h-px bg-gray-400/30 my-2"></div>
+              <div className="flex items-center justify-between gap-6">
                 <span className="text-gray-500">Sleep Start</span>
-                <span className="text-gray-700 tabular-nums">
+                <span className="text-gray-700 tabular-nums font-medium">
                   {format(parseISO(data.sleepOnset), 'h:mm a')}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-6">
                 <span className="text-gray-500">Sleep End</span>
-                <span className="text-gray-700 tabular-nums">
+                <span className="text-gray-700 tabular-nums font-medium">
                   {format(parseISO(data.sleepEnd), 'h:mm a')}
                 </span>
               </div>
@@ -331,11 +301,12 @@ const CustomTooltip = ({ active, payload, label }: any) => {
  * Fetch analytics data with React Query (using Tinybird for performance!)
  */
 function useAnalyticsSummary() {
-  const { user } = useUser();
+  const { user, isLoaded: isUserLoaded } = useUser();
   const { getToken } = useAuth();
 
   return useQuery({
     queryKey: ['analytics-summary', user?.id],
+    enabled: isUserLoaded && !!user?.id, // Only run when user is fully loaded
     queryFn: async () => {
       const token = await getToken();
       const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -410,7 +381,6 @@ function useAnalyticsSummary() {
     },
     staleTime: 60 * 1000, // Cache for 60 seconds (Tinybird is fast, we can cache!)
     gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes for back/forward navigation
-    enabled: !!user?.id,
     refetchOnWindowFocus: false, // Don't refetch on window focus (prevents excessive requests)
     refetchOnMount: true, // Refetch when Analytics page mounts (if stale)
   });
@@ -495,7 +465,10 @@ const CustomSelect = ({ value, options, onChange, placeholder = 'Select' }: any)
 
 export function AnalyticsClient() {
   const { getToken } = useAuth();
-  const { data, isLoading, refetch } = useAnalyticsSummary();
+  const { data, isLoading, isPending, refetch } = useAnalyticsSummary();
+  
+  // Show loading when query is pending (user not loaded or first fetch)
+  const queryLoading = isLoading || isPending;
 
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -507,10 +480,6 @@ export function AnalyticsClient() {
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [expandedLogs, setExpandedLogs] = useState<any[]>([]);
   const [loadingExpandedLogs, setLoadingExpandedLogs] = useState(false);
-
-  // Python API stats for expanded modal (single source of truth)
-  const [expandedStats, setExpandedStats] = useState<HabitStats | null>(null);
-  const [loadingExpandedStats, setLoadingExpandedStats] = useState(false);
 
   // Python API stats for ALL habits (single source of truth for cards)
   const [allHabitStats, setAllHabitStats] = useState<Record<string, HabitStats>>({});
@@ -524,6 +493,16 @@ export function AnalyticsClient() {
   const [loadingComparison, setLoadingComparison] = useState(false);
   // Always initialize to default value to prevent hydration mismatch
   const [viewMode, setViewMode] = useState<'chart' | 'ticker'>('chart');
+
+  // Correlation data for habit comparison in expanded view
+  const [correlationData, setCorrelationData] = useState<any>(null);
+  const [loadingCorrelation, setLoadingCorrelation] = useState(false);
+
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const availableHabits = data?.habits || [];
   const summaryMetrics = data?.summaryMetrics;
@@ -569,6 +548,40 @@ export function AnalyticsClient() {
 
     fetchProgressMetrics();
   }, []); // Fetch once on mount
+
+  // Fetch correlation when comparing two habits in expanded view
+  useEffect(() => {
+    if (!expandedHabit || !compareHabitId) {
+      setCorrelationData(null);
+      return;
+    }
+
+    const fetchCorrelation = async () => {
+      setLoadingCorrelation(true);
+      try {
+        const params = new URLSearchParams({
+          habit1_id: expandedHabit,
+          habit2_id: compareHabitId,
+          days_back: '90',
+        });
+
+        const res = await fetch(`/api/analytics/correlation?${params.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.data) {
+            setCorrelationData(data.data);
+            console.log('✅ Correlation loaded:', data.data.correlation);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch correlation:', error);
+      } finally {
+        setLoadingCorrelation(false);
+      }
+    };
+
+    fetchCorrelation();
+  }, [expandedHabit, compareHabitId]);
 
   // Fetch period comparison from Tinybird when date range changes
   useEffect(() => {
@@ -616,10 +629,12 @@ export function AnalyticsClient() {
   }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   // Fetch individual logs when habit is expanded (from Tinybird!)
+  // Check if custom date range is active (from main date picker)
+  const hasCustomDateRange = !!(dateRange?.from && dateRange?.to);
+
   useEffect(() => {
     if (!expandedHabit) {
       setExpandedLogs([]);
-      setExpandedStats(null);
       // Reset expanded view controls
       setExpandedTimeRange('1M');
       setCompareHabitId(null);
@@ -630,12 +645,21 @@ export function AnalyticsClient() {
     const fetchExpandedLogs = async () => {
       setLoadingExpandedLogs(true);
       try {
-        const { from, to } = getRangeDates(expandedTimeRange);
+        // Use main date picker range if set, otherwise use internal range selector
+        let from: Date, to: Date;
+        if (hasCustomDateRange) {
+          from = dateRange.from!;
+          to = dateRange.to!;
+        } else {
+          const rangeDates = getRangeDates(expandedTimeRange);
+          from = rangeDates.from;
+          to = rangeDates.to;
+        }
 
         const startDate = format(from, 'yyyy-MM-dd');
         const endDate = format(to, 'yyyy-MM-dd');
 
-        console.log(`📊 Fetching expanded logs for ${expandedHabit} (${expandedTimeRange})`);
+        console.log(`📊 Fetching expanded logs for ${expandedHabit} (${hasCustomDateRange ? 'custom range' : expandedTimeRange}): ${startDate} to ${endDate}`);
 
         const response = await fetch(
           `/api/analytics/habits/logs?habit_id=${expandedHabit}&start_date=${startDate}&end_date=${endDate}`
@@ -657,7 +681,7 @@ export function AnalyticsClient() {
     };
 
     fetchExpandedLogs();
-  }, [expandedHabit, expandedTimeRange]);
+  }, [expandedHabit, expandedTimeRange, hasCustomDateRange, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   // Fetch Comparison Logs
   useEffect(() => {
@@ -669,7 +693,16 @@ export function AnalyticsClient() {
     const fetchComparisonLogs = async () => {
       setLoadingComparison(true);
       try {
-        const { from, to } = getRangeDates(expandedTimeRange);
+        // Use main date picker range if set, otherwise use internal range selector
+        let from: Date, to: Date;
+        if (hasCustomDateRange) {
+          from = dateRange.from!;
+          to = dateRange.to!;
+        } else {
+          const rangeDates = getRangeDates(expandedTimeRange);
+          from = rangeDates.from;
+          to = rangeDates.to;
+        }
         const startDate = format(from, 'yyyy-MM-dd');
         const endDate = format(to, 'yyyy-MM-dd');
 
@@ -694,7 +727,7 @@ export function AnalyticsClient() {
     };
 
     fetchComparisonLogs();
-  }, [compareHabitId, expandedTimeRange, expandedHabit]);
+  }, [compareHabitId, expandedTimeRange, expandedHabit, hasCustomDateRange, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   // Fetch stats for ALL habits from Python API (single source of truth)
   useEffect(() => {
@@ -734,45 +767,6 @@ export function AnalyticsClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHabits.join(','), dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
-  // Fetch stats from Python API when habit is expanded (single source of truth)
-  useEffect(() => {
-    if (!expandedHabit) {
-      setExpandedStats(null);
-      return;
-    }
-
-    const fetchExpandedStats = async () => {
-      setLoadingExpandedStats(true);
-      try {
-        const token = await getToken();
-        if (!token) return;
-
-        const now = new Date();
-        const to = dateRange?.to || now;
-        const from = dateRange?.from || subDays(now, 30);
-
-        const result = await analyticsApi.getHabitStats(token, {
-          habitId: expandedHabit,
-          startDate: format(from, 'yyyy-MM-dd'),
-          endDate: format(to, 'yyyy-MM-dd'),
-        });
-
-        if (result.success && result.habits && result.habits.length > 0) {
-          setExpandedStats(result.habits[0]);
-          console.log('📊 Expanded stats fetched from Python API:', result.habits[0]);
-        } else {
-          setExpandedStats(null);
-        }
-      } catch (error) {
-        console.error('❌ Error fetching stats from Python API:', error);
-        setExpandedStats(null);
-      } finally {
-        setLoadingExpandedStats(false);
-      }
-    };
-
-    fetchExpandedStats();
-  }, [expandedHabit, dateRange, getToken]);
 
   // Load from localStorage after mount (client-side only)
   useEffect(() => {
@@ -1042,31 +1036,63 @@ export function AnalyticsClient() {
         change = 100;
       }
     } else {
-      // SPECIFIC DATE RANGE: Use Tinybird's week-over-week calculation
-      const tinybirdChange = tbMetrics?.weekly_amount_change_pct ?? 0;
-      change = tbMetrics ? tinybirdChange : (localPreviousAvg > 0 ? ((localCurrentAvg - localPreviousAvg) / localPreviousAvg * 100) : 0);
-
-      const last7Avg = tbMetrics?.last_7_days_avg ?? localCurrentAvg;
-      const prev7Avg = tbMetrics?.prev_7_days_avg ?? localPreviousAvg;
-      absoluteChange = last7Avg - prev7Avg;
+      // SPECIFIC DATE RANGE: Calculate first 7 days vs last 7 days of the selected range
+      // This makes the comparison meaningful for any custom date range
+      
+      if (chartData.length >= 2) {
+        // Sort data chronologically (should already be sorted, but ensure it)
+        const sortedData = [...chartData].sort((a: any, b: any) => 
+          new Date(a.rawDate).getTime() - new Date(b.rawDate).getTime()
+        );
+        
+        // Get first 7 days of the selected range (or all if less than 7)
+        const first7Days = sortedData.slice(0, Math.min(7, Math.floor(sortedData.length / 2)));
+        // Get last 7 days of the selected range (or remaining if less than 7)
+        const last7Days = sortedData.slice(Math.max(sortedData.length - 7, Math.ceil(sortedData.length / 2)));
+        
+        // Calculate averages
+        const first7Avg = first7Days.length > 0 
+          ? first7Days.reduce((sum: number, d: any) => sum + (d.value || 0), 0) / first7Days.length 
+          : 0;
+        const last7Avg = last7Days.length > 0 
+          ? last7Days.reduce((sum: number, d: any) => sum + (d.value || 0), 0) / last7Days.length 
+          : 0;
+        
+        // Calculate change
+        if (first7Avg > 0) {
+          change = ((last7Avg - first7Avg) / first7Avg) * 100;
+          absoluteChange = last7Avg - first7Avg;
+        } else if (last7Avg > 0) {
+          change = 100; // Went from 0 to something
+          absoluteChange = last7Avg;
+        }
+      } else {
+        // Not enough data for comparison
+        change = 0;
+        absoluteChange = 0;
+      }
     }
 
-    // Get current value - use appropriate Tinybird metric based on view mode
-    // For "All time" view with progress data: show last period average (current performance)
-    // Otherwise: show overall average from Tinybird
+    // Get current value - the overall average for the selected period
+    // Priority: Tinybird (most accurate) > Python API > local calculation
     let currentValue = 0;
 
     if (isAllTimeView && progressData) {
-      // Use last period average from progress data (most recent 7 days performance)
-      // Use amount or duration depending on which one has data
+      // ALL TIME: Use last period average from progress data (most recent 7 days performance)
       const hasAmountData = (progressData.first_period_avg_amount ?? 0) > 0 || (progressData.last_period_avg_amount ?? 0) > 0;
       currentValue = hasAmountData
         ? (progressData.last_period_avg_amount ?? 0)
         : (progressData.last_period_avg_duration ?? 0);
-    } else {
-      // Use Tinybird's overall average
-      const tinybirdAvg = tbMetrics?.avg_amount ?? tbMetrics?.last_7_days_avg;
-      currentValue = (tinybirdAvg ?? pythonStats?.average ?? localCurrentAvg) || 0;
+    } else if (tbMetrics?.avg_amount !== undefined) {
+      // CUSTOM DATE RANGE: Use Tinybird's pre-calculated average (most accurate)
+      currentValue = tbMetrics.avg_amount;
+    } else if (pythonStats?.average !== undefined) {
+      // Fallback to Python API stats
+      currentValue = pythonStats.average;
+    } else if (chartData.length >= 1) {
+      // Last resort: Calculate from chart data
+      const totalValue = chartData.reduce((sum: number, d: any) => sum + (d.value || 0), 0);
+      currentValue = totalValue / chartData.length;
     }
 
     return {
@@ -1233,9 +1259,9 @@ export function AnalyticsClient() {
         <div className="flex items-center justify-end mb-6">
           <div className="h-10 w-64 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="border border-gray-200 p-4 h-40 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+            <div key={i} className="border border-gray-200 p-3 h-32 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100" />
           ))}
         </div>
       </div>
@@ -1244,9 +1270,9 @@ export function AnalyticsClient() {
 
   return (
     <>
-      {/* Top Bar: View Toggle (left), Date Range Picker (right) */}
-      <div className="flex items-center justify-between mb-6">
-        {/* Left Side: View Toggle */}
+      {/* Top Bar: Controls Layout */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        {/* Left Side: View Toggle + System Selector */}
         <div className="flex items-center gap-3">
           <AnalyticsViewToggle
             currentView={viewMode}
@@ -1273,7 +1299,7 @@ export function AnalyticsClient() {
             {habitDropdownOpen && (
               <>
                 <div
-                  className="fixed inset-0"
+                  className="fixed inset-0 ml-[70px]"
                   style={{ zIndex: 999 }}
                   onClick={() => setHabitDropdownOpen(false)}
                 />
@@ -1325,19 +1351,21 @@ export function AnalyticsClient() {
           </div>
         </div>
 
-        {/* Date Range Picker - Top Right */}
-        <DateRangePicker
-          className="w-auto"
-          onDateRangeChange={setDateRange}
-          initialDateRange={dateRange}
-        />
+        {/* Right Side: Date Range Picker */}
+        <div className="flex items-center gap-3">
+          <DateRangePicker
+            className="w-auto"
+            onDateRangeChange={setDateRange}
+            initialDateRange={dateRange}
+          />
+        </div>
       </div>
 
       {/* Habit Metrics Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="h-64 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
+      {(loading || queryLoading) ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+            <div key={i} className="h-32 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
           ))}
         </div>
       ) : availableHabits.length === 0 ? (
@@ -1362,23 +1390,29 @@ export function AnalyticsClient() {
 
             if (viewMode === 'chart') {
               return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div 
+                  className={`grid grid-cols-2 sm:grid-cols-4 gap-2 transition-opacity duration-300 ${
+                    expandedHabit ? 'opacity-50 pointer-events-auto' : 'opacity-100'
+                  }`}
+                  style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
+                >
                   {habitsToShow.map((habitId: string) => {
                     const cardData = getHabitCardData(habitId);
                     if (!cardData) return null;
 
                     return (
-                      <HabitMetricCard
-                        key={habitId}
-                        {...cardData}
-                        onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
-                        onRemove={() => {
-                          setSelectedHabits(prev => prev.filter((id: string) => id !== habitId));
-                          if (expandedHabit === habitId) {
-                            setExpandedHabit(null);
-                          }
-                        }}
-                      />
+                      <div key={habitId} className="min-w-0">
+                        <HabitMetricCard
+                          {...cardData}
+                          onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
+                          onRemove={() => {
+                            setSelectedHabits(prev => prev.filter((id: string) => id !== habitId));
+                            if (expandedHabit === habitId) {
+                              setExpandedHabit(null);
+                            }
+                          }}
+                        />
+                      </div>
                     );
                   })}
                 </div>
@@ -1388,6 +1422,7 @@ export function AnalyticsClient() {
               const tickerHabits = habitsToShow.map((habitId: string) => {
                 const cardData = getHabitCardData(habitId);
                 const habit = availableHabits.find((h: HabitData) => h.habit_id === habitId);
+                const tbMetrics = tinybirdHabitMetrics[habitId];
 
                 // If we have the habit but no card data yet (loading), show it anyway with defaults
                 if (habit && !cardData) {
@@ -1400,6 +1435,8 @@ export function AnalyticsClient() {
                     prev_7_days_avg: 0,
                     weekly_amount_change_pct: 0,
                     chartData: [],
+                    stability_class: undefined,
+                    consistency_score: undefined,
                   };
                 }
 
@@ -1416,6 +1453,9 @@ export function AnalyticsClient() {
                     : cardData.currentValue,
                   weekly_amount_change_pct: cardData.change || 0,
                   chartData: (cardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 })),
+                  // Include stability metrics from Tinybird
+                  stability_class: tbMetrics?.stability_class as 'stable' | 'moderate' | 'variable' | undefined,
+                  consistency_score: tbMetrics?.consistency_score,
                 };
               }).filter((item: { habit_id: string; habit_name: string; category: string; unit: string; last_7_days_avg: number; prev_7_days_avg: number; weekly_amount_change_pct: number; chartData: { value: number }[] } | null): item is NonNullable<typeof item> => item !== null);
 
@@ -1425,17 +1465,21 @@ export function AnalyticsClient() {
               }
 
               return (
-                <HabitTickerGrid
-                  habits={tickerHabits}
-                  onHabitClick={(habitId) => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
-                  onHabitRemove={(habitId) => {
-                    setSelectedHabits(prev => prev.filter(id => id !== habitId));
-                    if (expandedHabit === habitId) {
-                      setExpandedHabit(null);
-                    }
-                  }}
-                  darkMode={false}
-                />
+                <div className={`transition-opacity duration-300 ${
+                  expandedHabit ? 'opacity-50 pointer-events-auto' : 'opacity-100'
+                }`}>
+                  <HabitTickerGrid
+                    habits={tickerHabits}
+                    onHabitClick={(habitId) => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
+                    onHabitRemove={(habitId) => {
+                      setSelectedHabits(prev => prev.filter(id => id !== habitId));
+                      if (expandedHabit === habitId) {
+                        setExpandedHabit(null);
+                      }
+                    }}
+                    darkMode={false}
+                  />
+                </div>
               );
             }
           })()}
@@ -1472,7 +1516,7 @@ export function AnalyticsClient() {
                           {compHabit && (
                             <span className="text-gray-400 text-xl font-medium flex items-center">
                               <span className="mr-2">vs</span>
-                              <span className="text-orange-600">{compHabit.habit_name}</span>
+                              <span className="text-slate-500">{compHabit.habit_name}</span>
                             </span>
                           )}
                         </div>
@@ -1487,34 +1531,73 @@ export function AnalyticsClient() {
 
                     {/* Toolbar: Time Range & Compare */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-                      {/* Time Ranges - Perplexity Style */}
-                      <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
-                        {ranges.map((range) => (
-                          <button
-                            key={range}
-                            onClick={() => setExpandedTimeRange(range as any)}
-                            className={`px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${expandedTimeRange === range
-                              ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
-                              : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
-                              }`}
-                          >
-                            {range}
-                          </button>
-                        ))}
-                      </div>
+                      {/* Time Ranges - Show custom date range if active, otherwise show range buttons */}
+                      {hasCustomDateRange ? (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F3F3F3] border border-gray-300">
+                          <span className="text-xs font-medium text-gray-700">
+                            {format(dateRange.from!, 'MMM d')} – {format(dateRange.to!, 'MMM d, yyyy')}
+                          </span>
+                          <span className="text-[10px] text-gray-500">(from date picker)</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+                          {ranges.map((range) => (
+                            <button
+                              key={range}
+                              onClick={() => setExpandedTimeRange(range as any)}
+                              className={`px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${expandedTimeRange === range
+                                ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
+                                : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
+                                }`}
+                            >
+                              {range}
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
-                      {/* Compare Dropdown */}
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-widest">Compare</span>
-                        <CustomSelect
-                          value={compareHabitId}
-                          options={compareOptions}
-                          onChange={(val: string) => setCompareHabitId(val || null)}
-                          placeholder="None"
-                        />
+                      {/* Compare Dropdown & Share Button */}
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-medium text-gray-400 uppercase tracking-widest">Compare</span>
+                          <CustomSelect
+                            value={compareHabitId}
+                            options={compareOptions}
+                            onChange={(val: string) => setCompareHabitId(val || null)}
+                            placeholder="None"
+                          />
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (!chartRef.current) return;
+                            setIsCapturing(true);
+                            try {
+                              const canvas = await html2canvas(chartRef.current, {
+                                backgroundColor: '#ffffff',
+                                scale: 2,
+                                logging: false,
+                                useCORS: true,
+                              });
+                              const imageUrl = canvas.toDataURL('image/png');
+                              setShareImageUrl(imageUrl);
+                              setShowShareModal(true);
+                            } catch (error) {
+                              console.error('Failed to capture chart:', error);
+                            } finally {
+                              setIsCapturing(false);
+                            }
+                          }}
+                          disabled={isCapturing}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-sm text-gray-700 hover:bg-[#F3F3F3] rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          <span>{isCapturing ? 'Capturing...' : 'Share'}</span>
+                        </button>
                       </div>
                     </div>
 
+                    {/* Shareable Content - wrapped for screenshot capture */}
+                    <div ref={chartRef} className="bg-white rounded-lg">
                     {/* Stats Grid - Square Compact Style */}
                     <div className="grid grid-cols-5 gap-3 mb-8">
                       <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
@@ -1538,6 +1621,24 @@ export function AnalyticsClient() {
                         <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{stdDev.toFixed(1)}</p>
                       </div>
                     </div>
+
+                    {/* Correlation Display - Shows when comparing two habits */}
+                    {compHabit && correlationData && (
+                      <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 rounded-full shadow-sm">
+                        <span className="text-[10px] text-gray-500 uppercase tracking-wide">Correlation</span>
+                        <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                          {correlationData.correlation?.coefficient?.toFixed(2)}
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          {correlationData.correlation?.strength}
+                        </span>
+                      </div>
+                    )}
+                    {compHabit && loadingCorrelation && (
+                      <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 rounded-full animate-pulse">
+                        <div className="h-3 bg-gray-200 rounded w-16"></div>
+                      </div>
+                    )}
 
                     <Suspense fallback={
                       <div className="flex items-center justify-center h-[300px]">
@@ -1569,17 +1670,18 @@ export function AnalyticsClient() {
                                 <YAxis
                                   yAxisId="right"
                                   orientation="right"
-                                  stroke="#EA580C"
-                                  tick={{ fill: "#EA580C", fontSize: 11, fontWeight: 500 }}
+                                  stroke="#64748B"
+                                  tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }}
                                   axisLine={false}
                                   tickLine={false}
-                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#EA580C", fontSize: 10, fontWeight: 600 } }}
+                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#64748B", fontSize: 10, fontWeight: 600 } }}
                                 />
                               )}
                               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
                               <Bar
                                 yAxisId="left"
                                 dataKey="value"
+                                name={habit.habit_name}
                                 fill="#4A4A4C"
                                 radius={[0, 0, 0, 0]}
                                 maxBarSize={50}
@@ -1588,7 +1690,8 @@ export function AnalyticsClient() {
                                 <Bar
                                   yAxisId="right"
                                   dataKey="compValue"
-                                  fill="#EA580C"
+                                  name={compHabit.habit_name}
+                                  fill="#64748B"
                                   radius={[0, 0, 0, 0]}
                                   maxBarSize={50}
                                 />
@@ -1598,13 +1701,13 @@ export function AnalyticsClient() {
                             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                               <defs>
                                 <linearGradient id={`gradient-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#4A4A4C" stopOpacity={0.15} />
-                                  <stop offset="95%" stopColor="#4A4A4C" stopOpacity={0} />
+                                  <stop offset="5%" stopColor="#4A4A4C" stopOpacity={0.25} />
+                                  <stop offset="95%" stopColor="#4A4A4C" stopOpacity={0.03} />
                                 </linearGradient>
                                 {compHabit && (
                                   <linearGradient id={`gradient-comp`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#EA580C" stopOpacity={0.15} />
-                                    <stop offset="95%" stopColor="#EA580C" stopOpacity={0} />
+                                    <stop offset="5%" stopColor="#64748B" stopOpacity={0.15} />
+                                    <stop offset="95%" stopColor="#64748B" stopOpacity={0} />
                                   </linearGradient>
                                 )}
                               </defs>
@@ -1629,11 +1732,11 @@ export function AnalyticsClient() {
                                 <YAxis
                                   yAxisId="right"
                                   orientation="right"
-                                  stroke="#EA580C"
-                                  tick={{ fill: "#EA580C", fontSize: 11, fontWeight: 500 }}
+                                  stroke="#64748B"
+                                  tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }}
                                   axisLine={false}
                                   tickLine={false}
-                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#EA580C", fontSize: 10, fontWeight: 600 } }}
+                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#64748B", fontSize: 10, fontWeight: 600 } }}
                                 />
                               )}
                               <Tooltip content={<CustomTooltip />} cursor={{ stroke: COLORS.gray[300], strokeWidth: 1, strokeDasharray: '4 4' }} />
@@ -1653,11 +1756,11 @@ export function AnalyticsClient() {
                                   yAxisId="right"
                                   type="monotone"
                                   dataKey="compValue"
-                                  stroke="#EA580C"
+                                  stroke="#64748B"
                                   strokeWidth={2}
                                   fill={`url(#gradient-comp)`}
                                   name={compHabit.habit_name}
-                                  activeDot={{ r: 4, fill: '#EA580C', stroke: '#fff', strokeWidth: 2 }}
+                                  activeDot={{ r: 4, fill: '#64748B', stroke: '#fff', strokeWidth: 2 }}
                                 />
                               )}
                             </AreaChart>
@@ -1665,6 +1768,7 @@ export function AnalyticsClient() {
                         </ResponsiveContainer>
                       </div>
                     </Suspense>
+                    </div>
                   </>
                 );
               })()}
@@ -1672,6 +1776,205 @@ export function AnalyticsClient() {
           )}
         </>
       ) : null}
+
+      {/* Share Modal */}
+      {showShareModal && shareImageUrl && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          {/* Backdrop - matches habit-selection-modal style */}
+          <div 
+            className="absolute inset-0 bg-[#f6f6f3]/60"
+            onClick={() => {
+              setShowShareModal(false);
+              setShareImageUrl(null);
+            }}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden border border-gray-200">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900">Share Chart</h3>
+              <button
+                onClick={() => {
+                  setShowShareModal(false);
+                  setShareImageUrl(null);
+                }}
+                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Preview */}
+            <div className="px-5 py-4">
+              <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm">
+                <img 
+                  src={shareImageUrl} 
+                  alt="Chart preview" 
+                  className="w-full h-auto"
+                />
+              </div>
+            </div>
+
+            {/* Share Options */}
+            <div className="px-5 pb-5">
+              <div className="grid grid-cols-4 gap-3">
+                {/* Copy - Save to Downloads and notify */}
+                <button
+                  onClick={async () => {
+                    try {
+                      // Convert data URL to binary
+                      const base64Data = shareImageUrl!.split(',')[1];
+                      const binaryString = atob(base64Data);
+                      const bytes = new Uint8Array(binaryString.length);
+                      for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                      }
+                      
+                      // Check if we're in Tauri
+                      if (typeof window !== 'undefined' && '__TAURI__' in window) {
+                        const { save } = await import('@tauri-apps/api/dialog');
+                        const { writeBinaryFile } = await import('@tauri-apps/api/fs');
+                        const { downloadDir } = await import('@tauri-apps/api/path');
+                        
+                        // Save to Downloads folder automatically
+                        const downloadsPath = await downloadDir();
+                        const fileName = `ritual-chart-${Date.now()}.png`;
+                        const filePath = `${downloadsPath}${fileName}`;
+                        
+                        await writeBinaryFile(filePath, bytes);
+                        
+                        // Update button text to show success
+                        const btn = document.activeElement as HTMLButtonElement;
+                        if (btn?.querySelector('span')) {
+                          btn.querySelector('span')!.textContent = 'Saved!';
+                          setTimeout(() => {
+                            btn.querySelector('span')!.textContent = 'Copy';
+                          }, 2000);
+                        }
+                      } else {
+                        // Browser fallback
+                        const blob = new Blob([bytes], { type: 'image/png' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.download = `ritual-chart-${Date.now()}.png`;
+                        link.href = url;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                      }
+                    } catch (error) {
+                      console.error('Failed to save:', error);
+                    }
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-gray-50 transition-colors group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                    <Copy className="w-5 h-5 text-gray-700" />
+                  </div>
+                  <span className="text-xs text-gray-600 font-medium">Copy</span>
+                </button>
+
+                {/* Download - with save dialog */}
+                <button
+                  onClick={async () => {
+                    try {
+                      // Convert data URL to binary
+                      const base64Data = shareImageUrl!.split(',')[1];
+                      const binaryString = atob(base64Data);
+                      const bytes = new Uint8Array(binaryString.length);
+                      for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                      }
+                      
+                      // Check if we're in Tauri
+                      if (typeof window !== 'undefined' && '__TAURI__' in window) {
+                        const { save } = await import('@tauri-apps/api/dialog');
+                        const { writeBinaryFile } = await import('@tauri-apps/api/fs');
+                        
+                        // Show save dialog
+                        const filePath = await save({
+                          defaultPath: `ritual-chart-${Date.now()}.png`,
+                          filters: [{ name: 'PNG Image', extensions: ['png'] }]
+                        });
+                        
+                        if (filePath) {
+                          await writeBinaryFile(filePath, bytes);
+                          // Update button text to show success
+                          const btn = document.activeElement as HTMLButtonElement;
+                          if (btn?.querySelector('span')) {
+                            btn.querySelector('span')!.textContent = 'Saved!';
+                            setTimeout(() => {
+                              btn.querySelector('span')!.textContent = 'Download';
+                            }, 2000);
+                          }
+                        }
+                      } else {
+                        // Browser fallback
+                        const blob = new Blob([bytes], { type: 'image/png' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.download = `ritual-chart-${Date.now()}.png`;
+                        link.href = url;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                      }
+                    } catch (error) {
+                      console.error('Failed to download:', error);
+                    }
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-gray-50 transition-colors group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                    <Download className="w-5 h-5 text-gray-700" />
+                  </div>
+                  <span className="text-xs text-gray-600 font-medium">Download</span>
+                </button>
+
+                {/* Twitter/X */}
+                <button
+                  onClick={() => {
+                    const text = encodeURIComponent('Check out my habit tracking progress! 📊 #RitualApp');
+                    window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank', 'width=550,height=420');
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-gray-50 transition-colors group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                    <svg className="w-5 h-5 text-gray-700" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                    </svg>
+                  </div>
+                  <span className="text-xs text-gray-600 font-medium">X</span>
+                </button>
+
+                {/* Reddit */}
+                <button
+                  onClick={() => {
+                    const title = encodeURIComponent('My habit tracking progress 📊');
+                    window.open(`https://www.reddit.com/submit?title=${title}`, '_blank', 'width=550,height=420');
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-gray-50 transition-colors group"
+                >
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                    <svg className="w-5 h-5 text-gray-700" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/>
+                    </svg>
+                  </div>
+                  <span className="text-xs text-gray-600 font-medium">Reddit</span>
+                </button>
+              </div>
+
+              {/* Tip */}
+              <p className="text-[11px] text-gray-400 text-center mt-4">
+                Download the image first, then attach it to your post
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

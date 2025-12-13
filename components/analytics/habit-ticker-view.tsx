@@ -42,6 +42,8 @@ interface HabitTickerCardProps {
   onClick?: () => void;
   onRemove?: () => void;
   darkMode?: boolean;
+  stabilityClass?: 'stable' | 'moderate' | 'variable';
+  consistencyScore?: number;
 }
 
 export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
@@ -56,6 +58,8 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
   onClick,
   onRemove,
   darkMode = false,
+  stabilityClass,
+  consistencyScore,
 }) => {
   const isPositive = percentChange >= 0;
   const isNeutral = Math.abs(percentChange) < 0.5; // Consider < 0.5% as neutral
@@ -68,9 +72,21 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
     ? 'rgba(107, 114, 128, 0.08)' 
     : (isPositive ? 'rgba(13, 148, 136, 0.08)' : 'rgba(185, 28, 28, 0.08)');
 
+  // Stability indicator styling
+  const getStabilityIndicator = () => {
+    if (!stabilityClass) return null;
+    const indicators = {
+      stable: { color: 'text-teal-600', bg: 'bg-teal-100', label: '●' },
+      moderate: { color: 'text-amber-600', bg: 'bg-amber-100', label: '◐' },
+      variable: { color: 'text-gray-500', bg: 'bg-gray-100', label: '○' },
+    };
+    return indicators[stabilityClass];
+  };
+  const stabilityIndicator = getStabilityIndicator();
+
   return (
     <div
-      className="group relative cursor-pointer bg-[#FAFAF9] border border-gray-300 p-4 hover:bg-[#F5F5F4] transition-colors duration-150"
+      className="group relative cursor-pointer bg-[#FAFAF9] border border-gray-300 p-2.5 hover:bg-[#F5F5F4] transition-colors duration-150 overflow-hidden min-w-0"
       onClick={onClick}
     >
       {/* Close Button - Top right corner in padding area, appears on hover */}
@@ -88,38 +104,48 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
       )}
 
       {/* Header Row: Name + Badge + Change */}
-      <div className="flex items-start justify-between mb-1">
-        <div className="flex-1 min-w-0 pr-3">
-          <h3 className="font-medium text-[15px] text-gray-900 truncate leading-tight">
-            {habitName}
-          </h3>
-          <p className="text-[11px] text-gray-500 uppercase tracking-wider mt-0.5">
+      <div className="flex items-start justify-between gap-1 mb-1">
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1">
+            <h3 className="font-medium text-[12px] text-gray-900 truncate leading-tight">
+              {habitName}
+            </h3>
+            {stabilityIndicator && (
+              <span 
+                className={`text-[9px] ${stabilityIndicator.color}`} 
+                title={`${stabilityClass} consistency${consistencyScore ? ` (${consistencyScore}%)` : ''}`}
+              >
+                {stabilityIndicator.label}
+              </span>
+            )}
+          </div>
+          <p className="text-[9px] text-gray-500 uppercase tracking-wider truncate">
             {unit}
           </p>
         </div>
         
         {/* Right side: Badge + Absolute Change - flush to right edge */}
-        <div className="flex flex-col items-end flex-shrink-0">
+        <div className="flex flex-col items-end shrink-0">
           {/* % Badge - Perplexity style */}
           <div 
-            className="flex items-center gap-1 px-2 py-0.5"
+            className="flex items-center gap-0.5 px-1 py-0.5 rounded-sm whitespace-nowrap"
             style={{ backgroundColor: bgColor }}
           >
             {!isNeutral && (
               isPositive 
-                ? <span className="text-[11px]" style={{ color: chartColor }}>↗</span>
-                : <span className="text-[11px]" style={{ color: chartColor }}>↘</span>
+                ? <span className="text-[9px]" style={{ color: chartColor }}>↗</span>
+                : <span className="text-[9px]" style={{ color: chartColor }}>↘</span>
             )}
             <span 
-              className="text-[11px] font-medium tabular-nums"
+              className="text-[9px] font-medium tabular-nums"
               style={{ color: chartColor }}
             >
-              {Math.abs(percentChange).toFixed(2)}%
+              {Math.abs(percentChange).toFixed(1)}%
             </span>
           </div>
           {/* Absolute change under percentage */}
           <span 
-            className="text-[11px] font-medium tabular-nums mt-1"
+            className="text-[9px] font-medium tabular-nums mt-0.5"
             style={{ color: chartColor }}
           >
             {isPositive ? '+' : ''}{absoluteChange.toFixed(1)}
@@ -128,12 +154,12 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
       </div>
 
       {/* Sparkline */}
-      <div className="h-12 my-2 -mx-1">
+      <div className="h-[40px] my-1 overflow-hidden w-full min-w-0">
         {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart 
               data={chartData} 
-              margin={{ top: 2, right: 0, left: 0, bottom: 0 }}
+              margin={{ top: 2, right: 2, left: 2, bottom: 2 }}
             >
               <defs>
                 <linearGradient 
@@ -165,19 +191,17 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
           </ResponsiveContainer>
         ) : (
           <div className="flex items-center justify-center h-full">
-            <span className="text-[11px] text-gray-400">No data</span>
+            <span className="text-[10px] text-gray-400">No data</span>
           </div>
         )}
       </div>
 
       {/* Bottom: Current Value */}
-      <div>
-        <p className="text-xl font-medium text-gray-900 tabular-nums leading-none">
-          {currentValue < 10 
-            ? currentValue.toFixed(2) 
-            : currentValue.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-        </p>
-      </div>
+      <p className="text-base font-semibold text-gray-900 tabular-nums leading-tight">
+        {currentValue < 10 
+          ? currentValue.toFixed(2) 
+          : currentValue.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+      </p>
     </div>
   );
 };
@@ -192,6 +216,8 @@ interface HabitTickerGridProps {
     prev_7_days_avg: number;
     weekly_amount_change_pct: number;
     chartData: { value: number }[];
+    stability_class?: 'stable' | 'moderate' | 'variable';
+    consistency_score?: number;
   }>;
   onHabitClick?: (habitId: string) => void;
   onHabitRemove?: (habitId: string) => void;
@@ -216,7 +242,10 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div 
+      className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+      style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
+    >
       {validHabits.map((habit, index) => {
         const currentValue = habit.last_7_days_avg || 0;
         const previousValue = habit.prev_7_days_avg || 0;
@@ -224,20 +253,23 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
         const absoluteChange = currentValue - previousValue;
 
         return (
-          <HabitTickerCard
-            key={habit.habit_id || `habit-${index}`}
-            habitName={habit.habit_name}
-            category={habit.category}
-            unit={habit.unit || 'count'}
-            currentValue={currentValue}
-            previousValue={previousValue}
-            percentChange={percentChange}
-            absoluteChange={absoluteChange}
-            chartData={habit.chartData || []}
-            onClick={() => onHabitClick?.(habit.habit_id)}
-            onRemove={onHabitRemove ? () => onHabitRemove(habit.habit_id) : undefined}
-            darkMode={darkMode}
-          />
+          <div key={habit.habit_id || `habit-${index}`} className="min-w-0">
+            <HabitTickerCard
+              habitName={habit.habit_name}
+              category={habit.category}
+              unit={habit.unit || 'count'}
+              currentValue={currentValue}
+              previousValue={previousValue}
+              percentChange={percentChange}
+              absoluteChange={absoluteChange}
+              chartData={habit.chartData || []}
+              onClick={() => onHabitClick?.(habit.habit_id)}
+              onRemove={onHabitRemove ? () => onHabitRemove(habit.habit_id) : undefined}
+              darkMode={darkMode}
+              stabilityClass={habit.stability_class}
+              consistencyScore={habit.consistency_score}
+            />
+          </div>
         );
       })}
     </div>

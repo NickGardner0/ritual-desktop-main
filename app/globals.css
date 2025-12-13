@@ -385,3 +385,14 @@
     display: none;
   }
 }
+
+/* Fix Recharts min-width issue in CSS Grid layouts */
+.recharts-responsive-container,
+.recharts-wrapper {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.recharts-surface {
+  max-width: 100% !important;
+}

@@ -19,7 +19,16 @@ SQL >
         COUNT(DISTINCT date) as days_with_data,
         MAX(date) as last_completed_date,
         MIN(date) as first_log_date,
-        any(unit) as unit
+        any(unit) as unit,
+        -- Stability metrics
+        varPop(amount) as variance_amount,
+        stddevPop(amount) as stddev_amount,
+        -- Coefficient of variation (stddev/mean) - lower = more stable
+        CASE 
+            WHEN SUM(amount) / COUNT(DISTINCT date) > 0 
+            THEN stddevPop(amount) / (SUM(amount) / COUNT(DISTINCT date))
+            ELSE 0
+        END as coefficient_of_variation
     FROM habit_logs
     WHERE user_id = {{ String(user_id, required=True) }}
       AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
@@ -160,7 +169,20 @@ SQL >
             WHEN p30.avg_amount_prev_30d > 0 
             THEN ((l30.avg_amount_30d - p30.avg_amount_prev_30d) / p30.avg_amount_prev_30d * 100) 
             ELSE 0 
-        END as monthly_amount_change_pct
+        END as monthly_amount_change_pct,
+        
+        -- Stability metrics
+        h.variance_amount,
+        h.stddev_amount,
+        h.coefficient_of_variation,
+        -- Consistency score (percentage of days in period with data)
+        round((h.days_with_data / {{Int32(days_back, 30)}}) * 100, 1) as consistency_score,
+        -- Stability classification
+        CASE
+            WHEN h.coefficient_of_variation < 0.3 THEN 'stable'
+            WHEN h.coefficient_of_variation < 0.6 THEN 'moderate'
+            ELSE 'variable'
+        END as stability_class
         
     FROM habit_stats h
     LEFT JOIN last_7_days l7 ON h.habit_id = l7.habit_id

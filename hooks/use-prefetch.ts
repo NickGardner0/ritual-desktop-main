@@ -11,10 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { habitKeys, habitLogKeys } from './use-habits-query';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL;
-if (!PYTHON_API_BASE) {
-  throw new Error('NEXT_PUBLIC_PYTHON_API_URL must be configured');
-}
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 /**
  * Prefetch habits on hover

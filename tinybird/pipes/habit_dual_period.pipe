@@ -1,0 +1,166 @@
+DESCRIPTION >
+    Returns habit data for two periods (current and comparison) in a single query.
+    Optimized for period-over-period comparison visualization.
+    
+    Usage:
+    - Provide current_start_date and current_end_date for the main period
+    - Provide compare_start_date and compare_end_date for the comparison period
+    - Both periods return daily aggregated data with period markers
+
+TOKEN "habit_dual_period_read" READ
+
+NODE current_period_data
+DESCRIPTION >
+    Get daily aggregated data for the current period
+SQL >
+    %
+    SELECT
+        date,
+        habit_id,
+        habit_name,
+        any(unit) as unit,
+        SUM(amount) as total_amount,
+        SUM(duration) as total_duration,
+        COUNT(*) as log_count,
+        'current' as period_type
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(current_start_date, required=True) }}
+      AND date <= {{ Date(current_end_date, required=True) }}
+      AND status = 'completed'
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+      {% if defined(category) %}
+      AND habit_id IN (
+          SELECT DISTINCT habit_id FROM habit_logs 
+          WHERE user_id = {{ String(user_id) }}
+      )
+      {% end %}
+    GROUP BY date, habit_id, habit_name
+    ORDER BY date ASC
+
+NODE comparison_period_data
+DESCRIPTION >
+    Get daily aggregated data for the comparison period
+SQL >
+    %
+    SELECT
+        date,
+        habit_id,
+        habit_name,
+        any(unit) as unit,
+        SUM(amount) as total_amount,
+        SUM(duration) as total_duration,
+        COUNT(*) as log_count,
+        'comparison' as period_type
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(compare_start_date, required=True) }}
+      AND date <= {{ Date(compare_end_date, required=True) }}
+      AND status = 'completed'
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    GROUP BY date, habit_id, habit_name
+    ORDER BY date ASC
+
+NODE current_period_summary
+DESCRIPTION >
+    Calculate summary stats for current period
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        any(unit) as unit,
+        SUM(total_amount) as period_total_amount,
+        SUM(total_duration) as period_total_duration,
+        AVG(total_amount) as period_avg_amount,
+        AVG(total_duration) as period_avg_duration,
+        COUNT(DISTINCT date) as days_with_data,
+        'current' as period_type
+    FROM current_period_data
+    GROUP BY habit_id, habit_name
+
+NODE comparison_period_summary
+DESCRIPTION >
+    Calculate summary stats for comparison period
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        any(unit) as unit,
+        SUM(total_amount) as period_total_amount,
+        SUM(total_duration) as period_total_duration,
+        AVG(total_amount) as period_avg_amount,
+        AVG(total_duration) as period_avg_duration,
+        COUNT(DISTINCT date) as days_with_data,
+        'comparison' as period_type
+    FROM comparison_period_data
+    GROUP BY habit_id, habit_name
+
+NODE combined_summary
+DESCRIPTION >
+    Combine current and comparison summaries with calculated changes
+SQL >
+    %
+    SELECT
+        c.habit_id as habit_id,
+        c.habit_name as habit_name,
+        c.unit as unit,
+        
+        -- Current period metrics
+        c.period_total_amount as current_total_amount,
+        c.period_total_duration as current_total_duration,
+        c.period_avg_amount as current_avg_amount,
+        c.period_avg_duration as current_avg_duration,
+        c.days_with_data as current_days_with_data,
+        
+        -- Comparison period metrics
+        coalesce(p.period_total_amount, 0) as compare_total_amount,
+        coalesce(p.period_total_duration, 0) as compare_total_duration,
+        coalesce(p.period_avg_amount, 0) as compare_avg_amount,
+        coalesce(p.period_avg_duration, 0) as compare_avg_duration,
+        coalesce(p.days_with_data, 0) as compare_days_with_data,
+        
+        -- Percentage changes (amount)
+        CASE
+            WHEN p.period_avg_amount > 0 
+            THEN ((c.period_avg_amount - p.period_avg_amount) / p.period_avg_amount) * 100
+            WHEN c.period_avg_amount > 0 AND (p.period_avg_amount IS NULL OR p.period_avg_amount = 0)
+            THEN 100.0
+            ELSE 0
+        END as amount_change_pct,
+        
+        -- Percentage changes (duration)
+        CASE
+            WHEN p.period_avg_duration > 0 
+            THEN ((c.period_avg_duration - p.period_avg_duration) / p.period_avg_duration) * 100
+            WHEN c.period_avg_duration > 0 AND (p.period_avg_duration IS NULL OR p.period_avg_duration = 0)
+            THEN 100.0
+            ELSE 0
+        END as duration_change_pct,
+        
+        -- Absolute changes
+        c.period_avg_amount - coalesce(p.period_avg_amount, 0) as amount_absolute_change,
+        c.period_avg_duration - coalesce(p.period_avg_duration, 0) as duration_absolute_change
+        
+    FROM current_period_summary c
+    LEFT JOIN comparison_period_summary p ON c.habit_id = p.habit_id
+
+NODE daily_data_combined
+DESCRIPTION >
+    Union of current and comparison period daily data
+TYPE endpoint
+SQL >
+    %
+    {% if String(output, 'summary') == 'daily' %}
+        SELECT * FROM current_period_data
+        UNION ALL
+        SELECT * FROM comparison_period_data
+    {% else %}
+        SELECT * FROM combined_summary
+    {% end %}
+

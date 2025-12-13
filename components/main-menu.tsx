@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, lazy, Suspense } from "react";
 import {
   LineChart,
@@ -175,6 +175,7 @@ const Item = ({
 }: ItemProps & { onSettingsClick?: () => void; onTimerClick?: () => void; onDataExportClick?: () => void }) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
+  const router = useRouter();
   const hasChildren = item.children && item.children.length > 0;
   
   // Prefetch data on hover (Midday-style optimization)
@@ -210,7 +211,10 @@ const Item = ({
       e.preventDefault();
       onDataExportClick?.();
     } else {
+      // Use explicit router navigation to ensure it works
+      e.preventDefault();
       onSelect?.();
+      router.push(item.path);
     }
   };
 

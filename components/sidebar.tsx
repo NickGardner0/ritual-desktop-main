@@ -12,7 +12,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "h-screen flex-shrink-0 flex-col justify-between fixed top-0 pb-4 items-center hidden md:flex z-50 transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+        "h-screen flex-shrink-0 flex-col justify-between fixed top-0 pb-4 items-center hidden md:flex z-[1001] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
         "bg-background border-r border-gray-300",
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}

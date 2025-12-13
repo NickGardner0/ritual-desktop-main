@@ -1,0 +1,137 @@
+DESCRIPTION >
+    Calculate Pearson correlation coefficient between two habits
+    Returns correlation value, strength classification, and sample size
+    
+    Correlation is calculated on overlapping days only (days where both habits have data)
+    Minimum sample threshold: 7 days
+
+TOKEN "habit_correlation_read" READ
+
+NODE habit1_daily
+DESCRIPTION >
+    Get daily aggregated values for habit 1
+SQL >
+    %
+    SELECT
+        date,
+        habit_id,
+        habit_name,
+        SUM(amount) as amount,
+        SUM(duration) / 3600.0 as duration_hours
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND habit_id = {{ String(habit1_id, required=True) }}
+      AND date >= today() - INTERVAL {{ Int32(days_back, 90) }} DAY
+      AND status = 'completed'
+    GROUP BY date, habit_id, habit_name
+
+NODE habit2_daily
+DESCRIPTION >
+    Get daily aggregated values for habit 2
+SQL >
+    %
+    SELECT
+        date,
+        habit_id,
+        habit_name,
+        SUM(amount) as amount,
+        SUM(duration) / 3600.0 as duration_hours
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND habit_id = {{ String(habit2_id, required=True) }}
+      AND date >= today() - INTERVAL {{ Int32(days_back, 90) }} DAY
+      AND status = 'completed'
+    GROUP BY date, habit_id, habit_name
+
+NODE overlapping_days
+DESCRIPTION >
+    Find days where both habits have data
+SQL >
+    %
+    SELECT
+        h1.date,
+        h1.habit_name as habit1_name,
+        h2.habit_name as habit2_name,
+        -- Use amount if available, otherwise duration
+        if(h1.amount > 0, h1.amount, h1.duration_hours) as x,
+        if(h2.amount > 0, h2.amount, h2.duration_hours) as y
+    FROM habit1_daily h1
+    INNER JOIN habit2_daily h2 ON h1.date = h2.date
+
+NODE correlation_stats
+DESCRIPTION >
+    Calculate Pearson correlation components
+SQL >
+    %
+    SELECT
+        count(*) as n,
+        sum(x) as sum_x,
+        sum(y) as sum_y,
+        sum(x * y) as sum_xy,
+        sum(x * x) as sum_x2,
+        sum(y * y) as sum_y2,
+        avg(x) as mean_x,
+        avg(y) as mean_y,
+        any(habit1_name) as habit1_name,
+        any(habit2_name) as habit2_name
+    FROM overlapping_days
+
+NODE correlation_result
+DESCRIPTION >
+    Calculate final Pearson correlation coefficient
+TYPE endpoint
+SQL >
+    %
+    SELECT
+        habit1_name,
+        habit2_name,
+        {{ String(habit1_id) }} as habit1_id,
+        {{ String(habit2_id) }} as habit2_id,
+        n as sample_size,
+        
+        -- Check minimum sample threshold
+        if(n < 7, 'insufficient_data', 'ok') as status,
+        
+        -- Pearson correlation formula: r = (n*Σxy - Σx*Σy) / sqrt((n*Σx² - (Σx)²) * (n*Σy² - (Σy)²))
+        if(
+            n < 2 OR 
+            (n * sum_x2 - sum_x * sum_x) <= 0 OR 
+            (n * sum_y2 - sum_y * sum_y) <= 0,
+            0,
+            (n * sum_xy - sum_x * sum_y) / 
+            sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y))
+        ) as correlation,
+        
+        -- Classify correlation strength
+        CASE
+            WHEN n < 7 THEN 'insufficient_data'
+            WHEN abs((n * sum_xy - sum_x * sum_y) / 
+                 nullIf(sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)), 0)) >= 0.7 
+            THEN 'strong'
+            WHEN abs((n * sum_xy - sum_x * sum_y) / 
+                 nullIf(sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)), 0)) >= 0.4 
+            THEN 'moderate'
+            WHEN abs((n * sum_xy - sum_x * sum_y) / 
+                 nullIf(sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)), 0)) >= 0.2 
+            THEN 'weak'
+            ELSE 'negligible'
+        END as strength,
+        
+        -- Direction of correlation
+        CASE
+            WHEN n < 7 THEN 'none'
+            WHEN (n * sum_xy - sum_x * sum_y) / 
+                 nullIf(sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)), 0) > 0.1 
+            THEN 'positive'
+            WHEN (n * sum_xy - sum_x * sum_y) / 
+                 nullIf(sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)), 0) < -0.1 
+            THEN 'negative'
+            ELSE 'none'
+        END as direction,
+        
+        -- Stats for context
+        round(mean_x, 2) as habit1_mean,
+        round(mean_y, 2) as habit2_mean
+        
+    FROM correlation_stats
+
