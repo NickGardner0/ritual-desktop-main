@@ -94,6 +94,7 @@ class AIConversationDB(Base):
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     title = Column(String, nullable=True)  # Optional title for the conversation
+    memory_overrides = Column(Text, nullable=True)  # JSON: conversation-level memory overrides
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -115,3 +116,26 @@ class AIMessageDB(Base):
     
     # Relationships
     conversation = relationship("AIConversationDB", back_populates="messages")
+
+
+class AIUserMemoryDB(Base):
+    """AI User Memory - persistent preferences for chat behavior"""
+    __tablename__ = "ai_user_memory"
+    
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True)
+    
+    # Core preferences
+    default_time_window_days = Column(Integer, default=30)  # 30, 90, 180, 365, etc.
+    preferred_timezone = Column(String, nullable=True)  # e.g. "America/New_York"
+    preferred_response_style = Column(String, default="balanced")  # concise, balanced, detailed
+    
+    # Optional advanced preferences (JSON)
+    preferred_units = Column(Text, nullable=True)  # JSON: {"sleep": "hours", "meditation": "minutes"}
+    preferred_focus_habits = Column(Text, nullable=True)  # JSON array of habit IDs/names
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("UserDB", backref="ai_memory")

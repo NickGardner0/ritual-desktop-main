@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeftClose, PanelLeft, MessageSquare } from 'lucide-react';
+import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeftClose, PanelLeft, MessageSquare, Settings, ChevronDown } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -475,11 +475,31 @@ interface ConversationListItem {
   first_message?: string;
 }
 
+interface UserMemory {
+  default_time_window_days: number;
+  preferred_response_style: 'concise' | 'balanced' | 'detailed';
+  preferred_timezone?: string | null;
+}
+
+const TIME_WINDOW_OPTIONS = [
+  { label: '30 days', value: 30 },
+  { label: '90 days', value: 90 },
+  { label: '6 months', value: 180 },
+  { label: '1 year', value: 365 },
+  { label: 'All time', value: 1825 },
+];
+
+const RESPONSE_STYLE_OPTIONS = [
+  { label: 'Concise', value: 'concise' as const },
+  { label: 'Balanced', value: 'balanced' as const },
+  { label: 'Detailed', value: 'detailed' as const },
+];
+
 export function ChatClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialQuestion = searchParams.get('q');
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
   const { setIsFullScreenChat } = useAI();
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -500,6 +520,13 @@ export function ChatClient() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  
+  // Memory/preferences state
+  const [memory, setMemory] = useState<UserMemory>({
+    default_time_window_days: 30,
+    preferred_response_style: 'balanced',
+  });
+  const [isLoadingMemory, setIsLoadingMemory] = useState(true);
   
   // Voice mode state
   const [isListening, setIsListening] = useState(false);
@@ -616,6 +643,73 @@ export function ChatClient() {
     loadConversationsList();
   }, [loadConversationsList]);
 
+  // Load user memory/preferences on mount
+  useEffect(() => {
+    const loadMemory = async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          setIsLoadingMemory(false);
+          return;
+        }
+        
+        const response = await fetch(`${PYTHON_API_BASE}/api/chat/memory`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setMemory({
+            default_time_window_days: data.default_time_window_days ?? 30,
+            preferred_response_style: data.preferred_response_style ?? 'balanced',
+            preferred_timezone: data.preferred_timezone,
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load memory:', error);
+      } finally {
+        setIsLoadingMemory(false);
+      }
+    };
+    
+    // Only load memory when user is signed in
+    if (isSignedIn) {
+      loadMemory();
+    } else {
+      setIsLoadingMemory(false);
+    }
+  }, [getToken, isSignedIn]);
+
+  // Update memory preference
+  const updateMemory = useCallback(async (updates: Partial<UserMemory>) => {
+    // Optimistic update
+    setMemory(prev => ({ ...prev, ...updates }));
+    
+    try {
+      const token = await getToken();
+      if (!token) return;
+      
+      const response = await fetch(`${PYTHON_API_BASE}/api/chat/memory`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to update memory');
+        // Could revert here, but for simplicity we keep optimistic state
+      }
+    } catch (error) {
+      console.error('Error updating memory:', error);
+    }
+  }, [getToken]);
+
   // Switch to a different conversation
   const switchConversation = useCallback(async (targetConversationId: string) => {
     if (targetConversationId === conversationId) return;
@@ -683,7 +777,7 @@ export function ChatClient() {
     setInput('');
   }, []);
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, options?: { startFresh?: boolean }) => {
     if (isLoading || !text.trim()) return;
     
     setIsLoading(true);
@@ -696,7 +790,10 @@ export function ChatClient() {
       content: text.trim(),
     };
     
-    const newMessages = [...messages, userMessage];
+    // If startFresh is true, start with an empty array (for new conversations via query param)
+    // This avoids stale closure issues where messages from a previous conversation are included
+    const baseMessages = options?.startFresh ? [] : messages;
+    const newMessages = [...baseMessages, userMessage];
     setMessages(newMessages);
     
     try {
@@ -1073,6 +1170,63 @@ export function ChatClient() {
               </div>
             )}
           </div>
+          
+          {/* Preferences Section */}
+          {!isSidebarCollapsed && (
+            <div className="border-t border-gray-100 px-3 py-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Settings className="w-3 h-3 text-gray-400" />
+                <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Preferences</span>
+              </div>
+              
+              {/* Time Window */}
+              <div className="mb-2">
+                <label className="block text-[10px] text-gray-500 mb-1">Default Window</label>
+                <div className="relative">
+                  <select
+                    value={memory.default_time_window_days}
+                    onChange={(e) => updateMemory({ default_time_window_days: Number(e.target.value) })}
+                    disabled={isLoadingMemory}
+                    className="w-full appearance-none bg-white border border-gray-200 rounded px-2 py-1.5 text-xs text-gray-700 pr-6 hover:border-gray-300 focus:outline-none focus:border-gray-400 transition-colors cursor-pointer"
+                  >
+                    {TIME_WINDOW_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+              
+              {/* Response Style */}
+              <div>
+                <label className="block text-[10px] text-gray-500 mb-1">Response Style</label>
+                <div className="relative">
+                  <select
+                    value={memory.preferred_response_style}
+                    onChange={(e) => updateMemory({ preferred_response_style: e.target.value as 'concise' | 'balanced' | 'detailed' })}
+                    disabled={isLoadingMemory}
+                    className="w-full appearance-none bg-white border border-gray-200 rounded px-2 py-1.5 text-xs text-gray-700 pr-6 hover:border-gray-300 focus:outline-none focus:border-gray-400 transition-colors cursor-pointer"
+                  >
+                    {RESPONSE_STYLE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3 h-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          )}
+          {isSidebarCollapsed && (
+            <div className="border-t border-gray-100 py-2 flex justify-center">
+              <button
+                onClick={() => setIsSidebarCollapsed(false)}
+                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors"
+                title="Expand to see preferences"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </motion.div>
 
         {/* Main Content */}
@@ -1291,6 +1445,63 @@ export function ChatClient() {
             </div>
           )}
         </div>
+        
+        {/* Preferences Section */}
+        {!isSidebarCollapsed && (
+          <div className="border-t border-gray-100 px-3 py-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Settings className="w-3 h-3 text-gray-400" />
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Preferences</span>
+            </div>
+            
+            {/* Time Window */}
+            <div className="mb-2">
+              <label className="block text-[10px] text-gray-500 mb-1">Default Window</label>
+              <div className="relative">
+                <select
+                  value={memory.default_time_window_days}
+                  onChange={(e) => updateMemory({ default_time_window_days: Number(e.target.value) })}
+                  disabled={isLoadingMemory}
+                  className="w-full appearance-none bg-white border border-gray-200 rounded px-2 py-1.5 text-xs text-gray-700 pr-6 hover:border-gray-300 focus:outline-none focus:border-gray-400 transition-colors cursor-pointer"
+                >
+                  {TIME_WINDOW_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3 h-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+            
+            {/* Response Style */}
+            <div>
+              <label className="block text-[10px] text-gray-500 mb-1">Response Style</label>
+              <div className="relative">
+                <select
+                  value={memory.preferred_response_style}
+                  onChange={(e) => updateMemory({ preferred_response_style: e.target.value as 'concise' | 'balanced' | 'detailed' })}
+                  disabled={isLoadingMemory}
+                  className="w-full appearance-none bg-white border border-gray-200 rounded px-2 py-1.5 text-xs text-gray-700 pr-6 hover:border-gray-300 focus:outline-none focus:border-gray-400 transition-colors cursor-pointer"
+                >
+                  {RESPONSE_STYLE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3 h-3 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+        )}
+        {isSidebarCollapsed && (
+          <div className="border-t border-gray-100 py-2 flex justify-center">
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors"
+              title="Expand to see preferences"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </motion.div>
 
       {/* Chat Area */}
