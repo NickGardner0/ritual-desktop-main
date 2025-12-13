@@ -499,7 +499,7 @@ export function ChatClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialQuestion = searchParams.get('q');
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken, isSignedIn, isLoaded } = useAuth();
   const { setIsFullScreenChat } = useAI();
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -675,13 +675,16 @@ export function ChatClient() {
       }
     };
     
+    // Wait for Clerk to finish loading before doing anything
+    if (!isLoaded) return;
+    
     // Only load memory when user is signed in
     if (isSignedIn) {
       loadMemory();
     } else {
       setIsLoadingMemory(false);
     }
-  }, [getToken, isSignedIn]);
+  }, [getToken, isSignedIn, isLoaded]);
 
   // Update memory preference
   const updateMemory = useCallback(async (updates: Partial<UserMemory>) => {
@@ -703,7 +706,6 @@ export function ChatClient() {
       
       if (!response.ok) {
         console.error('Failed to update memory');
-        // Could revert here, but for simplicity we keep optimistic state
       }
     } catch (error) {
       console.error('Error updating memory:', error);
