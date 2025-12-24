@@ -1,6 +1,7 @@
 DESCRIPTION >
     Flexible time range query for AI chat and custom analytics
     Returns all logs within any date range with full details
+    DEDUPLICATES by id to handle re-synced Apple Health data
 
 NODE logs_in_range
 SQL >
@@ -31,7 +32,8 @@ SQL >
       {% if defined(status) %}
       AND status = {{ String(status) }}
       {% end %}
-    ORDER BY timestamp DESC
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
     LIMIT {{ Int32(limit, 1000) }}
 
 TYPE ENDPOINT

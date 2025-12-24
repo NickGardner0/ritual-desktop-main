@@ -177,17 +177,17 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
           <div className="border border-[#e6e6e6] overflow-hidden">
             <table className="w-full table-fixed">
               <colgroup>
-                <col className="w-[35%]" />
-                <col className="w-[20%]" />
-                <col className="w-[27%]" />
+                <col className="w-[30%]" />
                 <col className="w-[18%]" />
+                <col className="w-[36%]" />
+                <col className="w-[16%]" />
               </colgroup>
               <thead>
                 <tr className="border-b border-[#e6e6e6]">
-                  <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Habit</th>
-                  <th className="px-3 py-2 text-center text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Confidence</th>
-                  <th className="px-3 py-2 text-right text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Average</th>
-                  <th className="px-3 py-2 text-right text-[12px] text-[#707070] font-normal">Change</th>
+                  <th className="px-2 py-2 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Habit</th>
+                  <th className="px-2 py-2 text-center text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Conf.</th>
+                  <th className="px-2 py-2 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Average</th>
+                  <th className="px-2 py-2 text-right text-[11px] text-[#707070] font-normal">Change</th>
                 </tr>
               </thead>
               <tbody>
@@ -199,14 +199,14 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
                       index !== sortedImprovers.slice(0, 5).length - 1 && "border-b border-[#e6e6e6]"
                     )}
                   >
-                    <td className="px-3 py-2 text-[12px] text-black border-r border-[#e6e6e6] truncate">{trend.habit_name}</td>
-                    <td className="px-3 py-2 text-center text-[10px] uppercase text-[#707070] border-r border-[#e6e6e6]">
+                    <td className="px-2 py-2 text-[11px] text-black border-r border-[#e6e6e6] truncate" title={trend.habit_name}>{trend.habit_name}</td>
+                    <td className="px-2 py-2 text-center text-[10px] uppercase text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">
                       {trend.confidence}
                     </td>
-                    <td className="px-3 py-2 text-right text-[12px] text-[#707070] tabular-nums border-r border-[#e6e6e6]">
+                    <td className="px-2 py-2 text-right text-[11px] text-[#707070] tabular-nums border-r border-[#e6e6e6] whitespace-nowrap">
                       {trend.previous_avg.toFixed(1)} → {trend.current_avg.toFixed(1)}
                     </td>
-                    <td className="px-3 py-2 text-right text-[12px] text-[#16a34a] tabular-nums">
+                    <td className="px-2 py-2 text-right text-[11px] text-[#16a34a] tabular-nums whitespace-nowrap">
                       +{trend.percent_change.toFixed(0)}%
                     </td>
                   </tr>
@@ -227,17 +227,17 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
           <div className="border border-[#e6e6e6] overflow-hidden">
             <table className="w-full table-fixed">
               <colgroup>
-                <col className="w-[35%]" />
-                <col className="w-[20%]" />
-                <col className="w-[27%]" />
+                <col className="w-[30%]" />
                 <col className="w-[18%]" />
+                <col className="w-[36%]" />
+                <col className="w-[16%]" />
               </colgroup>
               <thead>
                 <tr className="border-b border-[#e6e6e6]">
-                  <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Habit</th>
-                  <th className="px-3 py-2 text-center text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Confidence</th>
-                  <th className="px-3 py-2 text-right text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Average</th>
-                  <th className="px-3 py-2 text-right text-[12px] text-[#707070] font-normal">Change</th>
+                  <th className="px-2 py-2 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Habit</th>
+                  <th className="px-2 py-2 text-center text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Conf.</th>
+                  <th className="px-2 py-2 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Average</th>
+                  <th className="px-2 py-2 text-right text-[11px] text-[#707070] font-normal">Change</th>
                 </tr>
               </thead>
               <tbody>
@@ -249,14 +249,14 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
                       index !== sortedDecliners.slice(0, 5).length - 1 && "border-b border-[#e6e6e6]"
                     )}
                   >
-                    <td className="px-3 py-2 text-[12px] text-black border-r border-[#e6e6e6] truncate">{trend.habit_name}</td>
-                    <td className="px-3 py-2 text-center text-[10px] uppercase text-[#707070] border-r border-[#e6e6e6]">
+                    <td className="px-2 py-2 text-[11px] text-black border-r border-[#e6e6e6] truncate" title={trend.habit_name}>{trend.habit_name}</td>
+                    <td className="px-2 py-2 text-center text-[10px] uppercase text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">
                       {trend.confidence}
                     </td>
-                    <td className="px-3 py-2 text-right text-[12px] text-[#707070] tabular-nums border-r border-[#e6e6e6]">
+                    <td className="px-2 py-2 text-right text-[11px] text-[#707070] tabular-nums border-r border-[#e6e6e6] whitespace-nowrap">
                       {trend.previous_avg.toFixed(1)} → {trend.current_avg.toFixed(1)}
                     </td>
-                    <td className="px-3 py-2 text-right text-[12px] text-[#dc2626] tabular-nums">
+                    <td className="px-2 py-2 text-right text-[11px] text-[#dc2626] tabular-nums whitespace-nowrap">
                       {trend.percent_change.toFixed(0)}%
                     </td>
                   </tr>

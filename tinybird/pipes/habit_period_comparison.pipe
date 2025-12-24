@@ -1,7 +1,21 @@
 DESCRIPTION >
     Calculate FIRST DAY → LAST DAY percentage change within selected date range
     Shows the trend across the user's selected period
+    DEDUPLICATES by id to handle re-synced Apple Health data
     Example: Dec 4-6 compares Dec 4 value to Dec 6 value = +43.9% if sleep improved
+
+NODE deduplicated_logs
+DESCRIPTION >
+    Deduplicate logs by id, keeping latest version
+SQL >
+    %
+    SELECT id, habit_id, habit_name, unit, date, status, amount, duration, created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(start_date, required=True) }}
+      AND date <= {{ Date(end_date, required=True) }}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
 
 NODE first_day_values
 DESCRIPTION >
@@ -15,22 +29,16 @@ SQL >
         date as first_date,
         SUM(amount) as first_day_amount,
         SUM(duration) as first_day_duration
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= {{ Date(start_date, required=True) }}
-      AND date <= {{ Date(end_date, required=True) }}
-      AND status = 'completed'
+    FROM deduplicated_logs
+    WHERE status = 'completed'
       {% if defined(habit_id) %}
       AND habit_id = {{ String(habit_id) }}
       {% end %}
     GROUP BY habit_id, habit_name, date
     HAVING date = (
         SELECT MIN(date) 
-        FROM habit_logs 
-        WHERE user_id = {{ String(user_id) }}
-          AND habit_id = habit_logs.habit_id
-          AND date >= {{ Date(start_date) }}
-          AND date <= {{ Date(end_date) }}
+        FROM deduplicated_logs 
+        WHERE habit_id = deduplicated_logs.habit_id
           AND status = 'completed'
     )
 
@@ -44,22 +52,16 @@ SQL >
         date as last_date,
         SUM(amount) as last_day_amount,
         SUM(duration) as last_day_duration
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= {{ Date(start_date, required=True) }}
-      AND date <= {{ Date(end_date, required=True) }}
-      AND status = 'completed'
+    FROM deduplicated_logs
+    WHERE status = 'completed'
       {% if defined(habit_id) %}
       AND habit_id = {{ String(habit_id) }}
       {% end %}
     GROUP BY habit_id, date
     HAVING date = (
         SELECT MAX(date) 
-        FROM habit_logs 
-        WHERE user_id = {{ String(user_id) }}
-          AND habit_id = habit_logs.habit_id
-          AND date >= {{ Date(start_date) }}
-          AND date <= {{ Date(end_date) }}
+        FROM deduplicated_logs 
+        WHERE habit_id = deduplicated_logs.habit_id
           AND status = 'completed'
     )
 
@@ -75,11 +77,8 @@ SQL >
         SUM(duration) as total_duration,
         SUM(amount) / nullIf(COUNT(DISTINCT date), 0) as avg_amount,
         SUM(duration) / nullIf(COUNT(DISTINCT date), 0) as avg_duration
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= {{ Date(start_date, required=True) }}
-      AND date <= {{ Date(end_date, required=True) }}
-      AND status = 'completed'
+    FROM deduplicated_logs
+    WHERE status = 'completed'
       {% if defined(habit_id) %}
       AND habit_id = {{ String(habit_id) }}
       {% end %}

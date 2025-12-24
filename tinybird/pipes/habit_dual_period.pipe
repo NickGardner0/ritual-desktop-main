@@ -1,6 +1,7 @@
 DESCRIPTION >
     Returns habit data for two periods (current and comparison) in a single query.
     Optimized for period-over-period comparison visualization.
+    DEDUPLICATES by id to handle re-synced Apple Health data
     
     Usage:
     - Provide current_start_date and current_end_date for the main period
@@ -8,6 +9,32 @@ DESCRIPTION >
     - Both periods return daily aggregated data with period markers
 
 TOKEN "habit_dual_period_read" READ
+
+NODE deduplicated_current_logs
+DESCRIPTION >
+    Deduplicated logs for current period
+SQL >
+    %
+    SELECT id, habit_id, habit_name, date, status, amount, duration, unit, created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(current_start_date, required=True) }}
+      AND date <= {{ Date(current_end_date, required=True) }}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE deduplicated_compare_logs
+DESCRIPTION >
+    Deduplicated logs for comparison period
+SQL >
+    %
+    SELECT id, habit_id, habit_name, date, status, amount, duration, unit, created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= {{ Date(compare_start_date, required=True) }}
+      AND date <= {{ Date(compare_end_date, required=True) }}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
 
 NODE current_period_data
 DESCRIPTION >
@@ -23,19 +50,10 @@ SQL >
         SUM(duration) as total_duration,
         COUNT(*) as log_count,
         'current' as period_type
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= {{ Date(current_start_date, required=True) }}
-      AND date <= {{ Date(current_end_date, required=True) }}
-      AND status = 'completed'
+    FROM deduplicated_current_logs
+    WHERE status = 'completed'
       {% if defined(habit_id) %}
       AND habit_id = {{ String(habit_id) }}
-      {% end %}
-      {% if defined(category) %}
-      AND habit_id IN (
-          SELECT DISTINCT habit_id FROM habit_logs 
-          WHERE user_id = {{ String(user_id) }}
-      )
       {% end %}
     GROUP BY date, habit_id, habit_name
     ORDER BY date ASC
@@ -54,11 +72,8 @@ SQL >
         SUM(duration) as total_duration,
         COUNT(*) as log_count,
         'comparison' as period_type
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= {{ Date(compare_start_date, required=True) }}
-      AND date <= {{ Date(compare_end_date, required=True) }}
-      AND status = 'completed'
+    FROM deduplicated_compare_logs
+    WHERE status = 'completed'
       {% if defined(habit_id) %}
       AND habit_id = {{ String(habit_id) }}
       {% end %}

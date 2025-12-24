@@ -90,29 +90,38 @@ async def get_db_session():
 
 async def init_database():
     """
-    Initialize database - ensures tables exist
-    Uses SQLAlchemy's checkfirst=True for safety
+    Initialize database - verifies connection and waits for sync.
+    Schema is managed by migration scripts, not create_all().
     """
     from sqlalchemy import text
+    import asyncio
     
-    try:
-        # Create tables if they don't exist (checkfirst=True is safe)
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, checkfirst=True))
-        
-        # Quick verification
-        async with async_session_factory() as session:
-            result = await session.execute(text("SELECT COUNT(*) FROM users"))
-            count = result.scalar()
-            print(f"✅ Database ready: {count} user(s)")
-            
-    except Exception as e:
-        error_msg = str(e)
-        if "no such table" in error_msg.lower():
-            print(f"❌ Database initialization failed: {error_msg}")
-            print("💡 Run: cd backend && python3 scripts/init_turso_tables.py")
-        else:
-            print(f"⚠️  Database check failed: {error_msg}")
+    max_retries = 5
+    retry_delay = 1.0  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            # Just verify we can query the database - don't try to create tables
+            # Schema is managed by migration scripts (migrate_add_import_tables.py)
+            async with async_session_factory() as session:
+                result = await session.execute(text("SELECT COUNT(*) FROM users"))
+                count = result.scalar()
+                print(f"✅ Database ready: {count} user(s)")
+                return  # Success!
+                
+        except Exception as e:
+            error_msg = str(e)
+            if attempt < max_retries - 1:
+                # Likely sync hasn't completed yet, wait and retry
+                print(f"⏳ Waiting for database sync (attempt {attempt + 1}/{max_retries})...")
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 1.5  # Exponential backoff
+            else:
+                if "no such table" in error_msg.lower():
+                    print(f"❌ Database tables missing: {error_msg}")
+                    print("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
+                else:
+                    print(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
 
 async def close_database():
     """Close database connections"""

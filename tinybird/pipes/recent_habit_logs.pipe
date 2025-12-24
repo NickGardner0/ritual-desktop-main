@@ -1,7 +1,8 @@
 DESCRIPTION >
     Get recent habit logs for a user (for real-time dashboard updates)
+    DEDUPLICATES by id to handle re-synced Apple Health data
 
-NODE get_recent_logs
+NODE deduplicated_logs
 SQL >
     %
     SELECT
@@ -23,6 +24,14 @@ SQL >
       {% if defined(habit_id) %}
       AND habit_id = {{ String(habit_id) }}
       {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE get_recent_logs
+SQL >
+    %
+    SELECT *
+    FROM deduplicated_logs
     ORDER BY timestamp DESC
     LIMIT {{Int32(limit, 100)}}
 

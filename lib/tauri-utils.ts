@@ -10,6 +10,27 @@ export function isTauri(): boolean {
   return '__TAURI__' in window;
 }
 
+// Track if window has been shown to prevent multiple calls
+let windowShown = false;
+
+/**
+ * Show the main Tauri window (called after React app is ready)
+ * This prevents the "tiny window flash" by waiting until content is loaded
+ */
+export async function showMainWindow(): Promise<void> {
+  if (!isTauri() || windowShown) return;
+  
+  try {
+    const { appWindow } = await import('@tauri-apps/api/window');
+    await appWindow.show();
+    await appWindow.setFocus();
+    windowShown = true;
+    console.log('✅ Main window shown after React ready');
+  } catch (error) {
+    console.error('Failed to show main window:', error);
+  }
+}
+
 /**
  * Open a URL in the system's default browser (Tauri only)
  */

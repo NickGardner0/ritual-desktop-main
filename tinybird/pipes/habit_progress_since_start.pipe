@@ -1,8 +1,20 @@
 DESCRIPTION >
     Calculate habit progress comparing first 7 days to last 7 days of tracking.
     Shows how much a user has improved since they started tracking each habit.
+    DEDUPLICATES by id to handle re-synced Apple Health data
 
 TOKEN "habit_progress_since_start_read" READ
+
+NODE deduplicated_logs
+DESCRIPTION >
+    Deduplicate logs by id, keeping latest version
+SQL >
+    %
+    SELECT id, user_id, habit_id, habit_name, unit, timestamp, status, amount, duration, created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, '') }}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
 
 NODE habit_date_range
 DESCRIPTION >
@@ -17,9 +29,8 @@ SQL >
         min(toDate(timestamp)) AS first_date,
         max(toDate(timestamp)) AS last_date,
         dateDiff('day', min(toDate(timestamp)), max(toDate(timestamp))) + 1 AS total_days_tracked
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, '') }}
-      AND status = 'completed'
+    FROM deduplicated_logs
+    WHERE status = 'completed'
     GROUP BY user_id, habit_id, habit_name, unit
     HAVING total_days_tracked >= 2
 
@@ -35,11 +46,10 @@ SQL >
         avg(hl.duration / 3600.0) AS first_period_avg_duration_hours,
         count(*) AS first_period_log_count,
         count(DISTINCT toDate(hl.timestamp)) AS first_period_days
-    FROM habit_logs hl
+    FROM deduplicated_logs hl
     INNER JOIN habit_date_range hdr 
         ON hl.habit_id = hdr.habit_id AND hl.user_id = hdr.user_id
-    WHERE hl.user_id = {{ String(user_id, '') }}
-      AND hl.status = 'completed'
+    WHERE hl.status = 'completed'
       AND toDate(hl.timestamp) >= hdr.first_date
       AND toDate(hl.timestamp) < hdr.first_date + INTERVAL 7 DAY
     GROUP BY hl.user_id, hl.habit_id
@@ -56,11 +66,10 @@ SQL >
         avg(hl.duration / 3600.0) AS last_period_avg_duration_hours,
         count(*) AS last_period_log_count,
         count(DISTINCT toDate(hl.timestamp)) AS last_period_days
-    FROM habit_logs hl
+    FROM deduplicated_logs hl
     INNER JOIN habit_date_range hdr 
         ON hl.habit_id = hdr.habit_id AND hl.user_id = hdr.user_id
-    WHERE hl.user_id = {{ String(user_id, '') }}
-      AND hl.status = 'completed'
+    WHERE hl.status = 'completed'
       AND toDate(hl.timestamp) > hdr.last_date - INTERVAL 7 DAY
       AND toDate(hl.timestamp) <= hdr.last_date
     GROUP BY hl.user_id, hl.habit_id

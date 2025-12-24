@@ -73,7 +73,11 @@ async def create_tables():
     print("\n🔍 Verifying table creation...")
     tables = await check_tables_exist()
     
-    expected_tables = ['users', 'habits', 'habit_logs', 'whoop_integrations', 'ai_conversations', 'ai_messages']
+    expected_tables = [
+        'users', 'habits', 'habit_logs', 'habit_aliases', 'whoop_integrations', 
+        'ai_conversations', 'ai_messages',
+        'wearable_devices', 'wearable_metrics', 'wearable_ingest_events'
+    ]
     
     if not tables:
         print("❌ No tables found after creation!")

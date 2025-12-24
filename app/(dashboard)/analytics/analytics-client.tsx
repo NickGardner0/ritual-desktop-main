@@ -147,7 +147,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
         <div className="flex flex-col items-end shrink-0">
           {/* % Badge */}
           <div
-            className="flex items-center gap-0.5 px-1 py-0.5 rounded-sm whitespace-nowrap"
+            className="flex items-center gap-0.5 px-1 py-0.5 whitespace-nowrap"
             style={{ backgroundColor: bgColor }}
           >
             {!isNeutral && (
@@ -424,14 +424,14 @@ const CustomSelect = ({ value, options, onChange, placeholder = 'Select' }: any)
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between w-[180px] px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] focus:outline-none focus:ring-1 focus:ring-gray-400 transition-colors"
+        className="flex items-center justify-between w-[180px] px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-[#F3F3F3] focus:outline-none focus:ring-1 focus:ring-gray-400 transition-colors"
       >
         <span className="truncate mr-2">{selectedLabel}</span>
         <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 z-50 w-[200px] mt-1 bg-white border border-gray-200 shadow-xl rounded-sm py-1 max-h-[300px] overflow-auto">
+        <div className="absolute right-0 z-50 w-[200px] mt-1 bg-white border border-gray-200 shadow-xl py-1 max-h-[300px] overflow-auto">
           <div className="px-3 py-2 border-b border-gray-100 mb-1">
             <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Compare with...</span>
           </div>
@@ -1486,7 +1486,7 @@ export function AnalyticsClient() {
 
           {/* Expanded View - Now with Individual Log Details from Tinybird! */}
           {expandedHabit && (
-            <div className="mt-4 bg-[#FAFAF9] border border-gray-300 p-6 shadow-sm rounded-sm">
+            <div className="mt-4 bg-[#FAFAF9] border border-gray-300 p-6 shadow-sm">
               {loadingExpandedLogs ? (
                 <div className="flex items-center justify-center h-[400px]">
                   <div className="text-center">
@@ -1523,7 +1523,7 @@ export function AnalyticsClient() {
                       </div>
                       <button
                         onClick={() => setExpandedHabit(null)}
-                        className="p-2 hover:bg-gray-200/50 rounded-full transition-colors"
+                        className="p-2 hover:bg-gray-200/50 transition-colors"
                       >
                         <X className="w-5 h-5 text-gray-500" />
                       </button>
@@ -1540,12 +1540,12 @@ export function AnalyticsClient() {
                           <span className="text-[10px] text-gray-500">(from date picker)</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+                        <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 shadow-sm">
                           {ranges.map((range) => (
                             <button
                               key={range}
                               onClick={() => setExpandedTimeRange(range as any)}
-                              className={`px-3 py-1.5 text-xs rounded-md transition-all duration-200 ${expandedTimeRange === range
+                              className={`px-3 py-1.5 text-xs transition-all duration-200 ${expandedTimeRange === range
                                 ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
                                 : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
                                 }`}
@@ -1588,7 +1588,7 @@ export function AnalyticsClient() {
                             }
                           }}
                           disabled={isCapturing}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-sm text-gray-700 hover:bg-[#F3F3F3] rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                          className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 text-sm text-gray-700 hover:bg-[#F3F3F3] shadow-sm transition-colors disabled:opacity-50"
                         >
                           <Share2 className="w-4 h-4" />
                           <span>{isCapturing ? 'Capturing...' : 'Share'}</span>
@@ -1597,26 +1597,26 @@ export function AnalyticsClient() {
                     </div>
 
                     {/* Shareable Content - wrapped for screenshot capture */}
-                    <div ref={chartRef} className="bg-white rounded-lg">
+                    <div ref={chartRef} className="bg-white">
                     {/* Stats Grid - Square Compact Style */}
                     <div className="grid grid-cols-5 gap-3 mb-8">
-                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                      <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
                         <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Total</p>
                         <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{totalValue.toFixed(1)}</p>
                       </div>
-                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                      <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
                         <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Average</p>
                         <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{avgValue.toFixed(1)}</p>
                       </div>
-                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                      <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
                         <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Min</p>
                         <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{minValue.toFixed(1)}</p>
                       </div>
-                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                      <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
                         <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Max</p>
                         <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{maxValue.toFixed(1)}</p>
                       </div>
-                      <div className="bg-white border border-gray-200 p-2 rounded-sm shadow-sm backdrop-blur-sm">
+                      <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
                         <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Std Dev</p>
                         <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{stdDev.toFixed(1)}</p>
                       </div>
@@ -1624,7 +1624,7 @@ export function AnalyticsClient() {
 
                     {/* Correlation Display - Shows when comparing two habits */}
                     {compHabit && correlationData && (
-                      <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 rounded-full shadow-sm">
+                      <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 shadow-sm">
                         <span className="text-[10px] text-gray-500 uppercase tracking-wide">Correlation</span>
                         <span className="text-sm font-semibold text-gray-900 tabular-nums">
                           {correlationData.correlation?.coefficient?.toFixed(2)}
@@ -1635,8 +1635,8 @@ export function AnalyticsClient() {
                       </div>
                     )}
                     {compHabit && loadingCorrelation && (
-                      <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 rounded-full animate-pulse">
-                        <div className="h-3 bg-gray-200 rounded w-16"></div>
+                      <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 animate-pulse">
+                        <div className="h-3 bg-gray-200 w-16"></div>
                       </div>
                     )}
 

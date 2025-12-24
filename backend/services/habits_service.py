@@ -66,6 +66,8 @@ class HabitsService:
                     is_custom=habit_data.is_custom or False,
                     integration_source=habit_data.integration_source,
                     unit_type=habit_data.unit_type,
+                    sensor_type=habit_data.sensor_type,
+                    metric_type=habit_data.metric_type,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
@@ -145,6 +147,10 @@ class HabitsService:
                     update_data['integration_source'] = updates.integration_source
                 if updates.unit_type is not None:
                     update_data['unit_type'] = updates.unit_type
+                if updates.sensor_type is not None:
+                    update_data['sensor_type'] = updates.sensor_type
+                if updates.metric_type is not None:
+                    update_data['metric_type'] = updates.metric_type
                 
                 update_data['updated_at'] = datetime.utcnow()
                 

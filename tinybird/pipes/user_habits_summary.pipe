@@ -1,6 +1,26 @@
 DESCRIPTION >
     Get user's habit summary with completion stats and time-based comparisons
     Shows current metrics and percentage changes over time
+    DEDUPLICATES by id to handle re-synced Apple Health data
+
+NODE deduplicated_logs
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        status,
+        duration,
+        amount,
+        unit,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL 60 DAY
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
 
 NODE habit_stats
 SQL >
@@ -29,9 +49,8 @@ SQL >
             THEN stddevPop(amount) / (SUM(amount) / COUNT(DISTINCT date))
             ELSE 0
         END as coefficient_of_variation
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+    FROM deduplicated_logs
+    WHERE date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
     GROUP BY habit_id, habit_name
 
 NODE last_7_days
@@ -47,9 +66,8 @@ SQL >
         -- Average per day with data (not per entry)
         SUM(amount) / COUNT(DISTINCT date) as avg_amount_7d,
         SUM(duration) / COUNT(DISTINCT date) as avg_duration_7d
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= today() - INTERVAL 7 DAY
+    FROM deduplicated_logs
+    WHERE date >= today() - INTERVAL 7 DAY
       AND status = 'completed'
     GROUP BY habit_id, habit_name
 
@@ -64,9 +82,8 @@ SQL >
         SUM(duration) as duration_prev_7d,
         SUM(amount) / COUNT(DISTINCT date) as avg_amount_prev_7d,
         SUM(duration) / COUNT(DISTINCT date) as avg_duration_prev_7d
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= today() - INTERVAL 14 DAY
+    FROM deduplicated_logs
+    WHERE date >= today() - INTERVAL 14 DAY
       AND date < today() - INTERVAL 7 DAY
       AND status = 'completed'
     GROUP BY habit_id
@@ -82,9 +99,8 @@ SQL >
         SUM(duration) as duration_30d,
         SUM(amount) / COUNT(DISTINCT date) as avg_amount_30d,
         SUM(duration) / COUNT(DISTINCT date) as avg_duration_30d
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= today() - INTERVAL 30 DAY
+    FROM deduplicated_logs
+    WHERE date >= today() - INTERVAL 30 DAY
       AND status = 'completed'
     GROUP BY habit_id
 
@@ -99,9 +115,8 @@ SQL >
         SUM(duration) as duration_prev_30d,
         SUM(amount) / COUNT(DISTINCT date) as avg_amount_prev_30d,
         SUM(duration) / COUNT(DISTINCT date) as avg_duration_prev_30d
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= today() - INTERVAL 60 DAY
+    FROM deduplicated_logs
+    WHERE date >= today() - INTERVAL 60 DAY
       AND date < today() - INTERVAL 30 DAY
       AND status = 'completed'
     GROUP BY habit_id

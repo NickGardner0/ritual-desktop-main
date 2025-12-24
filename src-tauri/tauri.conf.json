@@ -35,12 +35,14 @@
       },
       "fs": {
         "all": false,
+        "readFile": true,
         "writeFile": true,
         "scope": [
           "$DOWNLOAD/*",
           "$DOCUMENT/*",
           "$DESKTOP/*",
-          "$HOME/*"
+          "$HOME/*",
+          "**/*"
         ]
       },
       "path": {
@@ -128,6 +130,7 @@
     },
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "height": 800,
         "resizable": true,
@@ -137,7 +140,8 @@
         "minWidth": 800,
         "decorations": true,
         "transparent": true,
-        "titleBarStyle": "Overlay"
+        "titleBarStyle": "Overlay",
+        "visible": false
       }
     ]
   }

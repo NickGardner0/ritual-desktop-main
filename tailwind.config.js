@@ -8,7 +8,10 @@ module.exports = {
     "./src/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
     "./styles/**/*.css",
-    "*.{ts,tsx}"
+  ],
+  safelist: [
+    'font-sans',
+    'font-geist',
   ],
   theme: {
     container: {

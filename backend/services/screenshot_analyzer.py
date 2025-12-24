@@ -12,13 +12,37 @@ from typing import Optional, List, Dict, Any
 
 from openai import OpenAI
 
-# Initialize OpenAI client (uses OPENAI_API_KEY env var automatically)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class ScreenshotAnalysisError(Exception):
+    """Custom exception for screenshot analysis errors"""
+    def __init__(self, message: str, code: str = "ANALYSIS_ERROR"):
+        self.message = message
+        self.code = code
+        super().__init__(self.message)
+
+
+def _get_openai_client() -> OpenAI:
+    """
+    Get OpenAI client, raising a clear error if API key is missing.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ScreenshotAnalysisError(
+            "Screenshot import requires an OpenAI API key configured on the server. "
+            "Please set the OPENAI_API_KEY environment variable.",
+            code="OPENAI_KEY_MISSING"
+        )
+    return OpenAI(api_key=api_key)
+
+
+# Default minimum confidence threshold
+DEFAULT_MIN_CONFIDENCE = 0.75
 
 
 def analyze_screenshot_for_habits(
     image_bytes: bytes, 
-    available_habits: List[Dict[str, Any]]
+    available_habits: List[Dict[str, Any]],
+    min_confidence: float = DEFAULT_MIN_CONFIDENCE
 ) -> Optional[Dict[str, Any]]:
     """
     Uses OpenAI vision to analyze a screenshot and extract habit data.
@@ -26,6 +50,8 @@ def analyze_screenshot_for_habits(
     Args:
         image_bytes: Raw bytes of the screenshot image
         available_habits: List of user's habits with their names and units
+        min_confidence: Minimum confidence threshold (0-1). Results below this
+                       will be flagged as low confidence.
         
     Returns:
         Dict with:
@@ -34,10 +60,16 @@ def analyze_screenshot_for_habits(
         - value: The extracted numeric value
         - unit: The unit of the value
         - confidence: How confident the model is (0-1)
+        - low_confidence: True if confidence is below threshold
         - description: What was detected in the screenshot
         
         Returns None if nothing useful could be extracted.
+        
+    Raises:
+        ScreenshotAnalysisError: If OpenAI API key is missing or analysis fails
     """
+    # Get client (will raise ScreenshotAnalysisError if key is missing)
+    client = _get_openai_client()
     # Build list of available habits for the prompt
     habits_list = "\n".join([
         f"- {h['name']} (unit: {h.get('unit_type', 'unknown')}, id: {h['id']})"
@@ -123,11 +155,25 @@ If you cannot extract useful data, return:
         raw_content = completion.choices[0].message.content
         print(f"🔍 OpenAI vision response: {raw_content}")
         
-        return _parse_analysis_response(raw_content, available_habits)
+        result = _parse_analysis_response(raw_content, available_habits)
         
+        # Add confidence gating
+        if result:
+            confidence = result.get("confidence", 0.5)
+            result["low_confidence"] = confidence < min_confidence
+            result["min_confidence_threshold"] = min_confidence
+        
+        return result
+        
+    except ScreenshotAnalysisError:
+        # Re-raise our custom errors
+        raise
     except Exception as e:
         print(f"❌ OpenAI vision API error: {e}")
-        return None
+        raise ScreenshotAnalysisError(
+            f"Failed to analyze screenshot: {str(e)}",
+            code="ANALYSIS_FAILED"
+        )
 
 
 def _parse_analysis_response(
@@ -220,7 +266,112 @@ def _parse_analysis_response(
                 result["habit_id"] = habit["id"]
                 break
     
+    # Validate the extracted value
+    validation = _validate_extracted_value(
+        result["value"], 
+        result["unit"], 
+        result["detected_type"]
+    )
+    result["validation"] = validation
+    
+    if not validation["is_valid"]:
+        print(f"⚠️ Value validation failed: {validation['reason']}")
+        result["validation_warning"] = validation["reason"]
+    
     return result
+
+
+def _validate_extracted_value(value: float, unit: str, detected_type: str) -> Dict[str, Any]:
+    """
+    Validate that the extracted value is within reasonable bounds.
+    Returns validation result with is_valid flag and reason.
+    """
+    # Define reasonable limits for different types
+    VALUE_LIMITS = {
+        "screen_time": {
+            "Hours": (0, 24),
+            "Minutes": (0, 1440),
+        },
+        "sleep": {
+            "Hours": (0, 16),
+            "Minutes": (0, 960),
+        },
+        "workout": {
+            "Hours": (0, 8),
+            "Minutes": (0, 480),
+        },
+        "meditation": {
+            "Hours": (0, 4),
+            "Minutes": (0, 240),
+        },
+        "reading": {
+            "Hours": (0, 12),
+            "Minutes": (0, 720),
+            "Pages": (0, 500),
+        },
+        "meetings": {
+            "Hours": (0, 12),
+            "Minutes": (0, 720),
+            "Count": (0, 50),
+        },
+        "steps": {
+            "Steps": (0, 100000),
+            "Count": (0, 100000),
+        },
+        "distance": {
+            "Miles": (0, 100),
+            "Kilometers": (0, 160),
+            "km": (0, 160),
+        },
+    }
+    
+    # Check if value is negative
+    if value < 0:
+        return {
+            "is_valid": False,
+            "reason": f"Value cannot be negative: {value}",
+            "suggested_value": abs(value)
+        }
+    
+    # Get limits for this type
+    type_limits = VALUE_LIMITS.get(detected_type, {})
+    unit_normalized = unit.strip()
+    
+    # Try to find matching unit limits
+    limits = None
+    for limit_unit, limit_range in type_limits.items():
+        if limit_unit.lower() == unit_normalized.lower():
+            limits = limit_range
+            break
+    
+    if limits:
+        min_val, max_val = limits
+        if value < min_val:
+            return {
+                "is_valid": False,
+                "reason": f"Value {value} {unit} is below minimum ({min_val})",
+                "suggested_value": min_val
+            }
+        if value > max_val:
+            return {
+                "is_valid": False,
+                "reason": f"Value {value} {unit} exceeds maximum ({max_val}) for {detected_type}",
+                "suggested_value": max_val
+            }
+    
+    # General sanity check for very large numbers
+    if value > 10000 and detected_type not in ["steps"]:
+        return {
+            "is_valid": False,
+            "reason": f"Value {value} seems unusually large",
+            "suggested_value": None
+        }
+    
+    return {
+        "is_valid": True,
+        "reason": None,
+        "suggested_value": None
+    }
 
 
 # Keep backward compatibility

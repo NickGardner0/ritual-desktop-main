@@ -55,6 +55,8 @@ def habit_db_to_pydantic(habit: HabitDB) -> Habit:
         is_custom=habit.is_custom,
         integration_source=habit.integration_source,
         unit_type=habit.unit_type,
+        sensor_type=habit.sensor_type,
+        metric_type=habit.metric_type,
         created_at=habit.created_at,
         updated_at=habit.updated_at
     )

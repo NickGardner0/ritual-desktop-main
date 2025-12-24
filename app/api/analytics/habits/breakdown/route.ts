@@ -19,13 +19,20 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const daysBack = parseInt(searchParams.get('days_back') || '30');
 
-    // Calculate date range
+    // Calculate date range - use local dates, not UTC
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysBack);
     
-    const startDateStr = startDate.toISOString().split('T')[0];
-    const endDateStr = endDate.toISOString().split('T')[0];
+    // Use local date components, NOT toISOString() which converts to UTC
+    const formatLocalDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    const startDateStr = formatLocalDate(startDate);
+    const endDateStr = formatLocalDate(endDate);
 
     // Query Python backend for habit logs with category info
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';

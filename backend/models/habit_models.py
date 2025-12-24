@@ -16,8 +16,10 @@ class HabitBase(BaseModel):
     category: str
     icon: Optional[str] = None
     is_custom: Optional[bool] = False
-    integration_source: Optional[str] = None
+    integration_source: Optional[str] = None  # 'apple_health', 'whoop', 'oura', 'fitbit', 'garmin', null
     unit_type: Optional[str] = None
+    sensor_type: Optional[str] = None  # 'Apple Watch', 'Whoop', 'Manual', etc.
+    metric_type: Optional[str] = None  # For wearables: 'steps', 'hr', 'hrv', 'sleep_session', etc.
 
 class HabitCreate(HabitBase):
     """Model for creating a new habit"""
@@ -31,6 +33,8 @@ class HabitUpdate(BaseModel):
     is_custom: Optional[bool] = None
     integration_source: Optional[str] = None
     unit_type: Optional[str] = None
+    sensor_type: Optional[str] = None
+    metric_type: Optional[str] = None
 
 class Habit(HabitBase):
     """Full habit model with all fields"""

@@ -296,11 +296,15 @@ export async function POST(req: NextRequest) {
       logger.warn('⚠️ Could not fetch aliases, continuing with name matching only');
     }
 
-    // Date helpers
+    // Date helpers - IMPORTANT: Use local timezone, not UTC!
     const getLocalDate = (daysOffset: number = 0) => {
       const now = new Date();
       now.setDate(now.getDate() + daysOffset);
-      return now.toISOString().split('T')[0];
+      // Use local date components, NOT toISOString() which converts to UTC
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     };
     
     const today = selectedDate || getLocalDate(0);

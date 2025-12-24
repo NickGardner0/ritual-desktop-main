@@ -1,0 +1,523 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0166F325B263B4789DCC01EA /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */; };
+		08CB6F1F343053A20CC8B0EB /* TuistAssets+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */; };
+		0ED81CA69B299571B4CBF54C /* StatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E4D8229429850BF8B91FB4 /* StatusCard.swift */; };
+		10585AD31D05685FCC500AE2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */; };
+		4B58BF0ED7798AF180EF43B4 /* TuistBundle+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */; };
+		534EF1F0E6C08A8D64021BE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A4460558012097894E301FA6 /* Assets.xcassets */; };
+		7E86B0E4D2B19B9D736801BC /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A57E238B67EA0BEA6D83131 /* ConnectView.swift */; };
+		8D10BA196D80EBEE02405CB7 /* PermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DA50B04943907060448DFF /* PermissionsView.swift */; };
+		983659EE9CBBBA3F0F26ADFE /* BackgroundSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50B7B568770537526D1A9A9 /* BackgroundSyncManager.swift */; };
+		A5C77E5AB43287BDEBE26DDF /* StatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1741C77C405F908BA6C2BCC3 /* StatusView.swift */; };
+		AF65CAB72369B51D6943421F /* Clerk in Frameworks */ = {isa = PBXBuildFile; productRef = 86E70812549362DEB89C713C /* Clerk */; };
+		B0C41CD6048C7E237921659A /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6EDDEAADF641B87AE9F6F98 /* AppState.swift */; };
+		C84C3305B73C7EE1D49D7D87 /* RitualAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */; };
+		D293625037C767476B438091 /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78CD8036EC5AC8CD0EFABF28 /* HealthKitManager.swift */; };
+		DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */; };
+		E82B883F12AB4FB41EDA9A40 /* RitualCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331267A4741B767C6156924B /* RitualCompanionApp.swift */; };
+		EE6236C7F349690B66FE30C4 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFCBF61B7805AA46DC7C8B69 /* APIModels.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		47EB9CB1C6DF0F4CD6CBDB9E /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		1741C77C405F908BA6C2BCC3 /* StatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusView.swift; sourceTree = "<group>"; };
+		2A57E238B67EA0BEA6D83131 /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
+		331267A4741B767C6156924B /* RitualCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RitualCompanionApp.swift; sourceTree = "<group>"; };
+		3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalizedMetric.swift; sourceTree = "<group>"; };
+		459058E6B5537C3E07F0F641 /* RitualCompanion-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualCompanion-Info.plist"; sourceTree = "<group>"; };
+		53DA50B04943907060448DFF /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
+		55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RitualAPIClient.swift; sourceTree = "<group>"; };
+		74E4D8229429850BF8B91FB4 /* StatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCard.swift; sourceTree = "<group>"; };
+		78CD8036EC5AC8CD0EFABF28 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistBundle+RitualCompanion.swift"; sourceTree = "<group>"; };
+		9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A4460558012097894E301FA6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AFCBF61B7805AA46DC7C8B69 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
+		B50B7B568770537526D1A9A9 /* BackgroundSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManager.swift; sourceTree = "<group>"; };
+		BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualCompanion.entitlements; sourceTree = "<group>"; };
+		E6EDDEAADF641B87AE9F6F98 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistAssets+RitualCompanion.swift"; sourceTree = "<group>"; };
+		FA754A79233A468B7DD2F651 /* RitualCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RitualCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		40749DD238717B6EEAA5B794 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AF65CAB72369B51D6943421F /* Clerk in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		08E018384061968A49ABC4CB /* RitualCompanion */ = {
+			isa = PBXGroup;
+			children = (
+				AE4E74278331DC71ECBF14FC /* App */,
+				5D68FE767C9F2F77F242AE99 /* Config */,
+				832258F9544362F128A4012A /* Models */,
+				B27A5FED1D050C07E0B2BC83 /* Services */,
+				B2D0330AA1800C8FA0A15DBF /* Views */,
+			);
+			path = RitualCompanion;
+			sourceTree = "<group>";
+		};
+		124811597C9536C2B56694D2 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				08E018384061968A49ABC4CB /* RitualCompanion */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		2BA20C70416C81F53524C2B2 /* Project */ = {
+			isa = PBXGroup;
+			children = (
+				834A338D40C8AEAA1C49D325 /* Derived */,
+				C40281E43268AF867560CF7E /* Resources */,
+				124811597C9536C2B56694D2 /* Sources */,
+			);
+			name = Project;
+			sourceTree = "<group>";
+		};
+		4947106184B0D3278D67F82C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FA754A79233A468B7DD2F651 /* RitualCompanion.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5D68FE767C9F2F77F242AE99 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		6DF7645A809FC552FC5E3D7B = {
+			isa = PBXGroup;
+			children = (
+				4947106184B0D3278D67F82C /* Products */,
+				2BA20C70416C81F53524C2B2 /* Project */,
+			);
+			sourceTree = "<group>";
+		};
+		832258F9544362F128A4012A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AFCBF61B7805AA46DC7C8B69 /* APIModels.swift */,
+				3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		834A338D40C8AEAA1C49D325 /* Derived */ = {
+			isa = PBXGroup;
+			children = (
+				CDD07E75BA08A2C0114B6674 /* Entitlements */,
+				A1FE401591837B6DFE9B8359 /* InfoPlists */,
+				ED7A413083102D99E6DE1463 /* Sources */,
+			);
+			path = Derived;
+			sourceTree = "<group>";
+		};
+		A1FE401591837B6DFE9B8359 /* InfoPlists */ = {
+			isa = PBXGroup;
+			children = (
+				459058E6B5537C3E07F0F641 /* RitualCompanion-Info.plist */,
+			);
+			path = InfoPlists;
+			sourceTree = "<group>";
+		};
+		AE4E74278331DC71ECBF14FC /* App */ = {
+			isa = PBXGroup;
+			children = (
+				E6EDDEAADF641B87AE9F6F98 /* AppState.swift */,
+				331267A4741B767C6156924B /* RitualCompanionApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B27A5FED1D050C07E0B2BC83 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B50B7B568770537526D1A9A9 /* BackgroundSyncManager.swift */,
+				78CD8036EC5AC8CD0EFABF28 /* HealthKitManager.swift */,
+				55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		B2D0330AA1800C8FA0A15DBF /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				BDF6422C3C1FDDFAB7CC5D7D /* Components */,
+				2A57E238B67EA0BEA6D83131 /* ConnectView.swift */,
+				9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */,
+				1741C77C405F908BA6C2BCC3 /* StatusView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		BDF6422C3C1FDDFAB7CC5D7D /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				53DA50B04943907060448DFF /* PermissionsView.swift */,
+				74E4D8229429850BF8B91FB4 /* StatusCard.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		C40281E43268AF867560CF7E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A4460558012097894E301FA6 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		CDD07E75BA08A2C0114B6674 /* Entitlements */ = {
+			isa = PBXGroup;
+			children = (
+				BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */,
+			);
+			path = Entitlements;
+			sourceTree = "<group>";
+		};
+		ED7A413083102D99E6DE1463 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */,
+				900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BCF5BC13F2A2D8CFCB36089A /* RitualCompanion */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AFB5B13AD3AD5BB135053BDB /* Build configuration list for PBXNativeTarget "RitualCompanion" */;
+			buildPhases = (
+				E96494FF8F60AD57F25DD724 /* Sources */,
+				5CCD3F7E130DA234FA1C6D2A /* Resources */,
+				40749DD238717B6EEAA5B794 /* Frameworks */,
+				47EB9CB1C6DF0F4CD6CBDB9E /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RitualCompanion;
+			packageProductDependencies = (
+				86E70812549362DEB89C713C /* Clerk */,
+			);
+			productName = RitualCompanion;
+			productReference = FA754A79233A468B7DD2F651 /* RitualCompanion.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DE141121784F535662CB10AC /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				ORGANIZATIONNAME = Ritual;
+			};
+			buildConfigurationList = 42031CF589296F5F91976522 /* Build configuration list for PBXProject "RitualCompanion" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6DF7645A809FC552FC5E3D7B;
+			packageReferences = (
+				C536044F7EE3A3A4496D393D /* XCRemoteSwiftPackageReference "clerk-ios" */,
+			);
+			productRefGroup = 4947106184B0D3278D67F82C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BCF5BC13F2A2D8CFCB36089A /* RitualCompanion */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5CCD3F7E130DA234FA1C6D2A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				534EF1F0E6C08A8D64021BE8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E96494FF8F60AD57F25DD724 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				08CB6F1F343053A20CC8B0EB /* TuistAssets+RitualCompanion.swift in Sources */,
+				4B58BF0ED7798AF180EF43B4 /* TuistBundle+RitualCompanion.swift in Sources */,
+				B0C41CD6048C7E237921659A /* AppState.swift in Sources */,
+				E82B883F12AB4FB41EDA9A40 /* RitualCompanionApp.swift in Sources */,
+				0166F325B263B4789DCC01EA /* AppConfig.swift in Sources */,
+				EE6236C7F349690B66FE30C4 /* APIModels.swift in Sources */,
+				DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */,
+				983659EE9CBBBA3F0F26ADFE /* BackgroundSyncManager.swift in Sources */,
+				D293625037C767476B438091 /* HealthKitManager.swift in Sources */,
+				C84C3305B73C7EE1D49D7D87 /* RitualAPIClient.swift in Sources */,
+				8D10BA196D80EBEE02405CB7 /* PermissionsView.swift in Sources */,
+				0ED81CA69B299571B4CBF54C /* StatusCard.swift in Sources */,
+				7E86B0E4D2B19B9D736801BC /* ConnectView.swift in Sources */,
+				10585AD31D05685FCC500AE2 /* ContentView.swift in Sources */,
+				A5C77E5AB43287BDEBE26DDF /* StatusView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2F479DE4CBD06C2731145CF1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		62CDC313CA8BD94130605434 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualCompanion.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = D657T2LVR2;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "Derived/InfoPlists/RitualCompanion-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritual.companion;
+				PRODUCT_NAME = RitualCompanion;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6C7242AF6B182249C723A5A7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualCompanion.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = D657T2LVR2;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "Derived/InfoPlists/RitualCompanion-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritual.companion;
+				PRODUCT_NAME = RitualCompanion;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_COMPILATION_MODE = singlefile;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6DB869137F5A869B0C12C1E4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		42031CF589296F5F91976522 /* Build configuration list for PBXProject "RitualCompanion" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F479DE4CBD06C2731145CF1 /* Debug */,
+				6DB869137F5A869B0C12C1E4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AFB5B13AD3AD5BB135053BDB /* Build configuration list for PBXNativeTarget "RitualCompanion" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6C7242AF6B182249C723A5A7 /* Debug */,
+				62CDC313CA8BD94130605434 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C536044F7EE3A3A4496D393D /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.50.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		86E70812549362DEB89C713C /* Clerk */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Clerk;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DE141121784F535662CB10AC /* Project object */;
+}

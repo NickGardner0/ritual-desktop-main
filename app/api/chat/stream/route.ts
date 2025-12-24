@@ -6,6 +6,116 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 // ====================
+// VOICE MODE POST-PROCESSING (Phase 4A)
+// ====================
+
+function formatVoiceResponse(text: string): string {
+  if (!text) return text;
+  
+  const MAX_CHARS = 650;
+  const MAX_BULLETS = 3;
+  
+  let result = text;
+  
+  // Remove markdown tables (replace with simple text)
+  // Note: Using RegExp constructor to avoid Tailwind extracting the pattern as a class
+  result = result.replace(new RegExp('\\|[^\\n]+\\|', 'g'), '');
+  result = result.replace(new RegExp('[\\-:]+\\|[\\-:|]+', 'g'), '');
+  
+  // Limit bullet lists to MAX_BULLETS items
+  const bulletPattern = /^[\s]*[-*•]\s.+$/gm;
+  const bullets = result.match(bulletPattern) || [];
+  if (bullets.length > MAX_BULLETS) {
+    // Keep only first MAX_BULLETS bullets
+    let bulletCount = 0;
+    result = result.replace(bulletPattern, (match) => {
+      bulletCount++;
+      return bulletCount <= MAX_BULLETS ? match : '';
+    });
+  }
+  
+  // Remove excessive newlines
+  result = result.replace(/\n{3,}/g, '\n\n');
+  
+  // Trim to max characters (but don't cut mid-sentence if possible)
+  if (result.length > MAX_CHARS) {
+    // Try to cut at a sentence boundary
+    const truncated = result.substring(0, MAX_CHARS);
+    const lastSentenceEnd = Math.max(
+      truncated.lastIndexOf('. '),
+      truncated.lastIndexOf('? '),
+      truncated.lastIndexOf('! ')
+    );
+    
+    if (lastSentenceEnd > MAX_CHARS * 0.5) {
+      result = truncated.substring(0, lastSentenceEnd + 1);
+    } else {
+      // Check if we're cutting important numeric content
+      const hasNumbers = /\d+(\.\d+)?%?/.test(truncated.substring(MAX_CHARS - 100));
+      if (hasNumbers) {
+        console.warn('⚠️ Voice post-processing: skipping trim to preserve numeric content');
+      } else {
+        result = truncated + '...';
+      }
+    }
+  }
+  
+  // Ensure response ends with a question (add generic one if missing)
+  const trimmedResult = result.trim();
+  if (!trimmedResult.endsWith('?')) {
+    // Check if there's a question somewhere near the end
+    const lastQuestionMark = trimmedResult.lastIndexOf('?');
+    if (lastQuestionMark > trimmedResult.length - 100) {
+      // There's a question near the end, just trim after it
+      result = trimmedResult.substring(0, lastQuestionMark + 1);
+    } else {
+      // Add a generic follow-up question
+      result = trimmedResult + '\n\nWant me to break this down further?';
+    }
+  }
+  
+  return result.trim();
+}
+
+// Generate reply chips based on tool results
+function generateReplyChips(toolResults: Record<string, unknown>): string[] {
+  const chips: string[] = [];
+  
+  // Based on trends data
+  if (toolResults.trends) {
+    const trends = toolResults.trends as { trends?: Array<{ habit_name: string }> };
+    if (trends.trends && trends.trends.length > 0) {
+      const topHabit = trends.trends[0].habit_name;
+      chips.push(`Show anomalies for ${topHabit}`.substring(0, 32));
+      chips.push('Last 90 days');
+    }
+  }
+  
+  // Based on anomalies data
+  if (toolResults.anomalies) {
+    chips.push('Show trends');
+    chips.push('Last 7 days');
+  }
+  
+  // Based on stats/breakdown
+  if (toolResults.stats || toolResults.dailyBreakdown) {
+    chips.push('Last 7 days');
+    chips.push('Last 30 days');
+    chips.push('Show anomalies');
+  }
+  
+  // Fallback generic chips
+  if (chips.length === 0) {
+    chips.push('Last 7 days');
+    chips.push('Last 30 days');
+    chips.push('Show insights');
+  }
+  
+  // Dedupe and limit to 3
+  return [...new Set(chips)].slice(0, 3);
+}
+
+// ====================
 // API HELPERS
 // ====================
 
@@ -211,7 +321,7 @@ async function executeGetHabitStats(token: string, params: {
       habit_name: params.habitName || '',
       start_date: params.startDate || '',
       end_date: params.endDate || '',
-      days_back: params.daysBack || 30,
+      days_back: params.daysBack ?? 30,
     });
     
     if (!result.success) {
@@ -241,7 +351,7 @@ async function executeGetDailyBreakdown(token: string, params: {
       habit_name: params.habitName,
       start_date: params.startDate || '',
       end_date: params.endDate || '',
-      days_back: params.daysBack || 30,
+      days_back: params.daysBack ?? 30,
       timezone: timezone || '',
     });
     
@@ -270,7 +380,7 @@ async function executeGetCorrelation(token: string, params: {
     const result = await fetchPythonApi('/api/analytics/correlation', token, {
       habit1_name: params.habit1Name,
       habit2_name: params.habit2Name,
-      days_back: params.daysBack || 30,
+      days_back: params.daysBack ?? 30,
     });
     
     if (!result.success) {
@@ -308,7 +418,7 @@ async function executeGetHabitTrends(token: string, params: {
   try {
     const result = await fetchPythonApi('/api/analytics/trends', token, {
       habit_name: params.habitName || '',
-      window_days: params.windowDays || 30,
+      window_days: params.windowDays ?? 30,
     });
     
     if (!result.success) {
@@ -340,9 +450,9 @@ async function executeGetHabitAnomalies(token: string, params: {
       habit_name: params.habitName,
       start_date: params.startDate || '',
       end_date: params.endDate || '',
-      days_back: params.daysBack || 30,
-      z_threshold: params.zThreshold || 2.0,
-      max_results: params.maxResults || 5,
+      days_back: params.daysBack ?? 30,
+      z_threshold: params.zThreshold ?? 2.0,
+      max_results: params.maxResults ?? 5,
     });
     
     if (!result.success) {
@@ -388,7 +498,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { messages, timezone, conversationId: providedConversationId } = await req.json();
+    const { messages, timezone, conversationId: providedConversationId, responseMode = 'text' } = await req.json();
     
     // Get or create conversation ID for persistence
     let conversationId = providedConversationId;
@@ -396,6 +506,10 @@ export async function POST(req: NextRequest) {
       conversationId = await createConversation(token);
       console.log('📝 New conversation created:', conversationId);
     }
+    
+    // Determine if we're in voice mode
+    const isVoiceMode = responseMode === 'voice';
+    console.log(`🎤 Response mode: ${responseMode}`);
     
     // Get the latest user message to save
     const latestUserMessage = messages[messages.length - 1];
@@ -409,9 +523,13 @@ export async function POST(req: NextRequest) {
     }
     
     const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1; // 1-indexed
+    // Use local date components, NOT toISOString() which converts to UTC
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1; // 1-indexed
+    const day = now.getDate();
+    const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const currentYear = year;
+    const currentMonth = month;
 
     // System prompt
     const systemPrompt = `You are a helpful habit tracking assistant for Ritual.
@@ -468,9 +586,33 @@ Keep it concise - the user sees detailed data in a side panel.
 - Max 2 tool call rounds for performance
 - Be encouraging and supportive!`;
 
+    // Voice-style prompt addition (Phase 4A)
+    const voiceStylePrompt = `
+
+=== VOICE STYLE MODE (ACTIVE) ===
+You are now in conversational voice mode. Respond as if speaking aloud.
+
+RULES:
+1. BE BRIEF: 2-6 short sentences max. No long paragraphs.
+2. SPEAK NATURALLY: Short sentences, conversational tone. No markdown tables. No "Here are 10 things..."
+3. END WITH ONE QUESTION: Always end with a simple follow-up question offering a choice.
+   Examples: "Want the last 7 days or last 30?" / "Should I check for anomalies?" / "Compare with another habit?"
+4. NUMBERS FROM TOOLS ONLY: Same grounding rules. If confidence is low, say so in one sentence.
+5. NO UI REFERENCES: Don't say "in the canvas panel" - instead say "I can show a breakdown if you want."
+
+FORMAT:
+- Summary (1-2 sentences with key number)
+- Key insight (1 sentence)
+- Follow-up question (ends with ?)
+
+Keep total response under 500 characters when possible.`;
+
+    // Build the full system prompt
+    const fullSystemPrompt = isVoiceMode ? systemPrompt + voiceStylePrompt : systemPrompt;
+
     // Build messages for OpenAI
     const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: fullSystemPrompt },
       ...messages.map((m: { role: string; content: string }) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
@@ -500,6 +642,7 @@ Keep it concise - the user sees detailed data in a side panel.
       allStats?: any[];  // Accumulate all stats calls
       allBreakdowns?: { habit: any; data: any[] }[];  // Accumulate all breakdown calls
       suggested_followups?: string[];  // Phase 3: Follow-up suggestions
+      reply_chips?: string[];  // Phase 4A: Voice mode reply chips
     } = {
       allStats: [],
       allBreakdowns: []
@@ -630,7 +773,18 @@ Keep it concise - the user sees detailed data in a side panel.
       assistantMessage = response.choices[0].message;
     }
 
-    const finalText = assistantMessage.content || 'I was unable to process your request.';
+    let finalText = assistantMessage.content || 'I was unable to process your request.';
+    
+    // Apply voice mode post-processing (Phase 4A)
+    if (isVoiceMode) {
+      console.log('🎤 Applying voice mode post-processing');
+      finalText = formatVoiceResponse(finalText);
+      
+      // Generate reply chips for voice mode
+      const replyChips = generateReplyChips(toolResults);
+      toolResults.reply_chips = replyChips;
+      console.log('💬 Generated reply chips:', replyChips);
+    }
     
     // Merge breakdown data if multiple calls were made for the same habit
     if (toolResults.allBreakdowns && toolResults.allBreakdowns.length > 1) {

@@ -3,7 +3,7 @@ Ritual FastAPI Backend
 Mirrors the current TypeScript habits-service.ts interface exactly
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status, Header, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, status, Header, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -1450,6 +1450,1127 @@ async def migrate_from_supabase(current_user = Depends(get_current_user)):
         return {"message": "Migration completed", "migrated_records": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ================================
+# WEARABLES API - Apple Health + Multi-source support
+# ================================
+
+from services.wearables_service import wearables_service
+from schemas.wearables_apple import (
+    DeviceRegisterRequest,
+    DeviceRegisterResponse,
+    DeviceStatusResponse,
+    AppleIngestRequest,
+    AppleIngestResponse,
+    AppleIngestResult,
+)
+
+@app.post("/api/wearables/apple/register_device", response_model=DeviceRegisterResponse)
+async def register_apple_device(
+    request: DeviceRegisterRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Register a new iOS device for Apple Health sync.
+    
+    Returns a device_id and device_secret that should be:
+    - device_id: Stored for future API calls
+    - device_secret: Stored securely in iOS Keychain for request signing
+    
+    The device_secret is used to sign all ingest requests to prevent tampering.
+    """
+    try:
+        print(f"📱 Registering device '{request.device_name}' for user {current_user['id']}")
+        
+        device_id, device_secret = await wearables_service.register_device(
+            user_id=current_user["id"],
+            device_name=request.device_name,
+            platform=request.platform
+        )
+        
+        return DeviceRegisterResponse(
+            device_id=device_id,
+            device_secret=device_secret,
+            registered_at=datetime.utcnow().isoformat() + "Z"
+        )
+        
+    except Exception as e:
+        print(f"❌ Device registration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wearables/apple/devices")
+async def list_apple_devices(current_user = Depends(get_current_user)):
+    """
+    List all registered devices for the current user.
+    """
+    try:
+        devices = await wearables_service.get_user_devices(current_user["id"])
+        
+        return {
+            "devices": [
+                DeviceStatusResponse(
+                    device_id=d.id,
+                    device_name=d.device_name,
+                    platform=d.platform,
+                    registered_at=d.registered_at.isoformat() + "Z",
+                    last_sync_at=d.last_sync_at.isoformat() + "Z" if d.last_sync_at else None,
+                    is_active=d.is_active
+                )
+                for d in devices
+            ]
+        }
+        
+    except Exception as e:
+        print(f"❌ List devices error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/wearables/apple/devices/{device_id}")
+async def deactivate_apple_device(
+    device_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Deactivate a device (soft delete).
+    The device will no longer be able to sync data.
+    """
+    try:
+        success = await wearables_service.deactivate_device(device_id, current_user["id"])
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        return {"success": True, "message": "Device deactivated"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Deactivate device error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wearables/apple/tracked_metrics")
+async def get_apple_tracked_metrics(current_user = Depends(get_current_user)):
+    """
+    Get the list of Apple Watch metric types the user has selected to track.
+    
+    This endpoint returns the metric_type values for all habits where:
+    - integration_source = 'apple_health'
+    - metric_type is not null
+    
+    The iOS companion app uses this to know which HealthKit metrics to sync.
+    
+    Example response:
+    ```json
+    {
+        "metric_types": ["steps", "hr", "hrv", "sleep_session"],
+        "habits": [
+            {"id": "abc", "name": "Steps", "metric_type": "steps", "unit_type": "Steps"},
+            {"id": "def", "name": "Heart Rate", "metric_type": "hr", "unit_type": "BPM"}
+        ]
+    }
+    ```
+    """
+    try:
+        from database.connection import get_db_session
+        from database.models import HabitDB
+        from sqlalchemy import select
+        
+        async with get_db_session() as session:
+            # Query habits where integration_source is apple_health and metric_type is set
+            stmt = select(HabitDB).where(
+                HabitDB.user_id == current_user["id"],
+                HabitDB.integration_source == "apple_health",
+                HabitDB.metric_type.isnot(None)
+            )
+            result = await session.execute(stmt)
+            habits = result.scalars().all()
+            
+            # Build response
+            metric_types = list(set(h.metric_type for h in habits if h.metric_type))
+            habits_list = [
+                {
+                    "id": h.id,
+                    "name": h.name,
+                    "metric_type": h.metric_type,
+                    "unit_type": h.unit_type
+                }
+                for h in habits
+            ]
+            
+            return {
+                "metric_types": metric_types,
+                "habits": habits_list
+            }
+            
+    except Exception as e:
+        print(f"❌ Get tracked metrics error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/wearables/apple/ingest", response_model=AppleIngestResponse)
+@limiter.limit("30/minute")  # Rate limit ingest requests
+async def ingest_apple_health_metrics(
+    request: Request,
+    ingest_request: AppleIngestRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Ingest normalized metrics from Apple Health.
+    
+    This endpoint:
+    1. Validates the request signature (HMAC-SHA256)
+    2. Checks for duplicate client_event_id (idempotency)
+    3. Stores each metric individually
+    4. Returns per-item results (partial success allowed)
+    
+    Request signing:
+    - Signature = base64(HMAC-SHA256(device_secret, canonical_string))
+    - Canonical string = device_id + "\\n" + client_event_id + "\\n" + captured_at + "\\n" + sha256(metrics_json)
+    
+    Example request:
+    ```json
+    {
+        "device_id": "abc-123",
+        "client_event_id": "uuid-here",
+        "captured_at": "2024-01-15T10:30:00Z",
+        "metrics": [
+            {
+                "source": "apple_health",
+                "metric_type": "steps",
+                "start_time": "2024-01-15T00:00:00Z",
+                "end_time": "2024-01-15T23:59:59Z",
+                "value": 8500,
+                "unit": "count"
+            }
+        ],
+        "schema_version": 1,
+        "signature": "base64-hmac-signature"
+    }
+    ```
+    """
+    try:
+        print(f"📊 Ingesting {len(ingest_request.metrics)} metrics from device {ingest_request.device_id}")
+        
+        success, results, error = await wearables_service.process_ingest_request(
+            user_id=current_user["id"],
+            request=ingest_request
+        )
+        
+        if error and not success:
+            # If there's an error and no success, return appropriate status
+            if error == "Device not found":
+                raise HTTPException(status_code=404, detail=error)
+            elif error == "Device does not belong to this user":
+                raise HTTPException(status_code=403, detail=error)
+            elif error == "Invalid signature":
+                raise HTTPException(status_code=401, detail=error)
+            elif error == "Already processed (idempotency)":
+                # Return success for idempotent requests
+                return AppleIngestResponse(
+                    success=True,
+                    results=[],
+                    server_time=datetime.utcnow().isoformat() + "Z",
+                    next_poll_seconds=60
+                )
+            else:
+                raise HTTPException(status_code=400, detail=error)
+        
+        return AppleIngestResponse(
+            success=success,
+            results=results,
+            server_time=datetime.utcnow().isoformat() + "Z",
+            next_poll_seconds=60 if success else 300  # Back off on failure
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Ingest error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wearables/metrics")
+async def get_wearable_metrics(
+    source: Optional[str] = None,
+    metric_type: Optional[str] = None,
+    days_back: int = 7,
+    limit: int = 100,
+    current_user = Depends(get_current_user)
+):
+    """
+    Query stored wearable metrics for the current user.
+    
+    Query params:
+    - source: Filter by source (apple_health, whoop, etc.)
+    - metric_type: Filter by type (steps, active_energy, hr, etc.)
+    - days_back: Days to look back (default 7)
+    - limit: Max results (default 100)
+    """
+    try:
+        from datetime import timedelta
+        
+        start_date = datetime.utcnow() - timedelta(days=days_back)
+        
+        metrics = await wearables_service.get_user_metrics(
+            user_id=current_user["id"],
+            source=source,
+            metric_type=metric_type,
+            start_date=start_date,
+            limit=limit
+        )
+        
+        return {
+            "metrics": [
+                {
+                    "id": m.id,
+                    "source": m.source,
+                    "metric_type": m.metric_type,
+                    "start_time": m.start_time.isoformat() + "Z",
+                    "end_time": m.end_time.isoformat() + "Z",
+                    "value": m.value,
+                    "unit": m.unit,
+                    "timezone": m.timezone,
+                    "device_id": m.device_id,
+                    "external_id": m.external_id,
+                    "created_at": m.created_at.isoformat() + "Z"
+                }
+                for m in metrics
+            ],
+            "count": len(metrics)
+        }
+        
+    except Exception as e:
+        print(f"❌ Get metrics error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ================================
+# ROBUST IMPORT SYSTEM ENDPOINTS
+# ================================
+
+from services.import_service import import_service
+from models.import_models import (
+    ImportSource, ImportStatus, ConflictPolicy, AggregationPeriod,
+    ImportOptions, ImportRunCreate, ImportRunSummary, ImportRun,
+    ImportItem, ImportPreviewResponse, BatchLogsRequest, BatchLogsResponse,
+    ChunkIngestRequest, ChunkIngestResponse, UndoImportResponse
+)
+
+
+class ImportRunCreateRequest(BaseModel):
+    """Request to create a new import run"""
+    source: str  # csv, screenshot, apple_health, whoop, oura, garmin
+    file_name: Optional[str] = None
+    options: Optional[dict] = None
+
+
+@app.post("/api/import/runs")
+async def create_import_run(
+    request: ImportRunCreateRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Create a new import run.
+    This initializes the import job without processing any data.
+    """
+    try:
+        source = ImportSource(request.source)
+        options = None
+        if request.options:
+            options = ImportOptions(**request.options)
+        
+        run = await import_service.create_import_run(
+            user_id=current_user["id"],
+            source=source,
+            file_name=request.file_name,
+            options=options
+        )
+        
+        return run.model_dump()
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {str(e)}")
+    except Exception as e:
+        print(f"❌ Create import run error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/import/runs/{run_id}")
+async def get_import_run(
+    run_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get an import run by ID.
+    """
+    try:
+        run = await import_service.get_import_run(run_id, current_user["id"])
+        
+        if not run:
+            raise HTTPException(status_code=404, detail="Import run not found")
+        
+        return run.model_dump()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Get import run error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/import/runs")
+async def list_import_runs(
+    limit: int = 20,
+    offset: int = 0,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get import history for the user.
+    """
+    try:
+        runs = await import_service.get_import_history(
+            current_user["id"],
+            limit=limit,
+            offset=offset
+        )
+        
+        return {
+            "runs": [run.model_dump() for run in runs],
+            "count": len(runs)
+        }
+        
+    except Exception as e:
+        print(f"❌ List import runs error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BatchLogsApiRequest(BaseModel):
+    """API request for batch log creation"""
+    import_run_id: Optional[str] = None
+    conflict_policy: str = "skip_existing"  # skip_existing, overwrite_existing, merge_sum, merge_avg
+    logs: List[dict]
+
+
+@app.post("/api/habits/logs/batch")
+@limiter.limit("30/minute")
+async def create_logs_batch(
+    request: Request,
+    batch_request: BatchLogsApiRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Create habit logs in batch with conflict resolution.
+    
+    This endpoint:
+    1. Validates all habits belong to the user
+    2. Generates dedupe keys for each log
+    3. Applies conflict resolution policy
+    4. Performs bulk insert/upsert
+    5. Returns detailed results per log
+    """
+    try:
+        from models.import_models import BatchLogCreate, BatchLogsRequest as BatchRequest
+        
+        # Validate batch size
+        if len(batch_request.logs) > 2000:
+            raise HTTPException(status_code=400, detail="Maximum 2000 logs per batch")
+        
+        # Parse conflict policy
+        try:
+            conflict_policy = ConflictPolicy(batch_request.conflict_policy)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid conflict_policy. Must be one of: skip_existing, overwrite_existing, merge_sum, merge_avg"
+            )
+        
+        # Convert logs to BatchLogCreate objects
+        logs = []
+        for i, log_dict in enumerate(batch_request.logs):
+            try:
+                logs.append(BatchLogCreate(**log_dict))
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid log at index {i}: {str(e)}"
+                )
+        
+        # Create request object
+        batch_req = BatchRequest(
+            import_run_id=batch_request.import_run_id,
+            conflict_policy=conflict_policy,
+            logs=logs
+        )
+        
+        # Process batch
+        result = await import_service.create_logs_batch(
+            user_id=current_user["id"],
+            request=batch_req
+        )
+        
+        return result.model_dump()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Batch log creation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/import/runs/{run_id}/undo")
+async def undo_import_run(
+    run_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Undo an import run by deleting all logs it created.
+    Also deletes any habits that were created by this import and now have no logs.
+    """
+    try:
+        result = await import_service.undo_import_run(run_id, current_user["id"])
+        return result.model_dump()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=404, detail=str(e))
+        if "cannot be undone" in str(e).lower():
+            raise HTTPException(status_code=400, detail=str(e))
+        print(f"❌ Undo import error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ImportPreviewApiRequest(BaseModel):
+    """API request for import preview"""
+    source: str
+    file_content: Optional[str] = None  # Base64 encoded file content
+    options: Optional[dict] = None
+
+
+@app.post("/api/import/preview")
+@limiter.limit("20/minute")
+async def preview_import(
+    request: Request,
+    file: UploadFile = File(...),
+    source: str = Form(None),
+    current_user = Depends(get_current_user)
+):
+    """
+    Preview what will be imported before committing.
+    
+    Accepts FormData with file + source, or reads from X-Import-Options header.
+    
+    Returns:
+    - Summary counts (total, new, duplicates, conflicts)
+    - Sample of items that will be imported
+    - Validation issues
+    - Detected columns/metrics
+    """
+    try:
+        import json
+        
+        # Get file content from upload
+        file_content = await file.read()
+        file_name = file.filename
+        
+        if not file_content:
+            raise HTTPException(status_code=400, detail="No file provided")
+        
+        # Parse source and options from header or form
+        import_options_header = request.headers.get("X-Import-Options")
+        if import_options_header:
+            try:
+                header_data = json.loads(import_options_header)
+                source = source or header_data.get("source")
+                options_dict = header_data.get("options", {})
+            except json.JSONDecodeError:
+                options_dict = {}
+        else:
+            options_dict = {}
+        
+        if not source:
+            raise HTTPException(status_code=400, detail="Source is required")
+        
+        # Parse source enum
+        try:
+            source_enum = ImportSource(source)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid source: {source}")
+        
+        # Parse options
+        options = None
+        if options_dict:
+            try:
+                options = ImportOptions(**options_dict)
+            except Exception as e:
+                print(f"⚠️ Could not parse import options: {e}")
+        
+        # Create import run for preview
+        run = await import_service.create_import_run(
+            user_id=current_user["id"],
+            source=source_enum,
+            file_name=file_name,
+            file_content=file_content,
+            options=options
+        )
+        
+        # Parse the file based on source
+        from services.screenshot_analyzer import analyze_screenshot_for_habits
+        import csv
+        import io
+        
+        items = []
+        detected_columns = None
+        detected_metrics = None
+        
+        if source_enum == ImportSource.CSV:
+            # Parse CSV
+            text_content = file_content.decode('utf-8')
+            reader = csv.DictReader(io.StringIO(text_content))
+            detected_columns = reader.fieldnames
+            
+            for i, row in enumerate(reader):
+                if i >= 1000:  # Limit for preview
+                    break
+                
+                # Parse date
+                date_col = (options.date_column if options else None) or 'date' or 'Date'
+                date_val = row.get(date_col) or row.get('date') or row.get('Date')
+                parsed_date = import_service.parse_date_flexible(date_val) if hasattr(import_service, 'parse_date_flexible') else date_val
+                
+                # Get value columns from mapping or auto-detect
+                if options and options.column_mappings:
+                    for mapping in options.column_mappings:
+                        val = row.get(mapping.source_column)
+                        try:
+                            amount = float(val) if val else None
+                        except:
+                            amount = None
+                        
+                        items.append(ImportItem(
+                            habit_key=mapping.habit_key or f"csv:{mapping.habit_name}",
+                            habit_name=mapping.habit_name,
+                            date=parsed_date or date_val,
+                            amount=amount,
+                            unit_type=mapping.unit_type,
+                            raw_json=row,
+                            row_index=i
+                        ))
+                else:
+                    # Auto-detect value columns (non-date numeric columns)
+                    for col, val in row.items():
+                        if col.lower() in ['date', 'time', 'datetime']:
+                            continue
+                        try:
+                            amount = float(val)
+                            items.append(ImportItem(
+                                habit_key=f"csv:{col}",
+                                habit_name=col,
+                                date=parsed_date or '',
+                                amount=amount,
+                                raw_json=row,
+                                row_index=i
+                            ))
+                        except:
+                            pass
+        
+        elif source_enum == ImportSource.SCREENSHOT:
+            # Check for OpenAI key
+            openai_key = os.getenv("OPENAI_API_KEY")
+            if not openai_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "OPENAI_KEY_MISSING",
+                        "message": "Screenshot import requires an OpenAI API key configured on the server."
+                    }
+                )
+            
+            # Analyze screenshot
+            user_habits = await habits_service.get_habits(current_user["id"])
+            habits_for_analysis = [
+                {"id": h.id, "name": h.name, "unit_type": h.unit_type}
+                for h in user_habits
+            ]
+            
+            analysis = analyze_screenshot_for_habits(file_content, habits_for_analysis)
+            
+            if analysis:
+                confidence = analysis.get("confidence", 0.5)
+                validation_status = "ok" if confidence >= 0.75 else "warning"
+                
+                items.append(ImportItem(
+                    habit_key=f"screenshot:{analysis.get('detected_type', 'unknown')}",
+                    habit_name=analysis.get("habit_name", "Unknown"),
+                    date=datetime.utcnow().strftime("%Y-%m-%d"),
+                    amount=analysis.get("value"),
+                    unit_type=analysis.get("unit"),
+                    validation_status=validation_status,
+                    raw_json=analysis
+                ))
+                
+                detected_metrics = [{
+                    "name": analysis.get("habit_name"),
+                    "value": analysis.get("value"),
+                    "unit": analysis.get("unit"),
+                    "confidence": confidence,
+                    "detected_type": analysis.get("detected_type")
+                }]
+        
+        # Check for duplicates
+        dedupe_estimate = await import_service.check_duplicates(
+            current_user["id"],
+            items[:100]  # Check first 100 for performance
+        )
+        
+        # Add items to staging
+        await import_service.add_import_items(run.id, items[:500])
+        
+        # Update run status
+        await import_service.update_import_run_status(
+            run.id,
+            ImportStatus.READY,
+            summary=ImportRunSummary(
+                total_rows=len(items),
+                parsed=len(items)
+            )
+        )
+        
+        # Get validation issues
+        validation_issues = [item for item in items if item.validation_status != "ok"]
+        
+        return {
+            "import_run_id": run.id,
+            "source": source_enum.value,
+            "summary": {
+                "total_rows": len(items),
+                "parsed": len(items),
+                "new_items": dedupe_estimate.new_items,
+                "duplicates": dedupe_estimate.duplicates,
+                "conflicts": dedupe_estimate.conflicts
+            },
+            "sample_items": [item.model_dump() for item in items[:50]],
+            "validation_issues": [item.model_dump() for item in validation_issues[:20]],
+            "dedupe_estimate": dedupe_estimate.model_dump(),
+            "detected_columns": detected_columns,
+            "detected_metrics": detected_metrics
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Import preview error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ImportStartRequest(BaseModel):
+    """Request to start importing"""
+    import_run_id: str
+    conflict_policy: str = "skip_existing"
+    create_habits: bool = True  # Whether to auto-create habits that don't exist
+
+
+@app.post("/api/import/runs/{run_id}/start")
+async def start_import(
+    run_id: str,
+    start_request: ImportStartRequest,
+    current_user = Depends(get_current_user)
+):
+    """
+    Start the actual import process.
+    Uses chunked processing for large imports.
+    """
+    try:
+        # Get the import run
+        run = await import_service.get_import_run(run_id, current_user["id"])
+        if not run:
+            raise HTTPException(status_code=404, detail="Import run not found")
+        
+        if run.status != ImportStatus.READY:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Import run is not ready. Current status: {run.status.value}"
+            )
+        
+        # Update status to importing
+        await import_service.update_import_run_status(run_id, ImportStatus.IMPORTING)
+        
+        # Get all items from staging
+        items = await import_service.get_import_items(run_id, limit=10000)
+        total_items = len(items)
+        
+        if total_items == 0:
+            await import_service.update_import_run_status(
+                run_id,
+                ImportStatus.COMPLETED,
+                summary=ImportRunSummary()
+            )
+            return {"status": "completed", "message": "No items to import"}
+        
+        # Update progress total
+        await import_service.update_import_progress(run_id, 0, total_items)
+        
+        # Parse conflict policy
+        try:
+            conflict_policy = ConflictPolicy(start_request.conflict_policy)
+        except ValueError:
+            conflict_policy = ConflictPolicy.SKIP_EXISTING
+        
+        # Group items by habit_key
+        from collections import defaultdict
+        items_by_habit = defaultdict(list)
+        for item in items:
+            items_by_habit[item.habit_key].append(item)
+        
+        # Process and create habits + logs
+        from models.import_models import BatchLogCreate, BatchLogsRequest as BatchRequest
+        
+        summary = ImportRunSummary(total_rows=total_items)
+        created_habit_ids = []
+        
+        # Get all existing habits once (for all items)
+        existing_habits = await habits_service.get_habits(current_user["id"])
+        
+        def fuzzy_match_habit(csv_name: str, existing_habits: list) -> tuple:
+            """
+            Advanced fuzzy matching for CSV columns to existing habits.
+            Uses synonyms, unit inference, word stemming, and semantic matching.
+            Returns (habit_id, confidence, inferred_unit) or (None, 0, None)
+            """
+            # Synonym mappings for common terms
+            SYNONYMS = {
+                # Sleep related
+                "sleep": ["sleep", "rest", "slept", "sleeping", "bed", "nap"],
+                "duration": ["duration", "time", "hours", "length", "total"],
+                # Exercise related
+                "steps": ["steps", "step", "walking", "walk", "walked", "footsteps"],
+                "workout": ["workout", "exercise", "training", "gym", "fitness"],
+                "run": ["run", "running", "jog", "jogging"],
+                # Nutrition related
+                "caffeine": ["caffeine", "coffee", "tea", "espresso", "energy"],
+                "water": ["water", "hydration", "drink", "fluid", "h2o"],
+                "calories": ["calories", "cal", "kcal", "energy", "food"],
+                # Wellness related
+                "meditation": ["meditation", "meditate", "mindfulness", "mindful", "zen", "calm"],
+                "reading": ["reading", "read", "book", "pages", "literature"],
+                "screen": ["screen", "screentime", "phone", "device", "digital"],
+                # Health metrics
+                "heart": ["heart", "hr", "heartrate", "pulse", "bpm"],
+                "weight": ["weight", "mass", "kg", "lbs", "pounds"],
+            }
+            
+            # Unit inference from column name suffixes/keywords
+            UNIT_INFERENCE = {
+                "_mg": "Milligrams", "mg": "Milligrams", "milligrams": "Milligrams",
+                "_hours": "Hours", "hours": "Hours", "_hrs": "Hours", "hrs": "Hours",
+                "_minutes": "Minutes", "minutes": "Minutes", "_mins": "Minutes", "mins": "Minutes",
+                "_min": "Minutes",
+                "_seconds": "Seconds", "seconds": "Seconds", "_secs": "Seconds",
+                "_count": "Count", "count": "Count", "_num": "Count",
+                "_pages": "Pages", "pages": "Pages",
+                "_miles": "Miles", "miles": "Miles", "_mi": "Miles",
+                "_km": "Kilometers", "kilometers": "Kilometers",
+                "_glasses": "Glasses", "glasses": "Glasses", "_cups": "Cups", "cups": "Cups",
+                "_cal": "Calories", "_kcal": "Calories", "calories": "Calories",
+                "_bpm": "BPM", "bpm": "BPM",
+                "_kg": "Kilograms", "kg": "Kilograms",
+                "_lbs": "Pounds", "lbs": "Pounds", "pounds": "Pounds",
+            }
+            
+            def get_synonym_group(word: str) -> set:
+                """Get all synonyms for a word"""
+                result = {word}
+                for key, synonyms in SYNONYMS.items():
+                    if word in synonyms or key == word:
+                        result.update(synonyms)
+                        result.add(key)
+                return result
+            
+            def infer_unit(name: str) -> str:
+                """Infer unit type from column name"""
+                name_lower = name.lower()
+                for pattern, unit in UNIT_INFERENCE.items():
+                    if name_lower.endswith(pattern) or pattern in name_lower.split("_"):
+                        return unit
+                return "Count"  # Default
+            
+            def tokenize(name: str) -> set:
+                """Smart tokenization handling underscores, camelCase, etc."""
+                import re
+                # Replace separators with spaces
+                name = name.replace("_", " ").replace("-", " ").replace(".", " ")
+                # Split camelCase
+                name = re.sub(r'([a-z])([A-Z])', r'\1 \2', name)
+                # Get words, filter short ones
+                words = {w.lower() for w in name.split() if len(w) >= 2}
+                return words
+            
+            def calculate_match_score(csv_words: set, habit_words: set) -> float:
+                """Calculate semantic similarity score between word sets"""
+                if not csv_words or not habit_words:
+                    return 0
+                
+                # Expand both sets with synonyms
+                csv_expanded = set()
+                for w in csv_words:
+                    csv_expanded.update(get_synonym_group(w))
+                
+                habit_expanded = set()
+                for w in habit_words:
+                    habit_expanded.update(get_synonym_group(w))
+                
+                # Check for direct overlap
+                direct_overlap = csv_words & habit_words
+                if direct_overlap:
+                    return 0.95
+                
+                # Check for synonym overlap
+                synonym_overlap = csv_expanded & habit_expanded
+                if synonym_overlap:
+                    return 0.85
+                
+                # Check for partial word matches (prefix matching)
+                for cw in csv_words:
+                    for hw in habit_words:
+                        if len(cw) >= 4 and len(hw) >= 4:
+                            # Check if words share a common root (first 4+ chars)
+                            min_len = min(len(cw), len(hw))
+                            prefix_len = 0
+                            for i in range(min_len):
+                                if cw[i] == hw[i]:
+                                    prefix_len += 1
+                                else:
+                                    break
+                            if prefix_len >= 4:
+                                return 0.75
+                
+                return 0
+            
+            # Tokenize CSV column name
+            csv_words = tokenize(csv_name)
+            inferred_unit = infer_unit(csv_name)
+            
+            best_match = None
+            best_score = 0
+            
+            for h in existing_habits:
+                habit_words = tokenize(h.name)
+                
+                # 1. Exact name match (case-insensitive)
+                if csv_name.lower().replace("_", " ") == h.name.lower():
+                    return (h.id, 1.0, inferred_unit)
+                
+                # 2. Calculate semantic similarity
+                score = calculate_match_score(csv_words, habit_words)
+                
+                # 3. Bonus for unit type match
+                if h.unit_type and inferred_unit.lower() == h.unit_type.lower():
+                    score = min(score + 0.05, 1.0)
+                
+                if score > best_score:
+                    best_match = h.id
+                    best_score = score
+            
+            # Only return match if confidence is high enough
+            return (best_match, best_score, inferred_unit) if best_score >= 0.5 else (None, 0, inferred_unit)
+        
+        for habit_key, habit_items in items_by_habit.items():
+            # Get or create habit
+            habit_name = habit_items[0].habit_name or habit_key.split(":")[-1]
+            unit_type = habit_items[0].unit_type
+            
+            # Check if habit exists - use fuzzy matching
+            habit_id = None
+            
+            # First try exact metric_type match
+            for h in existing_habits:
+                if h.metric_type and h.metric_type == habit_key.split(":")[-1]:
+                    habit_id = h.id
+                    print(f"✅ Matched '{habit_name}' to existing habit '{h.name}' by metric_type")
+                    break
+            
+            # If no metric_type match, try fuzzy name matching
+            if not habit_id:
+                matched_id, confidence, inferred_unit = fuzzy_match_habit(habit_name, existing_habits)
+                if matched_id:
+                    habit_id = matched_id
+                    matched_habit = next((h for h in existing_habits if h.id == matched_id), None)
+                    print(f"✅ Fuzzy matched '{habit_name}' to existing habit '{matched_habit.name}' (confidence: {confidence:.0%})")
+                else:
+                    # Use inferred unit for new habit
+                    if not unit_type:
+                        unit_type = inferred_unit
+                        print(f"📋 Inferred unit '{inferred_unit}' for new habit '{habit_name}'")
+            
+            # Create habit if not exists and allowed
+            if not habit_id and start_request.create_habits:
+                # Determine source and category from habit_key
+                source_prefix = habit_key.split(":")[0] if ":" in habit_key else "csv"
+                metric_type = habit_key.split(":")[-1] if ":" in habit_key else None
+                
+                category_map = {
+                    "steps": "health", "hr": "health", "hrv": "health",
+                    "sleep": "health", "active_energy": "health",
+                    "screen_time": "wellness", "meetings": "productivity"
+                }
+                category = category_map.get(metric_type, "other")
+                
+                new_habit = await habits_service.create_habit(
+                    HabitCreate(
+                        name=habit_name,
+                        category=category,
+                        unit_type=unit_type or "count",
+                        is_custom=True,
+                        integration_source=source_prefix if source_prefix in ["apple_health", "whoop", "oura", "garmin"] else "import",
+                        metric_type=metric_type
+                    ),
+                    current_user["id"]
+                )
+                habit_id = new_habit.id
+                created_habit_ids.append(habit_id)
+            
+            if not habit_id:
+                # Skip items for this habit
+                summary.skipped += len(habit_items)
+                continue
+            
+            # Create batch logs
+            logs = [
+                BatchLogCreate(
+                    habit_id=habit_id,
+                    date=item.date,
+                    amount=item.amount,
+                    unit_type=item.unit_type,
+                    source=f"{run.source.value}_import",
+                    dedupe_key=item.dedupe_key
+                )
+                for item in habit_items
+                if item.date  # Skip items without dates
+            ]
+            
+            if logs:
+                batch_req = BatchRequest(
+                    import_run_id=run_id,
+                    conflict_policy=conflict_policy,
+                    logs=logs
+                )
+                
+                result = await import_service.create_logs_batch(
+                    current_user["id"],
+                    batch_req
+                )
+                
+                summary.imported += result.inserted
+                summary.updated += result.updated
+                summary.skipped += result.skipped
+                summary.errors += result.errors
+                
+                # Sync to Tinybird for analytics
+                # Get the habit info for unit type
+                habit_for_tinybird = await habits_service.get_habit_by_id(habit_id, current_user["id"])
+                if habit_for_tinybird and tinybird_service:
+                    synced_count = 0
+                    for idx, log_result in enumerate(result.results):
+                        if log_result.status in ["inserted", "updated"] and log_result.log_id:
+                            log_data = logs[log_result.index] if log_result.index < len(logs) else None
+                            if log_data:
+                                try:
+                                    await tinybird_service.ingest_habit_log({
+                                        'id': log_result.log_id,
+                                        'habit_id': habit_id,
+                                        'habit_name': habit_for_tinybird.name,
+                                        'user_id': current_user["id"],
+                                        'date': log_data.date,
+                                        'duration': log_data.duration or 0,
+                                        'amount': log_data.amount or 0,
+                                        'unit': habit_for_tinybird.unit_type or 'count',
+                                        'status': 'completed',
+                                        'notes': log_data.notes or '',
+                                        'completed_at': datetime.utcnow().isoformat(),
+                                        'source': log_data.source or f'{run.source.value}_import'
+                                    })
+                                    synced_count += 1
+                                except Exception as tb_err:
+                                    print(f"⚠️ Tinybird sync error for log {log_result.log_id}: {tb_err}")
+                    
+                    if synced_count > 0:
+                        print(f"📊 Synced {synced_count} logs to Tinybird for habit '{habit_for_tinybird.name}'")
+            
+            # Update progress
+            processed = summary.imported + summary.updated + summary.skipped + summary.errors
+            await import_service.update_import_progress(run_id, processed, total_items)
+        
+        # Complete the import
+        summary.created_habit_ids = created_habit_ids
+        await import_service.update_import_run_status(
+            run_id,
+            ImportStatus.COMPLETED,
+            summary=summary
+        )
+        
+        return {
+            "status": "completed",
+            "import_run_id": run_id,
+            "summary": summary.model_dump()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Mark as failed
+        await import_service.update_import_run_status(
+            run_id,
+            ImportStatus.FAILED,
+            errors=[{"error": str(e)}]
+        )
+        print(f"❌ Start import error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/import/runs/{run_id}/cancel")
+async def cancel_import(
+    run_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Cancel an in-progress import.
+    """
+    try:
+        run = await import_service.get_import_run(run_id, current_user["id"])
+        if not run:
+            raise HTTPException(status_code=404, detail="Import run not found")
+        
+        if run.status not in [ImportStatus.CREATED, ImportStatus.PARSING, ImportStatus.READY, ImportStatus.IMPORTING]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot cancel import in status: {run.status.value}"
+            )
+        
+        await import_service.update_import_run_status(run_id, ImportStatus.CANCELED)
+        
+        return {"status": "canceled", "import_run_id": run_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Cancel import error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # Startup and shutdown events
 @app.on_event("startup")

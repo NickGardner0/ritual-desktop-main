@@ -98,7 +98,7 @@ export default function Home() {
 
           // Check localStorage as a fallback (in case DB sync is slow)
           const localOnboardingCompleted = localStorage.getItem('ritual-onboarding-backend-completed') === 'true';
-          
+
           // Route directly to the correct destination
           if (profile.onboarding_completed || localOnboardingCompleted) {
             console.log('Redirecting to dashboard - onboarding completed');
@@ -120,7 +120,7 @@ export default function Home() {
             } catch (e) {
               console.log('Could not check habits, proceeding with onboarding check');
             }
-            
+
             console.log('Redirecting to onboarding - not completed');
             router.replace('/onboarding');
           }
@@ -175,7 +175,7 @@ export default function Home() {
               src="/images/logo_fix1.svg"
               alt="Ritual Logo"
               className="w-10 h-10 cursor-pointer"
-              style={{ 
+              style={{
                 transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
                 transition: 'transform 500ms ease-in-out'
               }}
@@ -196,7 +196,7 @@ export default function Home() {
 
           <div className="flex justify-center">
             <Link
-              href="/auth"
+              href="/sign-up"
               className="inline-flex items-center justify-center gap-2 bg-gray-900 text-white px-4 py-1.5 rounded-none font-medium text-sm shadow-sm get-started-btn"
               style={{
                 userSelect: 'none',

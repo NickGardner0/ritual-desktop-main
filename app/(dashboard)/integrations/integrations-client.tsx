@@ -61,6 +61,41 @@ function useWhoopStatus() {
   });
 }
 
+/**
+ * Fetch Apple Watch/Health connection status with React Query
+ * Checks for registered devices from the iOS companion app
+ */
+function useAppleWatchStatus() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ['apple-watch-status', user?.id],
+    queryFn: async () => {
+      const token = await getToken();
+      const response = await fetch(`${API_BASE_URL}/api/wearables/apple/devices`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch Apple Watch status');
+      }
+
+      const data = await response.json();
+      // Check if there's at least one active iOS device
+      const activeDevices = (data.devices || []).filter((d: any) => d.is_active && d.platform === 'ios');
+      return {
+        connected: activeDevices.length > 0,
+        devices: activeDevices,
+        lastSyncAt: activeDevices[0]?.last_sync_at || null,
+        deviceName: activeDevices[0]?.device_name || null,
+      };
+    },
+    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    enabled: !!user?.id,
+  });
+}
+
 // Memoized integration card
 const IntegrationCard = memo(({
   logo,
@@ -185,15 +220,22 @@ export function IntegrationsClient() {
   const { getToken } = useAuth();
   const { fetchHabits, fetchHabitLogs } = useHabits();
   const { data: whoopStatusData, isLoading, refetch: refetchWhoopStatus } = useWhoopStatus();
+  const { data: appleWatchStatusData, isLoading: isLoadingAppleWatch, refetch: refetchAppleWatchStatus } = useAppleWatchStatus();
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopSyncHour, setWhoopSyncHour] = useState(9); // Default to 9 AM
   const [whoopConnecting, setWhoopConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [appleWatchSyncing, setAppleWatchSyncing] = useState(false);
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Apple Watch connection state
+  const appleWatchConnected = appleWatchStatusData?.connected || false;
+  const appleWatchDeviceName = appleWatchStatusData?.deviceName || 'Apple Watch';
+  const appleWatchLastSync = appleWatchStatusData?.lastSyncAt;
 
   // Update local state when query data changes
   useEffect(() => {
@@ -504,10 +546,65 @@ export function IntegrationsClient() {
     }
   }
 
+  // ================================
+  // APPLE WATCH HANDLERS
+  // ================================
+
+  async function handleAppleWatchDisconnect() {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      if (!confirm('Are you sure you want to disconnect Apple Watch? You can reconnect using the Ritual iOS companion app.')) {
+        return;
+      }
+
+      // Get the device ID to deactivate
+      const devices = appleWatchStatusData?.devices || [];
+      if (devices.length === 0) {
+        alert('No Apple Watch device found');
+        return;
+      }
+
+      // Deactivate all connected devices
+      for (const device of devices) {
+        const response = await fetch(`${API_BASE_URL}/api/wearables/apple/devices/${device.device_id}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to disconnect device');
+        }
+      }
+
+      refetchAppleWatchStatus(); // Update cache
+      alert('Apple Watch disconnected successfully. You can reconnect using the Ritual iOS companion app.');
+    } catch (error) {
+      console.error('❌ Error disconnecting Apple Watch:', error);
+      alert(`Failed to disconnect: ${error}`);
+    }
+  }
+
+  function handleAppleWatchConnect() {
+    // Show instructions for connecting via iOS companion app
+    alert(
+      '📱 To connect your Apple Watch:\n\n' +
+      '1. Download the Ritual Companion app on your iPhone\n' +
+      '2. Sign in with your Ritual account\n' +
+      '3. Tap "Connect" to register your device\n' +
+      '4. Grant HealthKit permissions\n' +
+      '5. Tap "Sync Now" to sync your data\n\n' +
+      'Your Apple Watch data will be synced through your iPhone.'
+    );
+  }
+
   // Show loading skeleton on first fetch only
   const shimmerClass = "animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200";
 
-  if (isLoading && whoopStatusData === undefined) {
+  if ((isLoading && whoopStatusData === undefined) || (isLoadingAppleWatch && appleWatchStatusData === undefined)) {
     return (
       <>
         <div className="flex items-center mb-8">
@@ -562,8 +659,13 @@ export function IntegrationsClient() {
             </svg>
           }
           title="Apple Watch"
-          description="Sync your Apple Watch data including workouts, steps, heart rate, and sleep metrics."
-          comingSoon
+          description={appleWatchConnected 
+            ? `Connected via ${appleWatchDeviceName}. Sync data from your iPhone's Ritual Companion app.`
+            : "Sync your Apple Watch data including workouts, steps, heart rate, and sleep metrics."
+          }
+          isConnected={appleWatchConnected}
+          onConnect={handleAppleWatchConnect}
+          onDisconnect={handleAppleWatchDisconnect}
           onDetails={() => {
             setSelectedIntegration('applewatch');
             setDetailsOpen(true);

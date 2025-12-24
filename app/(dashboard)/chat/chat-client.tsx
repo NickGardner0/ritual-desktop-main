@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeftClose, PanelLeft, MessageSquare, Volume2 } from 'lucide-react';
+import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeft, PanelRight, MessageSquare, Volume2, LayoutList } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -535,7 +535,7 @@ export function ChatClient() {
   
   // Sidebar state
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);  // Collapsed by default
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   
   // Voice mode state (transcription)
@@ -553,15 +553,24 @@ export function ChatClient() {
     return () => setIsFullScreenChat(false);
   }, [setIsFullScreenChat]);
   
-  // Load latest conversation on mount (only if no initial question)
+  // Initialize chat - always start with empty state for cleaner UX
+  // Users can access previous conversations from the sidebar
   useEffect(() => {
-    const loadLatestConversation = async () => {
+    const initializeChat = async () => {
       // Skip loading if there's an initial question - we'll start fresh
       if (initialQuestion) {
         setIsLoadingConversation(false);
         return;
       }
       
+      // Always start with empty/new chat state - don't auto-load last conversation
+      // This provides a cleaner UX; users can select previous chats from sidebar
+      setIsLoadingConversation(false);
+      return;
+      
+      // Previous behavior (kept for reference, but disabled):
+      // Load the latest conversation automatically
+      /*
       try {
         const token = await getToken();
         if (!token) {
@@ -617,14 +626,10 @@ export function ChatClient() {
             }
           }
         }
-      } catch (error) {
-        console.error('Failed to load conversation:', error);
-      } finally {
-        setIsLoadingConversation(false);
-      }
+      */
     };
     
-    loadLatestConversation();
+    initializeChat();
   }, [getToken, initialQuestion]);
 
   // Load conversations list for sidebar
@@ -1053,115 +1058,102 @@ export function ChatClient() {
     return (
       <div className="h-full flex bg-[#fafaf8] relative">
         {/* Conversation History Sidebar - Also shown in empty state */}
-        <motion.div
-          initial={false}
-          animate={{ width: isSidebarCollapsed ? 48 : 220 }}
-          transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-          className="h-full border-r border-gray-100 bg-[#fafaf8] flex flex-col overflow-hidden"
-        >
-          {/* Sidebar Header with Logo */}
-          <div className="flex items-center justify-between p-3 pt-8 pb-3">
-            {!isSidebarCollapsed ? (
-              <div className="flex items-center gap-1.5">
-                <RitualLogo className="w-4 h-4" />
-                <span className="text-sm font-semibold text-gray-900">Ritual</span>
-              </div>
-            ) : (
-              <div className="mx-auto">
-                <RitualLogo className="w-4 h-4" />
-              </div>
-            )}
-            {!isSidebarCollapsed && (
-              <button
-                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors"
-                title="Collapse sidebar"
-              >
-                <PanelLeftClose className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          
-          {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto py-1">
-            {isSidebarCollapsed ? (
-              <div className="flex flex-col items-center gap-0.5 px-2">
+        <AnimatePresence>
+          {!isSidebarCollapsed && (
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 280, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+              className="h-full border-r border-gray-300 bg-[#fafaf8] flex flex-col overflow-hidden"
+            >
+              {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
+              <div className="flex items-center justify-between pl-4 pr-2 pt-6 pb-2">
                 <button
-                  onClick={() => setIsSidebarCollapsed(false)}
-                  className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors mb-1"
-                  title="Expand sidebar"
+                  onClick={() => router.push('/dashboard')}
+                  className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
+                  title="Go to Dashboard"
                 >
-                  <PanelLeft className="w-4 h-4" />
+                  <RitualLogo className="w-4 h-4" />
+                  <span className="text-lg font-normal text-gray-900">Ritual</span>
                 </button>
-                {conversations.slice(0, 10).map((conv, index) => (
-                  <button
-                    key={conv.id}
-                    onClick={() => switchConversation(conv.id)}
-                    className={cn(
-                      "w-8 h-8 flex items-center justify-center rounded transition-colors",
-                      conv.id === conversationId
-                        ? "bg-[#E8E8E8] text-gray-900"
-                        : "text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3]"
-                    )}
-                    title={conv.first_message || conv.title || `Conversation ${index + 1}`}
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                  </button>
-                ))}
+                <button
+                  onClick={() => setIsSidebarCollapsed(true)}
+                  className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+                  title="Collapse sidebar"
+                >
+                  <PanelRight className="w-5 h-5" />
+                </button>
               </div>
-            ) : (
-              <div className="flex flex-col gap-0.5 px-2">
-                {isLoadingConversations ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader className="w-4 h-4 animate-spin text-gray-400" />
-                  </div>
-                ) : conversations.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-gray-400 text-center">
-                    No conversations yet
-                  </div>
-                ) : (
-                  conversations.slice(0, 10).map((conv) => {
-                    const displayTitle = conv.first_message || conv.title || 'New conversation';
-                    const truncatedTitle = displayTitle.length > 26 
-                      ? displayTitle.substring(0, 26) + '...' 
-                      : displayTitle;
-                    
-                    return (
-                      <button
-                        key={conv.id}
-                        onClick={() => switchConversation(conv.id)}
-                        className={cn(
-                          "w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors truncate",
-                          conv.id === conversationId
-                            ? "bg-[#E8E8E8] text-gray-900 font-medium"
-                            : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
-                        )}
-                        title={displayTitle}
-                      >
-                        {truncatedTitle}
-                      </button>
-                    );
-                  })
-                )}
+              
+              {/* New Chat Button */}
+              <div className="px-3 pt-4 pb-4">
+                <button
+                  onClick={startNewConversation}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Chat
+                </button>
               </div>
-            )}
-          </div>
-        </motion.div>
+              
+              {/* Conversations List */}
+              <div className="flex-1 overflow-y-auto py-1">
+                <div className="flex flex-col gap-0.5 px-2">
+                  {isLoadingConversations ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                    </div>
+                  ) : conversations.length === 0 ? (
+                    <div className="px-3 py-4 text-xs text-gray-400 text-center">
+                      No conversations yet
+                    </div>
+                  ) : (
+                    conversations.slice(0, 10).map((conv) => {
+                      const displayTitle = conv.first_message || conv.title || 'New conversation';
+                      const truncatedTitle = displayTitle.length > 28 
+                        ? displayTitle.substring(0, 28) + '...' 
+                        : displayTitle;
+                      
+                      return (
+                        <button
+                          key={conv.id}
+                          onClick={() => switchConversation(conv.id)}
+                          className={cn(
+                            "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors truncate",
+                            conv.id === conversationId
+                              ? "bg-[#E8E8E8] text-gray-900 font-medium"
+                              : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
+                          )}
+                          title={displayTitle}
+                        >
+                          {truncatedTitle}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
+        {/* Expand sidebar button when collapsed */}
+        {isSidebarCollapsed && (
+          <button
+            onClick={() => setIsSidebarCollapsed(false)}
+            className="absolute top-6 left-4 p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors z-10"
+            title="Expand sidebar"
+          >
+            <PanelRight className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col">
-          {/* Back Button */}
-          <div className="px-6 pt-10">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="w-9 h-9 flex items-center justify-center bg-white border border-gray-200 hover:bg-[#F3F3F3] text-gray-500 hover:text-gray-700 transition-all"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-          </div>
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
-            <div className="max-w-lg w-full space-y-6">
+            <div className="max-w-xl w-full space-y-6">
               {/* Faded Logo - Perplexity style watermark */}
               <div className="flex justify-center mb-4">
                 <img
@@ -1173,14 +1165,14 @@ export function ChatClient() {
               </div>
 
               <form onSubmit={handleSubmit} className="relative">
-                <div className="bg-[#fafaf8] border border-gray-200 shadow-sm overflow-hidden transition-shadow hover:shadow-md focus-within:shadow-md focus-within:border-gray-300">
+                <div className="bg-white border border-gray-300 shadow-sm overflow-hidden transition-shadow">
                   <textarea
                     ref={textareaRef}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder="Ask about your personal data"
-                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-4 py-4 min-h-[60px] max-h-[120px]"
+                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-4 py-3 min-h-[44px] max-h-[100px]"
                     rows={1}
                   />
                   <div className="flex justify-between items-center px-3 pb-3">
@@ -1250,7 +1242,7 @@ export function ChatClient() {
                       setInput(suggestion);
                       textareaRef.current?.focus();
                     }}
-                    className="px-3 py-1.5 text-xs text-gray-500 bg-white border border-gray-200 hover:bg-[#F3F3F3] hover:text-gray-700 transition-all"
+                    className="px-3 py-1.5 text-xs text-gray-700 bg-gray-50 border border-gray-300 transition-all rounded"
                   >
                     {suggestion}
                   </button>
@@ -1267,123 +1259,96 @@ export function ChatClient() {
   return (
     <div className="h-full flex bg-[#fafaf8] relative">
       {/* Conversation History Sidebar */}
-      <motion.div
-        initial={false}
-        animate={{ width: isSidebarCollapsed ? 48 : 220 }}
-        transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-        className="h-full border-r border-gray-100 bg-[#fafaf8] flex flex-col overflow-hidden"
-      >
-        {/* Sidebar Header with Logo */}
-        <div className="flex items-center justify-between p-3 pt-8 pb-3">
-          {!isSidebarCollapsed ? (
-            <div className="flex items-center gap-1.5">
-              <RitualLogo className="w-4 h-4" />
-              <span className="text-sm font-semibold text-gray-900">Ritual</span>
-            </div>
-          ) : (
-            <div className="mx-auto">
-              <RitualLogo className="w-4 h-4" />
-            </div>
-          )}
-          {!isSidebarCollapsed && (
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors"
-              title="Collapse sidebar"
-            >
-              <PanelLeftClose className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        
-        {/* New Chat Button */}
-        <div className="px-2 pb-2">
-          {!isSidebarCollapsed ? (
-            <button
-              onClick={startNewConversation}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-200 hover:bg-[#F3F3F3] rounded transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Chat</span>
-            </button>
-          ) : (
-            <button
-              onClick={startNewConversation}
-              className="w-8 h-8 mx-auto flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-[#F3F3F3] rounded transition-colors"
-              title="New Chat"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-        
-        {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto py-1">
-          {isSidebarCollapsed ? (
-            // Collapsed state - show icons only
-            <div className="flex flex-col items-center gap-0.5 px-2">
+      <AnimatePresence>
+        {!isSidebarCollapsed && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 280, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+            className="h-full border-r border-gray-300 bg-[#fafaf8] flex flex-col overflow-hidden"
+          >
+            {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
+            <div className="flex items-center justify-between pl-4 pr-2 pt-6 pb-2">
               <button
-                onClick={() => setIsSidebarCollapsed(false)}
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] rounded transition-colors mb-1"
-                title="Expand sidebar"
+                onClick={() => router.push('/dashboard')}
+                className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
+                title="Go to Dashboard"
               >
-                <PanelLeft className="w-4 h-4" />
+                <RitualLogo className="w-4 h-4" />
+                <span className="text-lg font-normal text-gray-900">Ritual</span>
               </button>
-              {conversations.slice(0, 10).map((conv, index) => (
-                <button
-                  key={conv.id}
-                  onClick={() => switchConversation(conv.id)}
-                  className={cn(
-                    "w-8 h-8 flex items-center justify-center rounded transition-colors",
-                    conv.id === conversationId
-                      ? "bg-[#E8E8E8] text-gray-900"
-                      : "text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3]"
-                  )}
-                  title={conv.first_message || conv.title || `Conversation ${index + 1}`}
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                </button>
-              ))}
+              <button
+                onClick={() => setIsSidebarCollapsed(true)}
+                className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+                title="Collapse sidebar"
+              >
+                <PanelRight className="w-5 h-5" />
+              </button>
             </div>
-          ) : (
-            // Expanded state - show full list
-            <div className="flex flex-col gap-0.5 px-2">
-              {isLoadingConversations ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader className="w-4 h-4 animate-spin text-gray-400" />
-                </div>
-              ) : conversations.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-gray-400 text-center">
-                  No conversations yet
-                </div>
-              ) : (
-                conversations.slice(0, 10).map((conv) => {
-                  const displayTitle = conv.first_message || conv.title || 'New conversation';
-                  const truncatedTitle = displayTitle.length > 26 
-                    ? displayTitle.substring(0, 26) + '...' 
-                    : displayTitle;
-                  
-                  return (
-                    <button
-                      key={conv.id}
-                      onClick={() => switchConversation(conv.id)}
-                      className={cn(
-                        "w-full text-left px-2.5 py-1.5 rounded text-xs transition-colors truncate",
-                        conv.id === conversationId
-                          ? "bg-[#E8E8E8] text-gray-900 font-medium"
-                          : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
-                      )}
-                      title={displayTitle}
-                    >
-                      {truncatedTitle}
-                    </button>
-                  );
-                })
-              )}
+            
+            {/* New Chat Button */}
+            <div className="px-3 pt-4 pb-4">
+              <button
+                onClick={startNewConversation}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Chat
+              </button>
             </div>
-          )}
-        </div>
-      </motion.div>
+            
+            {/* Conversations List */}
+            <div className="flex-1 overflow-y-auto py-1">
+              <div className="flex flex-col gap-0.5 px-2">
+                {isLoadingConversations ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                  </div>
+                ) : conversations.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-gray-400 text-center">
+                    No conversations yet
+                  </div>
+                ) : (
+                  conversations.slice(0, 10).map((conv) => {
+                    const displayTitle = conv.first_message || conv.title || 'New conversation';
+                    const truncatedTitle = displayTitle.length > 28 
+                      ? displayTitle.substring(0, 28) + '...' 
+                      : displayTitle;
+                    
+                    return (
+                      <button
+                        key={conv.id}
+                        onClick={() => switchConversation(conv.id)}
+                        className={cn(
+                          "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors truncate",
+                          conv.id === conversationId
+                            ? "bg-[#E8E8E8] text-gray-900 font-medium"
+                            : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
+                        )}
+                        title={displayTitle}
+                      >
+                        {truncatedTitle}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Expand sidebar button when collapsed */}
+      {isSidebarCollapsed && (
+        <button
+          onClick={() => setIsSidebarCollapsed(false)}
+          className="absolute top-6 left-4 p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors z-10"
+          title="Expand sidebar"
+        >
+          <PanelRight className="w-5 h-5" />
+        </button>
+      )}
 
       {/* Chat Area */}
       <div className={cn(
@@ -1391,19 +1356,10 @@ export function ChatClient() {
         canvasData ? "pr-0" : ""
       )}>
         <div className="flex-1 overflow-y-auto">
-          {/* Back button row - like Perplexity, with extra top padding to clear traffic lights */}
-          <div className="px-6 pt-10 pb-2">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="w-9 h-9 flex items-center justify-center bg-white border border-gray-200 hover:bg-[#F3F3F3] text-gray-500 hover:text-gray-700 transition-all"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-          </div>
             
-          {/* Chat content - centered below back button */}
+          {/* Chat content - centered in available space */}
           <div className={cn(
-            "mx-auto px-8 pt-4 pb-32 transition-all duration-300",
+            "pb-32 transition-all duration-300 mx-auto px-8 pt-20",
             canvasData ? "max-w-2xl" : "max-w-3xl"
           )}>
             {messages.map((message, messageIndex) => (
@@ -1470,7 +1426,7 @@ export function ChatClient() {
             canvasData ? "max-w-2xl" : "max-w-3xl"
           )}>
             <form onSubmit={handleSubmit}>
-              <div className="bg-[#fafaf8] border border-gray-200 shadow-sm overflow-hidden transition-shadow focus-within:shadow-md focus-within:border-gray-300">
+              <div className="bg-white border border-gray-300 shadow-sm overflow-hidden transition-shadow">
                 <div className="px-4 py-3">
                   <textarea
                     ref={textareaRef}

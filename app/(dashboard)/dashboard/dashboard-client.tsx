@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { Plus, X, LayoutDashboard } from 'lucide-react';
+import { Plus, X, LayoutDashboard, Download } from 'lucide-react';
 import * as Lucide from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO } from 'date-fns';
@@ -19,6 +19,7 @@ import type { Habit } from '@/contexts/HabitsContext';
 // Lazy load heavy components that are only shown when user clicks
 const HabitSelectionModal = lazy(() => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })));
 const AIHabitChat = lazy(() => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })));
+const DataImportModal = lazy(() => import("@/components/data-import-modal").then(m => ({ default: m.DataImportModal })));
 
 // Helper to convert kebab-case to PascalCase for Lucide icons
 const kebabToPascal = (k: string) => k.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
@@ -28,11 +29,11 @@ const HabitIcon = ({ iconName }: { iconName: string }) => {
   const IconComponent = (Lucide as any)[kebabToPascal(iconName)];
 
   if (IconComponent) {
-    return <IconComponent className="w-5 h-5 text-black" />;
+    return <IconComponent className="w-4 h-4 text-black" />;
   }
 
   // Fallback to default icon
-  return <LayoutDashboard className="w-5 h-5 text-black" />;
+  return <LayoutDashboard className="w-4 h-4 text-black" />;
 };
 
 // Note: Old MUI dynamic loading code was removed to improve bundle size
@@ -80,6 +81,7 @@ export function DashboardClient() {
 
   // Local UI state only
   const [showSelectionModal, setShowSelectionModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [habitToDelete, setHabitToDelete] = useState<string | null>(null);
   const [deletingHabit, setDeletingHabit] = useState<string | null>(null);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
@@ -417,7 +419,31 @@ export function DashboardClient() {
 
     // For other units, show total sessions or amount
     const totalAmount = filteredLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
-    return `${totalAmount} ${unitType}`;
+    
+    // Format the amount based on unit type
+    const unitLower = unitType.toLowerCase();
+    let formattedAmount: string;
+    
+    // Units that should display as whole numbers
+    if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
+      formattedAmount = Math.round(totalAmount).toString();
+    }
+    // Units that should show 1 decimal place
+    else if (['miles', 'km', 'kilometers'].includes(unitLower)) {
+      formattedAmount = totalAmount.toFixed(1);
+    }
+    // Units that should show 2 decimal places
+    else if (['hours', 'minutes'].includes(unitLower)) {
+      formattedAmount = (Math.round(totalAmount * 100) / 100).toString();
+    }
+    // Default: round to 2 decimal places if has decimals, otherwise whole number
+    else {
+      formattedAmount = Number.isInteger(totalAmount) 
+        ? totalAmount.toString() 
+        : (Math.round(totalAmount * 100) / 100).toString();
+    }
+    
+    return `${formattedAmount} ${unitType}`;
   }, [displayLogs, dateRange]);
 
   // Detailed stats for tooltip - uses cached stats from Python API (single source of truth)
@@ -544,8 +570,18 @@ export function DashboardClient() {
             <button
               onClick={() => setShowSelectionModal(true)}
               className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+              title="Add Habit"
             >
               <Plus className="w-4 h-4" />
+            </button>
+
+            {/* Import Apple Health Data button */}
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+              title="Import Apple Health Data"
+            >
+              <Download className="w-4 h-4" />
             </button>
 
             {/* Date Range Picker - compact version */}
@@ -564,7 +600,7 @@ export function DashboardClient() {
       {/* Habits List - Hidden in Chat Mode */}
       {!isFullScreenChat && (
         <div>
-          <div className="max-w-[620px] mx-auto w-full">
+          <div className="max-w-[500px] mx-auto w-full">
             <DragDropContext onDragEnd={handleDragEnd}>
               <Droppable droppableId="habits">
                 {(provided) => (
@@ -579,31 +615,31 @@ export function DashboardClient() {
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            className={`w-full max-w-xl flex justify-between items-center h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
+                            className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
                               }`}
                           >
-                            <div className="flex items-center min-w-0 space-x-2">
+                            <div className="flex items-center min-w-0 gap-1.5">
                               <span
-                                className="flex items-center justify-center w-6 h-6 flex-shrink-0"
+                                className="flex items-center justify-center w-5 h-5 flex-shrink-0"
                               >
                                 {habit.icon ? (
                                   // Check if it's an emoji (contains emoji characters)
                                   /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
-                                    <span className="text-xl">{habit.icon}</span>
+                                    <span className="text-base leading-none">{habit.icon}</span>
                                   ) : (
                                     <HabitIcon iconName={habit.icon} />
                                   )
                                 ) : (
-                                  <span className="text-xl">{getHabitIcon(habit.name, habit.category)}</span>
+                                  <span className="text-base leading-none">{getHabitIcon(habit.name, habit.category)}</span>
                                 )}
                               </span>
-                              <span className="text-[16px] font-normal text-gray-900 truncate">{habit.name}</span>
+                              <span className="text-[17px] font-normal text-gray-900 truncate">{habit.name}</span>
                             </div>
                             <div
                               className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
                               onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
                             >
-                              <span className="text-[16px] font-normal text-gray-900 select-none tabular-nums">
+                              <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
                                 {getHabitMetricDisplay(habit)}
                               </span>
                               <button
@@ -689,6 +725,21 @@ export function DashboardClient() {
             isOpen={showSelectionModal}
             onClose={() => setShowSelectionModal(false)}
             onHabitCreated={handleHabitCreated}
+          />
+        </Suspense>
+      )}
+
+      {/* Data Import Modal */}
+      {showImportModal && (
+        <Suspense fallback={null}>
+          <DataImportModal
+            isOpen={showImportModal}
+            onClose={() => setShowImportModal(false)}
+            onImportComplete={() => {
+              // Refresh habits and logs after import
+              fetchHabits();
+              fetchHabitLogs();
+            }}
           />
         </Suspense>
       )}

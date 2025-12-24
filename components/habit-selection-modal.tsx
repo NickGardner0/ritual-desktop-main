@@ -72,10 +72,30 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     switch (category) {
       case 'applewatch':
         return [
-          { value: 'steps', label: 'Steps' },
-          { value: 'workouts', label: 'Workouts' },
-          { value: 'heart-rate', label: 'Heart Rate' },
-          { value: 'calories', label: 'Calories Burned' }
+          // Activity
+          { value: 'steps', label: 'Steps', metric_type: 'steps', unit: 'Steps' },
+          { value: 'active-energy', label: 'Active Calories', metric_type: 'active_energy', unit: 'Calories' },
+          { value: 'basal-energy', label: 'Resting Calories', metric_type: 'basal_energy', unit: 'Calories' },
+          { value: 'distance', label: 'Distance', metric_type: 'distance', unit: 'Miles' },
+          { value: 'flights-climbed', label: 'Flights Climbed', metric_type: 'flights_climbed', unit: 'Count' },
+          { value: 'exercise-time', label: 'Exercise Minutes', metric_type: 'exercise_time', unit: 'Minutes' },
+          { value: 'stand-time', label: 'Stand Time', metric_type: 'stand_time', unit: 'Minutes' },
+          // Heart
+          { value: 'heart-rate', label: 'Heart Rate', metric_type: 'hr', unit: 'BPM' },
+          { value: 'hrv', label: 'Heart Rate Variability (HRV)', metric_type: 'hrv', unit: 'HRV' },
+          { value: 'resting-hr', label: 'Resting Heart Rate', metric_type: 'resting_hr', unit: 'BPM' },
+          { value: 'walking-hr', label: 'Walking Heart Rate', metric_type: 'walking_hr', unit: 'BPM' },
+          // Sleep & Recovery
+          { value: 'sleep', label: 'Sleep Duration', metric_type: 'sleep_session', unit: 'Hours Slept' },
+          { value: 'sleep-rem', label: 'REM Sleep', metric_type: 'sleep_rem', unit: 'Minutes' },
+          { value: 'sleep-deep', label: 'Deep Sleep', metric_type: 'sleep_deep', unit: 'Minutes' },
+          { value: 'sleep-core', label: 'Core Sleep', metric_type: 'sleep_core', unit: 'Minutes' },
+          // Respiratory & Blood
+          { value: 'blood-oxygen', label: 'Blood Oxygen (SpO2)', metric_type: 'oxygen_saturation', unit: 'Percentage' },
+          { value: 'respiratory-rate', label: 'Respiratory Rate', metric_type: 'respiratory_rate', unit: 'Count' },
+          // Workouts & Mindfulness
+          { value: 'workouts', label: 'Workouts', metric_type: 'workout', unit: 'Count' },
+          { value: 'mindful-minutes', label: 'Mindful Minutes', metric_type: 'mindful_minutes', unit: 'Minutes' }
         ];
       case 'oura':
         return [
@@ -315,11 +335,16 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   // State for Whoop connection
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopConnecting, setWhoopConnecting] = useState(false);
+  
+  // State for Apple Watch connection
+  const [appleWatchConnected, setAppleWatchConnected] = useState(false);
+  const [appleWatchDeviceName, setAppleWatchDeviceName] = useState<string | null>(null);
 
-  // Check if Whoop is connected on mount and when modal opens
+  // Check if Whoop and Apple Watch are connected on mount and when modal opens
   useEffect(() => {
     if (isOpen) {
       checkWhoopConnection();
+      checkAppleWatchConnection();
     }
   }, [isOpen]);
 
@@ -345,6 +370,36 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     } catch (error) {
       console.error('Error checking Whoop connection:', error);
       setWhoopConnected(false);
+    }
+  }
+  
+  async function checkAppleWatchConnection() {
+    try {
+      const token = await getToken();
+      if (!token) {
+        setAppleWatchConnected(false);
+        return;
+      }
+      
+      const response = await fetch('http://127.0.0.1:8000/api/wearables/apple/devices', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Check if there's at least one active iOS device
+        const activeDevices = (data.devices || []).filter((d: any) => d.is_active && d.platform === 'ios');
+        setAppleWatchConnected(activeDevices.length > 0);
+        if (activeDevices.length > 0) {
+          setAppleWatchDeviceName(activeDevices[0].device_name);
+        }
+        console.log('✅ Apple Watch connection status:', activeDevices.length > 0);
+      }
+    } catch (error) {
+      console.error('Error checking Apple Watch connection:', error);
+      setAppleWatchConnected(false);
     }
   }
 
@@ -438,19 +493,30 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     setIsCreating(true);
     
     try {
+      // For wearable integrations, use the metric-specific unit if available
+      const habitUnit = selectedHabit?.unit || selectedMetric;
+      const metricType = selectedHabit?.metric_type || null;
+      
       const newHabit = {
         name: habitName,
         category: categoryMap[selectedCategory || 'productivity'] || 'manual',
         is_custom: selectedCategory === 'custom',
-        sensor_type: 'Manual',
+        sensor_type: selectedCategory === 'applewatch' ? 'Apple Watch' 
+                   : selectedCategory === 'whoop' ? 'Whoop'
+                   : selectedCategory === 'oura' ? 'Oura'
+                   : selectedCategory === 'fitbit' ? 'Fitbit'
+                   : selectedCategory === 'garmin' ? 'Garmin'
+                   : 'Manual',
         icon: selectedIcon || 'DashboardSharp', // Material UI icons are already in PascalCase
-        unit_type: selectedMetric,
+        unit_type: habitUnit,
         integration_source: selectedCategory === 'whoop' ? 'whoop' 
-                          : selectedCategory === 'applewatch' ? 'applewatch'
+                          : selectedCategory === 'applewatch' ? 'apple_health'
                           : selectedCategory === 'oura' ? 'oura'
                           : selectedCategory === 'fitbit' ? 'fitbit'
                           : selectedCategory === 'garmin' ? 'garmin'
-                          : null
+                          : null,
+        // Store the metric type so iOS app knows which HealthKit data to sync
+        metric_type: metricType
       };
       
       // Create habit using the useHabits hook
@@ -774,12 +840,30 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Apple Watch</p>
                   </div>
-                  <button 
-                    onClick={() => handleCategorySelect('applewatch')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
-                  >
-                    Connect
-                  </button>
+                  {appleWatchConnected ? (
+                    <button 
+                      onClick={() => handleCategorySelect('applewatch')}
+                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors mr-1"
+                    >
+                      Connected
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        alert(
+                          '📱 To connect your Apple Watch:\n\n' +
+                          '1. Download the Ritual Companion app on your iPhone\n' +
+                          '2. Sign in with your Ritual account\n' +
+                          '3. Tap "Connect" to register your device\n' +
+                          '4. Grant HealthKit permissions\n\n' +
+                          'Your Apple Watch data syncs through your iPhone.'
+                        );
+                      }}
+                      className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    >
+                      Connect
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex justify-between items-center h-11">

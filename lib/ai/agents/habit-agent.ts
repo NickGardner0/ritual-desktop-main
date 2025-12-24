@@ -118,7 +118,8 @@ function createTools(ctx: RitualContext) {
           const allLogs = await logsRes.json();
           const startDate = new Date();
           startDate.setDate(startDate.getDate() - params.days);
-          const startStr = startDate.toISOString().split('T')[0];
+          // Use local date, NOT toISOString() which converts to UTC
+          const startStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
 
           const habitLogs = allLogs.filter((l: any) => {
             if (l.habit_id !== habit.id) return false;

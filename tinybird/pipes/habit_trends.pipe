@@ -1,5 +1,28 @@
 DESCRIPTION >
     Habit completion trends over time (daily, weekly, monthly aggregations)
+    DEDUPLICATES by id to handle re-synced Apple Health data
+
+NODE deduplicated_logs
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        status,
+        duration,
+        amount,
+        unit,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
 
 NODE daily_trends
 SQL >
@@ -13,12 +36,7 @@ SQL >
         SUM(duration) as total_duration,
         SUM(amount) as total_amount,
         any(unit) as unit
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, required=True) }}
-      AND date >= today() - INTERVAL {{Int32(days_back, 30)}} DAY
-      {% if defined(habit_id) %}
-      AND habit_id = {{ String(habit_id) }}
-      {% end %}
+    FROM deduplicated_logs
     GROUP BY date, habit_id, habit_name
     ORDER BY date DESC
 

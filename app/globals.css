@@ -97,7 +97,6 @@
     font-display: swap;
   }
 
-
 }
 
 
@@ -155,6 +154,7 @@
     @apply bg-background text-foreground;
     -webkit-app-region: no-drag;
   }
+
 
   /* Tauri drag region styles - Midday approach */
   .tauri-drag-region {
@@ -395,4 +395,17 @@
 
 .recharts-surface {
   max-width: 100% !important;
+}
+
+/* App font selection - global overrides with high specificity */
+/* FK Grotesk Neue (default) */
+.font-sans,
+.font-sans *:not([class*="font-"]):not(code):not(pre):not(kbd) {
+  font-family: 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+/* Geist Sans */
+.font-geist,
+.font-geist *:not([class*="font-"]):not(code):not(pre):not(kbd) {
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
