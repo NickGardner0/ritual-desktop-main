@@ -23,7 +23,8 @@ import {
   Check,
   Share2,
   Copy,
-  Download
+  Download,
+  Monitor
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { DateRangePicker } from '@/components/date-range-picker';
@@ -31,6 +32,7 @@ import { DateRange } from 'react-day-picker';
 import { format, parseISO, startOfDay, differenceInDays, subDays, isWithinInterval, sub } from 'date-fns';
 import { HabitTickerGrid, AnalyticsViewToggle } from '@/components/analytics/habit-ticker-view';
 import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
+import { ComputerActivitySection } from '@/components/analytics/computer-activity';
 
 // Import Recharts components directly (lazy loading causes type issues in production)
 import {
@@ -237,6 +239,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     // Get the primary value (first payload)
     const primaryValue = payload[0]?.value;
     const comparisonValue = payload[1]?.value;
+    
+    // Get units from data
+    const primaryUnit = data?.unit || '';
+    const compUnit = data?.compUnit || '';
 
     return (
       <div
@@ -250,20 +256,22 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       >
         <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
         <div className="space-y-1.5 text-xs">
-          {/* Primary value */}
+          {/* Primary value with unit */}
           <div className="flex items-center justify-between gap-6">
             <span className="text-gray-500">{payload.length > 1 ? payload[0]?.name || 'Value' : 'Value'}</span>
             <span className="text-gray-900 font-semibold tabular-nums">
               {typeof primaryValue === 'number' ? primaryValue.toFixed(1) : primaryValue}
+              {primaryUnit && <span className="text-gray-500 font-normal ml-1">{primaryUnit}</span>}
             </span>
           </div>
 
-          {/* Comparison value if exists */}
+          {/* Comparison value with unit if exists */}
           {comparisonValue !== undefined && (
             <div className="flex items-center justify-between gap-6">
               <span className="text-slate-500">{payload[1]?.name || 'Comparison'}</span>
               <span className="text-slate-500 font-semibold tabular-nums">
                 {typeof comparisonValue === 'number' ? comparisonValue.toFixed(1) : comparisonValue}
+                {compUnit && <span className="font-normal ml-1">{compUnit}</span>}
               </span>
             </div>
           )}
@@ -309,15 +317,23 @@ function useAnalyticsSummary() {
     enabled: isUserLoaded && !!user?.id, // Only run when user is fully loaded
     queryFn: async () => {
       const token = await getToken();
+      
+      // Wait for token to be available
+      if (!token) {
+        console.warn('⚠️ [Analytics Query] No auth token available, waiting...');
+        throw new Error('No auth token available');
+      }
+      
       const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
       // Fetch habits, overall summary, and per-habit summary in parallel (all Tinybird-powered!)
       const [habitsRes, summaryRes, habitsSummaryRes] = await Promise.all([
         fetch(`${backendUrl}/api/habits`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${token}` },
+          credentials: 'include'
         }),
-        fetch('/api/analytics/summary'), // ✅ Tinybird-powered overall metrics
-        fetch('/api/analytics/habits/summary') // ✅ Tinybird-powered per-habit metrics with % changes!
+        fetch('/api/analytics/summary', { credentials: 'include' }), // ✅ Tinybird-powered overall metrics
+        fetch('/api/analytics/habits/summary', { credentials: 'include' }) // ✅ Tinybird-powered per-habit metrics with % changes!
       ]);
 
       if (!habitsRes.ok || !summaryRes.ok) {
@@ -383,6 +399,8 @@ function useAnalyticsSummary() {
     gcTime: 1000 * 60 * 5, // Keep in cache for 5 minutes for back/forward navigation
     refetchOnWindowFocus: false, // Don't refetch on window focus (prevents excessive requests)
     refetchOnMount: true, // Refetch when Analytics page mounts (if stale)
+    retry: 3, // Retry up to 3 times if token not ready
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000), // Exponential backoff
   });
 }
 
@@ -465,6 +483,7 @@ const CustomSelect = ({ value, options, onChange, placeholder = 'Select' }: any)
 
 export function AnalyticsClient() {
   const { getToken } = useAuth();
+  const { user, isLoaded: isUserLoaded } = useUser();
   const { data, isLoading, isPending, refetch } = useAnalyticsSummary();
   
   // Show loading when query is pending (user not loaded or first fetch)
@@ -493,6 +512,9 @@ export function AnalyticsClient() {
   const [loadingComparison, setLoadingComparison] = useState(false);
   // Always initialize to default value to prevent hydration mismatch
   const [viewMode, setViewMode] = useState<'chart' | 'ticker'>('chart');
+
+  // Computer Activity visibility (persisted in localStorage)
+  const [showComputerActivity, setShowComputerActivity] = useState(true);
 
   // Correlation data for habit comparison in expanded view
   const [correlationData, setCorrelationData] = useState<any>(null);
@@ -523,6 +545,9 @@ export function AnalyticsClient() {
 
   // Fetch "progress since start" from Tinybird (first 7 days vs last 7 days) - for All Time view
   useEffect(() => {
+    // Wait for user to be authenticated before fetching
+    if (!isUserLoaded || !user?.id) return;
+    
     const fetchProgressMetrics = async () => {
       setLoadingProgressMetrics(true);
       try {
@@ -547,7 +572,7 @@ export function AnalyticsClient() {
     };
 
     fetchProgressMetrics();
-  }, []); // Fetch once on mount
+  }, [isUserLoaded, user?.id]); // Fetch when user is authenticated
 
   // Fetch correlation when comparing two habits in expanded view
   useEffect(() => {
@@ -1231,6 +1256,8 @@ export function AnalyticsClient() {
         shortDate: format(date, 'MMM d'),
         value: val,
         compValue: cVal !== undefined ? cVal : 0,
+        unit: habit.unit_type || (habit as any).unit || '',
+        compUnit: compHabit ? (compHabit.unit_type || (compHabit as any).unit || '') : '',
         ...metadata
       };
     });
@@ -1523,9 +1550,9 @@ export function AnalyticsClient() {
                       </div>
                       <button
                         onClick={() => setExpandedHabit(null)}
-                        className="p-2 hover:bg-gray-200/50 transition-colors"
+                        className="p-2 transition-colors"
                       >
-                        <X className="w-5 h-5 text-gray-500" />
+                        <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
                       </button>
                     </div>
 
@@ -1777,6 +1804,29 @@ export function AnalyticsClient() {
         </>
       ) : null}
 
+      {/* Computer Activity Section */}
+      {showComputerActivity ? (
+        <div className="mt-8">
+          <ComputerActivitySection
+            startDate={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined}
+            endDate={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : undefined}
+            daysBack={30}
+            isVisible={showComputerActivity}
+            onDismiss={() => setShowComputerActivity(false)}
+          />
+        </div>
+      ) : (
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={() => setShowComputerActivity(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <Monitor className="w-4 h-4" />
+            Show Computer Activity
+          </button>
+        </div>
+      )}
+
       {/* Share Modal */}
       {showShareModal && shareImageUrl && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
@@ -1799,9 +1849,9 @@ export function AnalyticsClient() {
                   setShowShareModal(false);
                   setShareImageUrl(null);
                 }}
-                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                className="p-1.5 transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
 

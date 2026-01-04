@@ -1,10 +1,10 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense, useMemo } from 'react';
 import { Plus, X, LayoutDashboard, Download } from 'lucide-react';
 import * as Lucide from 'lucide-react';
 import { DateRange } from 'react-day-picker';
-import { isWithinInterval, parseISO } from 'date-fns';
+import { isWithinInterval, parseISO, format } from 'date-fns';
 import { DateRangePicker } from "@/components/date-range-picker";
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
@@ -12,6 +12,7 @@ import { useUser, useClerk, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
+import { HistoryScrubber } from '@/components/history-scrubber';
 
 import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
@@ -95,11 +96,60 @@ export function DashboardClient() {
   const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>({});
   const [statsLoading, setStatsLoading] = useState(false);
 
+  // History scrubber state
+  const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
+  const [scrubberHoveredValues, setScrubberHoveredValues] = useState<Record<string, number> | null>(null);
+  const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
+
+  // Handle scrubber hover
+  const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
+    setScrubberHoveredDate(date);
+    setScrubberHoveredValues(values);
+  }, []);
+
+  // Handle scrubber selection (pin a date)
+  const handleScrubberSelect = useCallback((date: string | null) => {
+    setScrubberSelectedDate(date);
+    // When a date is selected via scrubber, also update the date range picker
+    if (date) {
+      const selectedDateObj = parseISO(date);
+      setDateRange({ from: selectedDateObj, to: selectedDateObj });
+    } else {
+      setDateRange(undefined);
+    }
+  }, []);
+
   // Merge optimistic logs with real logs for display
   const displayLogs = React.useMemo(() => {
     return [...habitLogs, ...optimisticLogs];
   }, [habitLogs, optimisticLogs]);
 
+  // Sync "Computer Use" habit on dashboard mount
+  // This ensures the habit value stays in sync with actual computer activity
+  useEffect(() => {
+    const syncComputerUseHabit = async () => {
+      try {
+        const response = await fetch('/api/watcher/sync-to-habit', { method: 'POST' })
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success && result.synced) {
+            console.log(`✅ Auto-synced computer time: ${result.amount} ${result.unit}`)
+            // Refetch habits to update UI
+            fetchHabits()
+          }
+        }
+      } catch (e) {
+        // Silently fail - this is a background sync
+        console.debug('Computer use sync failed:', e)
+      }
+    }
+    
+    // Only sync if user is loaded
+    if (userLoaded && isSignedIn) {
+      syncComputerUseHabit()
+    }
+  }, [userLoaded, isSignedIn, fetchHabits])
+  
   // Fetch stats from Python analytics API (single source of truth)
   useEffect(() => {
     const fetchStats = async () => {
@@ -338,9 +388,36 @@ export function DashboardClient() {
   }, [!isLoaded, user]);
 
 
-  // Get display text for habit metrics
-  const getHabitMetricDisplay = React.useCallback((habit: Habit): string => {
+  // Get display text for habit metrics - with optional scrubber preview
+  const getHabitMetricDisplay = React.useCallback((habit: Habit, previewValue?: number | null): string => {
     const unitType = habit.unit_type || 'sessions';
+    
+    // If we have a preview value from the scrubber, display that instead
+    if (previewValue !== undefined && previewValue !== null) {
+      // The preview value is in minutes for time-based habits, or raw amount for others
+      if (unitType.toLowerCase().includes('hour')) {
+        const hours = Math.round((previewValue / 60) * 100) / 100;
+        return `${hours} Hours`;
+      } else if (unitType.toLowerCase().includes('minute')) {
+        return `${Math.round(previewValue)} Minutes`;
+      }
+      
+      // Format the amount based on unit type
+      const unitLower = unitType.toLowerCase();
+      let formattedAmount: string;
+      
+      if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
+        formattedAmount = Math.round(previewValue).toString();
+      } else if (['miles', 'km', 'kilometers'].includes(unitLower)) {
+        formattedAmount = previewValue.toFixed(1);
+      } else {
+        formattedAmount = Number.isInteger(previewValue) 
+          ? previewValue.toString() 
+          : (Math.round(previewValue * 100) / 100).toString();
+      }
+      
+      return `${formattedAmount} ${unitType}`;
+    }
 
     // Debug logging disabled to reduce console noise
     // Uncomment if you need to debug habit metrics calculations
@@ -564,25 +641,51 @@ export function DashboardClient() {
     <div className="px-6 pt-3 pb-6 space-y-4">
       {/* Header with view controls - Hidden in Chat Mode */}
       {!isFullScreenChat && (
-        <div className="flex items-center justify-end">
-          <div className="flex items-center space-x-1">
+        <div className="relative flex items-center justify-end h-14">
+          {/* History Scrubber - absolutely positioned to center over habits */}
+          {habits.length > 0 && (
+            <div className="absolute left-1/2 -translate-x-1/2 w-[500px]">
+              <HistoryScrubber
+                habitLogs={displayLogs}
+                habits={orderedHabits}
+                daysToShow={90}
+                onHoverDate={handleScrubberHover}
+                onSelectDate={handleScrubberSelect}
+                selectedDate={scrubberSelectedDate}
+              />
+            </div>
+          )}
+          
+          <div className="flex items-center space-x-1 relative z-10">
             {/* Add Habit button */}
-            <button
-              onClick={() => setShowSelectionModal(true)}
-              className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
-              title="Add Habit"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+            <div className="relative group">
+              <button
+                onClick={() => setShowSelectionModal(true)}
+                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+                aria-label="Add Habit"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              {/* Tooltip */}
+              <div className="absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                Add
+              </div>
+            </div>
 
             {/* Import Apple Health Data button */}
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
-              title="Import Apple Health Data"
-            >
-              <Download className="w-4 h-4" />
-            </button>
+            <div className="relative group">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+                aria-label="Import Data"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+              {/* Tooltip */}
+              <div className="absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                Import
+              </div>
+            </div>
 
             {/* Date Range Picker - compact version */}
             <DateRangePicker
@@ -594,12 +697,9 @@ export function DashboardClient() {
         </div>
       )}
 
-      {/* Spacer between header and habits */}
-      {!isFullScreenChat && <div className="h-4" />}
-
       {/* Habits List - Hidden in Chat Mode */}
       {!isFullScreenChat && (
-        <div>
+        <div className="mt-8">
           <div className="max-w-[500px] mx-auto w-full">
             <DragDropContext onDragEnd={handleDragEnd}>
               <Droppable droppableId="habits">
@@ -640,7 +740,12 @@ export function DashboardClient() {
                               onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
                             >
                               <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
-                                {getHabitMetricDisplay(habit)}
+                                {getHabitMetricDisplay(
+                                  habit, 
+                                  scrubberHoveredDate && scrubberHoveredValues 
+                                    ? scrubberHoveredValues[habit.id || ''] 
+                                    : undefined
+                                )}
                               </span>
                               <button
                                 onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}

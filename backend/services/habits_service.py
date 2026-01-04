@@ -87,6 +87,13 @@ class HabitsService:
                     except Exception as e:
                         print(f"⚠️  Tinybird sync failed for habit '{habit.name}': {e}")
                 
+                # Index to Typesense for search (async, non-blocking)
+                try:
+                    from services.search_service import search_service
+                    await search_service.index_habit(habit.model_dump(), user_id)
+                except Exception as e:
+                    print(f"⚠️  Search index failed for habit '{habit.name}': {e}")
+                
                 return habit
                 
             except SQLAlchemyError as e:
@@ -267,6 +274,18 @@ class HabitsService:
                         traceback.print_exc()
                 else:
                     print(f"⚠️  Tinybird sync disabled - habit log NOT synced to analytics")
+                
+                # Index to Typesense for search (async, non-blocking)
+                try:
+                    from services.search_service import search_service
+                    await search_service.index_habit_log(
+                        habit_log.model_dump(),
+                        user_id,
+                        habit_name=habit.name,
+                        category=habit.category
+                    )
+                except Exception as e:
+                    print(f"⚠️  Search index failed for habit log: {e}")
                 
                 return habit_log
                 

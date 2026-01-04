@@ -1,0 +1,93 @@
+DESCRIPTION >
+    Aggregated computer activity summary for a user (V2)
+    Returns total screen time, top apps, top domains, and daily trends
+    Now includes AFK tracking and browser domain analytics
+
+TOKEN "read_computer_activity" READ
+
+NODE daily_totals
+DESCRIPTION >
+    Calculate daily totals by user (including AFK breakdown)
+
+SQL >
+    %
+    SELECT 
+        user_id,
+        day,
+        sum(active_ms) as total_active_ms,
+        sum(afk_ms) as total_afk_ms,
+        sum(events_count) as total_events,
+        count(distinct app_bundle_id) as unique_apps,
+        count(distinct browser_domain) as unique_domains
+    FROM computer_activity_daily
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND day >= {{ Date(start_date, required=True) }}
+      AND day <= {{ Date(end_date, required=True) }}
+    GROUP BY user_id, day
+    ORDER BY day DESC
+
+NODE top_apps
+DESCRIPTION >
+    Get top apps by usage for the period
+
+SQL >
+    %
+    SELECT 
+        user_id,
+        app_bundle_id,
+        app_name,
+        sum(active_ms) as total_active_ms,
+        sum(events_count) as total_events,
+        count(distinct day) as days_used
+    FROM computer_activity_daily
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND day >= {{ Date(start_date, required=True) }}
+      AND day <= {{ Date(end_date, required=True) }}
+    GROUP BY user_id, app_bundle_id, app_name
+    ORDER BY total_active_ms DESC
+    LIMIT {{ Int32(limit, 10) }}
+
+NODE top_domains
+DESCRIPTION >
+    Get top browser domains by usage for the period
+
+SQL >
+    %
+    SELECT 
+        user_id,
+        browser_domain,
+        sum(active_ms) as total_active_ms,
+        sum(events_count) as total_events,
+        count(distinct day) as days_used
+    FROM computer_activity_daily
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND day >= {{ Date(start_date, required=True) }}
+      AND day <= {{ Date(end_date, required=True) }}
+      AND browser_domain != ''
+      AND browser_domain IS NOT NULL
+    GROUP BY user_id, browser_domain
+    ORDER BY total_active_ms DESC
+    LIMIT {{ Int32(limit, 10) }}
+
+NODE summary
+DESCRIPTION >
+    Overall summary statistics including AFK and browser metrics
+
+SQL >
+    %
+    SELECT 
+        user_id,
+        sum(active_ms) as total_active_ms,
+        sum(afk_ms) as total_afk_ms,
+        sum(events_count) as total_events,
+        count(distinct app_bundle_id) as unique_apps,
+        count(distinct browser_domain) as unique_domains,
+        count(distinct day) as days_tracked,
+        avg(active_ms) as avg_daily_ms
+    FROM computer_activity_daily
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND day >= {{ Date(start_date, required=True) }}
+      AND day <= {{ Date(end_date, required=True) }}
+    GROUP BY user_id
+
+

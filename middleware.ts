@@ -21,10 +21,19 @@ export default clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     try {
       await auth.protect();
-    } catch (error) {
-      // If auth.protect fails, log but don't crash
+    } catch (error: unknown) {
+      // Ignore 404 errors - these are expected for non-existent routes
+      // (prefetch, HMR, favicon requests, etc.)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const digest = (error as { digest?: string })?.digest || '';
+      
+      if (digest.includes('404') || errorMessage.includes('404')) {
+        // Silently ignore 404-related auth errors
+        return;
+      }
+      
+      // Log actual auth errors (but don't crash)
       console.error('Auth protection error:', error);
-      // Let the request continue to avoid infinite loops
     }
   }
 }, {

@@ -101,7 +101,7 @@ export function WelcomeClient() {
           {currentPage === 1 && (
             <div className="animate-in fade-in duration-500">
               <div className="flex justify-center mb-4">
-                <RitualLogo className="h-10 w-auto" />
+                <RitualLogo className="h-11 w-auto" />
               </div>
               <h1 className="text-3xl font-medium text-gray-900 dark:text-white">
                 Welcome to Ritual
@@ -122,7 +122,7 @@ export function WelcomeClient() {
                 <div className="mt-10 flex flex-col items-center gap-4">
                   <button
                     onClick={handleNext}
-                    className="px-5 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-none hover:bg-[#22211B] dark:hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
+                    className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-none hover:bg-[#22211B] dark:hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
                   >
                     Next
                     <ArrowRight className="w-4 h-4" />
@@ -188,7 +188,7 @@ export function WelcomeClient() {
           {currentPage === 4 && (
             <div className="animate-in fade-in duration-500">
               <div className="flex justify-center mb-8">
-                <RitualLogo className="h-10 w-auto" />
+                <RitualLogo className="h-11 w-auto" />
               </div>
               <h1 className="text-4xl font-medium text-gray-900 dark:text-white mb-4">
                 You're all set!
@@ -204,7 +204,7 @@ export function WelcomeClient() {
             <div className="mt-7 flex items-center justify-center gap-4">
               <button
                 onClick={handleNext}
-                className="px-5 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-none hover:bg-[#22211B] dark:hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
+                className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-none hover:bg-[#22211B] dark:hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
               >
                 {currentPage === 1 && 'Get Started'}
                 {currentPage === TOTAL_PAGES && 'Go to Dashboard'}

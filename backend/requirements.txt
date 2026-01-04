@@ -27,3 +27,6 @@ websockets>=12.0
 
 # OpenAI (for vision/screen time extraction)
 openai>=1.0.0
+
+# Search - Typesense for instant search
+typesense>=0.21.0

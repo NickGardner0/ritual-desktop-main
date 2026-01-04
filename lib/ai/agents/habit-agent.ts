@@ -186,6 +186,233 @@ function createTools(ctx: RitualContext) {
         }
       },
     }),
+
+    // ============================================
+    // COMPUTER ACTIVITY TOOLS
+    // ============================================
+
+    getComputerActivity: tool({
+      description: `Get computer activity statistics including total screen time, app usage, and website visits. Use this for questions about computer time, screen time, productivity, app usage, or website visits.`,
+      inputSchema: z.object({
+        startDate: z.string().describe('Start date (YYYY-MM-DD)'),
+        endDate: z.string().describe('End date (YYYY-MM-DD)'),
+      }),
+      execute: async (params) => {
+        try {
+          const queryParams = new URLSearchParams({
+            start_date: params.startDate,
+            end_date: params.endDate,
+          });
+
+          const [summaryRes, topAppsRes, topDomainsRes] = await Promise.all([
+            fetchWithAuth(`${PYTHON_API_BASE}/api/watcher/stats/summary?${queryParams}`, ctx.token),
+            fetchWithAuth(`${PYTHON_API_BASE}/api/watcher/stats/top-apps?${queryParams}&limit=10`, ctx.token),
+            fetchWithAuth(`${PYTHON_API_BASE}/api/watcher/stats/top-domains?${queryParams}&limit=10`, ctx.token),
+          ]);
+
+          const summary = summaryRes.ok ? (await summaryRes.json()).data : null;
+          const topApps = topAppsRes.ok ? (await topAppsRes.json()).data : [];
+          const topDomains = topDomainsRes.ok ? (await topDomainsRes.json()).data : [];
+
+          if (!summary || summary.total_hours === 0) {
+            return { 
+              message: "No computer activity data found for this period. The user may not have Computer Tracking enabled.",
+              dateRange: { start: params.startDate, end: params.endDate }
+            };
+          }
+
+          return {
+            dateRange: { start: params.startDate, end: params.endDate },
+            summary: {
+              totalHours: Math.round(summary.total_hours * 10) / 10,
+              avgDailyHours: Math.round(summary.avg_daily_hours * 10) / 10,
+              daysTracked: summary.days_tracked,
+              uniqueApps: summary.unique_apps,
+            },
+            topApps: topApps.slice(0, 5).map((app: any) => ({
+              name: app.app_name,
+              hours: Math.round(app.hours * 10) / 10,
+            })),
+            topWebsites: topDomains.slice(0, 5).map((domain: any) => ({
+              domain: domain.domain,
+              hours: Math.round(domain.hours * 10) / 10,
+            })),
+          };
+        } catch (error) {
+          return { error: String(error) };
+        }
+      },
+    }),
+
+    getAppUsage: tool({
+      description: `Get detailed usage statistics for a specific app. Use when the user asks about time spent on a particular application like Slack, Chrome, VS Code, Cursor, etc.`,
+      inputSchema: z.object({
+        appName: z.string().describe('Name of the app to look up (e.g., "Slack", "Chrome", "Cursor")'),
+        startDate: z.string().describe('Start date (YYYY-MM-DD)'),
+        endDate: z.string().describe('End date (YYYY-MM-DD)'),
+      }),
+      execute: async (params) => {
+        try {
+          const queryParams = new URLSearchParams({
+            start_date: params.startDate,
+            end_date: params.endDate,
+            limit: '50',
+          });
+
+          const topAppsRes = await fetchWithAuth(
+            `${PYTHON_API_BASE}/api/watcher/stats/top-apps?${queryParams}`,
+            ctx.token
+          );
+
+          if (!topAppsRes.ok) throw new Error('Failed to fetch app data');
+          const topApps = (await topAppsRes.json()).data || [];
+
+          // Find matching app (case-insensitive partial match)
+          const matchingApps = topApps.filter((app: any) =>
+            app.app_name.toLowerCase().includes(params.appName.toLowerCase())
+          );
+
+          if (matchingApps.length === 0) {
+            // Return list of available apps as suggestion
+            const availableApps = topApps.slice(0, 10).map((a: any) => a.app_name);
+            return {
+              found: false,
+              message: `No app matching "${params.appName}" found in the tracked period.`,
+              availableApps,
+              dateRange: { start: params.startDate, end: params.endDate },
+            };
+          }
+
+          const app = matchingApps[0];
+          const totalHours = topApps.reduce((sum: number, a: any) => sum + a.hours, 0);
+          const percentageOfTotal = Math.round((app.hours / totalHours) * 100);
+
+          return {
+            found: true,
+            app: {
+              name: app.app_name,
+              bundleId: app.app_bundle_id,
+              hours: Math.round(app.hours * 10) / 10,
+              events: app.total_events,
+              percentageOfTotal,
+            },
+            dateRange: { start: params.startDate, end: params.endDate },
+          };
+        } catch (error) {
+          return { error: String(error) };
+        }
+      },
+    }),
+
+    getWebsiteUsage: tool({
+      description: `Get detailed usage statistics for a specific website/domain. Use when the user asks about time spent on websites like GitHub, Twitter, YouTube, etc.`,
+      inputSchema: z.object({
+        domain: z.string().describe('Domain to look up (e.g., "github.com", "twitter.com", "youtube.com")'),
+        startDate: z.string().describe('Start date (YYYY-MM-DD)'),
+        endDate: z.string().describe('End date (YYYY-MM-DD)'),
+      }),
+      execute: async (params) => {
+        try {
+          const queryParams = new URLSearchParams({
+            start_date: params.startDate,
+            end_date: params.endDate,
+            limit: '50',
+          });
+
+          const topDomainsRes = await fetchWithAuth(
+            `${PYTHON_API_BASE}/api/watcher/stats/top-domains?${queryParams}`,
+            ctx.token
+          );
+
+          if (!topDomainsRes.ok) throw new Error('Failed to fetch website data');
+          const topDomains = (await topDomainsRes.json()).data || [];
+
+          // Normalize the search domain
+          const searchDomain = params.domain.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
+
+          // Find matching domain
+          const matchingDomains = topDomains.filter((d: any) =>
+            d.domain.toLowerCase().includes(searchDomain) ||
+            searchDomain.includes(d.domain.toLowerCase())
+          );
+
+          if (matchingDomains.length === 0) {
+            const availableDomains = topDomains.slice(0, 10).map((d: any) => d.domain);
+            return {
+              found: false,
+              message: `No website matching "${params.domain}" found in the tracked period.`,
+              availableDomains,
+              dateRange: { start: params.startDate, end: params.endDate },
+            };
+          }
+
+          const domain = matchingDomains[0];
+          const totalBrowsingHours = topDomains.reduce((sum: number, d: any) => sum + d.hours, 0);
+          const percentageOfBrowsing = Math.round((domain.hours / totalBrowsingHours) * 100);
+
+          return {
+            found: true,
+            website: {
+              domain: domain.domain,
+              hours: Math.round(domain.hours * 10) / 10,
+              events: domain.total_events,
+              percentageOfBrowsing,
+            },
+            dateRange: { start: params.startDate, end: params.endDate },
+          };
+        } catch (error) {
+          return { error: String(error) };
+        }
+      },
+    }),
+
+    getDailyComputerActivity: tool({
+      description: `Get day-by-day computer activity for trend analysis. Shows daily screen time over a period.`,
+      inputSchema: z.object({
+        days: z.number().default(7).describe('Number of days to look back'),
+      }),
+      execute: async (params) => {
+        try {
+          const queryParams = new URLSearchParams({
+            days_back: params.days.toString(),
+          });
+
+          const dailyRes = await fetchWithAuth(
+            `${PYTHON_API_BASE}/api/watcher/stats/daily?${queryParams}`,
+            ctx.token
+          );
+
+          if (!dailyRes.ok) throw new Error('Failed to fetch daily data');
+          const dailyData = (await dailyRes.json()).data || [];
+
+          if (dailyData.length === 0) {
+            return { message: "No daily computer activity data found." };
+          }
+
+          const values = dailyData.map((d: any) => d.active_hours);
+          const avg = values.reduce((a: number, b: number) => a + b, 0) / values.length;
+          const total = values.reduce((a: number, b: number) => a + b, 0);
+
+          return {
+            days: params.days,
+            daysWithData: dailyData.length,
+            summary: {
+              totalHours: Math.round(total * 10) / 10,
+              averageHours: Math.round(avg * 10) / 10,
+              highestDay: Math.round(Math.max(...values) * 10) / 10,
+              lowestDay: Math.round(Math.min(...values) * 10) / 10,
+            },
+            dailyData: dailyData.map((d: any) => ({
+              date: d.day,
+              hours: Math.round(d.active_hours * 10) / 10,
+              apps: d.apps_count,
+            })),
+          };
+        } catch (error) {
+          return { error: String(error) };
+        }
+      },
+    }),
   };
 }
 
@@ -193,7 +420,7 @@ export const habitAgent = createRitualAgent({
   name: 'habits',
   model: openai('gpt-4o-mini'),
   temperature: 0.5,
-  instructions: (ctx: RitualContext) => `You are a habit tracking assistant for Ritual.
+  instructions: (ctx: RitualContext) => `You are a habit and productivity tracking assistant for Ritual.
 
 ${formatContextForLLM(ctx)}
 
@@ -207,11 +434,23 @@ ${COMMON_AGENT_RULES}
 - Present statistics clearly with specific numbers
 - Use markdown tables for daily breakdowns
 - Provide encouraging insights
+
+Computer Activity Guidelines:
+- Use getComputerActivity for general screen time questions
+- Use getAppUsage when asked about specific apps (Slack, Chrome, VS Code, etc.)
+- Use getWebsiteUsage when asked about specific websites (GitHub, Twitter, YouTube, etc.)
+- Use getDailyComputerActivity for trends over time
+- Format hours nicely: "2.5 hours" or "45 minutes" for smaller amounts
+- When showing top apps/websites, present as a ranked list
 </agent-specific-rules>`,
   tools: createTools,
   maxTurns: 5,
   matchOn: [
     'habit', 'habits', 'track', 'workout', 'exercise', 'sleep', 'meditation',
     'how many', 'how much', 'average', 'total', 'trend', 'progress', 'stats',
+    // Computer activity keywords
+    'computer', 'screen time', 'app', 'apps', 'website', 'websites', 'browsing',
+    'productivity', 'slack', 'chrome', 'safari', 'cursor', 'vscode', 'code',
+    'github', 'twitter', 'youtube', 'reddit', 'time spent', 'usage',
   ],
 });

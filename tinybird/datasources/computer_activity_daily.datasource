@@ -1,0 +1,24 @@
+DESCRIPTION >
+    Daily aggregated computer activity data from Ritual Watcher V2
+    Privacy-preserving: only stores aggregated metrics, not raw window titles or full URLs
+    Used for screen time analytics, app usage insights, and browser domain tracking
+
+SCHEMA >
+    `user_id` String `json:$.user_id`,
+    `device_id` String `json:$.device_id`,
+    `day` Date `json:$.day`,
+    `app_bundle_id` String `json:$.app_bundle_id`,
+    `app_name` String `json:$.app_name`,
+    `active_ms` Int64 `json:$.active_ms`,
+    `afk_ms` Int64 `json:$.afk_ms`,
+    `events_count` Int32 `json:$.events_count`,
+    `title_hash` String `json:$.title_hash`,
+    `browser_domain` String `json:$.browser_domain`,
+    `created_at` DateTime `json:$.created_at`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(day)"
+ENGINE_SORTING_KEY "user_id, day, app_bundle_id, browser_domain"
+ENGINE_TTL "day + INTERVAL 1 YEAR"
+
+

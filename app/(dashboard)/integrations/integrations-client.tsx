@@ -12,18 +12,19 @@
 
 'use client';
 
-import { useState, useEffect, memo, useRef } from 'react';
+import { useState, useEffect, memo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
-import { Loader, Power } from 'lucide-react';
+import { Loader, Power, Monitor, ChevronLeft } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Slider } from '@/components/ui/slider';
 import { useHabits } from '@/contexts/HabitsContext';
+import { ComputerTrackingSettings } from '@/components/computer-tracking-settings';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
@@ -90,6 +91,42 @@ function useAppleWatchStatus() {
         lastSyncAt: activeDevices[0]?.last_sync_at || null,
         deviceName: activeDevices[0]?.device_name || null,
       };
+    },
+    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    enabled: !!user?.id,
+  });
+}
+
+/**
+ * Fetch Computer Tracking status with React Query
+ * Checks for registered watcher devices (macOS desktop)
+ */
+function useComputerTrackingStatus() {
+  const { user } = useUser();
+
+  return useQuery({
+    queryKey: ['computer-tracking-status', user?.id],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/watcher/devices');
+        
+        if (!response.ok) {
+          return { connected: false, enabled: false, deviceName: null };
+        }
+
+        const data = await response.json();
+        const devices = data.devices || [];
+        const activeDevice = devices.find((d: any) => d.is_enabled);
+        
+        return {
+          connected: devices.length > 0,
+          enabled: !!activeDevice,
+          deviceName: activeDevice?.device_name || devices[0]?.device_name || 'My Mac',
+          deviceId: activeDevice?.device_id || devices[0]?.device_id || null,
+        };
+      } catch {
+        return { connected: false, enabled: false, deviceName: null, deviceId: null };
+      }
     },
     staleTime: 1000 * 60 * 2, // Cache for 2 minutes
     enabled: !!user?.id,
@@ -218,9 +255,11 @@ IntegrationCard.displayName = 'IntegrationCard';
 
 export function IntegrationsClient() {
   const { getToken } = useAuth();
+  const { user } = useUser();
   const { fetchHabits, fetchHabitLogs } = useHabits();
   const { data: whoopStatusData, isLoading, refetch: refetchWhoopStatus } = useWhoopStatus();
   const { data: appleWatchStatusData, isLoading: isLoadingAppleWatch, refetch: refetchAppleWatchStatus } = useAppleWatchStatus();
+  const { data: computerTrackingStatus, isLoading: isLoadingComputerTracking, refetch: refetchComputerTracking } = useComputerTrackingStatus();
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopSyncHour, setWhoopSyncHour] = useState(9); // Default to 9 AM
   const [whoopConnecting, setWhoopConnecting] = useState(false);
@@ -229,6 +268,7 @@ export function IntegrationsClient() {
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
+  const [showComputerTrackingSettings, setShowComputerTrackingSettings] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -236,6 +276,11 @@ export function IntegrationsClient() {
   const appleWatchConnected = appleWatchStatusData?.connected || false;
   const appleWatchDeviceName = appleWatchStatusData?.deviceName || 'Apple Watch';
   const appleWatchLastSync = appleWatchStatusData?.lastSyncAt;
+
+  // Computer Tracking connection state
+  const computerTrackingConnected = computerTrackingStatus?.connected || false;
+  const computerTrackingEnabled = computerTrackingStatus?.enabled || false;
+  const computerTrackingDeviceName = computerTrackingStatus?.deviceName || 'My Mac';
 
   // Update local state when query data changes
   useEffect(() => {
@@ -604,7 +649,7 @@ export function IntegrationsClient() {
   // Show loading skeleton on first fetch only
   const shimmerClass = "animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200";
 
-  if ((isLoading && whoopStatusData === undefined) || (isLoadingAppleWatch && appleWatchStatusData === undefined)) {
+  if ((isLoading && whoopStatusData === undefined) || (isLoadingAppleWatch && appleWatchStatusData === undefined) || (isLoadingComputerTracking && computerTrackingStatus === undefined)) {
     return (
       <>
         <div className="flex items-center mb-8">
@@ -627,15 +672,31 @@ export function IntegrationsClient() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Computer Tracking Card - Only show on desktop (Tauri) */}
+        {isTauri() && (
+          <IntegrationCard
+            logo={<Monitor className="h-10 w-10 text-gray-900" />}
+            title="Computer Tracking"
+            description={computerTrackingEnabled 
+              ? `Tracking active on ${computerTrackingDeviceName}. Monitor app usage, browser activity, and screen time.`
+              : "Track your computer usage including apps, websites, and active time automatically."
+            }
+            isConnected={computerTrackingEnabled}
+            onConnect={() => setShowComputerTrackingSettings(true)}
+            onDisconnect={() => setShowComputerTrackingSettings(true)}
+            onDetails={() => setShowComputerTrackingSettings(true)}
+          />
+        )}
+
         {/* Whoop Card */}
         <IntegrationCard
           logo={
             <Image
               src="/images/whoop.svg"
               alt="Whoop"
-              width={120}
-              height={48}
-              className="h-12 w-auto object-contain"
+              width={80}
+              height={32}
+              className="h-8 w-auto object-contain"
             />
           }
           title="Whoop"
@@ -684,7 +745,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/oura.svg" alt="Oura" width={120} height={48} className="h-12 w-auto object-contain" />}
+          logo={<Image src="/images/oura.svg" alt="Oura" width={56} height={56} className="h-14 w-auto object-contain" />}
           title="Oura Ring"
           description="Sync your sleep and readiness scores from Oura Ring"
           comingSoon
@@ -695,7 +756,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/fitbit.svg" alt="Fitbit" width={120} height={48} className="h-12 w-auto object-contain" />}
+          logo={<Image src="/images/fitbit.svg" alt="Fitbit" width={80} height={32} className="h-8 w-auto object-contain" />}
           title="Fitbit"
           description="Connect your Fitbit to track activity and health metrics"
           comingSoon
@@ -706,7 +767,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/garmin.svg" alt="Garmin" width={120} height={48} className="h-12 w-auto object-contain" />}
+          logo={<Image src="/images/garmin.svg" alt="Garmin" width={80} height={32} className="h-8 w-auto object-contain" />}
           title="Garmin"
           description="Integrate Garmin devices for comprehensive activity tracking"
           comingSoon
@@ -726,6 +787,17 @@ export function IntegrationsClient() {
             setDetailsOpen(true);
           }}
         />
+
+        <IntegrationCard
+          logo={<Image src="/images/Google_Calendar_Logo.svg" alt="Google Calendar" width={32} height={32} className="h-8 w-8" />}
+          title="Google Calendar"
+          description="Track meeting time, frequency, and patterns by syncing your Google Calendar events"
+          comingSoon
+          onDetails={() => {
+            setSelectedIntegration('googlecalendar');
+            setDetailsOpen(true);
+          }}
+        />
       </div>
 
       {/* Side Panel for Integration Details */}
@@ -735,6 +807,34 @@ export function IntegrationsClient() {
             <SheetTitle>Integration Details</SheetTitle>
           </SheetHeader>
           {/* Empty for now */}
+        </SheetContent>
+      </Sheet>
+
+      {/* Computer Tracking Settings Sheet */}
+      <Sheet open={showComputerTrackingSettings} onOpenChange={setShowComputerTrackingSettings}>
+        <SheetContent className="w-[500px] sm:max-w-[500px] overflow-hidden">
+          <SheetHeader className="flex flex-row items-center gap-3 pb-4 border-b border-gray-200">
+            <button 
+              onClick={() => setShowComputerTrackingSettings(false)}
+              className="p-1 hover:bg-gray-100 rounded transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+            <SheetTitle className="text-base font-medium">Computer Tracking</SheetTitle>
+          </SheetHeader>
+          <ScrollArea className="h-[calc(100vh-100px)] pr-4">
+            <div className="py-4">
+              {user?.id && (
+                <ComputerTrackingSettings 
+                  userId={user.id} 
+                  onClose={() => {
+                    setShowComputerTrackingSettings(false);
+                    refetchComputerTracking();
+                  }} 
+                />
+              )}
+            </div>
+          </ScrollArea>
         </SheetContent>
       </Sheet>
     </>

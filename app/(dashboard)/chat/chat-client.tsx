@@ -1074,8 +1074,7 @@ export function ChatClient() {
                   className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
                   title="Go to Dashboard"
                 >
-                  <RitualLogo className="w-4 h-4" />
-                  <span className="text-lg font-normal text-gray-900">Ritual</span>
+                  <RitualLogo className="w-6 h-6" />
                 </button>
                 <button
                   onClick={() => setIsSidebarCollapsed(true)}
@@ -1157,7 +1156,7 @@ export function ChatClient() {
               {/* Faded Logo - Perplexity style watermark */}
               <div className="flex justify-center mb-4">
                 <img
-                  src="/images/logo_fix1.svg"
+                  src="/images/Vector.svg"
                   alt="Ritual"
                   className="w-10 h-10 opacity-[0.08]"
                   style={{ filter: 'grayscale(100%)' }}
@@ -1230,21 +1229,21 @@ export function ChatClient() {
                 </div>
               </form>
 
-              <div className="flex flex-wrap gap-2 justify-center">
+              <div className="flex gap-2 justify-center flex-nowrap">
                 {[
                   "How's my sleep this week?",
                   "Show my workout progress",
                   "What habits need attention?",
-                ].map((suggestion) => (
+                ].map((text) => (
                   <button
-                    key={suggestion}
+                    key={text}
                     onClick={() => {
-                      setInput(suggestion);
+                      setInput(text);
                       textareaRef.current?.focus();
                     }}
-                    className="px-3 py-1.5 text-xs text-gray-700 bg-gray-50 border border-gray-300 transition-all rounded"
+                    className="px-3 py-1.5 text-xs text-gray-600 bg-white border border-gray-300 transition-all hover:bg-[#F3F3F3] whitespace-nowrap"
                   >
-                    {suggestion}
+                    {text}
                   </button>
                 ))}
               </div>

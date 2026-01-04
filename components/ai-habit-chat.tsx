@@ -980,7 +980,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   </button>
                   {/* Tooltip */}
                   {!isListening && !isProcessingVoice && (
-                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                       Voice Mode
                     </div>
                   )}
@@ -1016,7 +1016,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   />
                   {/* Tooltip */}
                   {!isUploadingScreenshot && (
-                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
                       Attach file
                     </div>
                   )}

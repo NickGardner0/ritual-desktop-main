@@ -28,9 +28,9 @@ export function Sidebar() {
       >
         <Link href="/" className="absolute left-[20px] top-[58%] -translate-y-1/2 transition-none">
           <img 
-            src="/images/logo_fix1.svg" 
+            src="/images/Vector.svg" 
             alt="Ritual Logo" 
-            className="w-[28px] h-[28px] transition-transform duration-500 ease-in-out hover:rotate-[360deg]"
+            className="w-[28px] h-[28px]"
           />
         </Link>
       </div>

@@ -172,7 +172,7 @@ export default function Home() {
           <div className="flex items-center justify-center mx-auto mb-8">
             <img
               ref={logoRef}
-              src="/images/logo_fix1.svg"
+              src="/images/Vector.svg"
               alt="Ritual Logo"
               className="w-10 h-10 cursor-pointer"
               style={{

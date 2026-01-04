@@ -25,7 +25,7 @@ export const triageAgent = createRitualAgent({
 ${formatContextForLLM(ctx)}
 
 <agent-capabilities>
-habits: Habit statistics, trends, daily breakdowns, progress tracking, averages, totals
+habits: Habit statistics, trends, daily breakdowns, progress tracking, averages, totals, computer activity, screen time, app usage, website visits, productivity tracking
 </agent-capabilities>
 
 <routing-rules>
@@ -33,6 +33,10 @@ habits: Habit statistics, trends, daily breakdowns, progress tracking, averages,
 - Queries about tracking, statistics, progress, trends → habits
 - Questions like "how many", "how much", "average", "total" → habits
 - Specific habit names (workout, sleep, meditation, etc.) → habits
+- Computer/screen time questions → habits (it handles computer activity)
+- App usage questions (Slack, Chrome, VS Code, etc.) → habits
+- Website usage questions (GitHub, Twitter, YouTube, etc.) → habits
+- Productivity questions → habits
 </routing-rules>`,
   handoffs: [habitAgent],
   maxTurns: 1,

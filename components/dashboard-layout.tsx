@@ -3,6 +3,7 @@
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
 import { TeamDropdown } from '@/components/team-dropdown';
+import { FeedbackModal } from '@/components/feedback-modal';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
@@ -19,6 +20,7 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
   const { fontClass } = useFont();
   const { user } = useUser();
@@ -137,13 +139,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="flex items-center justify-between w-full">
             {/* Left side - Quick Actions buttons */}
             <div className="flex items-center space-x-3">
-              {/* Quick Actions Button - Command Palette */}
+              {/* Quick Actions Button - Command Palette with Search */}
               <div>
                 <Suspense fallback={<div className="h-9 w-auto px-3 py-2 text-sm text-gray-600 flex items-center gap-2 border border-gray-300 shadow-sm rounded-none">Loading...</div>}>
                   <CommandPalette 
                     className="h-9 w-auto px-3 py-2 text-sm text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] rounded-none"
                     initialOpen={shouldOpenWhoopModal}
-                    initialCategory={shouldOpenWhoopModal ? 'whoop' : null}
                   />
                 </Suspense>
               </div>
@@ -162,8 +163,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </Button>
             </div>
 
-            {/* Right side - User dropdown */}
+            {/* Right side - Feedback button and User dropdown */}
             <div className="flex items-center space-x-3">
+              {/* Feedback Button */}
+              <button
+                onClick={() => setShowFeedback(true)}
+                className="px-3.5 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-full hover:bg-[#F5F5F5] transition-colors"
+              >
+                Feedback
+              </button>
+              
               <TeamDropdown isExpanded={true} placement="header" />
             </div>
           </div>
@@ -185,6 +194,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         />
       </Suspense>
 
+      {/* Feedback Modal */}
+      <FeedbackModal 
+        isOpen={showFeedback} 
+        onClose={() => setShowFeedback(false)} 
+      />
     </div>
   );
 }

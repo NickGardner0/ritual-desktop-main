@@ -45,6 +45,34 @@ interface DataSourceConfig {
   instructions: string[];
 }
 
+// V2: Enhanced validation message with auto-fix support
+interface ValidationMessage {
+  type: "error" | "warning" | "info";
+  code: string;
+  message: string;
+  field?: string;
+  suggested_fix?: string;
+  auto_fixable?: boolean;
+}
+
+// V2: Confidence info for explainability
+interface ConfidenceInfo {
+  score: number;
+  reasons: string[];
+  match_type?: string;
+  inferred_fields?: string[];
+}
+
+// V2: Conflict details for diff view
+interface ConflictDetail {
+  existing_log_id: string;
+  existing_value?: number;
+  existing_date: string;
+  incoming_value?: number;
+  resolution: string;
+  diff_percent?: number;
+}
+
 interface ImportItem {
   habit_key: string;
   habit_name?: string;
@@ -52,9 +80,15 @@ interface ImportItem {
   amount?: number;
   unit_type?: string;
   validation_status: "ok" | "warning" | "error";
-  validation_messages?: { type: string; code: string; message: string }[];
+  validation_messages?: ValidationMessage[];
   conflict_status?: string;
   row_index?: number;
+  // V2: Confidence tracking
+  confidence?: ConfidenceInfo;
+  original_amount?: number;
+  transform_applied?: string;
+  // V2: Conflict details for diff view
+  conflict_detail?: ConflictDetail;
 }
 
 interface ImportRunSummary {
@@ -66,11 +100,33 @@ interface ImportRunSummary {
   duplicates: number;
   errors: number;
   created_habit_ids?: string[];
+  // V2: Enhanced counts
+  will_create?: number;
+  will_update?: number;
+  will_skip?: number;
+  has_warnings?: number;
+  has_errors?: number;
+  auto_fixable?: number;
+}
+
+// V2: Confidence summary
+interface ConfidenceSummary {
+  high: number;
+  medium: number;
+  low: number;
+}
+
+// V2: Validation summary
+interface ValidationSummary {
+  total_errors: number;
+  total_warnings: number;
+  auto_fixable_count: number;
 }
 
 interface ImportPreviewResponse {
   import_run_id: string;
   source: string;
+  resumed?: boolean;
   summary: ImportRunSummary;
   sample_items: ImportItem[];
   validation_issues: ImportItem[];
@@ -82,6 +138,9 @@ interface ImportPreviewResponse {
   };
   detected_columns?: string[];
   detected_metrics?: { name: string; value: number; unit: string; confidence: number }[];
+  // V2: Enhanced summaries
+  confidence_summary?: ConfidenceSummary;
+  validation_summary?: ValidationSummary;
 }
 
 interface ImportRun {
@@ -236,6 +295,9 @@ export function DataImportModal({
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   
+  // V2: Privacy controls
+  const [deleteFileAfterParsing, setDeleteFileAfterParsing] = useState<boolean>(true);
+  
   // CSV mapping state
   const [csvMapping, setCsvMapping] = useState<{
     dateColumn: string;
@@ -254,11 +316,11 @@ export function DataImportModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Cleanup polling on unmount
+  // Cleanup polling on unmount (now uses setTimeout instead of setInterval)
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
+        clearTimeout(pollIntervalRef.current);
       }
     };
   }, []);
@@ -281,7 +343,7 @@ export function DataImportModal({
     setImportRunId(null);
     setImportResult(null);
     if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
+      clearTimeout(pollIntervalRef.current);
     }
   }, []);
 
@@ -430,6 +492,7 @@ export function DataImportModal({
   }, []);
 
   // Fetch import preview (Parse → Preview)
+  // OPTIMIZED: Options now in FormData body instead of header
   const handleFetchPreview = useCallback(async () => {
     if (!file || !selectedSource) return;
     
@@ -439,8 +502,9 @@ export function DataImportModal({
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("source", selectedSource);
       
-      // Build options
+      // Build options - now passed in FormData body instead of header
       const options: Record<string, unknown> = {
         aggregation,
         conflict_policy: conflictPolicy,
@@ -460,12 +524,12 @@ export function DataImportModal({
         }));
       }
       
+      // OPTIMIZATION: Options now in FormData body (more robust than header)
+      formData.append("options", JSON.stringify(options));
+      
       const response = await fetch(`/api/import/preview?source=${selectedSource}`, {
         method: "POST",
         body: formData,
-        headers: {
-          "X-Import-Options": JSON.stringify(options),
-        },
       });
       
       const result = await response.json();
@@ -480,6 +544,11 @@ export function DataImportModal({
       
       setPreviewData(result);
       setImportRunId(result.import_run_id);
+      
+      // Show if we resumed an existing run
+      if (result.resumed) {
+        console.log("♻️ Resumed existing import run");
+      }
       
       // Auto-detect CSV columns if present
       if (result.detected_columns && selectedSource === "csv") {
@@ -511,6 +580,7 @@ export function DataImportModal({
   }, [file, selectedSource, aggregation, conflictPolicy, dateRange, customStartDate, customEndDate, csvMapping]);
 
   // Start the actual import
+  // OPTIMIZED: Uses exponential backoff for polling instead of fixed 1s
   const handleStartImport = useCallback(async () => {
     if (!importRunId) {
       setError("No import run ID. Please try uploading again.");
@@ -544,8 +614,26 @@ export function DataImportModal({
         setStep("complete");
         onImportComplete();
       } else {
-        // Start polling for progress
-        pollIntervalRef.current = setInterval(async () => {
+        // OPTIMIZATION: Exponential backoff polling
+        // - 250ms for first 2s (fast feedback)
+        // - 1s for next 10s
+        // - 2s thereafter
+        let pollCount = 0;
+        const maxPolls = 120; // Max ~4 minutes of polling
+        
+        const getPollInterval = (count: number): number => {
+          if (count < 8) return 250;   // First 2s: every 250ms
+          if (count < 18) return 1000; // Next 10s: every 1s
+          return 2000;                  // After: every 2s
+        };
+        
+        const pollStatus = async () => {
+          if (pollCount >= maxPolls) {
+            setError("Import is taking longer than expected. Please check import history.");
+            setStep("configure");
+            return;
+          }
+          
           try {
             const statusRes = await fetch(`/api/import/runs/${importRunId}`);
             const statusData = await statusRes.json();
@@ -558,19 +646,28 @@ export function DataImportModal({
             }
             
             if (statusData.status === "completed") {
-              clearInterval(pollIntervalRef.current!);
               setImportResult(statusData.summary);
               setStep("complete");
               onImportComplete();
+              return; // Stop polling
             } else if (statusData.status === "failed" || statusData.status === "canceled") {
-              clearInterval(pollIntervalRef.current!);
               setError(statusData.errors?.[0]?.error || "Import failed");
               setStep("configure");
+              return; // Stop polling
             }
+            
+            // Schedule next poll with exponential backoff
+            pollCount++;
+            pollIntervalRef.current = setTimeout(pollStatus, getPollInterval(pollCount));
           } catch {
-            // Ignore polling errors
+            // On error, retry with backoff
+            pollCount++;
+            pollIntervalRef.current = setTimeout(pollStatus, getPollInterval(pollCount));
           }
-        }, 1000);
+        };
+        
+        // Start polling immediately
+        pollIntervalRef.current = setTimeout(pollStatus, getPollInterval(0));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
@@ -587,7 +684,7 @@ export function DataImportModal({
     try {
       await fetch(`/api/import/runs/${importRunId}/cancel`, { method: "POST" });
       if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
+        clearTimeout(pollIntervalRef.current);
       }
       setStep("configure");
       setError("Import was canceled");
@@ -860,23 +957,86 @@ export function DataImportModal({
           {/* Step 3: Configure & Review */}
           {step === "configure" && previewData && (
             <div className="space-y-5">
-              {/* Summary - compact inline */}
-              <div className="flex items-center justify-between text-sm py-1">
-                <div className="flex items-center gap-4">
-                  <span className="text-gray-500">{previewData.summary.total_rows} rows</span>
-                  <span className="text-gray-300">•</span>
-                  <span className="text-green-600 font-medium">{previewData.dedupe_estimate.new_items} new</span>
-                  {previewData.dedupe_estimate.duplicates > 0 && (
-                    <>
-                      <span className="text-gray-300">•</span>
-                      <span className="text-gray-400">{previewData.dedupe_estimate.duplicates} duplicates</span>
-                    </>
-                  )}
+              {/* V2: Enhanced Import Summary Card */}
+              <div className="bg-gray-50 border border-gray-200 p-4 space-y-3">
+                <h4 className="text-sm font-medium text-gray-900">Import Summary</h4>
+                
+                {/* Main counts */}
+                <div className="grid grid-cols-4 gap-3 text-center">
+                  <div className="bg-white p-2 border border-gray-100">
+                    <div className="text-lg font-semibold text-gray-900">{previewData.summary.total_rows}</div>
+                    <div className="text-xs text-gray-500">Total rows</div>
+                  </div>
+                  <div className="bg-white p-2 border border-green-100">
+                    <div className="text-lg font-semibold text-green-600">{previewData.dedupe_estimate.new_items}</div>
+                    <div className="text-xs text-gray-500">Will create</div>
+                  </div>
+                  <div className="bg-white p-2 border border-blue-100">
+                    <div className="text-lg font-semibold text-blue-600">{previewData.dedupe_estimate.conflicts}</div>
+                    <div className="text-xs text-gray-500">Will update</div>
+                  </div>
+                  <div className="bg-white p-2 border border-gray-100">
+                    <div className="text-lg font-semibold text-gray-400">{previewData.dedupe_estimate.duplicates}</div>
+                    <div className="text-xs text-gray-500">Will skip</div>
+                  </div>
                 </div>
-                {previewData.dedupe_estimate.conflicts > 0 && (
-                  <div className="flex items-center gap-1.5 text-red-600 text-xs">
-                    <AlertTriangle className="w-3 h-3" />
-                    <span>{previewData.dedupe_estimate.conflicts} conflicts</span>
+
+                {/* V2: Validation & Confidence Summary */}
+                {(previewData.validation_summary || previewData.confidence_summary) && (
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-gray-100">
+                    {/* Validation warnings */}
+                    {previewData.validation_summary && (previewData.validation_summary.total_warnings > 0 || previewData.validation_summary.total_errors > 0) && (
+                      <div className="flex items-center gap-3">
+                        {previewData.validation_summary.total_errors > 0 && (
+                          <span className="flex items-center gap-1 text-red-600">
+                            <AlertCircle className="w-3 h-3" />
+                            {previewData.validation_summary.total_errors} errors
+                          </span>
+                        )}
+                        {previewData.validation_summary.total_warnings > 0 && (
+                          <span className="flex items-center gap-1 text-amber-600">
+                            <AlertTriangle className="w-3 h-3" />
+                            {previewData.validation_summary.total_warnings} warnings
+                          </span>
+                        )}
+                        {previewData.validation_summary.auto_fixable_count > 0 && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const response = await fetch(`/api/import/runs/${previewData.import_run_id}/auto-fix`, {
+                                  method: "POST",
+                                });
+                                if (response.ok) {
+                                  // Refresh preview data
+                                  handleFetchPreview();
+                                }
+                              } catch (e) {
+                                console.error("Auto-fix failed:", e);
+                              }
+                            }}
+                            className="text-blue-600 hover:text-blue-800 underline"
+                          >
+                            Fix {previewData.validation_summary.auto_fixable_count} automatically
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Confidence indicator */}
+                    {previewData.confidence_summary && (
+                      <div className="flex items-center gap-2">
+                        {previewData.confidence_summary.low > 0 && (
+                          <span className="text-amber-600" title="Low confidence items may need review">
+                            ⚠️ {previewData.confidence_summary.low} low confidence
+                          </span>
+                        )}
+                        {previewData.confidence_summary.high > 0 && previewData.confidence_summary.low === 0 && (
+                          <span className="text-green-600">
+                            ✓ High confidence match
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -914,6 +1074,26 @@ export function DataImportModal({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* V2: Privacy Controls */}
+              <div className="flex items-center justify-between py-2 border-t border-gray-100">
+                <div>
+                  <div className="text-sm text-gray-700">Delete file after import</div>
+                  <div className="text-xs text-gray-400">File won't be stored on our servers</div>
+                </div>
+                <button
+                  onClick={() => setDeleteFileAfterParsing(!deleteFileAfterParsing)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    deleteFileAfterParsing ? "bg-green-500" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      deleteFileAfterParsing ? "translate-x-5" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
               </div>
 
               {/* Advanced Options - Collapsed by default */}
@@ -1006,6 +1186,7 @@ export function DataImportModal({
               )}
 
               {/* Sample Data Preview */}
+              {/* Sample Data with V2 Diff View */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-sm font-medium text-gray-900">Sample Data</Label>
@@ -1018,7 +1199,7 @@ export function DataImportModal({
                     </button>
                   )}
                 </div>
-                <div className="border border-gray-200 max-h-48 overflow-y-auto">
+                <div className="border border-gray-200 max-h-64 overflow-y-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-[#FAFAF9] sticky top-0">
                       <tr>
@@ -1030,17 +1211,49 @@ export function DataImportModal({
                     </thead>
                     <tbody>
                       {(showAllItems ? previewData.sample_items : previewData.sample_items.slice(0, 5)).map((item, i) => (
-                        <tr key={i} className="border-t border-gray-100">
-                          <td className="px-3 py-2 text-gray-900">{item.habit_name || item.habit_key}</td>
+                        <tr 
+                          key={i} 
+                          className={`border-t border-gray-100 ${
+                            item.conflict_status === "conflict" ? "bg-amber-50" : 
+                            item.conflict_status === "semantic_duplicate" ? "bg-blue-50" : ""
+                          }`}
+                        >
+                          <td className="px-3 py-2">
+                            <span className="text-gray-900">{item.habit_name || item.habit_key}</span>
+                            {item.confidence && item.confidence.score < 0.7 && (
+                              <span className="ml-1 text-amber-500 cursor-help" title={item.confidence.reasons?.join(", ") || "Low confidence"}>⚠️</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 text-gray-600">{item.date}</td>
-                          <td className="px-3 py-2 text-right text-gray-900">
-                            {item.amount?.toLocaleString()}{item.unit_type && <span className="text-gray-400 ml-1">{item.unit_type}</span>}
+                          <td className="px-3 py-2 text-right">
+                            {item.conflict_detail && item.conflict_status === "conflict" ? (
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-gray-400 line-through">{item.conflict_detail.existing_value?.toLocaleString()}</span>
+                                <span className="text-gray-400">→</span>
+                                <span className="text-gray-900 font-medium">{item.amount?.toLocaleString()}</span>
+                                {item.conflict_detail.diff_percent != null && (
+                                  <span className={`text-xs ${item.conflict_detail.diff_percent > 50 ? "text-red-500" : "text-amber-500"}`}>
+                                    ({item.conflict_detail.diff_percent > 0 ? "+" : ""}{item.conflict_detail.diff_percent.toFixed(1)}%)
+                                  </span>
+                                )}
+                              </div>
+                            ) : item.conflict_status === "semantic_duplicate" ? (
+                              <span className="text-gray-400">≈ {item.amount?.toLocaleString()}</span>
+                            ) : (
+                              <span className="text-gray-900">
+                                {item.amount?.toLocaleString()}{item.unit_type && <span className="text-gray-400 ml-1">{item.unit_type}</span>}
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-center">
-                            {item.validation_status === "ok" ? (
+                            {item.conflict_status === "conflict" ? (
+                              <span className="text-amber-500 text-xs font-medium">UPDATE</span>
+                            ) : item.conflict_status === "duplicate" || item.conflict_status === "semantic_duplicate" ? (
+                              <span className="text-gray-400 text-xs">SKIP</span>
+                            ) : item.validation_status === "ok" ? (
                               <Check className="w-3.5 h-3.5 text-green-500 mx-auto" />
                             ) : item.validation_status === "warning" ? (
-                              <AlertTriangle className="w-3.5 h-3.5 text-red-400 mx-auto" />
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 mx-auto" />
                             ) : (
                               <AlertCircle className="w-3.5 h-3.5 text-red-500 mx-auto" />
                             )}

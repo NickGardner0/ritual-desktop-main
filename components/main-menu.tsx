@@ -148,7 +148,7 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-medium transition-colors duration-200",
+              "text-xs font-[450] transition-colors duration-200",
               "text-gray-500 group-hover/child:text-gray-900",
               "whitespace-nowrap overflow-hidden",
               isActive && "text-gray-900",
@@ -256,7 +256,7 @@ const Item = ({
             <div className="absolute top-0 left-[55px] right-[4px] h-[40px] flex items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-medium transition-colors duration-200 text-gray-600 group-hover:text-gray-900",
+                  "text-sm font-[450] transition-colors duration-200 text-gray-600 group-hover:text-gray-900",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
                   isActive && "text-gray-900",
@@ -566,7 +566,11 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
         <Suspense fallback={null}>
           <SettingsModal 
             isOpen={showSettingsModal} 
-            onClose={() => setShowSettingsModal(false)}
+            onClose={() => {
+              setShowSettingsModal(false);
+              // Also collapse the sidebar when modal closes
+              onCloseSidebar?.();
+            }}
             onOpen={onCloseSidebar}
           />
         </Suspense>

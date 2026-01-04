@@ -11,7 +11,8 @@ import {
   BookOpen, 
   Activity,
   FlaskConical, 
-  Plus 
+  Plus,
+  Monitor
 } from 'lucide-react';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAuth } from '@clerk/nextjs';
@@ -24,6 +25,8 @@ import {
   type Habit
 } from '../data/habits-data';
 import IconPicker from './IconPicker';
+import { ComputerTrackingSettings } from './computer-tracking-settings';
+import { isTauri } from '@/lib/tauri-utils';
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
@@ -44,8 +47,10 @@ const categoryMap: Record<string, string> = {
 
 export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCreated, initialCategory = null }: HabitSelectionModalProps): React.ReactElement | null {
   const { createHabit } = useHabits(); // Add useHabits hook
-  const { getToken } = useAuth(); // Add Clerk auth hook
+  const { getToken, userId } = useAuth(); // Add Clerk auth hook
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(initialCategory);
+  const [showComputerTracking, setShowComputerTracking] = useState(false);
+  const [computerTrackingConnected, setComputerTrackingConnected] = useState(false);
   
   // Update category when initialCategory prop changes and modal opens
   React.useEffect(() => {
@@ -340,13 +345,29 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [appleWatchConnected, setAppleWatchConnected] = useState(false);
   const [appleWatchDeviceName, setAppleWatchDeviceName] = useState<string | null>(null);
 
-  // Check if Whoop and Apple Watch are connected on mount and when modal opens
+  // Check if Whoop, Apple Watch, and Computer Tracking are connected on mount and when modal opens
   useEffect(() => {
     if (isOpen) {
       checkWhoopConnection();
       checkAppleWatchConnection();
+      checkComputerTrackingConnection();
     }
   }, [isOpen]);
+
+  async function checkComputerTrackingConnection() {
+    try {
+      const response = await fetch('/api/watcher/devices');
+      if (response.ok) {
+        const data = await response.json();
+        const devices = data.devices || [];
+        const hasEnabledDevice = devices.some((d: any) => d.is_enabled);
+        setComputerTrackingConnected(hasEnabledDevice);
+      }
+    } catch (error) {
+      console.error('Error checking Computer Tracking connection:', error);
+      setComputerTrackingConnected(false);
+    }
+  }
 
   async function checkWhoopConnection() {
     try {
@@ -607,7 +628,19 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 flex-shrink-0">
-          {showCustomization ? (
+          {showComputerTracking ? (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowComputerTracking(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+              </button>
+              <h2 className="text-lg font-medium text-gray-900">Computer Tracking</h2>
+            </div>
+          ) : showCustomization ? (
             <button
               onClick={handleBack}
               className="p-1 text-gray-600 hover:text-gray-900 transition-colors"
@@ -649,7 +682,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         </div>
 
         {/* Description */}
-        {!selectedCategory && (
+        {!selectedCategory && !showComputerTracking && (
           <div className="px-5 pb-4 flex-shrink-0">
             <p className="text-sm text-gray-500">
               Ritual works best when you connect and integrate your wearable devices with manual self tracking tools.
@@ -657,8 +690,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         </div>
         )}
 
-        {/* Search Bar - Only show when viewing habits within a category (not on main page or customization) */}
-        {!showCustomization && selectedCategory && (
+        {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
+        {!showCustomization && !showComputerTracking && selectedCategory && (
           <div className="px-5 pb-2 flex-shrink-0">
             <input
               type="text"
@@ -672,7 +705,20 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Content Area - Scrollable */}
         <div className="flex-1 overflow-y-auto px-5 pb-3">
-          {showCustomization ? (
+          {showComputerTracking ? (
+            // Computer Tracking Settings View
+            <div className="py-2">
+              {userId && (
+                <ComputerTrackingSettings 
+                  userId={userId} 
+                  onClose={() => {
+                    setShowComputerTracking(false);
+                    checkComputerTrackingConnection();
+                  }} 
+                />
+              )}
+            </div>
+          ) : showCustomization ? (
             // Habit Customization View - Redesigned per ChatGPT recommendations
             <div className="flex flex-col h-full">
               {/* Title */}
@@ -807,6 +853,33 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     Manual
                   </button>
                 </div>
+
+                {/* Computer Tracking - Only show on desktop (Tauri) */}
+                {isTauri() && (
+                  <div className="flex justify-between items-center h-11">
+                    <div className="flex items-center">
+                      <div className="flex h-11 w-11 items-center justify-center">
+                        <Monitor className="w-6 h-6 text-gray-900" />
+                      </div>
+                      <p className="text-sm font-normal text-gray-900 ml-2.5">Computer Tracking</p>
+                    </div>
+                    {computerTrackingConnected ? (
+                      <button 
+                        onClick={() => setShowComputerTracking(true)}
+                        className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors mr-1"
+                      >
+                        Connected
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => setShowComputerTracking(true)}
+                        className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                      >
+                        Connect
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Wearables & Devices - Connect */}
                 <div className="flex justify-between items-center h-11">

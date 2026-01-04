@@ -1,0 +1,10 @@
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/deps/shellexpand-e6db2725d4509b84.d: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/deps/libshellexpand-e6db2725d4509b84.rlib: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/deps/libshellexpand-e6db2725d4509b84.rmeta: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs
+
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs:
