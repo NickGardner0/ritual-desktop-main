@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { ArrowUp, AudioLines, Loader, Paperclip, X, Check, AlertTriangle, ChevronDown } from 'lucide-react';
+import { ArrowUp, AudioLines, Loader, Paperclip, X, Check, AlertTriangle, ChevronDown, ImageIcon, Sparkles } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -82,6 +82,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [mode, setMode] = useState<InputMode>('log');
   const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   
   // Screenshot confirmation flow state
   const [screenshotPreview, setScreenshotPreview] = useState<ScreenshotPreview | null>(null);
@@ -244,7 +245,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           habitId: matchedHabit.id,
           duration: localParsed.duration || undefined,
           amount: localParsed.amount || undefined,
-          unit: localParsed.unit || matchedHabit.unit || undefined,
+          unit: localParsed.unit || matchedHabit.unit_type || undefined,
           playSound: true,
           refreshNeeded: false, // Don't refresh yet, wait for API
         });
@@ -498,6 +499,60 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     fileInputRef.current?.click();
   };
 
+  // Compress image before upload to reduce size and speed up AI analysis
+  const compressImage = async (file: File, maxWidth = 1200, quality = 0.8): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        // Calculate new dimensions while maintaining aspect ratio
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+        
+        // Create canvas and draw resized image
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Convert to blob with compression
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Could not compress image'));
+              return;
+            }
+            
+            // Create new file from blob
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            
+            console.log(`📸 Image compressed: ${(file.size / 1024).toFixed(0)}KB → ${(compressedFile.size / 1024).toFixed(0)}KB`);
+            resolve(compressedFile);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -518,11 +573,22 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     setIsUploadingScreenshot(true);
     setError(null);
+    
+    // Store filename for display (no image preview needed)
+    setUploadedFileName(file.name);
 
     try {
+      const startTime = performance.now();
+      
+      // Compress image before upload - smaller = faster OpenAI processing
+      // 800px width + 70% quality is enough for text recognition
+      const compressedFile = await compressImage(file, 800, 0.7);
+      console.log(`⏱️ Compression: ${(performance.now() - startTime).toFixed(0)}ms`);
+      
+      const uploadStart = performance.now();
       const sessionToken = await getToken();
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', compressedFile);
 
       // Get the Python API URL from environment
       const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -535,11 +601,14 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
         },
       });
+      console.log(`⏱️ API call (upload + OpenAI): ${(performance.now() - uploadStart).toFixed(0)}ms`);
+      console.log(`⏱️ Total time: ${(performance.now() - startTime).toFixed(0)}ms`);
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         const errorMessage = errorData.detail || 'Failed to process screenshot';
         setError(errorMessage);
+        setUploadedFileName(null);
         return;
       }
 
@@ -556,6 +625,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     } catch (err: any) {
       console.error('Screenshot upload error:', err);
       setError(err.message || 'Failed to upload screenshot. Please try again.');
+      setUploadedFileName(null);
     } finally {
       setIsUploadingScreenshot(false);
       // Reset input so the same file can be selected again if needed
@@ -604,7 +674,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
       const data = await res.json();
       
-      // Clear preview
+      // Clear preview state
+      setUploadedFileName(null);
       setScreenshotPreview(null);
       setEditedValue('');
       setSelectedHabitId(null);
@@ -638,9 +709,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   // Cancel the screenshot preview
   const handleCancelScreenshot = () => {
+    setUploadedFileName(null);
     setScreenshotPreview(null);
     setEditedValue('');
     setSelectedHabitId(null);
+    setIsUploadingScreenshot(false);
     setError(null);
   };
 
@@ -658,6 +731,22 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   }, [input]);
+
+  // Close habit dropdown on outside click
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-habit-dropdown]")) {
+        setShowHabitDropdown(false);
+      }
+    };
+
+    if (showHabitDropdown) {
+      window.addEventListener("mousedown", onDown);
+    }
+
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [showHabitDropdown]);
 
   return (
     <div className="w-full">
@@ -729,150 +818,239 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         </div>
       )}
 
-      {/* Screenshot Confirmation UI */}
-      {screenshotPreview && (
-        <div className="mb-3 border border-gray-300 bg-white shadow-sm">
-          <div className="px-4 py-3">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-900">Confirm Screenshot Data</span>
-                {screenshotPreview.low_confidence && (
-                  <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
-                    <AlertTriangle className="w-3 h-3" />
-                    Low confidence
-                  </span>
-                )}
+      {/* Screenshot Modal - Matches app design system (square corners) */}
+      {(isUploadingScreenshot || screenshotPreview) && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/20"
+            onClick={handleCancelScreenshot}
+          />
+
+          {/* Modal */}
+          <div
+            className="relative z-10 w-[92vw] max-w-md overflow-hidden border border-gray-300 bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* HEADER */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  {isUploadingScreenshot ? (
+                    <Loader className="h-4 w-4 animate-spin text-gray-700" />
+                  ) : screenshotPreview?.low_confidence ? (
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  ) : (
+                    <Check className="h-4 w-4 text-gray-900" />
+                  )}
+
+                  <h3 className="text-sm font-medium text-gray-900">
+                    {isUploadingScreenshot ? "Analyzing screenshot" : "Detected"}
+                  </h3>
+
+                  {/* Status pill */}
+                  {isUploadingScreenshot ? (
+                    <span className="border border-gray-300 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
+                      Using AI
+                    </span>
+                  ) : screenshotPreview?.low_confidence ? (
+                    <span className="border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                      Review
+                    </span>
+                  ) : (
+                    <span className="border border-gray-300 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
+                      Ready
+                    </span>
+                  )}
+                </div>
+
+                {/* filename */}
+                <p className="mt-1 truncate text-xs text-gray-500">
+                  {uploadedFileName ?? "Screenshot"}
+                </p>
               </div>
+
               <button
                 type="button"
                 onClick={handleCancelScreenshot}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Close"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Description */}
-            {screenshotPreview.description && (
-              <p className="text-xs text-gray-500 mb-3">{screenshotPreview.description}</p>
-            )}
+            {/* BODY - Fixed height to keep both states same size */}
+            <div className="px-5 py-4 min-h-[220px]">
+              {/* Loading state */}
+              {isUploadingScreenshot && (
+                <div className="space-y-4 pt-6">
+                  {/* Value placeholder */}
+                  <div className="border border-gray-200 bg-gray-50 px-4 py-4">
+                    <div className="flex items-end justify-center gap-2">
+                      <div className="h-10 w-20 bg-gray-200 animate-pulse" />
+                      <div className="h-4 w-12 bg-gray-200 animate-pulse mb-1" />
+                    </div>
+                    <p className="mt-3 text-center text-xs text-gray-500">
+                      Extracting values and matching a habit…
+                    </p>
+                  </div>
 
-            {/* Validation Warning */}
-            {!screenshotPreview.validation.is_valid && (
-              <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 mb-3">
-                <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                <span>{screenshotPreview.validation.reason}</span>
-              </div>
-            )}
+                  {/* Progress bar */}
+                  <div className="h-1.5 w-full overflow-hidden bg-gray-200">
+                    <div className="h-full w-1/2 animate-progress bg-gray-900" />
+                  </div>
 
-            {/* Editable Fields */}
-            <div className="flex items-center gap-3 mb-3">
-              {/* Value Input */}
-              <div className="flex-1">
-                <label className="block text-xs text-gray-500 mb-1">Value</label>
-                <input
-                  type="number"
-                  value={editedValue}
-                  onChange={(e) => setEditedValue(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 text-sm focus:outline-none focus:border-gray-400"
-                  step="0.1"
-                  min="0"
-                />
-              </div>
-
-              {/* Unit Display */}
-              <div className="w-24">
-                <label className="block text-xs text-gray-500 mb-1">Unit</label>
-                <div className="px-3 py-2 border border-gray-200 bg-gray-50 text-sm text-gray-700">
-                  {screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.unit_type || screenshotPreview.unit}
+                  <p className="text-xs text-gray-500 text-center">
+                    This usually takes a few seconds.
+                  </p>
                 </div>
-              </div>
-            </div>
+              )}
 
-            {/* Habit Selector */}
-            <div className="mb-3 relative">
-              <label className="block text-xs text-gray-500 mb-1">Habit</label>
-              <button
-                type="button"
-                onClick={() => setShowHabitDropdown(!showHabitDropdown)}
-                className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 text-sm text-left hover:border-gray-400 transition-colors"
-              >
-                <span>
-                  {selectedHabitId 
-                    ? screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.name 
-                    : screenshotPreview.is_new_habit 
-                      ? `Create new: ${screenshotPreview.habit_name}`
-                      : screenshotPreview.habit_name
-                  }
-                </span>
-                <ChevronDown className={cn("w-4 h-4 text-gray-400 transition-transform", showHabitDropdown && "rotate-180")} />
-              </button>
-              
-              {/* Dropdown */}
-              {showHabitDropdown && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-lg max-h-48 overflow-y-auto z-50">
-                  {/* Create new habit option */}
-                  {screenshotPreview.is_new_habit && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedHabitId(null);
-                        setShowHabitDropdown(false);
-                      }}
-                      className={cn(
-                        "w-full px-3 py-2 text-sm text-left hover:bg-gray-100 flex items-center gap-2",
-                        !selectedHabitId && "bg-gray-50"
+              {/* Confirmation state */}
+              {screenshotPreview && !isUploadingScreenshot && (
+                <div className="space-y-4">
+                  {/* HERO VALUE */}
+                  <div className="border border-gray-200 bg-gray-50 px-4 py-4">
+                    <div className="flex items-end justify-center gap-2">
+                      <input
+                        type="number"
+                        value={editedValue}
+                        onChange={(e) => setEditedValue(e.target.value)}
+                        className="w-28 bg-transparent text-center text-4xl font-semibold tracking-tight text-gray-900 outline-none"
+                        step="0.1"
+                        min="0"
+                      />
+                      <span className="pb-1 text-sm text-gray-600">
+                        {screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.unit_type || screenshotPreview.unit}
+                      </span>
+                    </div>
+
+                    {screenshotPreview.description && (
+                      <p className="mt-2 text-center text-xs text-gray-500">
+                        {screenshotPreview.description}
+                      </p>
+                    )}
+
+                    {/* Validation warning */}
+                    {!screenshotPreview.validation.is_valid && (
+                      <div className="mt-3 flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium">Check this value</div>
+                          <div className="text-amber-800/90">
+                            {screenshotPreview.validation.reason}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* HABIT SELECTOR */}
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-gray-700">Log to</div>
+
+                    <div className="relative" data-habit-dropdown>
+                      <button
+                        type="button"
+                        onClick={() => setShowHabitDropdown(!showHabitDropdown)}
+                        className="flex w-full items-center justify-between border border-gray-300 bg-white px-3 py-2.5 text-left text-sm text-gray-900 hover:bg-[#F3F3F3]"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">
+                            {selectedHabitId
+                              ? screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.name
+                              : screenshotPreview.habit_name}
+                          </div>
+
+                          <div className="mt-0.5 text-xs text-gray-500">
+                            {selectedHabitId
+                              ? "Existing habit"
+                              : screenshotPreview.is_new_habit
+                                ? "Will create new habit"
+                                : "Detected habit"}
+                          </div>
+                        </div>
+
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 flex-shrink-0 text-gray-400 transition-transform",
+                            showHabitDropdown && "rotate-180"
+                          )}
+                        />
+                      </button>
+
+                      {showHabitDropdown && (
+                        <div className="absolute z-50 mt-1 w-full overflow-hidden border border-gray-300 bg-white shadow-lg">
+                          {screenshotPreview.is_new_habit && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedHabitId(null);
+                                setShowHabitDropdown(false);
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[#F3F3F3] border-b border-gray-200",
+                                !selectedHabitId && "bg-[#F3F3F3]"
+                              )}
+                            >
+                              <span className="text-xs font-semibold text-gray-900">+</span>
+                              <span className="truncate">Create "{screenshotPreview.habit_name}"</span>
+                            </button>
+                          )}
+
+                          <div className="max-h-56 overflow-y-auto">
+                            {screenshotPreview.available_habits.map((habit) => (
+                              <button
+                                key={habit.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedHabitId(habit.id);
+                                  setShowHabitDropdown(false);
+                                }}
+                                className={cn(
+                                  "flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-[#F3F3F3]",
+                                  selectedHabitId === habit.id && "bg-[#F3F3F3]"
+                                )}
+                              >
+                                <span className="truncate">{habit.name}</span>
+                                <span className="ml-3 text-xs text-gray-400">
+                                  {habit.unit_type}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                    >
-                      <span className="text-green-600">+</span>
-                      <span>Create new: {screenshotPreview.habit_name}</span>
-                    </button>
-                  )}
-                  {/* Existing habits */}
-                  {screenshotPreview.available_habits.map((habit) => (
-                    <button
-                      key={habit.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedHabitId(habit.id);
-                        setShowHabitDropdown(false);
-                      }}
-                      className={cn(
-                        "w-full px-3 py-2 text-sm text-left hover:bg-gray-100",
-                        selectedHabitId === habit.id && "bg-gray-50"
-                      )}
-                    >
-                      {habit.name}
-                      <span className="text-gray-400 text-xs ml-2">({habit.unit_type})</span>
-                    </button>
-                  ))}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center justify-end gap-2">
+            {/* FOOTER */}
+            <div className="flex items-center justify-end gap-2 border-t border-gray-200 bg-[#F8F8F8] px-5 py-3">
               <button
                 type="button"
                 onClick={handleCancelScreenshot}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-[#F3F3F3]"
                 disabled={isConfirming}
               >
                 Cancel
               </button>
+
               <button
                 type="button"
                 onClick={handleConfirmScreenshot}
-                disabled={isConfirming || !editedValue}
-                className="flex items-center gap-2 px-4 py-2 bg-black text-white text-sm hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isConfirming || !editedValue || isUploadingScreenshot}
+                className="inline-flex items-center gap-2 bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isConfirming ? (
-                  <Loader className="w-4 h-4 animate-spin" />
+                  <Loader className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Check className="w-4 h-4" />
+                  <Check className="h-4 w-4" />
                 )}
-                Confirm
+                Log
               </button>
             </div>
           </div>
@@ -884,12 +1062,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           <div className="px-5 py-3">
             {/* Input Area */}
             <div className="mb-2 h-[42px] flex items-center">
-              {isUploadingScreenshot ? (
-                <div className="w-full flex items-center justify-center text-gray-500 text-sm gap-2">
-                  <Loader className="w-4 h-4 animate-spin" />
-                  <span>Analyzing screenshot...</span>
-                </div>
-              ) : (isListening || isProcessingVoice) ? (
+              {(isListening || isProcessingVoice) ? (
                 <div className="w-full flex items-center justify-center">
                   <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
                 </div>

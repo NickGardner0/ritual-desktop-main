@@ -23,6 +23,7 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
   // Prefetch critical routes on mount for instant navigation
   useEffect(() => {
     router.prefetch('/dashboard');
+    router.prefetch('/activity');
     router.prefetch('/analytics');
     router.prefetch('/chat');
     router.prefetch('/calendar');

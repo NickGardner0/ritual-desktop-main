@@ -1,0 +1,10 @@
+# Ignore ritual-watcher build artifacts to prevent hot-reload loops
+bin/ritual-watcher/target
+bin/ritual-watcher/target/**
+**/target/release/**
+**/target/debug/**
+*.rmeta
+*.rlib
+*.o
+*.bc
+*.d

@@ -30,7 +30,7 @@ pub struct WatcherConfig {
     pub track_incognito: bool,
 }
 
-fn default_afk_timeout() -> u64 { 300 }
+fn default_afk_timeout() -> u64 { 900 } // 15 minutes - better for coding/reading
 fn default_url_mode() -> String { "domain".to_string() }
 
 /// Watcher status response
@@ -204,14 +204,22 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
     println!("   Device ID: {}", config.device_id);
     println!("   Title Mode: {}", config.title_mode);
 
-    // Check if already running
+    // CRITICAL: Kill any existing watcher processes first to prevent duplicates
+    // This handles orphaned processes from crashes or previous sessions
+    #[cfg(target_os = "macos")]
     {
-        let guard = WATCHER_PROCESS.lock().unwrap();
-        if let Some(ref _child) = *guard {
-            // Check if process is still alive
-            // Note: We can't easily check without consuming the Child, so we'll try to start anyway
-            println!("⚠️ Watcher process handle exists, attempting restart...");
-        }
+        let _ = Command::new("pkill")
+            .args(["-f", "ritual-watcher"])
+            .output();
+        // Brief pause to ensure processes are terminated
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        println!("🧹 Cleaned up any existing watcher processes");
+    }
+    
+    // Clear our stored handle
+    {
+        let mut guard = WATCHER_PROCESS.lock().unwrap();
+        *guard = None;
     }
 
     // Find executable
@@ -291,12 +299,20 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     println!("   Device ID: {}", config.device_id);
     println!("   Title Mode: {}", config.title_mode);
 
-    // Check if already running
+    // CRITICAL: Kill any existing watcher processes first to prevent duplicates
+    #[cfg(target_os = "macos")]
     {
-        let guard = WATCHER_PROCESS.lock().unwrap();
-        if let Some(ref _child) = *guard {
-            println!("⚠️ Watcher process handle exists, attempting restart...");
-        }
+        let _ = Command::new("pkill")
+            .args(["-f", "ritual-watcher"])
+            .output();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        println!("🧹 Cleaned up any existing watcher processes");
+    }
+    
+    // Clear our stored handle
+    {
+        let mut guard = WATCHER_PROCESS.lock().unwrap();
+        *guard = None;
     }
 
     // Find executable

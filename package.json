@@ -26,8 +26,11 @@
     "@ai-sdk/openai": "^2.0.31",
     "@ai-sdk/react": "^2.0.98",
     "@clerk/nextjs": "^6.35.2",
-    "@hello-pangea/dnd": "^18.0.1",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^3.9.1",
+    "@next/swc-darwin-arm64": "^16.1.4",
     "@openpanel/nextjs": "^1.1.1",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.4",
@@ -50,6 +53,7 @@
     "@tanstack/react-query": "^5.90.5",
     "@tanstack/react-table": "^8.21.3",
     "@tauri-apps/api": "^1.6.0",
+    "@types/xml2js": "^0.4.14",
     "ai": "^5.0.106",
     "ai-sdk-tools": "^0.9.0",
     "class-variance-authority": "^0.7.1",
@@ -79,6 +83,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "usehooks-ts": "^3.1.1",
+    "xml2js": "^0.6.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {

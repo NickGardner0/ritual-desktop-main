@@ -2,20 +2,18 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, lazy, Suspense } from "react";
 import {
-  LineChart,
   Timer,
   Settings,
-  Download,
   Plug2,
   ChevronDown,
   TableProperties,
+  CalendarDays,
 } from "lucide-react";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { useAuth } from "@clerk/nextjs";
-import { toast } from "sonner";
 
 // Lazy load SettingsModal since it's only shown when clicked
 const SettingsModal = lazy(() => import("./settings-modal").then(m => ({ default: m.SettingsModal })));
@@ -44,11 +42,10 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
 
 const icons = {
   "/dashboard": () => <ILetterIcon className="w-5 h-5" />,
-  "/analytics": () => <LineChart className="w-5 h-5" strokeWidth={2.1} />,
   "/activity": () => <TableProperties className="w-5 h-5" strokeWidth={2.1} />,
+  "/calendar": () => <CalendarDays className="w-5 h-5" strokeWidth={2.1} />,
   "/timer": () => <Timer className="w-5 h-5" strokeWidth={2.1} />,
   "/integrations": () => <Plug2 className="w-5 h-5" strokeWidth={2.1} />,
-  "/data-export": () => <Download className="w-5 h-5" strokeWidth={2.1} />,
   "/settings": () => <Settings className="w-5 h-5" strokeWidth={2.1} />,
 } as const;
 
@@ -58,12 +55,12 @@ const items = [
     name: "Index",
   },
   {
-    path: "/analytics",
-    name: "Analytics",
-  },
-  {
     path: "/activity",
     name: "Logs",
+  },
+  {
+    path: "/calendar",
+    name: "Calendar",
   },
   {
     path: "/timer",
@@ -76,10 +73,6 @@ const items = [
       { path: "/integrations?tab=available", name: "Available" },
       { path: "/integrations?tab=connected", name: "Connected" },
     ],
-  },
-  {
-    path: "/data-export",
-    name: "Data Export",
   },
   {
     path: "/settings",
@@ -171,11 +164,9 @@ const Item = ({
   onSelect,
   onSettingsClick,
   onTimerClick,
-  onDataExportClick,
-}: ItemProps & { onSettingsClick?: () => void; onTimerClick?: () => void; onDataExportClick?: () => void }) => {
+}: ItemProps & { onSettingsClick?: () => void; onTimerClick?: () => void }) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
-  const router = useRouter();
   const hasChildren = item.children && item.children.length > 0;
   
   // Prefetch data on hover (Midday-style optimization)
@@ -207,21 +198,17 @@ const Item = ({
     } else if (item.path === "/timer") {
       e.preventDefault();
       onTimerClick?.();
-    } else if (item.path === "/data-export") {
-      e.preventDefault();
-      onDataExportClick?.();
     } else {
-      // Use explicit router navigation to ensure it works
-      e.preventDefault();
+      // Let the Link handle navigation naturally
+      // Just call onSelect for any sidebar collapse behavior
       onSelect?.();
-      router.push(item.path);
     }
   };
 
   return (
     <div className="group">
       <Link
-        href={item.path === "/settings" || item.path === "/timer" || item.path === "/data-export" ? "#" : item.path}
+        href={item.path === "/settings" || item.path === "/timer" ? "#" : item.path}
         onClick={handleItemClick}
         className="group"
         prefetch={true}
@@ -328,158 +315,6 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
     setExpandedItem(null);
   }, [isExpanded]);
 
-  // Export habit data as CSV
-  const exportHabitData = async () => {
-    console.log('📊 Data Export clicked - exporting habit data as CSV');
-    
-    // Show loading toast
-    const toastId = toast.loading('Preparing your data export...');
-    
-    try {
-      const token = await getToken();
-      console.log('🔐 Got auth token:', token ? 'yes' : 'no');
-      
-      const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-      console.log('🌐 Backend URL:', backendUrl);
-      
-      // Fetch habits and logs in parallel
-      const [habitsRes, logsRes] = await Promise.all([
-        fetch(`${backendUrl}/api/habits`, {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-        }),
-        fetch(`${backendUrl}/api/habit-logs`, {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-        })
-      ]);
-      
-      console.log('📡 Response status - habits:', habitsRes.status, 'logs:', logsRes.status);
-      
-      if (!habitsRes.ok || !logsRes.ok) {
-        throw new Error(`Failed to fetch data: habits=${habitsRes.status}, logs=${logsRes.status}`);
-      }
-      
-      const [habits, logs] = await Promise.all([habitsRes.json(), logsRes.json()]);
-      console.log('📦 Fetched habits:', habits.length, 'logs:', logs.length);
-      
-      // Create a map of habit_id -> habit details for quick lookup
-      const habitMap = new Map<string, any>();
-      habits.forEach((habit: any) => {
-        habitMap.set(habit.id, habit);
-      });
-      
-      if (!logs || logs.length === 0) {
-        toast.dismiss(toastId);
-        toast.info('No habit data to export yet.');
-        return;
-      }
-      
-      // Define CSV headers
-      const headers = ['Date', 'Time', 'Habit Name', 'Category', 'Value', 'Unit', 'Source', 'Notes'];
-      
-      // Convert logs to CSV rows
-      const rows = logs.map((log: any) => {
-        // Get habit details from the map
-        const habit = habitMap.get(log.habit_id) || {};
-        
-        const date = log.date || '';
-        const time = log.completed_at 
-          ? new Date(log.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-          : '';
-        const habitName = habit.name || '';
-        const category = habit.category || '';
-        
-        // Format value based on type
-        let value = '';
-        if (log.duration) {
-          const hours = Math.floor(log.duration / 3600);
-          const mins = Math.floor((log.duration % 3600) / 60);
-          value = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-        } else if (log.amount !== undefined && log.amount !== null) {
-          value = String(log.amount);
-        }
-        
-        const unit = habit.unit_type || '';
-        const source = habit.integration_source || 'Manual';
-        const notes = (log.notes || '').replace(/"/g, '""'); // Escape quotes
-        
-        // Escape fields that might contain commas
-        const escapeField = (field: string) => {
-          if (field.includes(',') || field.includes('"') || field.includes('\n')) {
-            return `"${field}"`;
-          }
-          return field;
-        };
-        
-        return [date, time, habitName, category, value, unit, source, notes].map(escapeField).join(',');
-      });
-      
-      // Combine headers and rows
-      const csvContent = [headers.join(','), ...rows].join('\n');
-      
-      // Generate filename with date
-      const today = new Date().toISOString().split('T')[0];
-      const filename = `ritual-habit-data-${today}.csv`;
-      
-      // Try Tauri's save dialog first (for desktop app)
-      let saved = false;
-      if (typeof window !== 'undefined' && '__TAURI__' in window) {
-        try {
-          const { save } = await import('@tauri-apps/api/dialog');
-          const { writeTextFile } = await import('@tauri-apps/api/fs');
-          
-          const filePath = await save({
-            defaultPath: filename,
-            filters: [{ name: 'CSV', extensions: ['csv'] }]
-          });
-          
-          if (filePath) {
-            await writeTextFile(filePath, csvContent);
-            saved = true;
-            toast.dismiss(toastId);
-            toast.success(`Exported ${logs.length} habit logs to ${filePath.split('/').pop()}`);
-            console.log(`✅ Exported ${logs.length} habit logs to ${filePath}`);
-          } else {
-            // User cancelled the save dialog
-            toast.dismiss(toastId);
-            toast.info('Export cancelled');
-            return;
-          }
-        } catch (tauriError) {
-          console.log('Tauri save failed, falling back to browser download:', tauriError);
-        }
-      }
-      
-      // Fallback to browser download (for web)
-      if (!saved) {
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', filename);
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        
-        toast.dismiss(toastId);
-        toast.success(`Exported ${logs.length} habit logs to CSV`);
-        console.log(`✅ Exported ${logs.length} habit logs to CSV`);
-      }
-      
-    } catch (error) {
-      console.error('❌ Failed to export habit data:', error);
-      toast.dismiss(toastId);
-      toast.error('Failed to export data. Please try again.');
-    }
-  };
-
   // Open native Swift timer widget
   const openNativeTimer = async () => {
     console.log('🖱️ Timer menu clicked - creating native Swift timer widget');
@@ -554,7 +389,6 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
                 onSelect={onSelect}
                 onSettingsClick={() => setShowSettingsModal(true)}
                 onTimerClick={openNativeTimer}
-                onDataExportClick={exportHabitData}
               />
             );
           })}

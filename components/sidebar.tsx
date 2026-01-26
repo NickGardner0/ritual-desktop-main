@@ -26,11 +26,11 @@ export function Sidebar() {
           isExpanded ? "w-full" : "w-[69px]",
         )}
       >
-        <Link href="/" className="absolute left-[20px] top-[58%] -translate-y-1/2 transition-none">
+        <Link href="/" className="absolute left-1/2 -translate-x-1/2 top-[58%] -translate-y-1/2 transition-none">
           <img 
-            src="/images/Vector.svg" 
+            src="/images/new_logo4.svg" 
             alt="Ritual Logo" 
-            className="w-[28px] h-[28px]"
+            className="w-[36px] h-[36px] flex-shrink-0"
           />
         </Link>
       </div>

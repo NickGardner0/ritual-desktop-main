@@ -49,6 +49,14 @@ const presetRanges: PresetRange[] = [
     })
   },
   {
+    label: "Last 14 days",
+    value: "last14days",
+    getRange: () => ({
+      from: startOfDay(subDays(new Date(), 13)),
+      to: endOfDay(new Date())
+    })
+  },
+  {
     label: "Last 30 days",
     value: "last30days",
     getRange: () => ({
@@ -101,7 +109,7 @@ export function DateRangePicker({
   initialDateRange
 }: DateRangePickerProps) {
   const [date, setDate] = React.useState<DateRange | undefined>(initialDateRange)
-  const [selectedPreset, setSelectedPreset] = React.useState<string>("alltime")
+  const [selectedPreset, setSelectedPreset] = React.useState<string>("last14days")
   const [isOpen, setIsOpen] = React.useState(false)
   
   // Drag-to-select state
@@ -220,11 +228,11 @@ export function DateRangePicker({
     
     // Find which month container this button is in
     // Try multiple selectors as react-day-picker structure varies
-    let monthContainer = button.closest('.rdp-month')
+    let monthContainer: Element | null = button.closest('.rdp-month')
     if (!monthContainer) {
       // Try finding by going up to table and then to its parent
       const table = button.closest('table')
-      monthContainer = table?.parentElement
+      monthContainer = table?.parentElement ?? null
     }
     
     // Get the caption - try multiple ways
@@ -424,7 +432,7 @@ export function DateRangePicker({
           align="end"
           side="bottom"
           sideOffset={8}
-          avoidCollisions={true}
+          avoidCollisions={false}
         >
           <div className="flex flex-col">
             <div className="px-4 py-3 border-b border-gray-300">

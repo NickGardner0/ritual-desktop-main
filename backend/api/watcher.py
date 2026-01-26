@@ -44,6 +44,7 @@ class StateUpdateRequest(BaseModel):
     excluded_bundle_ids: Optional[List[str]] = None
     sync_analytics: Optional[bool] = None
     sync_raw_to_cloud: Optional[bool] = None
+    afk_timeout_seconds: Optional[int] = None  # Idle timeout (default 900 = 15 min)
 
 
 class StateResponse(BaseModel):
@@ -56,6 +57,7 @@ class StateResponse(BaseModel):
     excluded_bundle_ids: List[str]
     sync_analytics: bool
     sync_raw_to_cloud: bool
+    afk_timeout_seconds: int = 900  # Idle timeout (default 900 = 15 min)
 
 
 class WatcherStatusResponse(BaseModel):

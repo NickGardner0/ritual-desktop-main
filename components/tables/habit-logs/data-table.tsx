@@ -378,39 +378,6 @@ export function HabitLogsDataTable({
           </Table>
         </div>
 
-        {/* Bottom Bar - Shows totals when filtered */}
-        <AnimatePresence>
-          {hasFilters && totals && selectedCount === 0 && (
-            <motion.div
-              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30"
-              initial={{ y: 100, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 100, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-            >
-              <div className="backdrop-blur-lg bg-white/80 border border-gray-300 h-12 flex items-center px-4 gap-4 shadow-lg">
-                <div className="flex items-center gap-1.5">
-                  <Info className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-900">
-                    {totals.count} logs
-                  </span>
-                </div>
-                <div className="h-4 w-px bg-gray-300" />
-                <span className="text-sm text-gray-600">
-                  {totals.completionRate.toFixed(0)}% completed
-                </span>
-                {totals.totalDuration > 0 && (
-                  <>
-                    <div className="h-4 w-px bg-gray-300" />
-                    <span className="text-sm text-gray-600">
-                      {(totals.totalDuration / 3600).toFixed(1)} hrs total
-                    </span>
-                  </>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
       </div>
     </TooltipProvider>

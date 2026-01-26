@@ -32,6 +32,7 @@ yarn-error.log*
 # Tauri
 src-tauri/target/
 src-tauri/Cargo.lock
+src-tauri/bin/*/target/
 
 # TypeScript
 *.tsbuildinfo

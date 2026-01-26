@@ -125,6 +125,181 @@ export function isIncognito(event: ActivityEvent): boolean {
   return event.is_incognito === true || event.is_incognito === 1
 }
 
+// ============================================================
+// 2.1b Deduplication (inspired by ActivityWatch's union_no_overlap)
+// ============================================================
+
+/**
+ * Remove duplicate/redundant overlapping events from raw data
+ * 
+ * This handles the case where multiple watcher instances recorded
+ * nearly-identical events with slightly offset timestamps.
+ * 
+ * Algorithm:
+ * 1. Sort events by start time
+ * 2. For each event, check if it significantly overlaps with the previous
+ * 3. If overlap > 90% and same app, keep only the longer one
+ * 4. Otherwise keep both (they're distinct activities)
+ */
+export function deduplicateEvents(events: ActivityEvent[]): ActivityEvent[] {
+  if (events.length <= 1) return events
+  
+  // Sort by start time
+  const sorted = [...events].sort((a, b) => a.ts_start - b.ts_start)
+  const deduplicated: ActivityEvent[] = []
+  
+  let current = sorted[0]
+  
+  for (let i = 1; i < sorted.length; i++) {
+    const next = sorted[i]
+    
+    // Check if these events are essentially duplicates
+    const isDuplicate = checkDuplicate(current, next)
+    
+    if (isDuplicate) {
+      // Keep the one with the longer duration
+      const currentDuration = current.ts_end - current.ts_start
+      const nextDuration = next.ts_end - next.ts_start
+      
+      if (nextDuration > currentDuration) {
+        current = next
+      }
+      // Otherwise keep current (it's longer)
+    } else {
+      // Not a duplicate, keep current and move to next
+      deduplicated.push(current)
+      current = next
+    }
+  }
+  
+  // Don't forget the last event
+  deduplicated.push(current)
+  
+  return deduplicated
+}
+
+/**
+ * Check if two events are effectively duplicates
+ * (same app, start times within 5 seconds, high overlap)
+ */
+function checkDuplicate(a: ActivityEvent, b: ActivityEvent): boolean {
+  // Must be same app
+  const sameApp = a.app_bundle_id === b.app_bundle_id || 
+                  (a.app_bundle_id === '' && b.app_bundle_id === '' && a.app_name === b.app_name)
+  
+  if (!sameApp) return false
+  
+  // Start times must be within 5 seconds
+  const startDiff = Math.abs(a.ts_start - b.ts_start)
+  if (startDiff > 5000) return false
+  
+  // Calculate overlap ratio
+  const overlapStart = Math.max(a.ts_start, b.ts_start)
+  const overlapEnd = Math.min(a.ts_end, b.ts_end)
+  
+  if (overlapStart >= overlapEnd) return false // No overlap
+  
+  const overlapMs = overlapEnd - overlapStart
+  const aDuration = a.ts_end - a.ts_start
+  const bDuration = b.ts_end - b.ts_start
+  const minDuration = Math.min(aDuration, bDuration)
+  
+  // If overlap is > 80% of the shorter event, it's a duplicate
+  return overlapMs > minDuration * 0.8
+}
+
+/**
+ * Union of two event lists with no overlap
+ * First list has priority (like ActivityWatch's union_no_overlap)
+ * 
+ * Use case: Merging events from different sources where events1
+ * should take precedence over events2 for overlapping time periods.
+ */
+export function unionNoOverlap(
+  events1: ActivityEvent[],
+  events2: ActivityEvent[]
+): ActivityEvent[] {
+  if (events1.length === 0) return [...events2]
+  if (events2.length === 0) return [...events1]
+  
+  // Sort both lists by start time
+  const sorted1 = [...events1].sort((a, b) => a.ts_start - b.ts_start)
+  const sorted2 = [...events2].sort((a, b) => a.ts_start - b.ts_start)
+  
+  const result: ActivityEvent[] = []
+  let i1 = 0
+  let i2 = 0
+  
+  while (i1 < sorted1.length && i2 < sorted2.length) {
+    const e1 = sorted1[i1]
+    const e2 = sorted2[i2]
+    
+    // Check if events intersect
+    const intersects = e1.ts_start < e2.ts_end && e2.ts_start < e1.ts_end
+    
+    if (intersects) {
+      // e1 has priority - always add it
+      if (e1.ts_start <= e2.ts_start) {
+        result.push(e1)
+        i1++
+        
+        // Check if e2 continues after e1
+        if (e2.ts_end > e1.ts_end) {
+          // Split e2: create a new event for the non-overlapping portion
+          const splitEvent: ActivityEvent = {
+            ...e2,
+            ts_start: e1.ts_end,
+            duration_ms: e2.ts_end - e1.ts_end,
+          }
+          sorted2[i2] = splitEvent
+        } else {
+          // e2 is completely covered by e1, skip it
+          i2++
+        }
+      } else {
+        // e2 starts first, split it at e1's start
+        const beforeEvent: ActivityEvent = {
+          ...e2,
+          ts_end: e1.ts_start,
+          duration_ms: e1.ts_start - e2.ts_start,
+        }
+        result.push(beforeEvent)
+        
+        // Check if e2 continues after e1
+        if (e2.ts_end > e1.ts_end) {
+          const afterEvent: ActivityEvent = {
+            ...e2,
+            ts_start: e1.ts_end,
+            duration_ms: e2.ts_end - e1.ts_end,
+          }
+          sorted2[i2] = afterEvent
+        } else {
+          i2++
+        }
+      }
+    } else {
+      // No intersection - add the earlier one
+      if (e1.ts_start <= e2.ts_start) {
+        result.push(e1)
+        i1++
+      } else {
+        result.push(e2)
+        i2++
+      }
+    }
+  }
+  
+  // Add remaining events from either list
+  while (i1 < sorted1.length) {
+    result.push(sorted1[i1++])
+  }
+  while (i2 < sorted2.length) {
+    result.push(sorted2[i2++])
+  }
+  
+  return result
+}
+
 /**
  * Merge overlapping time intervals and calculate total unique time
  * This prevents double-counting when events overlap

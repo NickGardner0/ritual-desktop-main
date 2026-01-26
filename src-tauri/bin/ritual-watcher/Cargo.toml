@@ -25,11 +25,12 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 # macOS specific
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
-objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString", "NSRunLoop", "NSArray", "NSURL", "NSData"] }
+objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString", "NSRunLoop", "NSArray", "NSURL", "NSData", "NSNotification", "NSThread"] }
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSRunningApplication", "NSApplication", "NSImage", "NSBitmapImageRep", "NSGraphicsContext"] }
 core-foundation = "0.9"
 core-foundation-sys = "0.8"
 core-graphics = "0.23"
+dispatch = "0.2"
 
 # Image processing
 image = "0.24"
@@ -52,6 +53,6 @@ shellexpand = "3.1"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "thin"
 strip = true
 

@@ -2,20 +2,118 @@
  * ComputerActivityPanel
  * 
  * Main container for the redesigned Computer Activity analytics view.
- * Combines all components into a single minimal surface.
+ * V0-inspired design with separate cards and improved visual hierarchy.
  */
 
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Monitor, BarChart3, AppWindow, Globe, RefreshCw, CheckCircle, X } from 'lucide-react'
+import { Monitor, BarChart3, AppWindow, Globe, RefreshCw, CheckCircle, X, Download } from 'lucide-react'
 import { TimeRangePreset } from '@/types/computerActivity'
 import { useComputerActivity } from '@/lib/computerActivity/useComputerActivity'
-import { AttentionIndexHeader } from './AttentionIndexHeader'
 import { SessionFlowTimeline, DailyStackedTimeline } from './SessionFlowTimeline'
 import { RankedBars } from './RankedBars'
-import { MicroMetricsRow } from './MicroMetricsRow'
 import { DeepDrillDrawer } from './DeepDrillDrawer'
+
+// Export types
+interface ExportEvent {
+  id: number
+  ts_start: number
+  ts_end: number
+  duration_ms: number
+  app_bundle_id: string
+  app_name: string
+  window_title?: string | null
+  browser_url?: string | null
+  browser_domain?: string | null
+  is_afk: boolean
+  is_incognito: boolean
+}
+
+type ExportFormat = 'csv' | 'json'
+
+/**
+ * Export activity data to file
+ */
+async function exportActivityData(
+  startDate: string,
+  endDate: string,
+  format: ExportFormat
+): Promise<{ success: boolean; filename?: string; error?: string }> {
+  try {
+    // Check if we're in Tauri environment
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      const { invoke } = await import('@tauri-apps/api/tauri')
+      const { downloadDir } = await import('@tauri-apps/api/path')
+      const { writeTextFile } = await import('@tauri-apps/api/fs')
+      
+      // Get events from Tauri
+      const events = await invoke<ExportEvent[]>('export_events', {
+        startDate,
+        endDate,
+      })
+      
+      if (!events || events.length === 0) {
+        return { success: false, error: 'No activity data found for this date range' }
+      }
+      
+      // Format the data
+      let content: string
+      let filename: string
+      const timestamp = new Date().toISOString().split('T')[0]
+      
+      if (format === 'json') {
+        content = JSON.stringify(events, null, 2)
+        filename = `ritual-activity-${startDate}-to-${endDate}-${timestamp}.json`
+      } else {
+        // CSV format
+        const headers = [
+          'Start Time',
+          'End Time',
+          'Duration (min)',
+          'App Name',
+          'App Bundle ID',
+          'Window Title',
+          'Browser URL',
+          'Browser Domain',
+          'Is AFK',
+          'Is Incognito'
+        ]
+        
+        const rows = events.map(e => [
+          new Date(e.ts_start).toISOString(),
+          new Date(e.ts_end).toISOString(),
+          ((e.ts_end - e.ts_start) / 1000 / 60).toFixed(2),
+          e.app_name,
+          e.app_bundle_id,
+          e.window_title || '',
+          e.browser_url || '',
+          e.browser_domain || '',
+          e.is_afk ? 'true' : 'false',
+          e.is_incognito ? 'true' : 'false'
+        ])
+        
+        content = [
+          headers.join(','),
+          ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        ].join('\n')
+        filename = `ritual-activity-${startDate}-to-${endDate}-${timestamp}.csv`
+      }
+      
+      // Save to Downloads folder
+      const downloads = await downloadDir()
+      const filepath = `${downloads}${filename}`
+      await writeTextFile(filepath, content)
+      
+      return { success: true, filename }
+    }
+    
+    return { success: false, error: 'Export is only available in the desktop app' }
+  } catch (error) {
+    console.error('Export failed:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Export failed' }
+  }
+}
 
 /**
  * Sync computer time to the "Computer Use" habit
@@ -39,6 +137,18 @@ async function syncToComputerUseHabit(): Promise<void> {
   }
 }
 
+/**
+ * Format milliseconds to human-readable time
+ */
+function formatActiveTime(ms: number): { value: string; unit: string } {
+  const hours = ms / 1000 / 60 / 60
+  if (hours >= 1) {
+    return { value: hours.toFixed(1), unit: 'h' }
+  }
+  const minutes = ms / 1000 / 60
+  return { value: Math.round(minutes).toString(), unit: 'm' }
+}
+
 type ViewTab = 'overview' | 'apps' | 'websites'
 
 const TIME_RANGES: TimeRangePreset[] = ['6H', '12H', '1D', '7D', '30D', '90D', 'ALL']
@@ -54,6 +164,39 @@ export function ComputerActivityPanel({
 }: ComputerActivityPanelProps) {
   const [activeTab, setActiveTab] = useState<ViewTab>('overview')
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle')
+  
+  // Export state
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportStartDate, setExportStartDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString().split('T')[0]
+  })
+  const [exportEndDate, setExportEndDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
+  const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'success' | 'error'>('idle')
+  const [exportMessage, setExportMessage] = useState('')
+  
+  // Handle export
+  const handleExport = useCallback(async () => {
+    setExportStatus('exporting')
+    setExportMessage('')
+    
+    const result = await exportActivityData(exportStartDate, exportEndDate, exportFormat)
+    
+    if (result.success) {
+      setExportStatus('success')
+      setExportMessage(`Saved to Downloads: ${result.filename}`)
+      setTimeout(() => {
+        setShowExportModal(false)
+        setExportStatus('idle')
+        setExportMessage('')
+      }, 2000)
+    } else {
+      setExportStatus('error')
+      setExportMessage(result.error || 'Export failed')
+    }
+  }, [exportStartDate, exportEndDate, exportFormat])
   
   const {
     viewModel,
@@ -111,11 +254,14 @@ export function ComputerActivityPanel({
     return () => clearInterval(interval)
   }, [range, hasData, header.primaryValueMs, doSync])
   
+  // Format active time for display
+  const activeTime = formatActiveTime(header.primaryValueMs)
+  
   return (
-    <div className={`bg-[#FAFAF9] border border-gray-300 ${className}`}>
-      {/* Header - Row 1: Title and close */}
-      <div className="px-6 pt-5 pb-4">
-        <div className="flex items-center justify-between mb-6">
+    <div className={`bg-white border border-gray-200 ${className}`}>
+      {/* Header */}
+      <div className="px-5 pt-4 pb-3">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium text-gray-900">Computer Activity</h2>
           <div className="flex items-center gap-1">
             {/* Sync status indicator */}
@@ -129,60 +275,69 @@ export function ComputerActivityPanel({
               <span className="text-xs text-gray-400 mr-2">Syncing...</span>
             )}
             <button
+              onClick={() => setShowExportModal(true)}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] transition-colors"
+              title="Export data"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <button
               onClick={refresh}
-              className="p-1.5 hover:bg-[#F3F3F3] transition-colors"
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] transition-colors"
               title="Refresh data"
               disabled={isLoading}
             >
-              <RefreshCw className={`w-4 h-4 text-gray-400 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
             {onDismiss && (
               <button
                 onClick={onDismiss}
-                className="p-1.5 transition-colors"
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] transition-colors"
                 title="Close"
               >
-                <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
-        
-        {/* Row 2: Time Range (left) and View Tabs (right) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          {/* Time Range Selector - matches analytics expanded view exactly */}
-          <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 shadow-sm">
-            {TIME_RANGES.map((r) => (
+
+        {/* Filters Row */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Time Range Selector */}
+          <div className="flex items-center border border-gray-200">
+            {TIME_RANGES.map((r, index) => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
-                className={`px-3 py-1.5 text-xs transition-all duration-200 ${
+                className={`px-2.5 py-1.5 text-xs transition-colors ${
                   range === r
-                    ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
-                }`}
+                    ? 'bg-[#F3F3F3] text-gray-900 font-medium'
+                    : 'bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3]'
+                } ${index !== 0 ? 'border-l border-gray-200' : ''}`}
               >
                 {r}
               </button>
             ))}
           </div>
-          
-          {/* View Tabs - same bordered card style as time range */}
-          <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 shadow-sm">
-            {(['overview', 'apps', 'websites'] as const).map((tab) => (
+
+          {/* View Tabs */}
+          <div className="flex items-center border border-gray-200">
+            {([
+              { id: 'overview', label: 'Overview', icon: BarChart3 },
+              { id: 'apps', label: 'Apps', icon: Monitor },
+              { id: 'websites', label: 'Websites', icon: Globe },
+            ] as const).map((tab, index) => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all duration-200 ${
-                  activeTab === tab
-                    ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
-                }`}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-[#F3F3F3] text-gray-900 font-medium'
+                    : 'bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3]'
+                } ${index !== 0 ? 'border-l border-gray-200' : ''}`}
               >
-                {tab === 'overview' && <BarChart3 className="w-3.5 h-3.5" />}
-                {tab === 'apps' && <AppWindow className="w-3.5 h-3.5" />}
-                {tab === 'websites' && <Globe className="w-3.5 h-3.5" />}
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                <tab.icon className="w-3.5 h-3.5" />
+                {tab.label}
               </button>
             ))}
           </div>
@@ -191,14 +346,14 @@ export function ComputerActivityPanel({
       
       {/* Loading State */}
       {isLoading && !hasData && (
-        <div className="flex items-center justify-center h-64">
-          <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+        <div className="flex items-center justify-center h-48 px-5">
+          <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
         </div>
       )}
       
       {/* Error State */}
       {error && (
-        <div className="px-6 py-8 text-center">
+        <div className="px-5 py-6 text-center">
           <p className="text-sm text-red-500">{error}</p>
           <button
             onClick={refresh}
@@ -211,10 +366,10 @@ export function ComputerActivityPanel({
       
       {/* Empty State */}
       {!isLoading && !error && !hasData && (
-        <div className="flex flex-col items-center justify-center h-64 px-6 text-center">
-          <Monitor className="w-14 h-14 text-gray-200 mb-4" />
-          <p className="text-base text-gray-500 mb-1">No activity tracked</p>
-          <p className="text-sm text-gray-400 max-w-sm">
+        <div className="flex flex-col items-center justify-center h-48 px-5 text-center">
+          <Monitor className="w-10 h-10 text-gray-200 mb-3" />
+          <p className="text-sm text-gray-500 mb-1">No activity tracked</p>
+          <p className="text-xs text-gray-400 max-w-sm">
             Enable Ritual Watcher in Settings → Computer Tracking to start monitoring.
           </p>
         </div>
@@ -222,14 +377,17 @@ export function ComputerActivityPanel({
       
       {/* Content */}
       {!error && hasData && (
-        <div className="divide-y divide-gray-100">
-          {/* Section A: Attention Header */}
-          <div className="px-6 py-4">
-            <AttentionIndexHeader header={header} />
-          </div>
-          
-          {/* Section B: Timeline */}
-          <div className="px-6 py-4">
+        <div className="px-5 pb-5 space-y-4">
+          {/* Active Time + Timeline Card */}
+          <div className="p-4 border border-gray-200 bg-white">
+            <div className="flex items-baseline gap-2 mb-4">
+              <span className="text-3xl font-semibold text-gray-900 tabular-nums">
+                {activeTime.value}{activeTime.unit}
+              </span>
+              <span className="text-sm text-gray-400">Active Time</span>
+            </div>
+            
+            {/* Timeline */}
             {showDailyStacked ? (
               <DailyStackedTimeline
                 segments={segments}
@@ -245,51 +403,55 @@ export function ComputerActivityPanel({
               />
             )}
           </div>
-          
-          {/* Section C: Distribution (tab-specific) */}
-          <div className="px-6 py-4">
-            {activeTab === 'overview' && (
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                    Top Apps
-                  </h3>
-                  <RankedBars items={apps} maxVisible={5} type="apps" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                    Top Websites
-                  </h3>
-                  <RankedBars items={domains} maxVisible={5} type="domains" />
-                </div>
+
+          {/* App Usage Section - Two Cards */}
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* TOP APPS Card */}
+            {(activeTab === 'overview' || activeTab === 'apps') && (
+              <div className="p-4 border border-gray-200 bg-white">
+                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+                  Top Apps
+                </h3>
+                <RankedBars 
+                  items={apps} 
+                  maxVisible={activeTab === 'apps' ? 10 : 3} 
+                  type="apps" 
+                />
               </div>
             )}
             
-            {activeTab === 'apps' && (
-              <div>
+            {/* TOP WEBSITES Card */}
+            {(activeTab === 'overview' || activeTab === 'websites') && (
+              <div className="p-4 border border-gray-200 bg-white">
                 <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                  Apps by Usage
+                  Top Websites
                 </h3>
-                <RankedBars items={apps} maxVisible={10} type="apps" />
-              </div>
-            )}
-            
-            {activeTab === 'websites' && (
-              <div>
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                  Websites by Usage
-                </h3>
-                <RankedBars items={domains} maxVisible={10} type="domains" />
+                <RankedBars 
+                  items={domains} 
+                  maxVisible={activeTab === 'websites' ? 10 : 5} 
+                  type="domains" 
+                />
               </div>
             )}
           </div>
-          
-          {/* Section D: Micro-metrics */}
-          <div className="px-6 py-3 bg-gray-50/50">
-            <MicroMetricsRow metrics={micro} />
+
+          {/* Focus Stats - Inline compact row */}
+          <div className="flex items-center gap-6 text-sm pt-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-400">Focus blocks</span>
+              <span className="font-medium text-gray-900">{micro.focusBlocks}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-400">Switches</span>
+              <span className="font-medium text-gray-900">{micro.switches}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-400">Longest</span>
+              <span className="font-medium text-gray-900">{micro.longestBlockLabel || '0m'}</span>
+            </div>
           </div>
           
-          {/* Section E: Deep Drill (when segment selected) */}
+          {/* Deep Drill Drawer (when segment selected) */}
           {(selectedSegment || isDrillLoading) && (
             <DeepDrillDrawer
               data={drillDownData}
@@ -299,9 +461,185 @@ export function ComputerActivityPanel({
           )}
         </div>
       )}
+      
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <Download className="w-5 h-5 text-gray-600" />
+                <h3 className="text-lg font-medium text-gray-900">Export Activity Data</h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowExportModal(false)
+                  setExportStatus('idle')
+                  setExportMessage('')
+                }}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="px-5 py-4 space-y-4">
+              {/* Date Range */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date Range
+                </label>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-500 mb-1">Start</label>
+                    <input
+                      type="date"
+                      value={exportStartDate}
+                      onChange={(e) => setExportStartDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-500 mb-1">End</label>
+                    <input
+                      type="date"
+                      value={exportEndDate}
+                      onChange={(e) => setExportEndDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Quick Presets */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0]
+                    setExportStartDate(today)
+                    setExportEndDate(today)
+                  }}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => {
+                    const end = new Date()
+                    const start = new Date()
+                    start.setDate(start.getDate() - 7)
+                    setExportStartDate(start.toISOString().split('T')[0])
+                    setExportEndDate(end.toISOString().split('T')[0])
+                  }}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                >
+                  Last 7 Days
+                </button>
+                <button
+                  onClick={() => {
+                    const end = new Date()
+                    const start = new Date()
+                    start.setDate(start.getDate() - 30)
+                    setExportStartDate(start.toISOString().split('T')[0])
+                    setExportEndDate(end.toISOString().split('T')[0])
+                  }}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                >
+                  Last 30 Days
+                </button>
+                <button
+                  onClick={() => {
+                    const end = new Date()
+                    const start = new Date('2020-01-01')
+                    setExportStartDate(start.toISOString().split('T')[0])
+                    setExportEndDate(end.toISOString().split('T')[0])
+                  }}
+                  className="px-3 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded transition-colors"
+                >
+                  All Time
+                </button>
+              </div>
+              
+              {/* Format Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Export Format
+                </label>
+                <div className="flex gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="exportFormat"
+                      value="csv"
+                      checked={exportFormat === 'csv'}
+                      onChange={() => setExportFormat('csv')}
+                      className="w-4 h-4 text-gray-900 focus:ring-gray-900"
+                    />
+                    <span className="text-sm text-gray-700">CSV (Excel, Sheets)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="exportFormat"
+                      value="json"
+                      checked={exportFormat === 'json'}
+                      onChange={() => setExportFormat('json')}
+                      className="w-4 h-4 text-gray-900 focus:ring-gray-900"
+                    />
+                    <span className="text-sm text-gray-700">JSON (Developers)</span>
+                  </label>
+                </div>
+              </div>
+              
+              {/* Status Message */}
+              {exportMessage && (
+                <div className={`text-sm px-3 py-2 rounded ${
+                  exportStatus === 'success' 
+                    ? 'bg-green-50 text-green-700' 
+                    : 'bg-red-50 text-red-700'
+                }`}>
+                  {exportMessage}
+                </div>
+              )}
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 px-5 py-4 bg-gray-50 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowExportModal(false)
+                  setExportStatus('idle')
+                  setExportMessage('')
+                }}
+                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleExport}
+                disabled={exportStatus === 'exporting'}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              >
+                {exportStatus === 'exporting' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Export to Downloads
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 export default ComputerActivityPanel
-

@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import Security
 import UIKit
+import Clerk
 
 /// API client for communicating with Ritual backend
 final class RitualAPIClient {
@@ -15,6 +16,7 @@ final class RitualAPIClient {
     private let deviceIdKey = "com.ritual.companion.deviceId"
     private let deviceSecretKey = "com.ritual.companion.deviceSecret"
     private let authTokenKey = "com.ritual.companion.authToken"
+    private let tokenExpiryKey = "com.ritual.companion.tokenExpiry"
     
     // MARK: - Properties
     
@@ -22,8 +24,23 @@ final class RitualAPIClient {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     
+    /// Track consecutive refresh failures
+    private var consecutiveRefreshFailures = 0
+    private let maxRefreshFailures = 3
+    
     var hasStoredCredentials: Bool {
         deviceId != nil && deviceSecret != nil && authToken != nil
+    }
+    
+    /// Check if token is expired or about to expire (within 5 minutes)
+    var isTokenExpiredOrExpiring: Bool {
+        guard let expiry = tokenExpiry else { return true }
+        return expiry.timeIntervalSinceNow < 300 // 5 minutes buffer
+    }
+    
+    private var tokenExpiry: Date? {
+        get { UserDefaults.standard.object(forKey: tokenExpiryKey) as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: tokenExpiryKey) }
     }
     
     private var deviceId: String? {
@@ -63,8 +80,9 @@ final class RitualAPIClient {
     
     init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        // Increased timeouts for large batch syncs (125+ batches can take several minutes)
+        config.timeoutIntervalForRequest = 120  // 2 minutes per request
+        config.timeoutIntervalForResource = 600 // 10 minutes total
         self.session = URLSession(configuration: config)
         
         self.encoder = JSONEncoder()
@@ -95,12 +113,15 @@ final class RitualAPIClient {
         print("✅ Device registered: \(response.deviceId)")
     }
     
-    /// Ingest metrics to the backend
+    /// Ingest metrics to the backend (V1 - legacy)
     func ingestMetrics(_ metrics: [NormalizedMetric]) async throws -> AppleIngestResponse {
         guard let deviceId = deviceId,
               let deviceSecret = deviceSecret else {
             throw APIError.notRegistered
         }
+        
+        // Ensure token is valid before making request
+        try await ensureValidToken()
         
         let clientEventId = UUID().uuidString
         let capturedAt = ISO8601DateFormatter().string(from: Date())
@@ -127,6 +148,103 @@ final class RitualAPIClient {
             path: "/api/wearables/apple/ingest",
             body: request
         )
+    }
+    
+    /// Ingest metrics to the backend (V2 - incremental with added/deleted/modified)
+    func ingestMetricsV2(
+        added: [NormalizedMetric],
+        deleted: [String],
+        modified: [NormalizedMetric],
+        anchors: [String: String]? = nil
+    ) async throws -> AppleIngestResponseV2 {
+        guard let deviceId = deviceId,
+              let deviceSecret = deviceSecret else {
+            throw APIError.notRegistered
+        }
+        
+        // Ensure token is valid before making request
+        try await ensureValidToken()
+        
+        let clientEventId = UUID().uuidString
+        let capturedAt = ISO8601DateFormatter().string(from: Date())
+        
+        let signature = try computeSignature(
+            deviceId: deviceId,
+            clientEventId: clientEventId,
+            capturedAt: capturedAt,
+            deviceSecret: deviceSecret
+        )
+        
+        let request = AppleIngestRequestV2(
+            deviceId: deviceId,
+            clientEventId: clientEventId,
+            capturedAt: capturedAt,
+            added: added,
+            deleted: deleted,
+            modified: modified,
+            anchors: anchors,
+            schemaVersion: 2,
+            signature: signature
+        )
+        
+        return try await post(
+            path: "/api/wearables/apple/ingest/v2",
+            body: request
+        )
+    }
+    
+    // MARK: - Silent Token Refresh
+    
+    /// Ensure we have a valid token, refreshing silently if needed
+    func ensureValidToken() async throws {
+        // If token is not expired, we're good
+        guard isTokenExpiredOrExpiring else { return }
+        
+        print("🔄 Token expired or expiring, attempting silent refresh...")
+        
+        do {
+            try await refreshToken()
+            consecutiveRefreshFailures = 0
+            print("✅ Token refreshed successfully")
+        } catch {
+            consecutiveRefreshFailures += 1
+            print("❌ Token refresh failed (attempt \(consecutiveRefreshFailures)): \(error)")
+            
+            if consecutiveRefreshFailures >= maxRefreshFailures {
+                // Too many failures - token likely revoked
+                throw APIError.tokenRefreshFailed
+            }
+            
+            throw error
+        }
+    }
+    
+    /// Refresh the auth token using Clerk session
+    private func refreshToken() async throws {
+        // Access MainActor-isolated session property
+        let session = await MainActor.run { Clerk.shared.session }
+        
+        guard let session = session else {
+            throw APIError.noSession
+        }
+        
+        // Get a fresh token from Clerk
+        let tokenResult = try await session.getToken()
+        guard let jwt = tokenResult?.jwt, !jwt.isEmpty else {
+            throw APIError.tokenRefreshFailed
+        }
+        
+        // Update stored token
+        authToken = jwt
+        
+        // Clerk tokens typically expire in 1 hour, but let's be conservative
+        tokenExpiry = Date().addingTimeInterval(3300) // 55 minutes
+    }
+    
+    /// Check if Clerk session is valid and token can be refreshed
+    @MainActor
+    func canRefreshToken() -> Bool {
+        return Clerk.shared.session != nil
     }
     
     /// Fetch which metrics the user has selected to track in the desktop app
@@ -301,6 +419,9 @@ enum APIError: LocalizedError {
     case serverError(Int, String)
     case notRegistered
     case invalidSecret
+    case tokenRefreshFailed
+    case noSession
+    case networkUnavailable
     
     var errorDescription: String? {
         switch self {
@@ -316,6 +437,34 @@ enum APIError: LocalizedError {
             return "Device not registered"
         case .invalidSecret:
             return "Invalid device secret"
+        case .tokenRefreshFailed:
+            return "Failed to refresh authentication. Please sign in again."
+        case .noSession:
+            return "No active session. Please sign in."
+        case .networkUnavailable:
+            return "Network unavailable. Will retry when connection is restored."
+        }
+    }
+    
+    /// Whether this error should trigger queuing for later retry
+    var shouldQueue: Bool {
+        switch self {
+        case .networkUnavailable:
+            return true
+        case .httpError(let code) where code >= 500:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    /// Whether this error means the user needs to re-authenticate
+    var requiresReauth: Bool {
+        switch self {
+        case .tokenRefreshFailed, .noSession, .httpError(401):
+            return true
+        default:
+            return false
         }
     }
 }

@@ -30,6 +30,8 @@ interface HistoryScrubberProps {
   onSelectDate: (date: string | null) => void
   selectedDate: string | null
   className?: string
+  /** Visual variant: 'ambient' for thin/subtle Overview, 'detailed' for Metrics */
+  variant?: 'ambient' | 'detailed'
 }
 
 // Precompute daily series from habit logs
@@ -96,15 +98,20 @@ export function HistoryScrubber({
   onHoverDate,
   onSelectDate,
   selectedDate,
-  className
+  className,
+  variant = 'ambient'
 }: HistoryScrubberProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const [isHovering, setIsHovering] = useState(false)
   
-  // Number of ticks - fewer ticks = thicker bars with gaps
+  // Number of ticks - dense but subtle
   const numTicks = 120
+  
+  // Ambient dimensions - subtle, control-like (not chart-like)
+  const svgHeight = 24
+  const barMaxHeight = 18
   
   // Precompute daily series
   const dailySeries = useMemo(
@@ -198,84 +205,76 @@ export function HistoryScrubber({
   // Get hovered day info for label
   const hoveredDay = hoveredIndex !== null ? dailySeries[tickToDayIndex(hoveredIndex)] : null
   
-// Calculate bar height with Thymer-style ripple - BIGGER bars
+  // Calculate bar height - uniform for ambient, subtle ripple on hover
   const getBarHeight = useCallback((tickIndex: number): number => {
-    const baseHeight = 0.45 // 45% when not hovered (prominent baseline)
-    const maxHeight = 1.0   // 100% at peak
+    // Ambient: uniform height, subtle ripple on hover
+    const baseHeight = 0.6 // 60% base - uniform texture
     
     if (!isHovering || hoveredIndex === null) {
       return baseHeight
     }
     
-    // Wider gaussian for smoother, more pronounced ripple
-    const sigma = 10
+    // Very subtle ripple - just enough to show position
+    const sigma = 8
     const ripple = gaussian(tickIndex, hoveredIndex, sigma)
+    const maxHeight = 1.0
     
-    return baseHeight + (maxHeight - baseHeight) * ripple
+    return baseHeight + (maxHeight - baseHeight) * ripple * 0.5
   }, [isHovering, hoveredIndex])
 
   // Generate tick array
   const ticks = useMemo(() => Array.from({ length: numTicks }, (_, i) => i), [numTicks])
-  
-  // SVG dimensions - taller bars
-  const svgHeight = 48
-  const barMaxHeight = 44
-  
-  // Calculate tooltip position - flip to left side if too close to right edge
-  const tooltipPosition = useMemo(() => {
-    if (hoveredIndex === null) return { percentage: 0, flipToLeft: false }
-    const percentage = (hoveredIndex / numTicks) * 100
-    // Flip to left side if we're past 70% of the width
-    const flipToLeft = percentage > 70
-    return { percentage, flipToLeft }
-  }, [hoveredIndex, numTicks])
 
+  // Current display date (hovered or selected)
+  const displayDate = hoveredDay?.dateObj || (selectedDate ? parseISO(selectedDate) : null)
+  
+  // Calculate tooltip position based on hovered index
+  const tooltipLeft = hoveredIndex !== null ? `${(hoveredIndex / numTicks) * 100}%` : '50%'
+  
   return (
-    <div className={cn("relative", className)}>
-      {/* Selected date badge - inline at right */}
-      {selectedDate && selectedTick !== null && !isHovering && (
-        <div className="absolute top-1/2 -translate-y-1/2 right-0 flex items-center gap-2 z-10">
-          <span className="text-xs text-gray-500">
-            Viewing: {format(parseISO(selectedDate), 'MMM d, yyyy')}
+    <div className={cn("relative px-1", className)}>
+      {/* Tooltip above scrubber - only shows on hover */}
+      {isHovering && displayDate && (
+        <div 
+          className="absolute -top-6 transform -translate-x-1/2 pointer-events-none z-10"
+          style={{ left: tooltipLeft }}
+        >
+          <span className="text-xs text-gray-500 bg-white px-1.5 py-0.5 rounded shadow-sm border border-gray-200 whitespace-nowrap">
+            {format(displayDate, 'MMM d, yyyy')}
           </span>
-          <button
-            onClick={() => onSelectDate(null)}
-            className="p-0.5 hover:bg-gray-100 rounded transition-colors"
-            aria-label="Clear selection"
-          >
-            <X className="w-3 h-3 text-gray-400" />
-          </button>
         </div>
       )}
       
-      {/* Waveform container - Thymer style */}
+      {/* Scrubber - full width, aligned with habit rows */}
       <div
         ref={containerRef}
-        className="relative w-full cursor-pointer select-none"
+        className="relative w-full cursor-pointer select-none opacity-40 hover:opacity-60 transition-opacity"
         style={{ height: `${svgHeight}px` }}
         onPointerMove={handlePointerMove}
         onPointerEnter={handlePointerEnter}
         onPointerLeave={handlePointerLeave}
         onClick={handleClick}
       >
-        {/* SVG for crisp rendering */}
         <svg 
-          viewBox={`0 0 ${numTicks * 6} ${svgHeight}`} 
+          viewBox={`0 0 ${numTicks * 4} ${svgHeight}`} 
           preserveAspectRatio="none"
           className="w-full h-full"
         >
           {ticks.map((i) => {
             const heightFactor = getBarHeight(i)
             const barHeight = heightFactor * barMaxHeight
-            const x = i * 6 + 1 // 6px per tick slot (4px bar + 2px gap)
-            const yTop = (svgHeight - barHeight) / 2 // Center vertically
+            const x = i * 4 // 4px per tick slot (2px bar + 2px gap)
+            const yTop = (svgHeight - barHeight) / 2
             
             const isSelected = selectedTick === i
+            const isHovered = hoveredIndex === i
             
-            // Same color for all bars - only height changes on hover
-            let fill = '#D4D4D4' // neutral gray matching button hover style
+            // Subtle grey bars, slightly darker on hover/select
+            let fill = '#9CA3AF' // gray-400
             if (isSelected) {
-              fill = '#22C55E' // green-500 for selected
+              fill = '#4B5563' // gray-600 for selected
+            } else if (isHovered) {
+              fill = '#6B7280' // gray-500 for hovered
             }
             
             return (
@@ -283,45 +282,37 @@ export function HistoryScrubber({
                 key={i}
                 x={x}
                 y={yTop}
-                width={4}
+                width={2}
                 height={barHeight}
-                rx={2}
                 fill={fill}
               />
             )
           })}
           
-          {/* Green playhead for selection only */}
+          {/* Subtle playhead for selection */}
           {selectedTick !== null && (
             <rect
-              x={selectedTick * 6}
+              x={selectedTick * 4}
               y={0}
-              width={5}
+              width={2}
               height={svgHeight}
-              fill="#22C55E"
-              opacity={0.85}
+              fill="#374151"
+              opacity={0.8}
             />
           )}
         </svg>
-        
-        {/* Floating date label inside scrubber - appears to the side of hovered position */}
-        {isHovering && hoveredDay && (
-          <div 
-            className="absolute top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs font-medium whitespace-nowrap z-10 pointer-events-none shadow-lg"
-            style={{
-              left: tooltipPosition.flipToLeft ? 'auto' : `calc(${tooltipPosition.percentage}% + 12px)`,
-              right: tooltipPosition.flipToLeft ? `calc(${100 - tooltipPosition.percentage}% + 12px)` : 'auto',
-              background: 'rgba(255, 255, 255, 0.85)',
-              backdropFilter: 'blur(12px) saturate(180%)',
-              WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-              border: '1px solid rgba(0, 0, 0, 0.08)',
-              borderRadius: '4px',
-            }}
-          >
-            <span className="text-gray-800">{format(hoveredDay.dateObj, 'EEE, MMM d, yyyy')}</span>
-          </div>
-        )}
       </div>
+      
+      {/* Clear selection button - positioned at right */}
+      {selectedDate && (
+        <button
+          onClick={() => onSelectDate(null)}
+          className="absolute right-0 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded transition-colors"
+          aria-label="Clear selection"
+        >
+          <X className="w-3 h-3 text-gray-400" />
+        </button>
+      )}
     </div>
   )
 }

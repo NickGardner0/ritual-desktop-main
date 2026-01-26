@@ -47,7 +47,7 @@ pub struct WatcherConfig {
     pub truncate_length: usize,
     /// Bundle IDs to exclude from tracking
     pub excluded_bundle_ids: Vec<String>,
-    /// AFK timeout in seconds (default: 300 = 5 minutes)
+    /// AFK timeout in seconds (default: 900 = 15 minutes)
     pub afk_timeout_seconds: f64,
     /// URL privacy mode for browser tracking
     pub url_mode: UrlMode,
@@ -67,7 +67,7 @@ impl Default for WatcherConfig {
             title_mode: TitleMode::Off,
             truncate_length: 80,
             excluded_bundle_ids: Vec::new(),
-            afk_timeout_seconds: 300.0, // 5 minutes
+            afk_timeout_seconds: 900.0, // 15 minutes - better for coding/reading
             url_mode: UrlMode::DomainOnly,
             track_incognito: false, // Privacy-preserving default
             pulsetime_seconds: 3.0, // poll_interval + 1 second buffer

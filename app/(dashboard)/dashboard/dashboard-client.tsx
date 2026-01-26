@@ -10,7 +10,23 @@ import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useClerk, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
-import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
 import { HistoryScrubber } from '@/components/history-scrubber';
 
@@ -64,6 +80,137 @@ const getHabitIcon = (name: string, category: string) => {
   return iconMap[key] || '📈';
 };
 
+// Sortable habit item component for drag and drop
+interface SortableHabitItemProps {
+  habit: Habit;
+  getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
+  scrubberHoveredDate: string | null;
+  scrubberHoveredValues: Record<string, number> | null;
+  activeTooltip: string | null;
+  setActiveTooltip: (id: string | null) => void;
+  getHabitMetricStats: (habit: Habit) => {
+    sumFormatted: string;
+    avgFormatted: string;
+    minFormatted: string;
+    maxFormatted: string;
+    stdDevFormatted: string;
+  };
+  confirmDelete: (habitId: string | undefined) => void;
+  deletingHabit: string | null;
+}
+
+function SortableHabitItem({
+  habit,
+  getHabitMetricDisplay,
+  scrubberHoveredDate,
+  scrubberHoveredValues,
+  activeTooltip,
+  setActiveTooltip,
+  getHabitMetricStats,
+  confirmDelete,
+  deletingHabit,
+}: SortableHabitItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: habit.id || '' });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${
+        isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing opacity-90' : ''
+      }`}
+    >
+      <div className="flex items-center min-w-0 gap-1.5">
+        <span className="flex items-center justify-center w-5 h-5 flex-shrink-0">
+          {habit.icon ? (
+            /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
+              <span className="text-base leading-none">{habit.icon}</span>
+            ) : (
+              <HabitIcon iconName={habit.icon} />
+            )
+          ) : (
+            <span className="text-base leading-none">{getHabitIcon(habit.name, habit.category)}</span>
+          )}
+        </span>
+        <span className="text-[17px] font-normal text-gray-900 truncate">{habit.name}</span>
+      </div>
+      <div
+        className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '');
+        }}
+      >
+        <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
+          {getHabitMetricDisplay(
+            habit, 
+            scrubberHoveredDate && scrubberHoveredValues 
+              ? scrubberHoveredValues[habit.id || ''] 
+              : undefined
+          )}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
+          disabled={deletingHabit === habit.id}
+          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
+          title="Delete habit"
+        >
+          {deletingHabit === habit.id ? (
+            <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <X className="w-3 h-3" />
+          )}
+        </button>
+        {activeTooltip === habit.id && (
+          <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]">
+            {(() => {
+              const s = getHabitMetricStats(habit);
+              return (
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Sum</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Average</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Min</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Max</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Std Dev</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function DashboardClient() {
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
@@ -225,19 +372,33 @@ export function DashboardClient() {
     }
   }, [habits, user?.id]);
 
+  // Configure sensors for drag and drop
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px movement before starting drag
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
   // Handle drag end
-  const handleDragEnd = (result: DropResult) => {
-    if (!result.destination) return;
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
 
-    const items = Array.from(orderedHabits);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
+    if (over && active.id !== over.id) {
+      const oldIndex = orderedHabits.findIndex(h => h.id === active.id);
+      const newIndex = orderedHabits.findIndex(h => h.id === over.id);
+      const items = arrayMove(orderedHabits, oldIndex, newIndex);
 
-    setOrderedHabits(items);
+      setOrderedHabits(items);
 
-    // Save order to localStorage
-    const orderIds = items.map(h => h.id || '');
-    localStorage.setItem(`habit-order-${user?.id}`, JSON.stringify(orderIds));
+      // Save order to localStorage
+      const orderIds = items.map(h => h.id || '');
+      localStorage.setItem(`habit-order-${user?.id}`, JSON.stringify(orderIds));
+    }
   };
 
   // Close tooltip when clicking outside or pressing escape
@@ -701,105 +862,31 @@ export function DashboardClient() {
       {!isFullScreenChat && (
         <div className="mt-8">
           <div className="max-w-[500px] mx-auto w-full">
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="habits">
-                {(provided) => (
-                  <div
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                  >
-                    {orderedHabits.map((habit, index) => (
-                      <Draggable key={habit.id} draggableId={habit.id || ''} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${snapshot.isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing' : ''
-                              }`}
-                          >
-                            <div className="flex items-center min-w-0 gap-1.5">
-                              <span
-                                className="flex items-center justify-center w-5 h-5 flex-shrink-0"
-                              >
-                                {habit.icon ? (
-                                  // Check if it's an emoji (contains emoji characters)
-                                  /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
-                                    <span className="text-base leading-none">{habit.icon}</span>
-                                  ) : (
-                                    <HabitIcon iconName={habit.icon} />
-                                  )
-                                ) : (
-                                  <span className="text-base leading-none">{getHabitIcon(habit.name, habit.category)}</span>
-                                )}
-                              </span>
-                              <span className="text-[17px] font-normal text-gray-900 truncate">{habit.name}</span>
-                            </div>
-                            <div
-                              className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
-                              onClick={() => setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '')}
-                            >
-                              <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
-                                {getHabitMetricDisplay(
-                                  habit, 
-                                  scrubberHoveredDate && scrubberHoveredValues 
-                                    ? scrubberHoveredValues[habit.id || ''] 
-                                    : undefined
-                                )}
-                              </span>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
-                                disabled={deletingHabit === habit.id}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
-                                title="Delete habit"
-                              >
-                                {deletingHabit === habit.id ? (
-                                  <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-                                ) : (
-                                  <X className="w-3 h-3" />
-                                )}
-                              </button>
-                              {activeTooltip === habit.id && (
-                                <div className="absolute top-full right-0 mt-2 p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]">
-                                  {(() => {
-                                    const s = getHabitMetricStats(habit);
-                                    return (
-                                      <div className="space-y-1.5 text-sm">
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-gray-900">Sum</span>
-                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-gray-900">Average</span>
-                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-gray-900">Min</span>
-                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-gray-900">Max</span>
-                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-gray-900">Std Dev</span>
-                                          <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            </DragDropContext>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={orderedHabits.map(h => h.id || '')}
+                strategy={verticalListSortingStrategy}
+              >
+                {orderedHabits.map((habit) => (
+                  <SortableHabitItem
+                    key={habit.id}
+                    habit={habit}
+                    getHabitMetricDisplay={getHabitMetricDisplay}
+                    scrubberHoveredDate={scrubberHoveredDate}
+                    scrubberHoveredValues={scrubberHoveredValues}
+                    activeTooltip={activeTooltip}
+                    setActiveTooltip={setActiveTooltip}
+                    getHabitMetricStats={getHabitMetricStats}
+                    confirmDelete={confirmDelete}
+                    deletingHabit={deletingHabit}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         </div>
       )}

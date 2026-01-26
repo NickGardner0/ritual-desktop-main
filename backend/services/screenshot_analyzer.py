@@ -1,14 +1,25 @@
 """
 Screenshot Analyzer Service
 
-Uses OpenAI's vision model to analyze screenshots and extract habit data.
+Uses Gemini Flash (primary) or OpenAI (fallback) to analyze screenshots and extract habit data.
+Gemini Flash is ~3x faster than GPT-4o-mini for vision tasks.
+
 Can detect various types of data: screen time, meetings, workouts, reading, etc.
 """
 
 import base64
 import json
 import os
+import time
 from typing import Optional, List, Dict, Any
+
+# Try to import Gemini first (primary), OpenAI as fallback
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("⚠️ google-generativeai not installed, falling back to OpenAI")
 
 from openai import OpenAI
 
@@ -21,16 +32,31 @@ class ScreenshotAnalysisError(Exception):
         super().__init__(self.message)
 
 
+def _get_gemini_model():
+    """
+    Get Gemini Flash model for fast vision analysis.
+    Uses gemini-2.0-flash (fastest, best quality, Tier 1 billing).
+    """
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        print("⚠️ No GEMINI_API_KEY found, will use OpenAI fallback")
+        return None
+    
+    print(f"✅ Gemini API key found (starts with: {api_key[:10]}...)")
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-2.0-flash")
+
+
 def _get_openai_client() -> OpenAI:
     """
-    Get OpenAI client, raising a clear error if API key is missing.
+    Get OpenAI client as fallback.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ScreenshotAnalysisError(
-            "Screenshot import requires an OpenAI API key configured on the server. "
-            "Please set the OPENAI_API_KEY environment variable.",
-            code="OPENAI_KEY_MISSING"
+            "Screenshot import requires an API key. "
+            "Please set GEMINI_API_KEY or OPENAI_API_KEY environment variable.",
+            code="API_KEY_MISSING"
         )
     return OpenAI(api_key=api_key)
 
@@ -39,44 +65,9 @@ def _get_openai_client() -> OpenAI:
 DEFAULT_MIN_CONFIDENCE = 0.75
 
 
-def analyze_screenshot_for_habits(
-    image_bytes: bytes, 
-    available_habits: List[Dict[str, Any]],
-    min_confidence: float = DEFAULT_MIN_CONFIDENCE
-) -> Optional[Dict[str, Any]]:
-    """
-    Uses OpenAI vision to analyze a screenshot and extract habit data.
-    
-    Args:
-        image_bytes: Raw bytes of the screenshot image
-        available_habits: List of user's habits with their names and units
-        min_confidence: Minimum confidence threshold (0-1). Results below this
-                       will be flagged as low confidence.
-        
-    Returns:
-        Dict with:
-        - habit_name: Name of the matched habit (or suggested new habit)
-        - habit_id: ID of the matched habit (or None if new)
-        - value: The extracted numeric value
-        - unit: The unit of the value
-        - confidence: How confident the model is (0-1)
-        - low_confidence: True if confidence is below threshold
-        - description: What was detected in the screenshot
-        
-        Returns None if nothing useful could be extracted.
-        
-    Raises:
-        ScreenshotAnalysisError: If OpenAI API key is missing or analysis fails
-    """
-    # Get client (will raise ScreenshotAnalysisError if key is missing)
-    client = _get_openai_client()
-    # Build list of available habits for the prompt
-    habits_list = "\n".join([
-        f"- {h['name']} (unit: {h.get('unit_type', 'unknown')}, id: {h['id']})"
-        for h in available_habits
-    ])
-    
-    system_prompt = f"""You are an AI assistant that analyzes screenshots to extract habit/activity data.
+def _build_analysis_prompt(habits_list: str) -> str:
+    """Build the analysis prompt for both Gemini and OpenAI."""
+    return f"""You are an AI assistant that analyzes screenshots to extract habit/activity data.
 
 The user has the following habits they track:
 {habits_list}
@@ -122,17 +113,74 @@ If you cannot extract useful data, return:
 {{"error": "reason why extraction failed"}}
 """
 
+
+def _analyze_with_gemini(
+    image_bytes: bytes,
+    prompt: str,
+    available_habits: List[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Analyze screenshot using Gemini Flash (faster than OpenAI).
+    """
+    model = _get_gemini_model()
+    if not model:
+        return None
+    
+    start_time = time.time()
+    
+    try:
+        # Gemini accepts image bytes directly
+        import PIL.Image
+        import io
+        
+        image = PIL.Image.open(io.BytesIO(image_bytes))
+        
+        response = model.generate_content(
+            [prompt, image],
+            generation_config=genai.types.GenerationConfig(
+                temperature=0.0,
+                max_output_tokens=500,
+            ),
+        )
+        
+        elapsed = time.time() - start_time
+        raw_content = response.text
+        print(f"🚀 Gemini Flash response ({elapsed:.2f}s): {raw_content}")
+        
+        return _parse_analysis_response(raw_content, available_habits)
+        
+    except Exception as e:
+        import traceback
+        print(f"⚠️ Gemini analysis failed: {e}")
+        print(f"   Error type: {type(e).__name__}")
+        print(f"   Traceback: {traceback.format_exc()}")
+        print("   Falling back to OpenAI...")
+        return None
+
+
+def _analyze_with_openai(
+    image_bytes: bytes,
+    prompt: str,
+    available_habits: List[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """
+    Analyze screenshot using OpenAI GPT-4o-mini (fallback).
+    """
+    client = _get_openai_client()
+    
+    start_time = time.time()
+    
     # Encode as base64
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:image/png;base64,{b64}"
-
+    
     try:
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system",
-                    "content": system_prompt,
+                    "content": prompt,
                 },
                 {
                     "role": "user",
@@ -152,28 +200,76 @@ If you cannot extract useful data, return:
             max_tokens=500,
         )
 
+        elapsed = time.time() - start_time
         raw_content = completion.choices[0].message.content
-        print(f"🔍 OpenAI vision response: {raw_content}")
+        print(f"🔍 OpenAI vision response ({elapsed:.2f}s): {raw_content}")
         
-        result = _parse_analysis_response(raw_content, available_habits)
+        return _parse_analysis_response(raw_content, available_habits)
         
-        # Add confidence gating
-        if result:
-            confidence = result.get("confidence", 0.5)
-            result["low_confidence"] = confidence < min_confidence
-            result["min_confidence_threshold"] = min_confidence
-        
-        return result
-        
-    except ScreenshotAnalysisError:
-        # Re-raise our custom errors
-        raise
     except Exception as e:
         print(f"❌ OpenAI vision API error: {e}")
         raise ScreenshotAnalysisError(
             f"Failed to analyze screenshot: {str(e)}",
             code="ANALYSIS_FAILED"
         )
+
+
+def analyze_screenshot_for_habits(
+    image_bytes: bytes, 
+    available_habits: List[Dict[str, Any]],
+    min_confidence: float = DEFAULT_MIN_CONFIDENCE
+) -> Optional[Dict[str, Any]]:
+    """
+    Analyzes a screenshot and extracts habit data.
+    
+    Uses Gemini Flash (primary, ~2-3s) with OpenAI fallback (~6s).
+    
+    Args:
+        image_bytes: Raw bytes of the screenshot image
+        available_habits: List of user's habits with their names and units
+        min_confidence: Minimum confidence threshold (0-1). Results below this
+                       will be flagged as low confidence.
+        
+    Returns:
+        Dict with:
+        - habit_name: Name of the matched habit (or suggested new habit)
+        - habit_id: ID of the matched habit (or None if new)
+        - value: The extracted numeric value
+        - unit: The unit of the value
+        - confidence: How confident the model is (0-1)
+        - low_confidence: True if confidence is below threshold
+        - description: What was detected in the screenshot
+        
+        Returns None if nothing useful could be extracted.
+        
+    Raises:
+        ScreenshotAnalysisError: If API keys are missing or analysis fails
+    """
+    # Build list of available habits for the prompt
+    habits_list = "\n".join([
+        f"- {h['name']} (unit: {h.get('unit_type', 'unknown')}, id: {h['id']})"
+        for h in available_habits
+    ])
+    
+    prompt = _build_analysis_prompt(habits_list)
+    
+    result = None
+    
+    # Try Gemini Flash first (faster)
+    if GEMINI_AVAILABLE:
+        result = _analyze_with_gemini(image_bytes, prompt, available_habits)
+    
+    # Fall back to OpenAI if Gemini failed or isn't available
+    if result is None:
+        result = _analyze_with_openai(image_bytes, prompt, available_habits)
+    
+    # Add confidence gating
+    if result:
+        confidence = result.get("confidence", 0.5)
+        result["low_confidence"] = confidence < min_confidence
+        result["min_confidence_threshold"] = min_confidence
+    
+    return result
 
 
 def _parse_analysis_response(

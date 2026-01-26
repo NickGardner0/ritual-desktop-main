@@ -58,9 +58,65 @@ const wearableDevices = ['Screen Time (phone/computer)', 'Apple Watch', 'Oura Ri
 
 export default function OnboardingPage() {
   const router = useRouter()
-  const { user } = useUser()
+  const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [checkingStatus, setCheckingStatus] = useState(true)
+
+  // Check if user has already completed onboarding
+  useEffect(() => {
+    const checkOnboardingStatus = async () => {
+      // Check localStorage first (fastest check)
+      const hasCompletedLocally = localStorage.getItem('ritual-onboarding-completed') === 'true'
+      if (hasCompletedLocally) {
+        console.log('🔄 User already completed onboarding (localStorage), redirecting to dashboard')
+        window.location.href = '/dashboard'
+        return
+      }
+
+      // If user is loaded, check backend
+      if (isLoaded && user) {
+        try {
+          const token = await getToken()
+          if (token) {
+            // Check if user has habits (indicates they're an existing user)
+            const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (habitsResponse.ok) {
+              const habits = await habitsResponse.json()
+              if (habits && habits.length > 0) {
+                console.log('🔄 User has existing habits, redirecting to dashboard')
+                localStorage.setItem('ritual-onboarding-completed', 'true')
+                window.location.href = '/dashboard'
+                return
+              }
+            }
+
+            // Check backend profile
+            const response = await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (response.ok) {
+              const profile = await response.json()
+              if (profile.onboarding_completed) {
+                console.log('🔄 User already completed onboarding (backend), redirecting to dashboard')
+                localStorage.setItem('ritual-onboarding-completed', 'true')
+                window.location.href = '/dashboard'
+                return
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking onboarding status:', error)
+        }
+      }
+
+      setCheckingStatus(false)
+    }
+
+    checkOnboardingStatus()
+  }, [isLoaded, user, getToken])
 
   // Set compact window size for onboarding
   useEffect(() => {
@@ -105,10 +161,13 @@ export default function OnboardingPage() {
       const userData = await response.json()
       console.log('✅ Onboarding completed successfully:', userData)
 
+      // Always set the local onboarding completed flag
+      localStorage.setItem('ritual-onboarding-completed', 'true')
+
       const isFromWelcome = localStorage.getItem('ritual-from-welcome')
       if (isFromWelcome === 'true') {
         localStorage.setItem('ritual-onboarding-backend-completed', 'true')
-        window.location.href = '/welcome?page=4'
+        window.location.href = '/?page=4'
       } else {
         window.location.href = '/dashboard'
       }
@@ -117,6 +176,17 @@ export default function OnboardingPage() {
       alert(`Error saving onboarding data: ${error instanceof Error ? error.message : String(error)}`)
       setLoading(false)
     }
+  }
+
+  // Show loading while checking onboarding status
+  if (checkingStatus) {
+    return (
+      <div className="flex min-h-screen justify-center items-center overflow-hidden p-6 md:p-0 bg-white">
+        <div className="text-center">
+          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto" />
+        </div>
+      </div>
+    )
   }
 
   return (

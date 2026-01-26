@@ -40,7 +40,7 @@ export function DeepDrillDrawer({
   const shouldShowUrls = privacyMode === 'full' || privacyMode === 'truncate'
   
   return (
-    <div className={`border-t border-gray-200 bg-gray-50/50 ${className}`}>
+    <div className={`border-t border-gray-200 bg-white ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
         <div className="flex items-center gap-3">

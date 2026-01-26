@@ -107,6 +107,10 @@ async def init_database():
                 result = await session.execute(text("SELECT COUNT(*) FROM users"))
                 count = result.scalar()
                 print(f"✅ Database ready: {count} user(s)")
+                
+                # Run lightweight migrations for new columns
+                await _run_migrations(session)
+                
                 return  # Success!
                 
         except Exception as e:
@@ -122,6 +126,31 @@ async def init_database():
                     print("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
                 else:
                     print(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
+
+
+async def _run_migrations(session):
+    """Run lightweight schema migrations for new columns."""
+    from sqlalchemy import text
+    
+    migrations = [
+        # Add afk_timeout_seconds to watcher_state (15 min default)
+        ("watcher_state", "afk_timeout_seconds", "ALTER TABLE watcher_state ADD COLUMN afk_timeout_seconds INTEGER DEFAULT 900"),
+    ]
+    
+    for table, column, sql in migrations:
+        try:
+            # Check if column exists
+            result = await session.execute(text(f"PRAGMA table_info({table})"))
+            columns = [row[1] for row in result.fetchall()]
+            
+            if column not in columns:
+                await session.execute(text(sql))
+                await session.commit()
+                print(f"  ✅ Added {table}.{column}")
+        except Exception as e:
+            # Table might not exist yet, or column already exists
+            if "no such table" not in str(e).lower():
+                print(f"  ⚠️ Migration {table}.{column}: {e}")
 
 async def close_database():
     """Close database connections"""

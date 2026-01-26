@@ -25,6 +25,7 @@ import {
   buildAttentionHeader,
   startOfDayLocal,
   endOfDayLocal,
+  deduplicateEvents,
 } from './derive'
 
 // ============================================================
@@ -240,12 +241,20 @@ export function useComputerActivity(
       
       const fetchedEvents = await fetchActivityEvents(timeRange.start, timeRange.end)
       
-      // Cache the result
-      setCachedEvents(timeRange.start, timeRange.end, fetchedEvents)
+      // Apply deduplication to remove redundant overlapping events
+      // This handles cases where multiple watcher instances recorded similar events
+      const dedupedEvents = deduplicateEvents(fetchedEvents)
+      
+      if (dedupedEvents.length < fetchedEvents.length) {
+        console.log(`[useComputerActivity] Deduplicated ${fetchedEvents.length - dedupedEvents.length} redundant events`)
+      }
+      
+      // Cache the deduplicated result
+      setCachedEvents(timeRange.start, timeRange.end, dedupedEvents)
       
       // Only update if this is still the latest request
       if (currentRequestId === requestIdRef.current) {
-        setEvents(fetchedEvents)
+        setEvents(dedupedEvents)
         setIsLoading(false)
       }
     } catch (err) {

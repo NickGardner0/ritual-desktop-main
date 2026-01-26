@@ -382,6 +382,7 @@ class WatcherStateDB(Base):
     excluded_bundle_ids = Column(Text, nullable=True)  # JSON array
     sync_analytics = Column(Integer, nullable=False, default=0)
     sync_raw_to_cloud = Column(Integer, nullable=False, default=0)
+    afk_timeout_seconds = Column(Integer, nullable=False, default=900)  # 15 min default
     updated_at = Column(Integer, nullable=False)  # Unix ms
     
     # Relationships

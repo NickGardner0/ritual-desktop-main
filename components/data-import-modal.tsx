@@ -1201,7 +1201,7 @@ export function DataImportModal({
                 </div>
                 <div className="border border-gray-200 max-h-64 overflow-y-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-[#FAFAF9] sticky top-0">
+                    <thead className="bg-white sticky top-0 border-b border-gray-200">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Habit</th>
                         <th className="px-3 py-2 text-left font-medium text-gray-600">Date</th>

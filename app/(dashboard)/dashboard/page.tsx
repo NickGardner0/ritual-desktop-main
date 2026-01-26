@@ -1,17 +1,18 @@
 /**
- * Dashboard Page - Server Component
+ * Dashboard/Index Page - Server Component
  * 
- * This is the page shell that:
- * - Defines metadata for SEO
- * - Wraps the client component in Suspense for streaming
- * - Provides the loading skeleton during initial load
+ * Unified page with Overview/Metrics toggle (Midday-style).
+ * This is the primary destination combining:
+ * - Overview: Habit list with totals and stats
+ * - Metrics: Spark cards, charts, and computer activity
  * 
- * The actual interactive dashboard is in dashboard-client.tsx
+ * URL params:
+ * - ?view=overview - Shows the habit list (default)
+ * - ?view=metrics - Shows the charts and spark cards
  */
 
 import { Suspense } from 'react';
-import { DashboardClient } from './dashboard-client';
-import DashboardLoading from './loading';
+import { UnifiedAnalyticsClient } from '@/components/analytics/unified-analytics-client';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -19,10 +20,43 @@ export const metadata: Metadata = {
   description: 'Track and manage your daily habits',
 };
 
+// Loading skeleton
+function DashboardLoading() {
+  return (
+    <div className="space-y-6 p-6 lg:p-8">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <div className="h-8 w-32 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+          <div className="h-4 w-48 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-32 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+          <div className="h-9 w-40 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+        </div>
+      </div>
+      
+      {/* Content skeleton */}
+      <div className="max-w-[500px] mx-auto space-y-2">
+        {[1, 2, 3, 4, 5, 6].map(i => (
+          <div 
+            key={i} 
+            className="h-8 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" 
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
-    return (
-    <Suspense fallback={<DashboardLoading />}>
-      <DashboardClient />
-      </Suspense>
-    );
-  }
+  return (
+    <div className="flex-1 overflow-auto bg-white relative">
+      <div className="max-w-7xl mx-auto p-6 lg:p-8">
+        <Suspense fallback={<DashboardLoading />}>
+          <UnifiedAnalyticsClient />
+        </Suspense>
+      </div>
+    </div>
+  );
+}

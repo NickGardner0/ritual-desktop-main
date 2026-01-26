@@ -34,6 +34,9 @@ final class AppState: ObservableObject {
     /// Whether we're currently fetching tracked metrics
     @Published var isFetchingTrackedMetrics: Bool = false
     
+    /// V2: Current sync status for UI display
+    @Published var syncStatus: BackgroundSyncManagerV2.SyncStatus = .neverSynced
+    
     // MARK: - Services
     
     let healthKitManager = HealthKitManager()
@@ -257,6 +260,12 @@ final class AppState: ObservableObject {
                 message = "Device registration failed."
             case .invalidSecret:
                 message = "Device secret error."
+            case .tokenRefreshFailed:
+                message = "Authentication expired. Please sign in again."
+            case .noSession:
+                message = "No active session. Please sign in."
+            case .networkUnavailable:
+                message = "Network unavailable. Please check your connection."
             }
             showError(message: message)
         } catch {
@@ -289,10 +298,9 @@ final class AppState: ObservableObject {
         print("📱 Disconnected - user will need to sign in again")
     }
     
-    /// Sync metrics to the backend
+    /// Sync metrics to the backend using V2 incremental sync
     /// - Parameter showErrorsToUser: If true, show error dialogs to user. Set to false for background syncs.
-    /// - Parameter daysBack: Number of days of historical data to sync. Default 7 for manual syncs, use 1 for background syncs.
-    func syncNow(showErrorsToUser: Bool = true, daysBack: Int = 7) async {
+    func syncNow(showErrorsToUser: Bool = true) async {
         guard isConnected else {
             if showErrorsToUser {
                 showError(message: "Device is not connected. Please connect first.")
@@ -320,82 +328,30 @@ final class AppState: ObservableObject {
         guard !isSyncing else { return }
         
         isSyncing = true
-        defer { isSyncing = false }
         
-        do {
-            // DEBUG: Show detailed breakdown if syncing steps (manual sync only)
-            #if DEBUG
-            if showErrorsToUser && trackedMetricTypes.contains("steps") {
-                print("\n🔬 Running steps debug analysis before sync...")
-                await healthKitManager.debugStepsLast7Days()
+        print("📱 Starting manual sync via V2 incremental sync...")
+        
+        // Use V2 sync manager which handles incremental sync with batching
+        await BackgroundSyncManagerV2.shared.performIncrementalSync(isBackground: false)
+        
+        // Update UI state from V2 manager
+        let syncManager = BackgroundSyncManagerV2.shared
+        lastSyncTime = syncManager.lastSyncTime
+        syncStatus = syncManager.syncStatus
+        
+        isSyncing = false
+        
+        // Show error if sync failed
+        if showErrorsToUser, let error = syncManager.lastError {
+            // Only show if the error is recent (within last 30 seconds)
+            if let errorTime = syncManager.lastErrorTime,
+               Date().timeIntervalSince(errorTime) < 30 {
+                showError(message: "Sync failed: \(error)")
             }
-            #endif
-            
-            // Fetch only the tracked metrics from HealthKit
-            // Manual syncs get 7 days of history, background syncs get just today
-            let metrics = try await healthKitManager.fetchMetrics(forTypes: trackedMetricTypes, daysBack: daysBack)
-            
-            guard !metrics.isEmpty else {
-                print("📊 No metrics to sync for tracked types: \(trackedMetricTypes)")
-                lastSyncTime = Date()
-                // Don't show error for empty metrics - this is normal
-                return
-            }
-            
-            print("📊 Syncing \(metrics.count) metrics for types: \(trackedMetricTypes)...")
-            
-            // Send to backend
-            let response = try await apiClient.ingestMetrics(metrics)
-            
-            if response.success {
-                lastSyncTime = Date()
-                print("✅ Sync completed successfully")
-                // Clear any previous errors on success
-                errorMessage = nil
-            } else {
-                let failedCount = response.results.filter { !$0.success }.count
-                if failedCount > 0 {
-                    let errorMessages = response.results
-                        .filter { !$0.success }
-                        .compactMap { $0.error }
-                        .prefix(3)
-                        .joined(separator: ", ")
-                    
-                    showError(message: "\(failedCount) metric(s) failed to sync\(errorMessages.isEmpty ? "" : ": \(errorMessages)")")
-                }
-                lastSyncTime = Date()
-            }
-        } catch let error as APIError {
-            print("❌ Sync failed: \(error)")
-            
-            // Only show errors to user for manual syncs, not background syncs
-            guard showErrorsToUser else { return }
-            
-            let message: String
-            switch error {
-            case .httpError(let code):
-                if code == 401 {
-                    message = "Authentication expired. Please reconnect."
-                } else if code == 404 {
-                    message = "Sync endpoint not found. Check your API configuration."
-                } else {
-                    message = "Sync failed (HTTP \(code))"
-                }
-            case .serverError(_, let detail):
-                message = "Sync failed: \(detail)"
-            case .notRegistered:
-                message = "Device not registered. Please reconnect."
-            case .invalidURL:
-                message = "Invalid API URL. Check configuration."
-            case .invalidResponse, .invalidSecret:
-                message = "Sync failed: \(error.localizedDescription)"
-            }
-            showError(message: message)
-        } catch {
-            print("❌ Sync failed: \(error)")
-            if showErrorsToUser {
-                showError(message: "Sync failed: \(error.localizedDescription)")
-            }
+        } else if lastSyncTime != nil {
+            // Clear any previous errors on success
+            errorMessage = nil
+            print("✅ Manual sync completed successfully")
         }
     }
     

@@ -4,7 +4,7 @@ Mirrors the TypeScript contracts in @ritual/shared-contracts.
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Any, Literal
+from typing import Optional, List, Any, Literal, Dict
 from datetime import datetime
 from enum import Enum
 
@@ -88,7 +88,14 @@ class NormalizedMetricSchema(BaseModel):
     # Optional context
     confidence: Optional[float] = Field(None, ge=0, le=1, description="Confidence score 0..1")
     device_id: Optional[str] = None
-    external_id: Optional[str] = Field(None, description="Source-specific ID (e.g., HealthKit sample UUID)")
+    external_id: Optional[str] = Field(None, description="Source-specific ID (e.g., HealthKit sample UUID) - CRITICAL for incremental sync")
+    
+    # Source tracking for multi-source filtering
+    source_bundle_id: Optional[str] = Field(None, description="Bundle ID of source app (e.g., com.apple.health)")
+    source_device_name: Optional[str] = Field(None, description="Name of source device (e.g., Apple Watch Series 9)")
+    
+    # Sleep-specific: attributed date (wake day for overnight sleep)
+    attributed_date: Optional[str] = Field(None, description="YYYY-MM-DD - the day this metric 'belongs to' in the UI")
     
     # Metadata
     recorded_at: Optional[str] = Field(None, description="ISO8601 timestamp when captured on device")
@@ -109,7 +116,7 @@ class NormalizedMetricSchema(BaseModel):
 
 class AppleIngestRequest(BaseModel):
     """
-    Request payload for ingesting Apple Health metrics.
+    Request payload for ingesting Apple Health metrics (V1 - legacy).
     """
     device_id: str = Field(..., min_length=1, description="Device ID from registration")
     client_event_id: str = Field(..., min_length=1, description="Client-generated UUID for idempotency")
@@ -134,6 +141,47 @@ class AppleIngestRequest(BaseModel):
             raise ValueError(f"Invalid ISO8601 timestamp: {v}")
 
 
+class AppleIngestRequestV2(BaseModel):
+    """
+    V2 Request payload with incremental sync support (added/deleted/modified).
+    """
+    device_id: str = Field(..., min_length=1, description="Device ID from registration")
+    client_event_id: str = Field(..., min_length=1, description="Client-generated UUID for idempotency")
+    captured_at: str = Field(..., description="ISO8601 timestamp when data was captured on device")
+    
+    # Incremental sync arrays
+    added: List[NormalizedMetricSchema] = Field(
+        default=[],
+        max_length=500,
+        description="New/updated metrics since last anchor"
+    )
+    deleted: List[str] = Field(
+        default=[],
+        max_length=500,
+        description="HealthKit UUIDs of deleted samples"
+    )
+    modified: List[NormalizedMetricSchema] = Field(
+        default=[],
+        max_length=500,
+        description="Modified metrics (same external_id, new values)"
+    )
+    
+    # Anchors per metric type (for confirmation)
+    anchors: Optional[Dict[str, str]] = Field(None, description="Anchors per metric type")
+    
+    schema_version: int = Field(2, ge=2, le=10, description="Schema version (2 for incremental)")
+    signature: str = Field(..., min_length=1, description="HMAC-SHA256 signature")
+    
+    @field_validator('captured_at')
+    @classmethod
+    def validate_captured_at(cls, v: str) -> str:
+        try:
+            datetime.fromisoformat(v.replace('Z', '+00:00'))
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid ISO8601 timestamp: {v}")
+
+
 class AppleIngestResult(BaseModel):
     """Per-metric result in the ingest response"""
     index: int = Field(..., ge=0, description="Index of the metric in the request array")
@@ -143,11 +191,45 @@ class AppleIngestResult(BaseModel):
 
 
 class AppleIngestResponse(BaseModel):
-    """Response from the ingest endpoint"""
+    """Response from the ingest endpoint (V1)"""
     success: bool = Field(..., description="True if at least one metric was stored")
     results: List[AppleIngestResult]
     server_time: str = Field(..., description="ISO8601 server time when request was processed")
     next_poll_seconds: Optional[int] = Field(None, ge=0, description="Suggested seconds until next poll")
+
+
+class DeleteResult(BaseModel):
+    """Result of a deletion operation"""
+    external_id: str = Field(..., description="HealthKit UUID that was requested to be deleted")
+    success: bool
+    error: Optional[str] = None
+
+
+class AppleIngestResponseV2(BaseModel):
+    """Response from the V2 ingest endpoint with incremental sync support"""
+    success: bool = Field(..., description="True if at least one operation succeeded")
+    added_results: List[AppleIngestResult] = Field(default=[], description="Results for added metrics")
+    deleted_results: List[DeleteResult] = Field(default=[], description="Results for deleted metrics")
+    modified_results: List[AppleIngestResult] = Field(default=[], description="Results for modified metrics")
+    server_time: str = Field(..., description="ISO8601 server time when request was processed")
+    next_poll_seconds: Optional[int] = Field(None, ge=0, description="Suggested seconds until next poll")
+    # Confirmed anchors - client should only update local anchors after receiving this
+    confirmed_anchors: Optional[Dict[str, str]] = Field(None, description="Confirmed anchors per metric type")
+
+
+class SyncStatusResponse(BaseModel):
+    """Device sync status for desktop UI"""
+    device_id: str
+    device_name: str
+    platform: str
+    is_connected: bool = True
+    last_successful_sync: Optional[str] = None
+    last_sync_attempt: Optional[str] = None
+    last_error: Optional[str] = None
+    last_error_time: Optional[str] = None
+    metrics_synced_today: int = 0
+    background_sync_enabled: bool = True
+    offline_queue_count: int = 0
 
 
 class DeviceRegisterRequest(BaseModel):

@@ -13,9 +13,9 @@ export default function IntegrationsLoading() {
     <div className="flex-1 overflow-auto">
       <div className="max-w-7xl mx-auto py-8 px-8">
         {/* Header Skeleton */}
-        <div className="flex items-center mb-8">
-          <div className={`w-5 h-5 rounded mr-2 ${shimmerClass}`}></div>
-          <div className={`h-6 w-32 rounded ${shimmerClass}`}></div>
+        <div className="flex items-center mb-6">
+          <div className={`w-4 h-4 rounded mr-2 ${shimmerClass}`}></div>
+          <div className={`h-5 w-28 rounded ${shimmerClass}`}></div>
         </div>
 
         {/* Integration Cards Grid Skeleton */}
@@ -23,29 +23,28 @@ export default function IntegrationsLoading() {
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div 
               key={i} 
-              className="bg-white border border-gray-200 p-5 h-[280px]"
+              className="bg-white border border-gray-200 p-4 h-[200px]"
             >
               {/* Logo */}
-              <div className="h-14 mb-4">
-                <div className={`w-24 h-12 rounded ${shimmerClass}`}></div>
+              <div className="h-10 mb-2">
+                <div className={`w-16 h-7 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Title */}
-              <div className="mb-2">
-                <div className={`h-5 w-32 rounded ${shimmerClass}`}></div>
+              <div className="mb-1">
+                <div className={`h-4 w-24 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Description */}
-              <div className="space-y-2 mb-5">
-                <div className={`h-4 w-full rounded ${shimmerClass}`}></div>
-                <div className={`h-4 w-full rounded ${shimmerClass}`}></div>
-                <div className={`h-4 w-3/4 rounded ${shimmerClass}`}></div>
+              <div className="space-y-1.5 mb-3">
+                <div className={`h-3 w-full rounded ${shimmerClass}`}></div>
+                <div className={`h-3 w-3/4 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Buttons */}
-              <div className="flex items-center gap-3 mt-auto">
-                <div className={`h-9 w-20 rounded ${shimmerClass}`}></div>
-                <div className={`h-9 w-24 rounded ${shimmerClass}`}></div>
+              <div className="flex items-center gap-2 mt-auto">
+                <div className={`h-6 w-16 rounded ${shimmerClass}`}></div>
+                <div className={`h-6 w-14 rounded ${shimmerClass}`}></div>
               </div>
             </div>
           ))}

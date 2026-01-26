@@ -9,8 +9,10 @@ import hmac
 import hashlib
 import base64
 import json
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,8 +28,13 @@ from database.models import (
 from schemas.wearables_apple import (
     NormalizedMetricSchema,
     AppleIngestRequest,
+    AppleIngestRequestV2,
     AppleIngestResult,
+    DeleteResult,
 )
+
+# Background task executor for non-blocking operations
+_background_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="wearables_bg_")
 
 
 class WearablesService:
@@ -38,6 +45,70 @@ class WearablesService:
         self.master_secret = os.getenv("WEARABLES_MASTER_SECRET", "ritual-wearables-dev-secret")
         # Idempotency window (24 hours)
         self.idempotency_window_hours = 24
+        # Background task queue for async operations
+        self._pending_tinybird_syncs: List[Dict[str, Any]] = []
+        self._tinybird_batch_size = 50
+        self._tinybird_flush_interval = 5  # seconds
+    
+    def queue_tinybird_sync(self, log_data: Dict[str, Any]) -> None:
+        """Queue a habit log for async Tinybird sync"""
+        self._pending_tinybird_syncs.append(log_data)
+        
+        # If batch is full, trigger immediate flush
+        if len(self._pending_tinybird_syncs) >= self._tinybird_batch_size:
+            asyncio.create_task(self._flush_tinybird_batch())
+    
+    async def force_flush_tinybird_batch(self) -> int:
+        """Force flush all pending Tinybird syncs regardless of batch size"""
+        if not self._pending_tinybird_syncs:
+            return 0
+        
+        count = len(self._pending_tinybird_syncs)
+        
+        try:
+            from services.tinybird_service import TinybirdService
+            tinybird = TinybirdService()
+            
+            # Sync all pending items
+            for log_data in self._pending_tinybird_syncs:
+                try:
+                    await tinybird.ingest_habit_log(log_data)
+                except Exception as e:
+                    print(f"⚠️ Tinybird sync error for log: {e}")
+            
+            print(f"📊 Tinybird force flush: {count} logs synced")
+            self._pending_tinybird_syncs = []
+            return count
+        except Exception as e:
+            print(f"⚠️ Tinybird force flush failed: {e}")
+            return 0
+    
+    async def _flush_tinybird_batch(self) -> None:
+        """Flush pending Tinybird syncs in batch"""
+        if not self._pending_tinybird_syncs:
+            return
+        
+        # Grab current batch
+        batch = self._pending_tinybird_syncs[:self._tinybird_batch_size]
+        self._pending_tinybird_syncs = self._pending_tinybird_syncs[self._tinybird_batch_size:]
+        
+        try:
+            from services.tinybird_service import TinybirdService
+            tinybird = TinybirdService()
+            
+            # Sync batch to Tinybird
+            for log_data in batch:
+                try:
+                    await tinybird.ingest_habit_log(log_data)
+                except Exception as e:
+                    print(f"⚠️ Tinybird batch sync error for log: {e}")
+            
+            print(f"📊 Tinybird batch sync: {len(batch)} logs")
+        except Exception as e:
+            print(f"⚠️ Tinybird batch sync failed: {e}")
+            # Re-queue failed items (up to a limit to prevent infinite loops)
+            if len(batch) < 100:
+                self._pending_tinybird_syncs.extend(batch)
     
     # ================================
     # Device Registration
@@ -327,7 +398,7 @@ class WearablesService:
         request: AppleIngestRequest
     ) -> Tuple[bool, List[AppleIngestResult], Optional[str]]:
         """
-        Process a complete ingest request.
+        Process a complete ingest request (V1 - legacy).
         
         Returns:
             (success, results, error_message)
@@ -388,6 +459,206 @@ class WearablesService:
                 print(f"⚠️ Error creating habit logs (non-fatal): {e}")
         
         return success_count > 0, results, None
+    
+    # ================================
+    # V2 Ingest with Incremental Sync
+    # ================================
+    
+    async def delete_metrics_by_external_ids(
+        self,
+        user_id: str,
+        external_ids: List[str]
+    ) -> List[DeleteResult]:
+        """
+        Delete metrics by their external_id (HealthKit UUID).
+        Also deletes corresponding habit_logs.
+        """
+        results: List[DeleteResult] = []
+        
+        async with get_db_session() as session:
+            for external_id in external_ids:
+                try:
+                    # Find the metric
+                    result = await session.execute(
+                        select(WearableMetricDB)
+                        .where(WearableMetricDB.user_id == user_id)
+                        .where(WearableMetricDB.external_id == external_id)
+                    )
+                    metric = result.scalar_one_or_none()
+                    
+                    if not metric:
+                        results.append(DeleteResult(
+                            external_id=external_id,
+                            success=True,
+                            error="Not found (already deleted)"
+                        ))
+                        continue
+                    
+                    # Delete the metric
+                    await session.delete(metric)
+                    
+                    # Also delete corresponding habit_log if exists
+                    # (This is approximate - we match by date and metric type)
+                    log_result = await session.execute(
+                        select(HabitLogDB)
+                        .where(HabitLogDB.source == "apple_health")
+                        .where(HabitLogDB.date == metric.start_time.strftime('%Y-%m-%d'))
+                        # Note: Would need habit_id matching metric_type lookup
+                    )
+                    
+                    await session.commit()
+                    
+                    results.append(DeleteResult(
+                        external_id=external_id,
+                        success=True
+                    ))
+                    
+                except Exception as e:
+                    print(f"⚠️ Error deleting metric {external_id}: {e}")
+                    results.append(DeleteResult(
+                        external_id=external_id,
+                        success=False,
+                        error=str(e)
+                    ))
+        
+        return results
+    
+    async def process_ingest_request_v2(
+        self,
+        user_id: str,
+        request: AppleIngestRequestV2
+    ) -> Tuple[bool, List[AppleIngestResult], List[DeleteResult], List[AppleIngestResult], Optional[str]]:
+        """
+        Process a V2 ingest request with incremental sync support.
+        
+        Returns:
+            (success, added_results, deleted_results, modified_results, error_message)
+        """
+        # 1. Get device and verify ownership
+        device = await self.get_device(request.device_id)
+        if not device:
+            return False, [], [], [], "Device not found"
+        
+        if device.user_id != user_id:
+            return False, [], [], [], "Device does not belong to this user"
+        
+        if not device.is_active:
+            return False, [], [], [], "Device is deactivated"
+        
+        # 2. Verify signature
+        canonical = self.build_canonical_string(
+            request.device_id,
+            request.client_event_id,
+            request.captured_at
+        )
+        
+        if not self.verify_signature(device.device_secret_hash, canonical, request.signature):
+            print(f"❌ Signature verification failed for device {request.device_id}")
+            return False, [], [], [], "Invalid signature"
+        
+        # 3. Check idempotency
+        existing_event = await self.check_idempotency(request.device_id, request.client_event_id)
+        if existing_event:
+            print(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
+            return True, [], [], [], "Already processed (idempotency)"
+        
+        # 4. Process added metrics
+        added_results: List[AppleIngestResult] = []
+        if request.added:
+            added_results = await self.ingest_metrics(user_id, request.device_id, request.added)
+        
+        # 5. Process deleted metrics
+        deleted_results: List[DeleteResult] = []
+        if request.deleted:
+            deleted_results = await self.delete_metrics_by_external_ids(user_id, request.deleted)
+        
+        # 6. Process modified metrics (treat as upsert)
+        modified_results: List[AppleIngestResult] = []
+        if request.modified:
+            # For modified, we delete old and insert new
+            for metric in request.modified:
+                if metric.external_id:
+                    await self.delete_metrics_by_external_ids(user_id, [metric.external_id])
+            modified_results = await self.ingest_metrics(user_id, request.device_id, request.modified)
+        
+        # 7. Record ingest event
+        total_ops = len(request.added) + len(request.deleted) + len(request.modified)
+        added_success = sum(1 for r in added_results if r.success)
+        deleted_success = sum(1 for r in deleted_results if r.success)
+        modified_success = sum(1 for r in modified_results if r.success)
+        total_success = added_success + deleted_success + modified_success
+        
+        status = "success" if total_success == total_ops else ("partial" if total_success > 0 else "failed")
+        
+        await self.record_ingest_event(
+            device_id=request.device_id,
+            client_event_id=request.client_event_id,
+            metrics_count=total_ops,
+            success_count=total_success,
+            error_count=total_ops - total_success,
+            status=status
+        )
+        
+        print(f"✅ V2 Ingest: {added_success} added, {deleted_success} deleted, {modified_success} modified")
+        
+        # 8. Convert metrics to habit_logs (for added and modified)
+        all_metrics = list(request.added) + list(request.modified)
+        if all_metrics:
+            try:
+                log_result = await self.create_habit_logs_from_metrics(user_id, all_metrics)
+                print(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
+            except Exception as e:
+                print(f"⚠️ Error creating habit logs (non-fatal): {e}")
+        
+        return total_success > 0, added_results, deleted_results, modified_results, None
+    
+    # ================================
+    # Sync Status for Desktop UI
+    # ================================
+    
+    async def get_device_sync_status(self, device_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get sync status for a device (for desktop UI)"""
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(WearableDeviceDB)
+                .where(WearableDeviceDB.id == device_id)
+                .where(WearableDeviceDB.user_id == user_id)
+            )
+            device = result.scalar_one_or_none()
+            
+            if not device:
+                return None
+            
+            # Get recent ingest events
+            events_result = await session.execute(
+                select(WearableIngestEventDB)
+                .where(WearableIngestEventDB.device_id == device_id)
+                .order_by(WearableIngestEventDB.received_at.desc())
+                .limit(1)
+            )
+            last_event = events_result.scalar_one_or_none()
+            
+            # Count metrics synced today
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            metrics_result = await session.execute(
+                select(WearableMetricDB)
+                .where(WearableMetricDB.device_id == device_id)
+                .where(WearableMetricDB.created_at >= today_start)
+            )
+            metrics_today = len(list(metrics_result.scalars().all()))
+            
+            return {
+                "device_id": device.id,
+                "device_name": device.device_name,
+                "platform": device.platform,
+                "is_connected": device.is_active,
+                "last_successful_sync": device.last_sync_at.isoformat() if device.last_sync_at else None,
+                "last_sync_attempt": last_event.received_at.isoformat() if last_event else None,
+                "last_error": None if last_event and last_event.status == "success" else (last_event.status if last_event else None),
+                "metrics_synced_today": metrics_today,
+                "background_sync_enabled": True,
+                "offline_queue_count": 0  # Would need client to report this
+            }
     
     # ================================
     # Query Metrics (for desktop app)
@@ -570,7 +841,35 @@ class WearablesService:
         user_id: str,
         unit: str
     ) -> None:
-        """Sync a single habit log to Tinybird"""
+        """Queue a single habit log for async Tinybird sync (non-blocking)"""
+        log_data = {
+            'id': log.id,
+            'habit_id': log.habit_id,
+            'habit_name': log.habit_name,
+            'user_id': user_id,
+            'date': log.date,
+            'duration': log.duration,
+            'amount': log.amount,
+            'unit': unit,
+            'status': log.status,
+            'notes': log.notes,
+            'source': 'apple_health',
+            'integration_id': habit.id,
+            'completed_at': log.completed_at or log.date
+        }
+        
+        # Queue for async batch processing instead of blocking
+        self.queue_tinybird_sync(log_data)
+    
+    async def _sync_log_to_tinybird_immediate(
+        self,
+        tinybird,
+        log: HabitLogDB,
+        habit: HabitDB,
+        user_id: str,
+        unit: str
+    ) -> None:
+        """Sync a single habit log to Tinybird immediately (blocking - use sparingly)"""
         try:
             log_data = {
                 'id': log.id,

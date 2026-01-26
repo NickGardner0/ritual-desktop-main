@@ -1156,7 +1156,7 @@ export function ChatClient() {
               {/* Faded Logo - Perplexity style watermark */}
               <div className="flex justify-center mb-4">
                 <img
-                  src="/images/Vector.svg"
+                  src="/images/new_logo4.svg"
                   alt="Ritual"
                   className="w-10 h-10 opacity-[0.08]"
                   style={{ filter: 'grayscale(100%)' }}

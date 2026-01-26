@@ -752,7 +752,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     <IconPicker
                       value={selectedIcon}
                       onChange={(name) => setSelectedIcon(name)}
-                      anchorClassName="flex items-center justify-between w-full px-3 py-2 border border-gray-300 bg-white text-sm font-normal text-gray-700 hover:bg-[#FAFAF9] focus:outline-none h-10"
+                      anchorClassName="flex items-center justify-between w-full px-3 py-2 border border-gray-200 bg-white text-sm font-normal text-gray-700 hover:bg-gray-50 focus:outline-none h-10"
                       portalRef={floatingLayerRef}
                       withinCardRef={cardRef}
                       minMenuHeight={260}
@@ -769,7 +769,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                       <button
                         ref={metricBtnRef}
                         onClick={() => setIsMetricDropdownOpen((v) => !v)}
-                        className="flex items-center justify-between w-full px-3 py-2 border border-gray-300 rounded-none bg-white text-sm font-normal text-gray-700 hover:bg-[#FAFAF9] focus:outline-none h-10"
+                        className="flex items-center justify-between w-full px-3 py-2 border border-gray-200 rounded-none bg-white text-sm font-normal text-gray-700 hover:bg-gray-50 focus:outline-none h-10"
                       >
                         <span>{selectedMetric}</span>
                         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
@@ -787,8 +787,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                                     setSelectedMetric(metric);
                                     setIsMetricDropdownOpen(false);
                                   }}
-                                  className={`flex items-center w-full px-3 py-2 text-sm font-normal hover:bg-[#FAFAF9] text-left ${
-                                    selectedMetric === metric ? 'bg-[#F3F3F3] text-gray-900' : 'text-gray-700'
+                                  className={`flex items-center w-full px-3 py-2 text-sm font-normal hover:bg-gray-50 text-left ${
+                                    selectedMetric === metric ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
                                   }`}
                                 >
                                   {metric}
@@ -806,7 +806,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 <div className="flex items-center gap-4">
                   <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Start Date</label>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2.5 px-3 py-2 border border-gray-300 rounded-none bg-[#FAFAF9] text-sm font-normal text-gray-700 h-10">
+                    <div className="flex items-center gap-2.5 px-3 py-2 border border-gray-200 rounded-none bg-gray-50 text-sm font-normal text-gray-700 h-10">
                       <Calendar className="w-4 h-4 text-gray-500" />
                       <span>Today, {new Date().toLocaleDateString('en-US', { 
                         month: 'short', 

@@ -8,6 +8,7 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { SessionSegment, KIND_COLORS, KIND_COLORS_ACCENT } from '@/types/computerActivity'
 import { msToHuman, formatTime } from '@/lib/computerActivity/derive'
 
@@ -21,7 +22,8 @@ interface SessionFlowTimelineProps {
 }
 
 /**
- * Tooltip component for segment hover - Frosted glass style
+ * Tooltip component for segment hover - Compact frosted glass style
+ * Rendered via portal to escape CSS transforms
  */
 function SegmentTooltip({ 
   segment, 
@@ -30,30 +32,33 @@ function SegmentTooltip({
   segment: SessionSegment
   position: { x: number; y: number }
 }) {
-  return (
+  if (typeof document === 'undefined') return null
+  
+  return createPortal(
     <div 
-      className="fixed z-50 pointer-events-none"
+      className="fixed z-[9999] pointer-events-none"
       style={{ 
         left: position.x, 
-        top: position.y - 70,
-        transform: 'translateX(-50%)'
+        top: position.y - 10,
+        transform: 'translate(-50%, -100%)'
       }}
     >
       <div 
-        className="px-3 py-2 text-xs border border-gray-200/60 shadow-lg"
+        className="px-2 py-1.5 text-xs border border-gray-200/60 shadow-md whitespace-nowrap"
         style={{
-          background: 'rgba(255, 255, 255, 0.82)',
+          background: 'rgba(255, 255, 255, 0.92)',
           backdropFilter: 'blur(12px) saturate(180%)',
           WebkitBackdropFilter: 'blur(12px) saturate(180%)',
         }}
       >
-        <p className="font-medium text-gray-900 mb-1">{segment.label}</p>
-        <div className="flex items-center gap-3 text-gray-500">
-          <span>{formatTime(segment.start)} – {formatTime(segment.end)}</span>
-          <span className="text-gray-900 font-semibold tabular-nums">{msToHuman(segment.durationMs, true)}</span>
-        </div>
+        <span className="font-medium text-gray-900">{segment.label}</span>
+        <span className="text-gray-400 mx-1.5">·</span>
+        <span className="text-gray-500 tabular-nums">{formatTime(segment.start)} – {formatTime(segment.end)}</span>
+        <span className="text-gray-400 mx-1.5">·</span>
+        <span className="text-gray-900 font-medium tabular-nums">{msToHuman(segment.durationMs, true)}</span>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -122,30 +127,32 @@ export function SessionFlowTimeline({
   }
   
   return (
-    <div className={`relative ${className}`}>
+    <div className={`w-full ${className}`}>
       {/* Timeline bar */}
       <div 
         className="relative bg-gray-100 overflow-hidden"
         style={{ height }}
         onMouseMove={handleMouseMove}
       >
+        {/* Activity segments */}
         {positionedSegments.map((segment) => {
           const isSelected = selectedSegmentId === segment.id
           const isHovered = hoveredSegment?.id === segment.id
-          const color = isHovered || isSelected 
-            ? KIND_COLORS_ACCENT[segment.kind] 
-            : KIND_COLORS[segment.kind]
+          
+          // Use varying opacity based on segment kind for visual interest
+          const baseOpacity = segment.kind === 'app' ? 0.9 : segment.kind === 'browser' ? 0.7 : 0.5
+          const opacity = isHovered ? 0.6 : baseOpacity
           
           return (
             <div
               key={segment.id}
-              className={`absolute top-0 bottom-0 transition-all duration-150 cursor-pointer ${
+              className={`absolute top-0 bottom-0 transition-opacity cursor-pointer bg-gray-900 hover:opacity-60 ${
                 isSelected ? 'ring-2 ring-gray-900 ring-offset-1 z-10' : ''
-              } ${isHovered ? 'brightness-110' : ''}`}
+              }`}
               style={{
                 left: `${segment.leftPercent}%`,
                 width: `${segment.widthPercent}%`,
-                backgroundColor: color,
+                opacity,
                 minWidth: 2,
               }}
               onClick={() => onSelectSegment?.(segment)}
@@ -154,14 +161,24 @@ export function SessionFlowTimeline({
             />
           )
         })}
+        
+        {/* Time marker lines */}
+        <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
+          {[0, 25, 50, 75, 100].map((percent) => (
+            <div
+              key={percent}
+              className="w-px h-full bg-white/50"
+            />
+          ))}
+        </div>
       </div>
       
       {/* Time labels */}
-      <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-400 tabular-nums">
+      <div className="flex justify-between mt-2">
+        <span className="text-xs text-gray-500 tabular-nums">
           {formatTime(range.start)}
         </span>
-        <span className="text-[10px] text-gray-400 tabular-nums">
+        <span className="text-xs text-gray-500 tabular-nums">
           {formatTime(range.end)}
         </span>
       </div>

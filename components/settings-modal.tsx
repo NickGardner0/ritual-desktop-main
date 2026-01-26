@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
+import { AppleHealthSyncStatus } from './apple-health-sync-status';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
-  const [currentView, setCurrentView] = useState<'account' | 'computer-tracking'>('account');
+  const [currentView, setCurrentView] = useState<'account' | 'computer-tracking' | 'apple-health'>('account');
   
   // Track previous isOpen state to detect when modal opens
   const [wasOpen, setWasOpen] = useState(false);
@@ -84,6 +85,59 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
     return createPortal(modalContent, document.body);
   }
 
+  // Apple Health View
+  if (currentView === 'apple-health') {
+    const modalContent = (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+        {/* Backdrop - beige overlay */}
+        <div 
+          className="absolute inset-0 bg-[#e8e5df]/70" 
+          onClick={onClose}
+        />
+        
+        {/* Modal */}
+        <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60 bg-white">
+            <button
+              onClick={() => setCurrentView('account')}
+              className="p-0.5 transition-colors hover:bg-gray-100"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+            <h2 className="text-sm font-medium text-gray-900">Apple Health Sync</h2>
+            <div className="w-6" />
+          </div>
+
+          {/* Content - Scrollable */}
+          <div className="flex-1 overflow-y-auto p-5">
+            <AppleHealthSyncStatus showDevices={true} />
+            
+            {/* Help text */}
+            <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-900 mb-1">How it works</h4>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Install the Ritual Companion app on your iPhone to sync Apple Watch data. 
+                The app syncs automatically in the background when new health data is recorded.
+              </p>
+            </div>
+            
+            {/* Troubleshooting */}
+            <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-900 mb-1">Troubleshooting</h4>
+              <ul className="text-xs text-gray-500 space-y-1">
+                <li>• Make sure the Companion app has Health permissions enabled</li>
+                <li>• Check that background app refresh is enabled for Ritual</li>
+                <li>• Try opening the Companion app to trigger a manual sync</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+    return createPortal(modalContent, document.body);
+  }
+
   const userEmail = user?.primaryEmailAddress?.emailAddress || '';
   const userName = user?.username || user?.firstName || userEmail.split('@')[0];
   const userInitial = (userName || userEmail).charAt(0).toUpperCase();
@@ -112,7 +166,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push('/welcome');
+    router.push('/');
   };
 
   const modalContent = (
@@ -231,6 +285,18 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
               <div className="flex items-center gap-2.5">
                 <Monitor className="w-4 h-4 text-gray-500" />
                 <span className="text-sm text-gray-900">Computer Tracking</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+
+            {/* Apple Health Sync */}
+            <button 
+              onClick={() => setCurrentView('apple-health')}
+              className="w-full py-3.5 flex items-center justify-between border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+            >
+              <div className="flex items-center gap-2.5">
+                <Watch className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-900">Apple Health Sync</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>

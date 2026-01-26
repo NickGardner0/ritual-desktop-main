@@ -21,12 +21,23 @@ export default function SSOCallback() {
 
     const checkOnboardingAndRedirect = async () => {
       try {
-        // Check if user came from welcome flow
+        // Check if user came from welcome flow (new user signup)
         const isFromWelcome = localStorage.getItem('ritual-from-welcome')
+        // Check if user has previously completed onboarding (client-side flag)
+        const hasCompletedOnboardingLocally = localStorage.getItem('ritual-onboarding-completed') === 'true'
         
         // Always clean up the welcome flag
         if (isFromWelcome === 'true') {
           localStorage.removeItem('ritual-from-welcome')
+        }
+
+        // FAST PATH: If user has completed onboarding locally, go straight to dashboard
+        // This handles returning users who sign in again
+        if (hasCompletedOnboardingLocally) {
+          console.log('[SSO Callback] User has local onboarding flag, going to dashboard')
+          setStatus('Welcome back! Taking you to your dashboard...')
+          router.replace('/dashboard')
+          return
         }
 
         setStatus('Checking your profile...')
@@ -45,7 +56,7 @@ export default function SSOCallback() {
           return
         }
 
-        // Always check onboarding status from backend (even for welcome flow users)
+        // Check onboarding status from backend
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -66,23 +77,49 @@ export default function SSOCallback() {
           console.log('[SSO Callback] Onboarding completed:', profile.onboarding_completed)
 
           if (profile.onboarding_completed) {
-            // User already completed onboarding - go to dashboard
+            // User already completed onboarding - set local flag and go to dashboard
+            localStorage.setItem('ritual-onboarding-completed', 'true')
             setStatus('Welcome back! Taking you to your dashboard...')
             console.log('[SSO Callback] Redirecting to dashboard - onboarding already completed')
             router.replace('/dashboard')
-          } else if (isFromWelcome === 'true') {
-            // New user from welcome flow who hasn't completed onboarding
-            setStatus('Setting up your profile...')
-            console.log('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
-            router.replace('/onboarding')
           } else {
-            // Existing user who hasn't completed onboarding
-            setStatus('Setting up your profile...')
-            console.log('[SSO Callback] Redirecting to onboarding - onboarding_completed is:', profile.onboarding_completed)
-            router.replace('/onboarding')
+            // Backend says not completed - check if user has habits (existing user)
+            try {
+              const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (habitsResponse.ok) {
+                const habits = await habitsResponse.json();
+                if (habits && habits.length > 0) {
+                  console.log('[SSO Callback] User has existing habits, skipping onboarding');
+                  // User is clearly an existing user, set local flag and mark in backend
+                  localStorage.setItem('ritual-onboarding-completed', 'true')
+                  setStatus('Welcome back! Taking you to your dashboard...')
+                  router.replace('/dashboard');
+                  return;
+                }
+              }
+            } catch (e) {
+              console.log('[SSO Callback] Could not check habits, proceeding with onboarding check');
+            }
+            
+            // Only redirect to onboarding if:
+            // 1. User came from welcome flow (new signup), OR
+            // 2. User has never completed onboarding locally
+            if (isFromWelcome === 'true') {
+              setStatus('Setting up your profile...')
+              console.log('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
+              router.replace('/onboarding')
+            } else {
+              // Returning user but backend shows incomplete - could be DB issue
+              // Default to dashboard since they're trying to sign in (not sign up)
+              console.log('[SSO Callback] Backend shows incomplete but user is signing in - going to dashboard')
+              setStatus('Taking you to your dashboard...')
+              router.replace('/dashboard')
+            }
           }
         } else {
-          // Profile doesn't exist yet
+          // Profile doesn't exist or fetch failed
           if (isFromWelcome === 'true') {
             // New user from welcome flow - go to onboarding
             setStatus('Setting up your profile...')

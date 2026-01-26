@@ -158,7 +158,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
   if (isLoading) {
     return (
-      <div className={`bg-[#FAFAF9] border border-gray-300 p-4 ${className}`}>
+      <div className={`bg-white border border-gray-200 p-4 ${className}`}>
         <div className="animate-pulse space-y-3">
           <div className="h-5 bg-gray-200 rounded w-1/2" />
           <div className="h-8 bg-gray-200 rounded w-1/3" />
@@ -170,7 +170,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
   if (error || !todayData) {
     return (
-      <div className={`bg-[#FAFAF9] border border-gray-300 p-4 ${className}`}>
+      <div className={`bg-white border border-gray-200 p-4 ${className}`}>
         <div className="flex items-center gap-2 text-gray-500">
           <Monitor className="w-5 h-5" />
           <span className="text-sm">No computer tracking data yet</span>
@@ -184,7 +184,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
   return (
     <div 
-      className={`bg-[#FAFAF9] border border-gray-300 p-4 hover:bg-[#F5F5F4] transition-colors cursor-pointer ${className}`}
+      className={`bg-white border border-gray-200 p-4 hover:bg-gray-50 transition-colors cursor-pointer ${className}`}
       onClick={onViewDetails}
     >
       {/* Header */}
@@ -293,7 +293,7 @@ export function ComputerTimeMiniCard({ className = '' }: { className?: string })
 
   if (isLoading) {
     return (
-      <div className={`bg-[#FAFAF9] border border-gray-300 p-3 ${className}`}>
+      <div className={`bg-white border border-gray-200 p-3 ${className}`}>
         <div className="animate-pulse">
           <div className="h-4 bg-gray-200 rounded w-2/3" />
         </div>

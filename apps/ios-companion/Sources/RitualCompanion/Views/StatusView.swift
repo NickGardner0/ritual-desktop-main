@@ -31,10 +31,10 @@ struct StatusView: View {
                 
                 // App header - minimal
                 VStack(spacing: 16) {
-                    // Simple logo icon
+                    // Sphere logo icon
                     RitualLogoShape()
                         .fill(Color.black)
-                        .frame(width: 36, height: 38)
+                        .frame(width: 40, height: 40)
                     
                     Text("Ritual Companion")
                         .font(.system(size: 24, weight: .semibold))
@@ -210,7 +210,7 @@ struct StatusView: View {
                     
                     Button(action: { showingDisconnectAlert = true }) {
                         HStack(spacing: 6) {
-                            Image(systemName: "link.badge.minus")
+                            Image(systemName: "minus.circle")
                                 .font(.system(size: 14))
                             Text("Disconnect Device")
                                 .font(.system(size: 14))

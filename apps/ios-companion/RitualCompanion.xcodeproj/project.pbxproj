@@ -11,6 +11,7 @@
 		08CB6F1F343053A20CC8B0EB /* TuistAssets+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */; };
 		0ED81CA69B299571B4CBF54C /* StatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E4D8229429850BF8B91FB4 /* StatusCard.swift */; };
 		10585AD31D05685FCC500AE2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */; };
+		39AB3EB76D3A954E77561AC3 /* AnchorStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8F1323007A298B2EEAC412 /* AnchorStorage.swift */; };
 		4B58BF0ED7798AF180EF43B4 /* TuistBundle+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */; };
 		534EF1F0E6C08A8D64021BE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A4460558012097894E301FA6 /* Assets.xcassets */; };
 		7E86B0E4D2B19B9D736801BC /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A57E238B67EA0BEA6D83131 /* ConnectView.swift */; };
@@ -20,8 +21,11 @@
 		AF65CAB72369B51D6943421F /* Clerk in Frameworks */ = {isa = PBXBuildFile; productRef = 86E70812549362DEB89C713C /* Clerk */; };
 		B0C41CD6048C7E237921659A /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6EDDEAADF641B87AE9F6F98 /* AppState.swift */; };
 		C84C3305B73C7EE1D49D7D87 /* RitualAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */; };
+		C89D361628116D80350D651F /* BackgroundSyncManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */; };
+		CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */; };
 		D293625037C767476B438091 /* HealthKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78CD8036EC5AC8CD0EFABF28 /* HealthKitManager.swift */; };
 		DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */; };
+		E05673DB0F31089F154208C9 /* OfflineSyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */; };
 		E82B883F12AB4FB41EDA9A40 /* RitualCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331267A4741B767C6156924B /* RitualCompanionApp.swift */; };
 		EE6236C7F349690B66FE30C4 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFCBF61B7805AA46DC7C8B69 /* APIModels.swift */; };
 /* End PBXBuildFile section */
@@ -47,16 +51,20 @@
 		459058E6B5537C3E07F0F641 /* RitualCompanion-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualCompanion-Info.plist"; sourceTree = "<group>"; };
 		53DA50B04943907060448DFF /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
 		55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RitualAPIClient.swift; sourceTree = "<group>"; };
+		5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineSyncQueue.swift; sourceTree = "<group>"; };
 		74E4D8229429850BF8B91FB4 /* StatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCard.swift; sourceTree = "<group>"; };
 		78CD8036EC5AC8CD0EFABF28 /* HealthKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManager.swift; sourceTree = "<group>"; };
+		7E8F1323007A298B2EEAC412 /* AnchorStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorStorage.swift; sourceTree = "<group>"; };
 		8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistBundle+RitualCompanion.swift"; sourceTree = "<group>"; };
 		9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A4460558012097894E301FA6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AFCBF61B7805AA46DC7C8B69 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
+		B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManagerV2.swift; sourceTree = "<group>"; };
 		B50B7B568770537526D1A9A9 /* BackgroundSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManager.swift; sourceTree = "<group>"; };
 		BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualCompanion.entitlements; sourceTree = "<group>"; };
 		E6EDDEAADF641B87AE9F6F98 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitManagerV2.swift; sourceTree = "<group>"; };
 		F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistAssets+RitualCompanion.swift"; sourceTree = "<group>"; };
 		FA754A79233A468B7DD2F651 /* RitualCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RitualCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -166,8 +174,12 @@
 		B27A5FED1D050C07E0B2BC83 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				7E8F1323007A298B2EEAC412 /* AnchorStorage.swift */,
 				B50B7B568770537526D1A9A9 /* BackgroundSyncManager.swift */,
+				B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */,
 				78CD8036EC5AC8CD0EFABF28 /* HealthKitManager.swift */,
+				F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */,
+				5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */,
 				55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */,
 			);
 			path = Services;
@@ -295,8 +307,12 @@
 				0166F325B263B4789DCC01EA /* AppConfig.swift in Sources */,
 				EE6236C7F349690B66FE30C4 /* APIModels.swift in Sources */,
 				DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */,
+				39AB3EB76D3A954E77561AC3 /* AnchorStorage.swift in Sources */,
 				983659EE9CBBBA3F0F26ADFE /* BackgroundSyncManager.swift in Sources */,
+				C89D361628116D80350D651F /* BackgroundSyncManagerV2.swift in Sources */,
 				D293625037C767476B438091 /* HealthKitManager.swift in Sources */,
+				CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */,
+				E05673DB0F31089F154208C9 /* OfflineSyncQueue.swift in Sources */,
 				C84C3305B73C7EE1D49D7D87 /* RitualAPIClient.swift in Sources */,
 				8D10BA196D80EBEE02405CB7 /* PermissionsView.swift in Sources */,
 				0ED81CA69B299571B4CBF54C /* StatusCard.swift in Sources */,

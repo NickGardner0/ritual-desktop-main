@@ -22,11 +22,8 @@ import {
   MessageSquare,
   Activity,
   Clock,
-  Calendar,
   Loader2,
-  ArrowRight,
   Hash,
-  FileSpreadsheet,
   LayoutDashboard
 } from "lucide-react";
 
@@ -57,7 +54,8 @@ const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; cla
   // Fallback
   return <LayoutDashboard className={`${className} text-gray-400`} />;
 };
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { RitualLogo } from "@/components/ritual-logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAnalytics } from "@/lib/analytics";
@@ -226,12 +224,12 @@ export default function CommandPalette({
   
   const getFallbackResults = (q: string): SearchResults => {
     const actions: QuickAction[] = [
-      { id: "log-habit", name: "Log a habit", keywords: ["log", "track", "add"], action: "open_logger", icon: "plus" },
-      { id: "search-logs", name: "Search activity logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
+      { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "open_logger", icon: "plus" },
+      { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
       { id: "view-analytics", name: "View analytics", keywords: ["stats", "charts"], action: "navigate", path: "/analytics", icon: "bar-chart" },
-      { id: "ai-assistant", name: "Ask AI assistant", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
+      { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
       { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "open_import", icon: "upload" },
-      { id: "connect-wearables", name: "Connect wearables", keywords: ["whoop", "oura", "garmin", "apple"], action: "navigate", path: "/integrations", icon: "watch" },
+      { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
       { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "open_settings", icon: "settings" },
     ];
     
@@ -343,9 +341,8 @@ export default function CommandPalette({
         )}
       >
         <div className="flex items-center gap-2">
-          <Search className="h-4 w-4 text-gray-400" />
           <span>Search</span>
-          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 border bg-[#fafaf9] px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 border border-gray-200 bg-gray-50 px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
             <span className="text-xs">⌘</span>K
           </kbd>
         </div>
@@ -361,35 +358,33 @@ export default function CommandPalette({
   );
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
-      <DialogContent
-        className="overflow-hidden p-0 max-w-full w-full md:max-w-[580px] h-[440px] m-0 select-text border-none shadow-2xl"
-        style={{ borderRadius: '0px' }}
-      >
-        <DialogTitle className="sr-only">Search</DialogTitle>
-        <div 
-          className="bg-white border border-gray-200 overflow-hidden h-full flex flex-col" 
-          style={{ borderRadius: '0px' }}
+    <DialogPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
+      <DialogPrimitive.Portal>
+        {/* High z-index overlay to cover sidebar (z-[1001]) */}
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[#e8e5df]/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Content
+          className="fixed left-[50%] top-[50%] z-[9999] translate-x-[-50%] translate-y-[-50%] w-full md:max-w-[600px] select-text border-none shadow-2xl focus:outline-none"
         >
-          {/* Search Input */}
-          <div className="border-b border-gray-200 px-4 py-3 flex items-center gap-3">
-            <Search className="h-5 w-5 text-gray-400 flex-shrink-0" />
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Search habits, logs, actions..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 text-base border-0 focus:outline-none bg-transparent placeholder:text-gray-400"
-              autoFocus
-            />
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-          </div>
+          <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
+          <div className="bg-white border border-gray-200 flex flex-col h-[420px]">
+            {/* Search Input */}
+            <div className="flex-shrink-0 border-b border-gray-200 px-4 py-3 flex items-center gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Type a command or search..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="flex-1 text-base border-0 focus:outline-none bg-transparent placeholder:text-gray-400"
+                autoFocus
+              />
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+            </div>
 
           {/* Results */}
-          <div className="flex-1 overflow-y-auto">
-            <Command className="rtlp-cmd h-full">
-              <Command.List className="h-full px-2 py-2">
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <Command className="rtlp-cmd">
+              <Command.List className="px-1 py-2 max-h-full overflow-y-auto">
                 
                 {/* No results */}
                 {!hasResults && query && !isLoading && (
@@ -402,7 +397,7 @@ export default function CommandPalette({
                 {/* Quick Actions */}
                 {results?.quick_actions && results.quick_actions.length > 0 && (
                   <>
-                    <div className="px-2 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    <div className="px-3 py-1.5 text-xs font-medium text-gray-400">
                       Quick Actions
                     </div>
                     {results.quick_actions.map((action) => (
@@ -410,13 +405,12 @@ export default function CommandPalette({
                         key={action.id}
                         value={action.name}
                         onSelect={() => handleActionSelect(action)}
-                        className="flex items-center gap-3 px-3 py-2 mx-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3] transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                       >
-                        <div className="flex items-center justify-center w-7 h-7 bg-gray-100 text-gray-500">
+                        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           {getActionIcon(action.icon)}
-                        </div>
+                        </span>
                         <span className="text-sm text-gray-700">{action.name}</span>
-                        <ArrowRight className="h-3 w-3 text-gray-300 ml-auto" />
                       </Command.Item>
                     ))}
                   </>
@@ -425,24 +419,24 @@ export default function CommandPalette({
                 {/* Habits */}
                 {results?.habits && results.habits.found > 0 && (
                   <>
-                    <div className="px-2 py-1.5 pt-3 text-xs font-medium text-gray-400 uppercase tracking-wider flex items-center justify-between">
+                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
                       <span>Habits</span>
-                      <span className="text-gray-300">{results.habits.found} found</span>
+                      <span className="text-gray-300 text-xs">{results.habits.found} found</span>
                     </div>
                     {results.habits.hits.slice(0, 5).map((habit) => (
                       <Command.Item
                         key={habit.id}
                         value={`habit-${habit.name}`}
                         onSelect={() => handleHabitSelect(habit)}
-                        className="flex items-center gap-3 px-3 py-2 mx-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3] transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                       >
-                        <div className="flex items-center justify-center w-7 h-7">
+                        <span className="w-4 h-4 flex items-center justify-center">
                           <HabitIcon iconName={habit.icon} className="w-4 h-4" />
-                        </div>
+                        </span>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm text-gray-700 truncate">{habit.name}</div>
+                          <span className="text-sm text-gray-700">{habit.name}</span>
                           {habit.category && (
-                            <div className="text-xs text-gray-400">{habit.category}</div>
+                            <span className="text-xs text-gray-400 ml-2">{habit.category}</span>
                           )}
                         </div>
                         {habit.unit_type && (
@@ -456,37 +450,27 @@ export default function CommandPalette({
                 {/* Recent Logs */}
                 {results?.logs && results.logs.found > 0 && (
                   <>
-                    <div className="px-2 py-1.5 pt-3 text-xs font-medium text-gray-400 uppercase tracking-wider flex items-center justify-between">
+                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
                       <span>Recent Logs</span>
-                      <span className="text-gray-300">{results.logs.found} found</span>
+                      <span className="text-gray-300 text-xs">{results.logs.found} found</span>
                     </div>
                     {results.logs.hits.slice(0, 5).map((log) => (
                       <Command.Item
                         key={log.id}
                         value={`log-${log.habit_name}-${log.date}`}
                         onSelect={() => handleLogSelect(log)}
-                        className="flex items-center gap-3 px-3 py-2 mx-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3] transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                       >
-                        <div className="flex items-center justify-center w-7 h-7 bg-green-50 text-green-600">
+                        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           <Clock className="h-4 w-4" />
+                        </span>
+                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                          <span className="text-sm text-gray-700 truncate">{log.habit_name}</span>
+                          <span className="text-xs text-gray-400">{formatDate(log.date)}</span>
+                          {log.amount != null && (
+                            <span className="text-xs text-gray-400">{log.amount} {log.unit_type || ''}</span>
+                          )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-gray-700 truncate">{log.habit_name}</div>
-                          <div className="text-xs text-gray-400 flex items-center gap-2">
-                            <span>{formatDate(log.date)}</span>
-                            {log.amount != null && (
-                              <>
-                                <span>•</span>
-                                <span>{log.amount} {log.unit_type || ''}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {log.notes && (
-                          <span className="text-xs text-gray-400 truncate max-w-[120px]">
-                            "{log.notes}"
-                          </span>
-                        )}
                       </Command.Item>
                     ))}
                   </>
@@ -495,25 +479,23 @@ export default function CommandPalette({
                 {/* AI Conversations */}
                 {results?.conversations && results.conversations.found > 0 && (
                   <>
-                    <div className="px-2 py-1.5 pt-3 text-xs font-medium text-gray-400 uppercase tracking-wider flex items-center justify-between">
+                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
                       <span>AI Conversations</span>
-                      <span className="text-gray-300">{results.conversations.found} found</span>
+                      <span className="text-gray-300 text-xs">{results.conversations.found} found</span>
                     </div>
                     {results.conversations.hits.slice(0, 3).map((conv: any) => (
                       <Command.Item
                         key={conv.id}
                         value={`conv-${conv.id}`}
                         onSelect={() => handleConversationSelect(conv)}
-                        className="flex items-center gap-3 px-3 py-2 mx-1 cursor-pointer rounded-none hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3] transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
                       >
-                        <div className="flex items-center justify-center w-7 h-7 bg-purple-50 text-purple-600">
+                        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           <MessageSquare className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-gray-700 truncate">
-                            {conv.content_preview || conv.content?.slice(0, 60)}...
-                          </div>
-                        </div>
+                        </span>
+                        <span className="text-sm text-gray-700 truncate flex-1">
+                          {conv.content_preview || conv.content?.slice(0, 60)}...
+                        </span>
                       </Command.Item>
                     ))}
                   </>
@@ -524,28 +506,26 @@ export default function CommandPalette({
           </div>
           
           {/* Footer */}
-          <div className="px-3 py-1.5 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 bg-[#fafaf9]">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <kbd className="px-1 py-0.5 bg-white border border-gray-200 text-[10px]">↵</kbd>
-                <span>Select</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <kbd className="px-1 py-0.5 bg-white border border-gray-200 text-[10px]">↑↓</kbd>
-                <span>Navigate</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <kbd className="px-1 py-0.5 bg-white border border-gray-200 text-[10px]">esc</kbd>
-                <span>Close</span>
-              </span>
+          <div className="flex-shrink-0 px-3 py-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 bg-white">
+            {/* Logo on left */}
+            <div className="flex items-center gap-2">
+              <RitualLogo className="w-4 h-4 opacity-60" />
+              {results?.fallback && (
+                <span className="text-amber-500 text-[10px]">Offline</span>
+              )}
             </div>
-            {results?.fallback && (
-              <span className="text-amber-500 text-[10px]">Offline mode</span>
-            )}
+            
+            {/* Keyboard shortcuts on right */}
+            <div className="flex items-center gap-2">
+              <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-[11px] rounded">↑</kbd>
+              <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-[11px] rounded">↓</kbd>
+              <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-[11px] rounded">↵</kbd>
+            </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 

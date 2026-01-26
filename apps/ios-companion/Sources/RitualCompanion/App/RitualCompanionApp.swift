@@ -7,12 +7,18 @@ struct RitualCompanionApp: App {
     @StateObject private var appState = AppState()
     @Environment(\.scenePhase) private var scenePhase
     
+    /// Use V2 sync manager for incremental sync, offline queue, etc.
+    private let syncManager = BackgroundSyncManagerV2.shared
+    
     init() {
         // Configure Clerk early in app lifecycle
         Clerk.shared.configure(publishableKey: AppConfig.clerkPublishableKey)
         
-        // Set up background sync - this registers the background task handler
+        // Set up V2 background sync - this registers the background task handler
         // MUST be called before the app finishes launching
+        BackgroundSyncManagerV2.shared.setupBackgroundSync()
+        
+        // Also register V1 task for backwards compatibility (can remove later)
         BackgroundSyncManager.shared.setupBackgroundSync()
     }
     
@@ -31,6 +37,10 @@ struct RitualCompanionApp: App {
                     // Update UI when background sync completes
                     handleBackgroundSyncCompleted(notification)
                 }
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("RequiresReauthentication"))) { _ in
+                    // Handle token expiration - force re-auth
+                    handleRequiresReauth()
+                }
         }
     }
     
@@ -38,8 +48,8 @@ struct RitualCompanionApp: App {
         switch newPhase {
         case .background:
             // App moved to background - schedule background sync
-            print("📱 App moved to background - scheduling background sync")
-            BackgroundSyncManager.shared.scheduleBackgroundSync()
+            print("📱 App moved to background - scheduling background sync V2")
+            syncManager.scheduleBackgroundSync()
             
         case .active:
             // App became active - sync immediately if connected
@@ -50,16 +60,18 @@ struct RitualCompanionApp: App {
                 // First, check if the connection is still valid
                 await appState.checkInitialState()
                 
-                // If connected and has access, do a sync
+                // If connected and has access, do an incremental sync
                 if appState.isConnected && appState.hasHealthAccess {
-                    print("📱 Triggering foreground sync")
-                    await BackgroundSyncManager.shared.performForegroundSync()
+                    print("📱 Triggering foreground sync V2 (incremental)")
+                    await syncManager.performForegroundSync()
                     
                     // Update the UI with the latest sync time
                     await MainActor.run {
-                        if let syncTime = BackgroundSyncManager.shared.lastSyncTime {
+                        if let syncTime = syncManager.lastSyncTime {
                             appState.lastSyncTime = syncTime
                         }
+                        // Update sync status
+                        appState.syncStatus = syncManager.syncStatus
                     }
                 }
             }
@@ -79,8 +91,27 @@ struct RitualCompanionApp: App {
             appState.lastSyncTime = syncTime
         }
         
-        if let count = notification.userInfo?["count"] as? Int {
+        // V2 notifications include addedCount and deletedCount
+        if let addedCount = notification.userInfo?["addedCount"] as? Int,
+           let deletedCount = notification.userInfo?["deletedCount"] as? Int {
+            print("📱 V2 Background sync: \(addedCount) added, \(deletedCount) deleted")
+        } else if let count = notification.userInfo?["count"] as? Int {
             print("📱 Background sync notification received: \(count) metrics synced")
+        }
+        
+        // Update sync status
+        Task { @MainActor in
+            appState.syncStatus = syncManager.syncStatus
+        }
+    }
+    
+    private func handleRequiresReauth() {
+        // Token refresh failed repeatedly - need user to re-authenticate
+        print("⚠️ Token refresh failed - user needs to re-authenticate")
+        
+        Task { @MainActor in
+            // Disconnect and force sign-in again
+            await appState.disconnect()
         }
     }
 }

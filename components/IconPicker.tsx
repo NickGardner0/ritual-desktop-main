@@ -236,7 +236,7 @@ export default function IconPicker({
                   setOpen(false); 
                   setSearch(''); 
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-[#FAFAF9] transition-colors ${value === icon.name ? 'bg-[#F3F3F3]' : ''}` }
+                className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 transition-colors ${value === icon.name ? 'bg-gray-100' : ''}` }
               >
                 <div className="w-4 h-4 text-gray-600 flex-shrink-0">
                   {IconNode(icon.name)}
@@ -257,7 +257,7 @@ export default function IconPicker({
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-gray-300 bg-[#FAFAF9] text-xs text-gray-600 flex-shrink-0">
+      <div className="px-3 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-600 flex-shrink-0">
         {search.trim() 
           ? `Showing ${list.length} of ${ALL_ICON_NAMES.length} icons`
           : `${ALL_ICON_NAMES.length} Lucide icons`

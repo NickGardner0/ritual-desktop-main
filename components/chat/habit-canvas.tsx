@@ -422,7 +422,7 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
   const totalValue = isHoursBased ? data.stats?.totalHours : data.stats?.totalAmount;
   
   return (
-    <div className="w-full h-full bg-[#fafaf8] flex flex-col overflow-hidden border-l border-[#e6e6e6]">
+    <div className="w-full h-full bg-white flex flex-col overflow-hidden border-l border-gray-200">
       {/* Header - Midday style gray bar */}
       <div className="flex items-center justify-between bg-[#f5f5f3] border-b border-[#e6e6e6] px-4 py-2">
         <div className="text-[12px] text-black font-medium">
@@ -503,7 +503,7 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
 
               <div className="border border-[#e6e6e6] max-h-[400px] overflow-y-auto">
                 <table className="w-full">
-                  <thead className="sticky top-0 bg-[#fafaf8]">
+                  <thead className="sticky top-0 bg-white">
                     <tr className="border-b border-[#e6e6e6]">
                       <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Date</th>
                       {isSleepData ? (

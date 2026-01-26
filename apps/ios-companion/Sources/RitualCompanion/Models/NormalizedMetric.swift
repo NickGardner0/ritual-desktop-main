@@ -77,7 +77,14 @@ struct NormalizedMetric: Codable {
     // Optional context
     let confidence: Double?
     let deviceId: String?
-    let externalId: String?  // HealthKit sample UUID
+    let externalId: String?  // HealthKit sample UUID - CRITICAL for incremental sync
+    
+    // Source tracking for multi-source filtering
+    let sourceBundleId: String?  // e.g., "com.apple.health.XXX"
+    let sourceDeviceName: String?  // e.g., "Apple Watch Series 9"
+    
+    // Sleep-specific: attributed date (wake day for overnight sleep)
+    let attributedDate: String?  // YYYY-MM-DD - the day this metric "belongs to" in the UI
     
     // Metadata
     let recordedAt: String?  // ISO8601
@@ -94,6 +101,9 @@ struct NormalizedMetric: Codable {
         case confidence
         case deviceId = "device_id"
         case externalId = "external_id"
+        case sourceBundleId = "source_bundle_id"
+        case sourceDeviceName = "source_device_name"
+        case attributedDate = "attributed_date"
         case recordedAt = "recorded_at"
         case rawPayload = "raw_payload"
     }
@@ -109,6 +119,9 @@ struct NormalizedMetric: Codable {
         confidence: Double? = nil,
         deviceId: String? = nil,
         externalId: String? = nil,
+        sourceBundleId: String? = nil,
+        sourceDeviceName: String? = nil,
+        attributedDate: Date? = nil,
         recordedAt: Date? = nil,
         rawPayload: [String: AnyCodable]? = nil
     ) {
@@ -122,8 +135,40 @@ struct NormalizedMetric: Codable {
         self.confidence = confidence
         self.deviceId = deviceId
         self.externalId = externalId
+        self.sourceBundleId = sourceBundleId
+        self.sourceDeviceName = sourceDeviceName
+        
+        // Format attributed date as YYYY-MM-DD
+        if let attrDate = attributedDate {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.timeZone = TimeZone.current
+            self.attributedDate = formatter.string(from: attrDate)
+        } else {
+            self.attributedDate = nil
+        }
+        
         self.recordedAt = recordedAt.map { ISO8601DateFormatter().string(from: $0) }
         self.rawPayload = rawPayload
+    }
+}
+
+/// Workout-specific metric with additional details
+struct WorkoutMetric: Codable {
+    let metric: NormalizedMetric
+    let activityType: String  // e.g., "running", "cycling", "strength_training"
+    let totalDistance: Double?  // meters
+    let totalEnergyBurned: Double?  // kcal
+    let averageHeartRate: Double?  // bpm
+    let maxHeartRate: Double?  // bpm
+    
+    enum CodingKeys: String, CodingKey {
+        case metric
+        case activityType = "activity_type"
+        case totalDistance = "total_distance"
+        case totalEnergyBurned = "total_energy_burned"
+        case averageHeartRate = "average_heart_rate"
+        case maxHeartRate = "max_heart_rate"
     }
 }
 

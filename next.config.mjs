@@ -24,7 +24,8 @@ const nextConfig = {
       '@radix-ui/react-icons',
       'lucide-react',
       'date-fns',
-      '@hello-pangea/dnd'
+      '@dnd-kit/core',
+      '@dnd-kit/sortable',
     ],
   },
   

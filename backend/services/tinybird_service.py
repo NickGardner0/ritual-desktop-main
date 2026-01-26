@@ -200,3 +200,179 @@ class TinybirdService:
             params['habit_id'] = habit_id
         
         return await self.query_pipe('recent_habit_logs', params)
+    
+    async def delete_by_condition(self, datasource: str, delete_condition: str) -> Dict[str, Any]:
+        """
+        Delete rows from a datasource by condition using Tinybird's Delete API
+        
+        IMPORTANT: This is a powerful operation. Use with caution.
+        
+        Args:
+            datasource: Name of the datasource (e.g., 'habit_logs')
+            delete_condition: SQL-like condition (e.g., "source = 'apple_health'")
+        
+        Returns:
+            Result of the delete operation
+        
+        Example:
+            await delete_by_condition('habit_logs', "source = 'apple_health'")
+        """
+        try:
+            url = f"{self.base_url}/v0/datasources/{datasource}/delete"
+            
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    url,
+                    headers=self.headers,
+                    params={'delete_condition': delete_condition}
+                )
+                
+                if response.status_code in [200, 202]:
+                    result = response.json()
+                    return {
+                        'success': True,
+                        'message': f'Delete operation initiated on {datasource}',
+                        'result': result
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': response.text,
+                        'status_code': response.status_code
+                    }
+                    
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    async def count_by_condition(self, datasource: str, condition: str = "1=1") -> Dict[str, Any]:
+        """
+        Count rows in a datasource by condition
+        
+        Args:
+            datasource: Name of the datasource
+            condition: SQL-like condition (e.g., "source = 'apple_health'")
+        
+        Returns:
+            Count result
+        """
+        try:
+            # Use SQL query API
+            url = f"{self.base_url}/v0/sql"
+            query = f"SELECT count() as cnt FROM {datasource} WHERE {condition}"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params={'q': query}
+                )
+                
+                if response.status_code == 200:
+                    # Tinybird SQL API returns plain text for simple queries
+                    text = response.text.strip()
+                    try:
+                        count = int(text)
+                    except ValueError:
+                        # Try parsing as JSON if it's not plain int
+                        try:
+                            result = response.json()
+                            if isinstance(result, int):
+                                count = result
+                            elif isinstance(result, dict):
+                                data = result.get('data', [])
+                                if data and isinstance(data[0], dict):
+                                    count = data[0].get('cnt', 0)
+                                else:
+                                    count = 0
+                            else:
+                                count = 0
+                        except:
+                            count = 0
+                    return {
+                        'success': True,
+                        'count': count
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': response.text,
+                        'status_code': response.status_code
+                    }
+                    
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    async def get_apple_health_stats(self) -> Dict[str, Any]:
+        """
+        Get statistics about Apple Health data in habit_logs
+        
+        Returns:
+            Statistics including counts by habit_name
+        """
+        try:
+            url = f"{self.base_url}/v0/sql"
+            query = """
+                SELECT 
+                    habit_name,
+                    count() as count,
+                    min(date) as earliest_date,
+                    max(date) as latest_date
+                FROM habit_logs 
+                WHERE source = 'apple_health'
+                GROUP BY habit_name
+                ORDER BY count DESC
+            """
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params={'q': query}
+                )
+                
+                if response.status_code == 200:
+                    # Tinybird SQL API returns TSV (tab-separated values) by default
+                    text = response.text.strip()
+                    if not text:
+                        return {'success': True, 'data': []}
+                    
+                    data = []
+                    column_names = ['habit_name', 'count', 'earliest_date', 'latest_date']
+                    
+                    for line in text.split('\n'):
+                        if line.strip():
+                            values = line.split('\t')
+                            row = {}
+                            for i, name in enumerate(column_names):
+                                if i < len(values):
+                                    # Convert count to int
+                                    if name == 'count':
+                                        try:
+                                            row[name] = int(values[i])
+                                        except ValueError:
+                                            row[name] = 0
+                                    else:
+                                        row[name] = values[i]
+                            data.append(row)
+                    
+                    return {
+                        'success': True,
+                        'data': data
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': response.text
+                    }
+                    
+        except Exception as e:
+            return {
+                'success': False,
+                'error': str(e)
+            }

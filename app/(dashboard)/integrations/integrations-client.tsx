@@ -159,40 +159,40 @@ const IntegrationCard = memo(({
   onDisconnect?: () => void
   onDetails?: () => void
 }) => (
-  <div className="bg-white border border-gray-300 p-5 flex flex-col h-[280px]">
-    <div className="h-14 mb-4 flex items-start">
+  <div className="bg-white border border-gray-300 p-4 flex flex-col h-[200px]">
+    <div className="h-10 mb-2 flex items-start">
       {logo}
     </div>
-    <div className="flex items-center mb-2">
-      <h3 className="text-base font-medium">{title}</h3>
+    <div className="flex items-center mb-1">
+      <h3 className="text-sm font-medium">{title}</h3>
       {comingSoon && (
-        <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Coming soon</span>
+        <span className="ml-2 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">Coming soon</span>
       )}
     </div>
-    <p className="text-gray-600 text-sm mb-5 flex-grow">
+    <p className="text-gray-500 text-xs mb-3 flex-grow line-clamp-2">
       {description}
     </p>
 
-    <div className="flex items-center gap-3 mt-auto">
+    <div className="flex items-center gap-2 mt-auto">
       {isConnected ? (
         <>
           <button
             onClick={onDisconnect}
-            className="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full bg-lime-500 transition-colors focus:outline-none focus:ring-2 focus:ring-lime-500 focus:ring-offset-2"
+            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-lime-500 transition-colors focus:outline-none focus:ring-2 focus:ring-lime-500 focus:ring-offset-2"
             role="switch"
             aria-checked="true"
           >
-            <span className="pointer-events-none inline-block h-5 w-5 translate-x-5 transform rounded-full bg-white shadow-sm transition-transform" />
+            <span className="pointer-events-none inline-block h-4 w-4 translate-x-4 transform rounded-full bg-white shadow-sm transition-transform" />
           </button>
           {onSync && (
             <button
               onClick={onSync}
               disabled={isSyncing}
-              className="px-3 py-2 text-sm whitespace-nowrap border border-gray-300 rounded-none hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm whitespace-nowrap border border-gray-300 rounded-none hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
             >
               {isSyncing ? (
                 <>
-                  <Loader className="w-4 h-4 mr-2 animate-spin inline-block" />
+                  <Loader className="w-3.5 h-3.5 mr-1.5 animate-spin inline-block" />
                   Syncing...
                 </>
               ) : (
@@ -202,19 +202,19 @@ const IntegrationCard = memo(({
           )}
           <button
             onClick={onDetails}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] text-gray-900"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] text-gray-900"
           >
             Details
           </button>
         </>
       ) : comingSoon ? (
         <>
-          <button className="px-3 py-2 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]">
+          <button className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]">
             Connect
           </button>
           <button
             onClick={onDetails}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]"
           >
             Details
           </button>
@@ -224,11 +224,11 @@ const IntegrationCard = memo(({
           <button
             onClick={onConnect}
             disabled={isConnecting}
-            className="px-3 py-2 text-sm bg-black text-white rounded-none hover:bg-gray-800 disabled:opacity-50"
+            className="px-3 py-1.5 text-sm bg-black text-white rounded-none hover:bg-gray-800 disabled:opacity-50"
           >
             {isConnecting ? (
               <>
-                <Loader className="w-4 h-4 mr-2 animate-spin inline-block" />
+                <Loader className="w-3.5 h-3.5 mr-1.5 animate-spin inline-block" />
                 Connecting...
               </>
             ) : (
@@ -237,7 +237,7 @@ const IntegrationCard = memo(({
           </button>
           <button
             onClick={onDetails}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]"
           >
             Details
           </button>
@@ -652,13 +652,13 @@ export function IntegrationsClient() {
   if ((isLoading && whoopStatusData === undefined) || (isLoadingAppleWatch && appleWatchStatusData === undefined) || (isLoadingComputerTracking && computerTrackingStatus === undefined)) {
     return (
       <>
-        <div className="flex items-center mb-8">
-          <div className={`w-5 h-5 rounded mr-2 ${shimmerClass}`}></div>
-          <div className={`h-6 w-32 rounded ${shimmerClass}`}></div>
+        <div className="flex items-center mb-6">
+          <div className={`w-4 h-4 rounded mr-2 ${shimmerClass}`}></div>
+          <div className={`h-5 w-28 rounded ${shimmerClass}`}></div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className={`border border-gray-300 p-5 h-[280px] ${shimmerClass}`} />
+            <div key={i} className={`border border-gray-300 p-4 h-[200px] ${shimmerClass}`} />
           ))}
         </div>
       </>
@@ -667,15 +667,15 @@ export function IntegrationsClient() {
 
   return (
     <>
-      <div className="mb-8">
-        <h1 className="text-xl font-medium">Integrations</h1>
+      <div className="mb-6">
+        <h1 className="text-lg font-medium">Integrations</h1>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Computer Tracking Card - Only show on desktop (Tauri) */}
         {isTauri() && (
           <IntegrationCard
-            logo={<Monitor className="h-10 w-10 text-gray-900" />}
+            logo={<Monitor className="h-7 w-7 text-gray-900" />}
             title="Computer Tracking"
             description={computerTrackingEnabled 
               ? `Tracking active on ${computerTrackingDeviceName}. Monitor app usage, browser activity, and screen time.`
@@ -696,7 +696,7 @@ export function IntegrationsClient() {
               alt="Whoop"
               width={80}
               height={32}
-              className="h-8 w-auto object-contain"
+              className="h-6 w-auto object-contain"
             />
           }
           title="Whoop"
@@ -715,7 +715,7 @@ export function IntegrationsClient() {
 
         <IntegrationCard
           logo={
-            <svg className="h-8 w-8" viewBox="0 0 814 1000" fill="currentColor">
+            <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
               <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
             </svg>
           }
@@ -734,7 +734,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/Screen_Time.svg" alt="Apple Screen Time" width={40} height={40} className="h-10 w-10" />}
+          logo={<Image src="/images/Screen_Time.svg" alt="Apple Screen Time" width={28} height={28} className="h-7 w-7" />}
           title="Apple Screen Time"
           description="Track your digital habits by importing Screen Time data from your iPhone or iPad."
           comingSoon
@@ -745,7 +745,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/oura.svg" alt="Oura" width={56} height={56} className="h-14 w-auto object-contain" />}
+          logo={<Image src="/images/oura.svg" alt="Oura" width={40} height={40} className="h-10 w-auto object-contain" />}
           title="Oura Ring"
           description="Sync your sleep and readiness scores from Oura Ring"
           comingSoon
@@ -756,7 +756,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/fitbit.svg" alt="Fitbit" width={80} height={32} className="h-8 w-auto object-contain" />}
+          logo={<Image src="/images/fitbit.svg" alt="Fitbit" width={60} height={24} className="h-6 w-auto object-contain" />}
           title="Fitbit"
           description="Connect your Fitbit to track activity and health metrics"
           comingSoon
@@ -767,7 +767,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/garmin.svg" alt="Garmin" width={80} height={32} className="h-8 w-auto object-contain" />}
+          logo={<Image src="/images/garmin.svg" alt="Garmin" width={60} height={24} className="h-6 w-auto object-contain" />}
           title="Garmin"
           description="Integrate Garmin devices for comprehensive activity tracking"
           comingSoon
@@ -778,7 +778,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/cal_ai.svg" alt="Cal AI" width={120} height={48} className="h-12 w-auto object-contain" />}
+          logo={<Image src="/images/cal_ai.svg" alt="Cal AI" width={80} height={32} className="h-8 w-auto object-contain" />}
           title="Cal AI"
           description="Track your nutrition and calories with AI-powered food recognition"
           comingSoon
@@ -789,7 +789,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/Google_Calendar_Logo.svg" alt="Google Calendar" width={32} height={32} className="h-8 w-8" />}
+          logo={<Image src="/images/Google_Calendar_Logo.svg" alt="Google Calendar" width={24} height={24} className="h-6 w-6" />}
           title="Google Calendar"
           description="Track meeting time, frequency, and patterns by syncing your Google Calendar events"
           comingSoon

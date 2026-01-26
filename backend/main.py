@@ -1698,6 +1698,140 @@ async def ingest_apple_health_metrics(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Import V2 schemas
+from schemas.wearables_apple import (
+    AppleIngestRequestV2,
+    AppleIngestResponseV2,
+    DeleteResult,
+    SyncStatusResponse,
+)
+
+
+@app.post("/api/wearables/apple/ingest/v2", response_model=AppleIngestResponseV2)
+@limiter.limit("60/minute")  # Higher rate limit for incremental sync
+async def ingest_apple_health_metrics_v2(
+    request: Request,
+    ingest_request: AppleIngestRequestV2,
+    current_user = Depends(get_current_user)
+):
+    """
+    V2 Ingest endpoint with incremental sync support.
+    
+    Supports:
+    - added: New metrics since last sync
+    - deleted: HealthKit UUIDs of deleted samples
+    - modified: Updated metrics (same external_id, new values)
+    
+    Returns confirmation of operations and anchor state.
+    """
+    try:
+        total_ops = len(ingest_request.added) + len(ingest_request.deleted) + len(ingest_request.modified)
+        print(f"📊 V2 Ingest: {len(ingest_request.added)} added, {len(ingest_request.deleted)} deleted, {len(ingest_request.modified)} modified")
+        
+        success, added_results, deleted_results, modified_results, error = await wearables_service.process_ingest_request_v2(
+            user_id=current_user["id"],
+            request=ingest_request
+        )
+        
+        # Force flush Tinybird batch to ensure data is synced immediately
+        flushed_count = await wearables_service.force_flush_tinybird_batch()
+        if flushed_count > 0:
+            print(f"📊 Flushed {flushed_count} habit logs to Tinybird")
+        
+        if error and not success:
+            if error == "Device not found":
+                raise HTTPException(status_code=404, detail=error)
+            elif error == "Device does not belong to this user":
+                raise HTTPException(status_code=403, detail=error)
+            elif error == "Invalid signature":
+                raise HTTPException(status_code=401, detail=error)
+            elif error == "Already processed (idempotency)":
+                return AppleIngestResponseV2(
+                    success=True,
+                    added_results=[],
+                    deleted_results=[],
+                    modified_results=[],
+                    server_time=datetime.utcnow().isoformat() + "Z",
+                    next_poll_seconds=60,
+                    confirmed_anchors=ingest_request.anchors
+                )
+            else:
+                raise HTTPException(status_code=400, detail=error)
+        
+        return AppleIngestResponseV2(
+            success=success,
+            added_results=added_results,
+            deleted_results=deleted_results,
+            modified_results=modified_results,
+            server_time=datetime.utcnow().isoformat() + "Z",
+            next_poll_seconds=60 if success else 300,
+            confirmed_anchors=ingest_request.anchors if success else None
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ V2 Ingest error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wearables/apple/devices/{device_id}/status", response_model=SyncStatusResponse)
+async def get_device_sync_status(
+    device_id: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get sync status for a specific device.
+    Used by desktop app to display sync health.
+    """
+    try:
+        status = await wearables_service.get_device_sync_status(
+            device_id=device_id,
+            user_id=current_user["id"]
+        )
+        
+        if not status:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        return SyncStatusResponse(**status)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Get sync status error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wearables/apple/sync-status")
+async def get_all_devices_sync_status(current_user = Depends(get_current_user)):
+    """
+    Get sync status for all user's Apple Health devices.
+    Used by desktop app settings to show connection health.
+    """
+    try:
+        devices = await wearables_service.get_user_devices(current_user["id"])
+        
+        statuses = []
+        for device in devices:
+            status = await wearables_service.get_device_sync_status(
+                device_id=device.id,
+                user_id=current_user["id"]
+            )
+            if status:
+                statuses.append(status)
+        
+        return {
+            "devices": statuses,
+            "count": len(statuses)
+        }
+        
+    except Exception as e:
+        print(f"❌ Get all sync status error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/wearables/metrics")
 async def get_wearable_metrics(
     source: Optional[str] = None,

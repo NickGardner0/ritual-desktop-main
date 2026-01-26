@@ -154,7 +154,7 @@ fn main() {
       // Configure window size but keep it hidden - frontend will show it when React is ready
       // This prevents the "tiny window flash" caused by showing before webview loads
       if let Some(window) = app.get_window("main") {
-        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: 1100, height: 800 }));
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1200.0, height: 850.0 }));
         let _ = window.center();
         // Window stays hidden (visible: false in config) until frontend shows it
       }

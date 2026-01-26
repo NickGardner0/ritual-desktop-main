@@ -27,6 +27,8 @@ mod browser;
 mod afk;
 mod sync_queue;
 pub mod icons;
+#[cfg(target_os = "macos")]
+mod notifications;
 
 use database::WatcherDatabase;
 use config::{WatcherConfig, TitleMode, UrlMode};
@@ -275,6 +277,7 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
     let mut last_commit_time = now_ms();
     let mut last_poll_time = now_ms();
     let mut was_afk = false; // Track AFK state for boundary detection
+    let mut last_notified_bundle: Option<String> = None; // Track last notification to avoid duplicates
     
     // Initialize sync queue for backend reliability
     let sync_queue = match SyncQueue::new(&config.database_path.replace("watcher.db", "sync_queue.db")) {
@@ -288,11 +291,23 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
         }
     };
 
+    // Initialize event-driven notification listener (macOS)
+    // This provides immediate app switch detection instead of waiting for next poll
+    #[cfg(target_os = "macos")]
+    let notification_listener = {
+        use notifications::NotificationListener;
+        Some(NotificationListener::new())
+    };
+    #[cfg(not(target_os = "macos"))]
+    let notification_listener: Option<()> = None;
+
     info!("📡 Starting activity monitoring with heartbeat merging...");
     info!("   Pulsetime: {:.1}s", config.pulsetime_seconds);
     info!("   Hard gap threshold: {:.0}s", hard_gap_ms as f64 / 1000.0);
     info!("   Commit interval: {:.0}s", commit_interval_ms as f64 / 1000.0);
     info!("   AFK timeout: {:.0}s", config.afk_timeout_seconds);
+    #[cfg(target_os = "macos")]
+    info!("   Event-driven detection: enabled");
     
     // Helper closure to close current session
     let close_session = |session: &CurrentSession, db: &WatcherDatabase, sync_queue: &Option<SyncQueue>, now: u64, reason: SessionCloseReason| {
@@ -317,6 +332,30 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
     while running.load(Ordering::SeqCst) {
         let now = now_ms();
         
+        // ===== EVENT-DRIVEN APP SWITCH DETECTION =====
+        // Check for notification events first - these indicate immediate app switches
+        // This is much more responsive than waiting for the next poll cycle
+        #[cfg(target_os = "macos")]
+        let _notification_triggered = {
+            let mut triggered = false;
+            if let Some(ref listener) = notification_listener {
+                // Drain all pending notifications
+                let events = listener.drain();
+                for event in events {
+                    // Only process if this is a different app than we last saw via notification
+                    // This prevents duplicate processing when both notification and poll fire
+                    if last_notified_bundle.as_ref() != Some(&event.bundle_id) {
+                        debug!("🔔 Processing notification: {} at {}ms", event.app_name, event.timestamp_ms);
+                        last_notified_bundle = Some(event.bundle_id.clone());
+                        triggered = true;
+                    }
+                }
+            }
+            triggered
+        };
+        #[cfg(not(target_os = "macos"))]
+        let _notification_triggered = false;
+        
         // ===== SLEEP/WAKE DETECTION =====
         // If wall clock jumped forward significantly, we likely woke from sleep
         let time_since_last_poll = now.saturating_sub(last_poll_time);
@@ -330,6 +369,7 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
             // Reset AFK state after wake
             afk_watcher = AfkWatcher::new(config.afk_timeout_seconds);
             was_afk = false;
+            last_notified_bundle = None;
         }
         last_poll_time = now;
         

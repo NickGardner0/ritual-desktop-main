@@ -1,64 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Gradient for subtle background -->
+    <!-- Frosted glass gradient with more translucency -->
     <radialGradient id="bgGradient" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:#FAFAFA;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#F0F0F0;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.85" />
+      <stop offset="50%" style="stop-color:#F8F8F8;stop-opacity:0.75" />
+      <stop offset="100%" style="stop-color:#F0F0F0;stop-opacity:0.7" />
     </radialGradient>
     
-    <!-- Shadow filter -->
+    <!-- Enhanced shadow for depth -->
     <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
-      <feOffset dx="0" dy="4" result="offsetblur"/>
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dx="0" dy="6" result="offsetblur"/>
       <feComponentTransfer>
-        <feFuncA type="linear" slope="0.15"/>
+        <feFuncA type="linear" slope="0.2"/>
       </feComponentTransfer>
       <feMerge>
         <feMergeNode/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
+    
+    <!-- Frosted glass blur effect -->
+    <filter id="frostedGlass" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.5"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.9"/>
+      </feComponentTransfer>
+    </filter>
+    
+    <!-- Sphere boundary clip path -->
+    <clipPath id="sphereClip">
+      <circle cx="0" cy="0" r="112.5" />
+    </clipPath>
   </defs>
   
   <!-- Outer shadow container -->
   <g filter="url(#shadow)">
-    <!-- Main rounded square background -->
+    <!-- Main rounded square background with frosted glass effect -->
     <rect x="64" y="64" width="896" height="896" rx="180" ry="180" 
-          fill="url(#bgGradient)"/>
+          fill="url(#bgGradient)" 
+          filter="url(#frostedGlass)"
+          opacity="0.95"/>
     
-    <!-- Inner border -->
+    <!-- Subtle highlight on top edge for glass effect -->
+    <rect x="64" y="64" width="896" height="200" rx="180" ry="180" 
+          fill="url(#bgGradient)" 
+          opacity="0.4"/>
+    
+    <!-- Inner border with slight transparency -->
     <rect x="64" y="64" width="896" height="896" rx="180" ry="180" 
-          fill="none" stroke="#E0E0E0" stroke-width="2"/>
+          fill="none" stroke="#D0D0D0" stroke-width="1.5" opacity="0.6"/>
+    
+    <!-- Outer subtle border for definition -->
+    <rect x="65" y="65" width="894" height="894" rx="179" ry="179" 
+          fill="none" stroke="#FFFFFF" stroke-width="2" opacity="0.3"/>
   </g>
   
-  <!-- 6-petal flower/knot symbol in center -->
-  <g transform="translate(512, 512)">
-    <!-- Each petal is a rounded path, arranged in a radial pattern -->
-    <!-- Petal 1 (top) -->
-    <path d="M 0,-120 Q 30,-90 40,-60 Q 45,-40 40,-20 Q 30,0 0,0 Q -30,0 -40,-20 Q -45,-40 -40,-60 Q -30,-90 0,-120 Z" 
-          fill="#000000"/>
-    
-    <!-- Petal 2 (60 degrees) -->
-    <path d="M 103.92,-60 Q 108.92,-30 103.92,0 Q 95.92,15 77.94,20 Q 60,20 51.96,10 Q 45,0 51.96,-10 Q 60,-20 77.94,-20 Q 95.92,-15 103.92,-60 Z" 
-          fill="#000000"/>
-    
-    <!-- Petal 3 (120 degrees) -->
-    <path d="M 103.92,60 Q 95.92,75 77.94,80 Q 60,80 51.96,70 Q 45,60 51.96,50 Q 60,40 77.94,40 Q 95.92,45 108.92,30 Q 103.92,0 103.92,60 Z" 
-          fill="#000000"/>
-    
-    <!-- Petal 4 (bottom) -->
-    <path d="M 0,120 Q -30,90 -40,60 Q -45,40 -40,20 Q -30,0 0,0 Q 30,0 40,20 Q 45,40 40,60 Q 30,90 0,120 Z" 
-          fill="#000000"/>
-    
-    <!-- Petal 5 (240 degrees) -->
-    <path d="M -103.92,60 Q -108.92,30 -103.92,0 Q -95.92,-15 -77.94,-20 Q -60,-20 -51.96,-10 Q -45,0 -51.96,10 Q -60,20 -77.94,20 Q -95.92,15 -103.92,60 Z" 
-          fill="#000000"/>
-    
-    <!-- Petal 6 (300 degrees) -->
-    <path d="M -103.92,-60 Q -95.92,-75 -77.94,-80 Q -60,-80 -51.96,-70 Q -45,-60 -51.96,-50 Q -60,-40 -77.94,-40 Q -95.92,-45 -108.92,-30 Q -103.92,0 -103.92,-60 Z" 
-          fill="#000000"/>
-    
-    <!-- Center circle to connect all petals -->
-    <circle cx="0" cy="0" r="35" fill="#000000"/>
+  <!-- New Sphere Logo - centered and scaled -->
+  <!-- Original is 288x288 with sphere centered at (175, 112.5), radius 112.5 -->
+  <!-- Scale to fit nicely: 2.8x scale, centered at 512,512 -->
+  <g transform="translate(512, 512) scale(2.8) translate(-175, -112.5)">
+    <!-- Ring (donut) perimeter -->
+    <path
+      fill="black"
+      fill-rule="evenodd"
+      d="
+        M 175 0
+        A 112.5 112.5 0 1 1 175 225
+        A 112.5 112.5 0 1 1 175 0
+        Z
+
+        M 175 17
+        A 95.5 95.5 0 1 0 175 208
+        A 95.5 95.5 0 1 0 175 17
+        Z
+      "
+    />
+
+    <!-- Sphere interior artwork clipped to circle -->
+    <g clip-path="url(#sphereClip)" transform="translate(175, 112.5)">
+      <g transform="translate(-175, -112.5)">
+        <path d="M175 0C141.68 0 111.75 14.49 91.15 37.5H0V287.5H250V196.35C273.01 175.75 287.5 145.82 287.5 112.5C287.5 50.37 237.13 0 175 0ZM166.25 225.38C155.57 225.38 145.27 223.77 135.57 220.78C193.6 156.69 243.71 144.59 248.81 168.08C253.77 138.55 248.57 123.16 239.55 123.16C223.89 123.16 165.41 152.29 133.2 220.02C116 214.27 100.8 204.15 88.92 190.98C156.67 106.34 233.37 95.36 242.67 112.65C238.82 94.08 223.71 77.02 216.95 76.73C198.49 75.93 129.28 104.28 86.76 188.51C75.46 175.17 67.46 158.95 64.02 141.11C120.05 74.28 197.7 55.9 214.38 70.13C201.42 56.53 184.92 49.32 176.48 48.77C156.02 47.42 108.14 64.63 63.4 137.55C62.57 132.24 62.13 126.8 62.13 121.26C62.13 106.06 65.39 91.63 71.24 78.61C110.21 42.03 159.53 42.96 159.53 42.96C153.77 39.83 142.46 36.94 128.69 36.94C115.79 36.94 103.95 40.83 96.91 43.59C115.32 27.14 139.62 17.14 166.26 17.14C223.77 17.14 270.38 63.76 270.38 121.26C270.38 178.76 223.76 225.38 166.26 225.38H166.25Z" fill="black"/>
+      </g>
+    </g>
   </g>
 </svg>

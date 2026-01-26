@@ -4,7 +4,8 @@
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "",
     "devPath": "http://localhost:3000",
-    "distDir": "../out"
+    "distDir": "../out",
+    "withGlobalTauri": false
   },
   "package": {
     "productName": "ritual-desktop",
@@ -124,7 +125,7 @@
       "pubkey": ""
     },
     "systemTray": {
-      "iconPath": "icons/icon.png",
+      "iconPath": "icons/tray-iconTemplate@2x.png",
       "iconAsTemplate": true,
       "menuOnLeftClick": false
     },
@@ -132,10 +133,10 @@
       {
         "label": "main",
         "fullscreen": false,
-        "height": 800,
+        "height": 850,
         "resizable": true,
         "title": "",
-        "width": 1100,
+        "width": 1200,
         "minHeight": 450,
         "minWidth": 800,
         "decorations": true,

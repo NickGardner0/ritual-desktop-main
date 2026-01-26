@@ -1,0 +1,145 @@
+# Environment Setup Guide
+
+This document contains the required environment variables for running Ritual.
+
+---
+
+## Frontend (.env.local)
+
+Create a file named `.env.local` in the project root with these variables:
+
+```env
+# ============================
+# Clerk Authentication (Required)
+# ============================
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
+NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/onboarding
+
+# ============================
+# Backend API (Required)
+# ============================
+NEXT_PUBLIC_PYTHON_API_URL=http://127.0.0.1:8000
+
+# ============================
+# Tinybird Analytics (Required)
+# ============================
+TINYBIRD_TOKEN=p.ey...
+TINYBIRD_API_URL=https://api.us-east.aws.tinybird.co
+
+# ============================
+# AI Features (Required)
+# ============================
+OPENAI_API_KEY=sk-...
+
+# ============================
+# Whoop Integration (Optional)
+# ============================
+NEXT_PUBLIC_WHOOP_CLIENT_ID=
+NEXT_PUBLIC_WHOOP_REDIRECT_URI=http://localhost:3000/api/integrations/whoop/callback
+
+# ============================
+# Observability (Optional)
+# ============================
+SENTRY_DSN=
+OPENPANEL_CLIENT_ID=
+
+# ============================
+# Feature Flags (Optional)
+# ============================
+NEXT_PUBLIC_USE_PYTHON_BACKEND=true
+NEXT_PUBLIC_DEBUG_API=false
+```
+
+---
+
+## Backend (backend/.env)
+
+Create a file named `.env` in the `backend/` directory:
+
+```env
+# ============================
+# Database (Required)
+# ============================
+# Turso Cloud URL format: libsql://[HOST].turso.io?authToken=[TOKEN]
+DATABASE_URL=libsql://your-db.turso.io?authToken=eyJ...
+
+# ============================
+# Clerk Authentication (Required)
+# ============================
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=http://localhost:3000/sign-in
+
+# ============================
+# Tinybird Analytics (Required)
+# ============================
+TINYBIRD_TOKEN=p.ey...
+TINYBIRD_API_URL=https://api.us-east.aws.tinybird.co
+
+# ============================
+# Whoop Integration (Optional)
+# ============================
+WHOOP_CLIENT_ID=
+WHOOP_CLIENT_SECRET=
+NEXT_PUBLIC_WHOOP_REDIRECT_URI=http://localhost:3000/api/integrations/whoop/callback
+
+# ============================
+# Wearables (Apple Health)
+# ============================
+WEARABLES_MASTER_SECRET=ritual-wearables-dev-secret
+
+# ============================
+# CORS (Optional)
+# ============================
+CORS_ORIGINS=http://localhost:3000,https://localhost:3000,tauri://localhost
+```
+
+---
+
+## iOS Companion (AppConfig.swift)
+
+Update `apps/ios-companion/Config/AppConfig.swift`:
+
+```swift
+struct AppConfig {
+    static let apiBaseURL = "https://api.ritual.so" // or localhost for dev
+}
+```
+
+The iOS app stores credentials in the Keychain after device registration.
+
+---
+
+## Getting API Keys
+
+### Clerk
+1. Go to [clerk.com](https://clerk.com)
+2. Create an application
+3. Copy the publishable and secret keys
+
+### Tinybird
+1. Go to [tinybird.co](https://tinybird.co)
+2. Create a workspace
+3. Get your admin token from Settings
+
+### OpenAI
+1. Go to [platform.openai.com](https://platform.openai.com)
+2. Create an API key
+
+### Turso
+1. Go to [turso.tech](https://turso.tech)
+2. Create a database
+3. Copy the libSQL URL with auth token
+
+### Whoop (Optional)
+1. Go to [developer.whoop.com](https://developer.whoop.com)
+2. Create an OAuth application
+3. Configure redirect URI
+
+---
+
+*Last updated: January 2026*
+

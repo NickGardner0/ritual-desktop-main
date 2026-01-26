@@ -34,7 +34,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
       <ClerkProvider
         signInUrl="/auth"
         signUpUrl="/auth"
-        afterSignOutUrl="/welcome"
+        afterSignOutUrl="/"
       >
         <OpenPanelProvider>
         <QueryProvider>

@@ -86,7 +86,7 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
 
   return (
     <div
-      className="group relative cursor-pointer bg-[#FAFAF9] border border-gray-300 p-2.5 hover:bg-[#F5F5F4] transition-colors duration-150 overflow-hidden min-w-0"
+      className="group relative cursor-pointer bg-white border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors duration-150 overflow-hidden min-w-0"
       onClick={onClick}
     >
       {/* Close Button - Top right corner in padding area, appears on hover */}

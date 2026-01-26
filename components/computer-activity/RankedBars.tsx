@@ -9,6 +9,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronUp, Globe } from 'lucide-react'
 import { RankedBar } from '@/types/computerActivity'
 import { msToHuman } from '@/lib/computerActivity/derive'
@@ -137,7 +138,7 @@ export function RankedBars({
 }: RankedBarsProps) {
   const [expanded, setExpanded] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<RankedBar | null>(null)
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+  const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null)
   
   const visibleItems = expanded ? items : items.slice(0, maxVisible)
   const hasMore = items.length > maxVisible
@@ -145,17 +146,14 @@ export function RankedBars({
   
   const handleMouseEnter = (item: RankedBar, e: React.MouseEvent) => {
     setHoveredItem(item)
-    setTooltipPos({ x: e.clientX, y: e.clientY })
-  }
-  
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (hoveredItem) {
-      setTooltipPos({ x: e.clientX, y: e.clientY })
-    }
+    // Get the bounding rect of the row element for accurate positioning
+    const rect = e.currentTarget.getBoundingClientRect()
+    setTooltipRect(rect)
   }
   
   const handleMouseLeave = () => {
     setHoveredItem(null)
+    setTooltipRect(null)
   }
   
   if (items.length === 0) {
@@ -173,16 +171,15 @@ export function RankedBars({
   
   return (
     <div className={className}>
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         {visibleItems.map((item) => {
           const percentage = (item.valueMs / maxValue) * 100
           
           return (
             <div
               key={item.key}
-              className="group flex items-center gap-3 py-1 -mx-2 px-2 rounded-md hover:bg-gray-50/80 transition-colors cursor-default"
+              className="group flex items-center gap-2.5 py-0.5 cursor-default hover:bg-[#F3F3F3]/50 -mx-1 px-1 transition-colors"
               onMouseEnter={(e) => handleMouseEnter(item, e)}
-              onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
               {/* App/Domain icon */}
@@ -204,20 +201,20 @@ export function RankedBars({
               )}
               
               {/* Name - fixed width for alignment */}
-              <span className="text-[13px] text-gray-700 truncate w-[140px] flex-shrink-0">
+              <span className="text-[13px] text-gray-700 truncate w-[120px] flex-shrink-0">
                 {item.label}
               </span>
               
-              {/* Progress bar - thick, squared */}
-              <div className="flex-1 h-3 relative">
+              {/* Progress bar */}
+              <div className="flex-1 h-2.5 relative">
                 <div
-                  className="absolute inset-y-0 left-0 bg-[#374151] transition-all duration-300"
+                  className="absolute inset-y-0 left-0 bg-gray-800 transition-all duration-300 group-hover:bg-gray-600"
                   style={{ width: `${Math.max(percentage, 2)}%` }}
                 />
               </div>
               
               {/* Duration */}
-              <span className="text-[13px] text-gray-500 tabular-nums text-right min-w-[48px]">
+              <span className="text-[13px] text-gray-500 tabular-nums text-right min-w-[44px]">
                 {msToHuman(item.valueMs, true)}
               </span>
             </div>
@@ -225,55 +222,51 @@ export function RankedBars({
         })}
       </div>
       
-      {/* Show more/less toggle */}
+      {/* Show more link */}
       {hasMore && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center justify-center gap-1 w-full mt-2 py-1 text-xs text-gray-400 hover:text-gray-500 transition-colors"
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors mt-2"
         >
           {expanded ? (
-            <>
-              Show less
-              <ChevronUp className="w-3 h-3" />
-            </>
+            <>Show less <ChevronUp className="w-3 h-3" /></>
           ) : (
-            <>
-              {items.length - maxVisible} more
-              <ChevronDown className="w-3 h-3" />
-            </>
+            <>{items.length - maxVisible} more <ChevronDown className="w-3 h-3" /></>
           )}
         </button>
       )}
       
-      {/* Total footer - minimal */}
-      <div className="flex items-center justify-end gap-4 pt-3 mt-2">
+      {/* Total footer */}
+      <div className="flex justify-end pt-2 mt-2">
         <span className="text-xs text-gray-400">
           {items.length} {type === 'domains' ? 'site' : 'app'}{items.length !== 1 ? 's' : ''} · {msToHuman(items.reduce((sum, item) => sum + item.valueMs, 0))}
         </span>
       </div>
       
-      {/* Frosted glass tooltip on hover */}
-      {hoveredItem && (
+      {/* Compact frosted glass tooltip - rendered in portal to escape CSS transforms */}
+      {hoveredItem && tooltipRect && typeof document !== 'undefined' && createPortal(
         <div 
-          className="fixed z-50 pointer-events-none"
+          className="fixed z-[9999] pointer-events-none"
           style={{ 
-            left: tooltipPos.x, 
-            top: tooltipPos.y - 50,
-            transform: 'translateX(-50%)'
+            left: tooltipRect.left + tooltipRect.width / 2,
+            top: tooltipRect.top - 6,
+            transform: 'translate(-50%, -100%)'
           }}
         >
           <div 
-            className="px-3 py-2 text-xs border border-gray-200/60 shadow-lg"
+            className="px-2 py-1 text-xs border border-gray-200/60 shadow-md whitespace-nowrap"
             style={{
-              background: 'rgba(255, 255, 255, 0.82)',
+              background: 'rgba(255, 255, 255, 0.92)',
               backdropFilter: 'blur(12px) saturate(180%)',
               WebkitBackdropFilter: 'blur(12px) saturate(180%)',
             }}
           >
-            <p className="font-medium text-gray-900 mb-0.5">{hoveredItem.label}</p>
-            <p className="text-gray-500 tabular-nums">{msToHuman(hoveredItem.valueMs)} active</p>
+            <span className="font-medium text-gray-900">{hoveredItem.label}</span>
+            <span className="text-gray-400 mx-1.5">·</span>
+            <span className="text-gray-500 tabular-nums">{msToHuman(hoveredItem.valueMs)} active</span>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

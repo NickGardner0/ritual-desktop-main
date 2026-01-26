@@ -117,7 +117,7 @@ const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
 
   return (
     <div
-      className="group relative bg-[#FAFAF9] border border-gray-300 p-2.5 hover:bg-[#F5F5F4] transition-colors duration-150 cursor-pointer overflow-hidden min-w-0"
+      className="group relative bg-white border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors duration-150 cursor-pointer overflow-hidden min-w-0"
       onClick={onClick}
     >
       {/* Close Button - Top right corner, appears on hover */}
@@ -1513,7 +1513,7 @@ export function AnalyticsClient() {
 
           {/* Expanded View - Now with Individual Log Details from Tinybird! */}
           {expandedHabit && (
-            <div className="mt-4 bg-[#FAFAF9] border border-gray-300 p-6 shadow-sm">
+            <div className="mt-4 bg-white border border-gray-200 p-6">
               {loadingExpandedLogs ? (
                 <div className="flex items-center justify-center h-[400px]">
                   <div className="text-center">

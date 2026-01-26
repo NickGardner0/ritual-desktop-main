@@ -15,7 +15,8 @@ import {
   Lock,
   Unlock,
   Activity,
-  Loader2
+  Loader2,
+  Clock
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 
@@ -26,6 +27,9 @@ interface WatcherConfig {
   title_mode: 'off' | 'full' | 'truncate' | 'hash';
   truncate_length: number;
   excluded_bundle_ids: string[];
+  afk_timeout_seconds?: number;
+  url_mode?: string;
+  track_incognito?: boolean;
 }
 
 interface WatcherStatus {
@@ -42,6 +46,7 @@ interface DeviceState {
   title_mode: 'off' | 'full' | 'truncate' | 'hash';
   excluded_bundle_ids: string[];
   sync_analytics: boolean;
+  afk_timeout_seconds: number;
 }
 
 const TITLE_MODE_OPTIONS = [
@@ -125,6 +130,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
   const [pollInterval, setPollInterval] = useState(2000);
   const [excludedApps, setExcludedApps] = useState<string[]>([]);
   const [syncAnalytics, setSyncAnalytics] = useState(false);
+  const [afkTimeout, setAfkTimeout] = useState(900); // 15 minutes default
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -249,6 +255,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
             setPollInterval(device.state?.poll_interval_ms || 2000);
             setExcludedApps(device.state?.excluded_bundle_ids || []);
             setSyncAnalytics(device.state?.sync_analytics || false);
+            setAfkTimeout(device.state?.afk_timeout_seconds || 900);
             
             // Update cache with backend data
             setCachedState({
@@ -367,7 +374,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
       }
       
       try {
-        const config: WatcherConfig & { afk_timeout_seconds?: number; url_mode?: string; track_incognito?: boolean } = {
+        const config: WatcherConfig = {
           device_id: deviceId || '',
           user_id: userId,
           poll_interval_ms: pollInterval,
@@ -375,7 +382,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           truncate_length: 80,
           excluded_bundle_ids: excludedApps,
           // V2 settings
-          afk_timeout_seconds: 300,
+          afk_timeout_seconds: afkTimeout,
           url_mode: 'domain',
           track_incognito: false
         };
@@ -425,7 +432,8 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           poll_interval_ms: pollInterval,
           title_mode: titleMode,
           excluded_bundle_ids: excludedApps,
-          sync_analytics: syncAnalytics
+          sync_analytics: syncAnalytics,
+          afk_timeout_seconds: afkTimeout
         })
       });
       
@@ -440,9 +448,15 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           poll_interval_ms: pollInterval,
           title_mode: titleMode,
           truncate_length: 80,
-          excluded_bundle_ids: excludedApps
+          excluded_bundle_ids: excludedApps,
+          afk_timeout_seconds: afkTimeout,
+          url_mode: 'domain',
+          track_incognito: false
         };
         await invoke('start_watcher', { config });
+        
+        // Save config for auto-start
+        await invoke('save_watcher_config_cmd', { config });
       }
     } catch (e) {
       setError('Failed to save settings');
@@ -582,6 +596,39 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
             </button>
           ))}
         </div>
+      </div>
+
+      {/* AFK Timeout */}
+      <div className="py-2.5 border-b border-gray-200/50">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-900">Idle Timeout</span>
+          </div>
+          <span className="text-sm text-gray-500">
+            {afkTimeout >= 60 ? `${Math.round(afkTimeout / 60)} min` : `${afkTimeout} sec`}
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          <input
+            type="range"
+            min="300"
+            max="3600"
+            step="60"
+            value={afkTimeout}
+            onChange={(e) => setAfkTimeout(parseInt(e.target.value))}
+            className="w-full h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-black"
+          />
+          <div className="flex justify-between text-xs text-gray-400">
+            <span>5 min</span>
+            <span>15 min</span>
+            <span>30 min</span>
+            <span>60 min</span>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-1.5">
+          Time without input before marking as idle. Longer = captures reading/thinking time.
+        </p>
       </div>
 
       {/* Excluded Apps */}

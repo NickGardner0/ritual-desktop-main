@@ -75,6 +75,9 @@ class WatcherService:
                 print("⚠️ Tinybird service not available, skipping sync")
                 return
             
+            # Use full ISO timestamp for completed_at (critical for Tinybird deduplication)
+            now_iso = datetime.now().isoformat()
+            
             log_data = {
                 'id': log_id,
                 'habit_id': habit_id,
@@ -87,7 +90,7 @@ class WatcherService:
                 'notes': 'Auto-synced from Ritual Watcher',
                 'source': 'ritual_watcher',
                 'unit_type': unit_type,
-                'completed_at': date
+                'completed_at': now_iso  # Full timestamp for proper deduplication
             }
             
             result = await tinybird.ingest_habit_log(log_data)
@@ -207,6 +210,7 @@ class WatcherService:
                     "excluded_bundle_ids": json.loads(state.excluded_bundle_ids) if state and state.excluded_bundle_ids else [],
                     "sync_analytics": bool(state.sync_analytics) if state else False,
                     "sync_raw_to_cloud": bool(state.sync_raw_to_cloud) if state else False,
+                    "afk_timeout_seconds": (state.afk_timeout_seconds if hasattr(state, 'afk_timeout_seconds') and state.afk_timeout_seconds else 900) if state else 900,
                 } if state else None
             }
     
@@ -273,7 +277,7 @@ class WatcherService:
             allowed_fields = [
                 'is_enabled', 'poll_interval_ms', 'accessibility_status',
                 'title_mode', 'truncate_length', 'excluded_bundle_ids',
-                'sync_analytics', 'sync_raw_to_cloud'
+                'sync_analytics', 'sync_raw_to_cloud', 'afk_timeout_seconds'
             ]
             
             for key, value in updates.items():
@@ -299,6 +303,7 @@ class WatcherService:
                 "excluded_bundle_ids": json.loads(state.excluded_bundle_ids) if state.excluded_bundle_ids else [],
                 "sync_analytics": bool(state.sync_analytics),
                 "sync_raw_to_cloud": bool(state.sync_raw_to_cloud),
+                "afk_timeout_seconds": state.afk_timeout_seconds if hasattr(state, 'afk_timeout_seconds') and state.afk_timeout_seconds else 900,
             }
     
     async def heartbeat(self, device_id: str, user_id: str) -> bool:
