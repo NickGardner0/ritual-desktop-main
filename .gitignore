@@ -33,6 +33,10 @@ yarn-error.log*
 src-tauri/target/
 src-tauri/Cargo.lock
 src-tauri/bin/*/target/
+src-tauri/crates/*/target/
+
+# Root target directory (rust-analyzer, etc)
+target/
 
 # TypeScript
 *.tsbuildinfo
