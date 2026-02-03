@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense, useMemo } from 'react';
 import { Plus, X, LayoutDashboard, Download } from 'lucide-react';
-import * as Lucide from 'lucide-react';
+// REMOVED: import * as Lucide from 'lucide-react' - this imported 400+ icons
+// Now using dynamic import for the specific icon needed
 import { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format } from 'date-fns';
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -38,19 +39,16 @@ const HabitSelectionModal = lazy(() => import("@/components/habit-selection-moda
 const AIHabitChat = lazy(() => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })));
 const DataImportModal = lazy(() => import("@/components/data-import-modal").then(m => ({ default: m.DataImportModal })));
 
-// Helper to convert kebab-case to PascalCase for Lucide icons
-const kebabToPascal = (k: string) => k.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+// Use dynamic import for habit icons to avoid loading all 400+ lucide icons
+import dynamic from 'next/dynamic';
+
+const DynamicIcon = dynamic(() => import('@/components/ui/dynamic-icon'), {
+  ssr: false,
+  loading: () => <LayoutDashboard className="w-4 h-4 text-black" />,
+});
 
 const HabitIcon = ({ iconName }: { iconName: string }) => {
-  // Handle Lucide icons (kebab-case names)
-  const IconComponent = (Lucide as any)[kebabToPascal(iconName)];
-
-  if (IconComponent) {
-    return <IconComponent className="w-4 h-4 text-black" />;
-  }
-
-  // Fallback to default icon
-  return <LayoutDashboard className="w-4 h-4 text-black" />;
+  return <DynamicIcon name={iconName} className="w-4 h-4 text-black" />;
 };
 
 // Note: Old MUI dynamic loading code was removed to improve bundle size

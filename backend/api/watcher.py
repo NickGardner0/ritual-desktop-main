@@ -870,6 +870,61 @@ async def get_domain_details(
 
 
 # ============================================================
+# USAGE BREAKDOWN ENDPOINTS
+# ============================================================
+
+@router.get("/breakdown")
+async def get_usage_breakdown(
+    kind: str,
+    key: str,
+    start_date: str,
+    end_date: str,
+    device_id: Optional[str] = None,
+    current_user = Depends(get_current_user)
+):
+    """
+    Get daily usage breakdown for a specific app or website.
+    
+    Query params:
+    - kind: "app" or "website"
+    - key: app bundle id or domain
+    - start_date: YYYY-MM-DD
+    - end_date: YYYY-MM-DD
+    - device_id: optional device filter (unused for local DB)
+    """
+    if kind not in ["app", "website"]:
+        raise HTTPException(status_code=400, detail="Invalid kind, must be 'app' or 'website'")
+    
+    if not key:
+        raise HTTPException(status_code=400, detail="Missing key")
+    
+    try:
+        breakdown = await watcher_service.get_usage_daily_breakdown(
+            user_id=current_user["id"],
+            kind=kind,
+            key=key,
+            start_date=start_date,
+            end_date=end_date,
+            device_id=device_id
+        )
+        
+        total_ms = sum(d.get("active_ms", 0) for d in breakdown)
+        
+        return {
+            "success": True,
+            "kind": kind,
+            "key": key,
+            "data": breakdown,
+            "total_ms": total_ms,
+            "total_hours": round(total_ms / (1000 * 60 * 60), 2),
+            "start_date": start_date,
+            "end_date": end_date
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
 # AFK ANALYTICS ENDPOINTS (V2)
 # ============================================================
 

@@ -8,14 +8,10 @@
 
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { DateRange } from 'react-day-picker';
-import { startOfDay, endOfDay, subDays } from 'date-fns';
 import { ViewMode } from './view-mode-toggle';
 
-// Default to "Last 14 days" for better comparison (last 7 vs previous 7)
-const getDefaultDateRange = (): DateRange => ({
-  from: startOfDay(subDays(new Date(), 13)),
-  to: endOfDay(new Date())
-});
+// Default to "All time" - undefined means no date filter
+const getDefaultDateRange = (): DateRange | undefined => undefined;
 
 interface AnalyticsFilterState {
   // View mode (Overview | Metrics)

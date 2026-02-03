@@ -1,0 +1,11 @@
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/fax-e9ef2e112465c3fb.d: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/maps.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/decoder.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/encoder.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/tiff.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libfax-e9ef2e112465c3fb.rlib: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/maps.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/decoder.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/encoder.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/tiff.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libfax-e9ef2e112465c3fb.rmeta: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/maps.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/decoder.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/encoder.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/tiff.rs
+
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/lib.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/maps.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/decoder.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/encoder.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fax-0.2.6/src/tiff.rs:

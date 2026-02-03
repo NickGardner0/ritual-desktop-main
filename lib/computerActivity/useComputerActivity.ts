@@ -132,13 +132,14 @@ interface TauriDetailedResponse {
   total_afk_ms: number
 }
 
-async function fetchActivityEvents(startTs: number, endTs: number): Promise<ActivityEvent[]> {
+async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
   try {
     // Check if we're in Tauri environment
     if (typeof window !== 'undefined' && (window as any).__TAURI__) {
       const response = await invoke<TauriDetailedResponse>('get_detailed_activity', {
         startTs,
         endTs,
+        limit,
       })
       
       return response.events.map(e => ({
@@ -228,6 +229,17 @@ export function useComputerActivity(
     setIsLoading(true)
     setError(null)
     
+    const eventLimitByRange: Record<TimeRangePreset, number> = {
+      '6H': 2000,
+      '12H': 4000,
+      '1D': 8000,
+      '7D': 20000,
+      '30D': 60000,
+      '90D': 120000,
+      'ALL': 200000,
+    }
+    const eventLimit = eventLimitByRange[range]
+    
     try {
       // Check cache first
       const cached = getCachedEvents(timeRange.start, timeRange.end)
@@ -239,7 +251,7 @@ export function useComputerActivity(
         return
       }
       
-      const fetchedEvents = await fetchActivityEvents(timeRange.start, timeRange.end)
+      const fetchedEvents = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
       
       // Apply deduplication to remove redundant overlapping events
       // This handles cases where multiple watcher instances recorded similar events

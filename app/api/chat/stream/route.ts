@@ -302,6 +302,22 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'searchScreenRecordings',
+      description: 'Search through screen recordings and computer activity using AI-powered semantic search. Use for questions like "What was I working on yesterday?", "When was I looking at...", "Find when I was reading about...", "What apps did I use...", "Show me what I was doing when...".',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language search query describing what to find in screen recordings' },
+          daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
+          limit: { type: 'number', description: 'Maximum results to return (default 10)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
 ];
 
 // ====================
@@ -469,6 +485,76 @@ async function executeGetHabitAnomalies(token: string, params: {
   }
 }
 
+// Screen recording search types
+interface ScreenRecordingResult {
+  frame_id: number;
+  timestamp: number;
+  app_bundle_id: string;
+  app_name: string;
+  window_title: string | null;
+  ocr_text: string;
+  relevance_score: number;
+}
+
+function executeSearchScreenRecordings(
+  params: { query: string; daysBack?: number; limit?: number },
+  screenRecordingResults: ScreenRecordingResult[] | null | undefined
+): string {
+  console.log('🖥️ searchScreenRecordings called:', params);
+  console.log('🖥️ screenRecordingResults count:', screenRecordingResults?.length ?? 0);
+  
+  // Distinguish between "service not available" (null/undefined) and "no results" (empty array)
+  if (screenRecordingResults === null || screenRecordingResults === undefined) {
+    return JSON.stringify({
+      success: false,
+      error: 'Screen recording search is not available. The embedding service may not be initialized.',
+      hint: 'Enable AI Search in the Computer Activity panel to use this feature.',
+    });
+  }
+  
+  // Service is available but no results found
+  if (screenRecordingResults.length === 0) {
+    return JSON.stringify({
+      success: true,
+      query: params.query,
+      days_searched: params.daysBack ?? 7,
+      result_count: 0,
+      results: [],
+      message: `No screen recordings found matching "${params.query}". Try different keywords or check if screen recording is enabled.`,
+    });
+  }
+  
+  // Don't apply additional time filter here - the frontend already handled time filtering
+  // and fell back to all results if needed. Just use what we received.
+  const limit = params.limit ?? 10;
+  const filteredResults = screenRecordingResults.slice(0, limit);
+  
+  // Calculate the time range from the actual results
+  const timestamps = filteredResults.map(r => r.timestamp);
+  const oldestTimestamp = Math.min(...timestamps);
+  const newestTimestamp = Math.max(...timestamps);
+  const daysCovered = Math.ceil((newestTimestamp - oldestTimestamp) / (24 * 60 * 60 * 1000)) || 1;
+  
+  // Format results for the AI
+  const formattedResults = filteredResults.map(r => ({
+    timestamp: new Date(r.timestamp).toISOString(),
+    app: r.app_name,
+    window: r.window_title || 'Unknown',
+    content_preview: r.ocr_text.substring(0, 300) + (r.ocr_text.length > 300 ? '...' : ''),
+    relevance: Math.round(r.relevance_score * 100) + '%',
+  }));
+  
+  console.log('🖥️ Returning', formattedResults.length, 'formatted results to AI');
+  
+  return JSON.stringify({
+    success: true,
+    query: params.query,
+    days_searched: daysCovered,
+    result_count: formattedResults.length,
+    results: formattedResults,
+  });
+}
+
 // ====================
 // MAIN API HANDLER
 // ====================
@@ -498,7 +584,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const { messages, timezone, conversationId: providedConversationId, responseMode = 'text' } = await req.json();
+    const { messages, timezone, conversationId: providedConversationId, responseMode = 'text', screenRecordingResults } = await req.json();
     
     // Get or create conversation ID for persistence
     let conversationId = providedConversationId;
@@ -563,6 +649,14 @@ FOR ANOMALY/OUTLIER QUESTIONS ("weird days", "spikes", "drops", "unusual", "outl
 FOR RELATIONSHIP QUESTIONS ("connection between X and Y", "correlation"):
 → Use getCorrelation
 → State the coefficient and what it means
+
+FOR SCREEN RECORDING / COMPUTER ACTIVITY QUESTIONS ("what was I working on", "when did I look at", "find when I was", "what apps did I use", "show me what I was doing"):
+→ Use searchScreenRecordings with a natural language query
+→ The search uses AI to find relevant moments from screen recordings
+→ Summarize what was found: apps used, content viewed, approximate times
+→ If results include OCR text (content from screen), mention key details
+→ Time is returned as ISO timestamp - convert to readable format
+→ If no results, suggest the user may need to enable AI Search in settings
 
 === RESPONSE FORMAT ===
 1. Brief intro (1-2 sentences)
@@ -639,6 +733,7 @@ Keep total response under 500 characters when possible.`;
       correlation?: any;
       trends?: any;  // Phase 3: Habit trends data
       anomalies?: any;  // Phase 3: Anomaly detection data
+      screenRecordings?: any;  // Screen recording search results
       allStats?: any[];  // Accumulate all stats calls
       allBreakdowns?: { habit: any; data: any[] }[];  // Accumulate all breakdown calls
       suggested_followups?: string[];  // Phase 3: Follow-up suggestions
@@ -742,6 +837,16 @@ Keep total response under 500 characters when possible.`;
                       ...parsed.suggested_followups
                     ].slice(0, 3);  // Max 3 suggestions
                   }
+                }
+              } catch {}
+              break;
+            case 'searchScreenRecordings':
+              result = executeSearchScreenRecordings(args, screenRecordingResults);
+              // Store screen recording results for canvas
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success && parsed.results) {
+                  toolResults.screenRecordings = parsed;
                 }
               } catch {}
               break;

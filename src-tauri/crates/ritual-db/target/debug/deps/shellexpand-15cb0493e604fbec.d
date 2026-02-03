@@ -1,0 +1,10 @@
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/shellexpand-15cb0493e604fbec.d: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libshellexpand-15cb0493e604fbec.rlib: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libshellexpand-15cb0493e604fbec.rmeta: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs
+
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/lib.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/strings.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/wtraits.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shellexpand-3.1.1/src/funcs.rs:

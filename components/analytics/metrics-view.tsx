@@ -22,17 +22,20 @@ import {
 import { DateRangePicker } from '@/components/date-range-picker';
 import { DateRange } from 'react-day-picker';
 import { format, parseISO, startOfDay, differenceInDays, subDays, isWithinInterval } from 'date-fns';
-import { HabitTickerGrid, AnalyticsViewToggle } from '@/components/analytics/habit-ticker-view';
+import { HabitTickerGrid } from '@/components/analytics/habit-ticker-view';
+import { AnalyticsViewToggle } from '@/components/analytics/analytics-view-toggle';
 import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
 import { ComputerActivitySection } from '@/components/analytics/computer-activity';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
+// Video scrubber removed - semantic search in AI chat is the primary way to explore screen recordings
 
 import {
   AreaChart,
   Area,
   BarChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -71,6 +74,8 @@ const COLORS = {
     900: '#111827'
   }
 };
+
+const CHART_PRIMARY = '#0F766E';
 
 interface MetricsViewProps {
   // Optional: Allow passing in external filter state for standalone use
@@ -214,16 +219,15 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
     return (
       <div
-        className="p-3 min-w-[160px]"
+        className="px-3 py-2 min-w-[160px] rounded-lg border border-white/60 shadow-[0_10px_30px_rgba(15,23,42,0.12)] text-xs"
         style={{
-          background: 'rgba(255, 255, 255, 0.7)',
-          backdropFilter: 'blur(20px) saturate(150%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(150%)',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+          background: 'linear-gradient(145deg, rgba(255,255,255,0.8), rgba(255,255,255,0.6))',
+          backdropFilter: 'blur(18px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(18px) saturate(180%)',
         }}
       >
-        <p className="text-sm font-semibold text-gray-900 mb-2">{label}</p>
-        <div className="space-y-1.5 text-xs">
+        <p className="text-[11px] font-semibold text-gray-900 mb-1.5">{label}</p>
+        <div className="space-y-1.5 text-[11px]">
           <div className="flex items-center justify-between gap-6">
             <span className="text-gray-500">{payload.length > 1 ? payload[0]?.name || 'Value' : 'Value'}</span>
             <span className="text-gray-900 font-semibold tabular-nums">
@@ -898,6 +902,15 @@ export function MetricsView({
       };
     }).sort((a: any, b: any) => a.rawDate.getTime() - b.rawDate.getTime());
 
+    const enrichedChartData = chartData.map((point: any, index: number, arr: any[]) => {
+      const prevValue = index > 0 ? arr[index - 1].value : point.value;
+      return {
+        ...point,
+        upValue: point.value >= prevValue ? point.value : null,
+        downValue: point.value < prevValue ? point.value : null,
+      };
+    });
+
     const calculateAvg = (periodLogs: any[]) => {
       if (periodLogs.length === 0) return 0;
       const uniqueDays = new Set(periodLogs.map((log: any) => log.date || log.period)).size;
@@ -985,7 +998,7 @@ export function MetricsView({
       unit: habit.unit_type || (habit as any).unit || 'count',
       change,
       absoluteChange,
-      chartData,
+      chartData: enrichedChartData,
       isPositive: change >= 0,
       total: totalValue,
       average: currentAvg,
@@ -1108,10 +1121,19 @@ export function MetricsView({
       };
     });
 
+    const enrichedChartData = chartData.map((point: any, index: number, arr: any[]) => {
+      const prevValue = index > 0 ? arr[index - 1].value : point.value;
+      return {
+        ...point,
+        upValue: point.value >= prevValue ? point.value : null,
+        downValue: point.value < prevValue ? point.value : null,
+      };
+    });
+
     return {
       habit,
       compHabit,
-      chartData,
+      chartData: enrichedChartData,
       totalValue,
       avgValue,
       minValue,
@@ -1480,127 +1502,91 @@ export function MetricsView({
                         </div>
                       )}
 
-                      {/* Chart */}
+                      {/* Chart - Perplexity/TradingView Spark Style */}
                       <Suspense fallback={
                         <div className="flex items-center justify-center h-[300px]">
                           <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
                         </div>
                       }>
-                        <div className="h-[350px] w-full">
+                        <div className="h-[350px] w-full bg-white">
                           <ResponsiveContainer width="100%" height="100%">
-                            {viewMode === 'chart' ? (
-                              <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                                <XAxis
-                                  dataKey="shortDate"
-                                  stroke={COLORS.gray[400]}
-                                  tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                  axisLine={{ stroke: COLORS.gray[200] }}
-                                  tickLine={false}
-                                  dy={10}
-                                />
-                                <YAxis
-                                  yAxisId="left"
-                                  stroke={COLORS.gray[400]}
-                                  tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                  axisLine={false}
-                                  tickLine={false}
-                                />
+                            <AreaChart data={chartData} margin={{ top: 20, right: 20, left: 10, bottom: 20 }}>
+                              <defs>
+                                {/* Subtle gradient fill - matching TradingView/Perplexity style */}
+                                <linearGradient id={`area-fill-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#64748B" stopOpacity={0.08} />
+                                  <stop offset="100%" stopColor="#64748B" stopOpacity={0} />
+                                </linearGradient>
                                 {compHabit && (
-                                  <YAxis
-                                    yAxisId="right"
-                                    orientation="right"
-                                    stroke="#64748B"
-                                    tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                  />
-                                )}
-                                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                                <Bar
-                                  yAxisId="left"
-                                  dataKey="value"
-                                  name={habit.habit_name}
-                                  fill="#4A4A4C"
-                                  radius={[0, 0, 0, 0]}
-                                  maxBarSize={50}
-                                />
-                                {compHabit && (
-                                  <Bar
-                                    yAxisId="right"
-                                    dataKey="compValue"
-                                    name={compHabit.habit_name}
-                                    fill="#64748B"
-                                    radius={[0, 0, 0, 0]}
-                                    maxBarSize={50}
-                                  />
-                                )}
-                              </BarChart>
-                            ) : (
-                              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                <defs>
-                                  <linearGradient id={`gradient-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#4A4A4C" stopOpacity={0.25} />
-                                    <stop offset="95%" stopColor="#4A4A4C" stopOpacity={0.03} />
+                                  <linearGradient id={`area-fill-comp`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#94A3B8" stopOpacity={0.06} />
+                                    <stop offset="100%" stopColor="#94A3B8" stopOpacity={0} />
                                   </linearGradient>
-                                  {compHabit && (
-                                    <linearGradient id={`gradient-comp`} x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="5%" stopColor="#64748B" stopOpacity={0.15} />
-                                      <stop offset="95%" stopColor="#64748B" stopOpacity={0} />
-                                    </linearGradient>
-                                  )}
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                                <XAxis
-                                  dataKey="shortDate"
-                                  stroke={COLORS.gray[400]}
-                                  tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                  axisLine={{ stroke: COLORS.gray[200] }}
-                                  tickLine={false}
-                                  dy={10}
-                                />
+                                )}
+                              </defs>
+                              {/* Subtle horizontal grid lines only */}
+                              <CartesianGrid 
+                                strokeDasharray="3 3" 
+                                stroke="#E2E8F0" 
+                                vertical={false} 
+                              />
+                              <XAxis
+                                dataKey="shortDate"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: '#94A3B8', fontSize: 11 }}
+                                dy={8}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis
+                                yAxisId="left"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: '#94A3B8', fontSize: 11 }}
+                                width={45}
+                              />
+                              {compHabit && (
                                 <YAxis
-                                  yAxisId="left"
-                                  stroke={COLORS.gray[400]}
-                                  tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
+                                  yAxisId="right"
+                                  orientation="right"
                                   axisLine={false}
                                   tickLine={false}
+                                  tick={{ fill: '#94A3B8', fontSize: 11 }}
+                                  width={45}
                                 />
-                                {compHabit && (
-                                  <YAxis
-                                    yAxisId="right"
-                                    orientation="right"
-                                    stroke="#64748B"
-                                    tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                  />
-                                )}
-                                <Tooltip content={<CustomTooltip />} cursor={{ stroke: COLORS.gray[300], strokeWidth: 1, strokeDasharray: '4 4' }} />
+                              )}
+                              <Tooltip 
+                                content={<CustomTooltip />} 
+                                cursor={{ stroke: '#CBD5E1', strokeWidth: 1, strokeDasharray: '3 3' }} 
+                              />
+                              {/* Area fill - very subtle */}
+                              <Area
+                                yAxisId="left"
+                                type="monotone"
+                                dataKey="value"
+                                stroke="#475569"
+                                strokeWidth={1.5}
+                                fill={`url(#area-fill-${expandedHabit})`}
+                                name={habit.habit_name}
+                                isAnimationActive={false}
+                                dot={false}
+                                activeDot={{ r: 4, fill: '#475569', stroke: '#fff', strokeWidth: 2 }}
+                              />
+                              {compHabit && (
                                 <Area
-                                  yAxisId="left"
+                                  yAxisId="right"
                                   type="monotone"
-                                  dataKey="value"
-                                  stroke="#4A4A4C"
-                                  strokeWidth={2}
-                                  fill={`url(#gradient-${expandedHabit})`}
-                                  name={habit.habit_name}
-                                  activeDot={{ r: 4, fill: '#4A4A4C', stroke: '#fff', strokeWidth: 2 }}
+                                  dataKey="compValue"
+                                  stroke="#94A3B8"
+                                  strokeWidth={1.5}
+                                  fill={`url(#area-fill-comp)`}
+                                  name={compHabit.habit_name}
+                                  isAnimationActive={false}
+                                  dot={false}
+                                  activeDot={{ r: 4, fill: '#94A3B8', stroke: '#fff', strokeWidth: 2 }}
                                 />
-                                {compHabit && (
-                                  <Area
-                                    yAxisId="right"
-                                    type="monotone"
-                                    dataKey="compValue"
-                                    stroke="#64748B"
-                                    strokeWidth={2}
-                                    fill={`url(#gradient-comp)`}
-                                    name={compHabit.habit_name}
-                                    activeDot={{ r: 4, fill: '#64748B', stroke: '#fff', strokeWidth: 2 }}
-                                  />
-                                )}
-                              </AreaChart>
-                            )}
+                              )}
+                            </AreaChart>
                           </ResponsiveContainer>
                         </div>
                       </Suspense>
@@ -1635,6 +1621,8 @@ export function MetricsView({
           </button>
         </div>
       )}
+
+      {/* Screen recordings now explored via AI Search in Computer Activity panel */}
     </>
   );
 }

@@ -16,18 +16,30 @@ let windowShown = false;
 /**
  * Show the main Tauri window (called after React app is ready)
  * This prevents the "tiny window flash" by waiting until content is loaded
+ * 
+ * Uses the show_main_window Tauri command which handles showing and focusing.
+ * Falls back to direct window API if the command isn't available.
  */
 export async function showMainWindow(): Promise<void> {
   if (!isTauri() || windowShown) return;
   
   try {
-    const { appWindow } = await import('@tauri-apps/api/window');
-    await appWindow.show();
-    await appWindow.setFocus();
+    // Try using our custom Tauri command first
+    const { invoke } = await import('@tauri-apps/api/tauri');
+    await invoke('show_main_window');
     windowShown = true;
-    console.log('✅ Main window shown after React ready');
+    console.log('✅ Main window shown via Tauri command');
   } catch (error) {
-    console.error('Failed to show main window:', error);
+    // Fallback to direct window API
+    try {
+      const { appWindow } = await import('@tauri-apps/api/window');
+      await appWindow.show();
+      await appWindow.setFocus();
+      windowShown = true;
+      console.log('✅ Main window shown via window API fallback');
+    } catch (fallbackError) {
+      console.error('Failed to show main window:', fallbackError);
+    }
   }
 }
 
@@ -72,23 +84,23 @@ export async function resizeWindow(width: number, height: number): Promise<void>
  * Set window to standard size (used across all pages)
  */
 export async function setStandardWindowSize(): Promise<void> {
-  // 1200x850 is the preferred size
-  await resizeWindow(1200, 850);
+  // 1100x800 is the preferred size
+  await resizeWindow(1100, 800);
 }
 
 /**
  * Set window to compact size for onboarding
  */
 export async function setOnboardingWindowSize(): Promise<void> {
-  // 1200x850 is the preferred size
-  await resizeWindow(1200, 850);
+  // 1100x800 is the preferred size
+  await resizeWindow(1100, 800);
 }
 
 /**
  * Set window to full size for dashboard
  */
 export async function setDashboardWindowSize(): Promise<void> {
-  // 1200x850 is the preferred size
-  await resizeWindow(1200, 850);
+  // 1100x800 is the preferred size
+  await resizeWindow(1100, 800);
 }
 

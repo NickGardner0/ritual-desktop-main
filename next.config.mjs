@@ -19,13 +19,21 @@ const nextConfig = {
   // Enable experimental features for better performance
   experimental: {
     // Optimize package imports for tree-shaking
+    // This helps Turbopack/Webpack only bundle what's actually used
     optimizePackageImports: [
       'recharts', 
       '@radix-ui/react-icons',
       'lucide-react',
       'date-fns',
+      'react-day-picker',
       '@dnd-kit/core',
       '@dnd-kit/sortable',
+      '@dnd-kit/utilities',
+      '@tanstack/react-query',
+      'framer-motion',
+      'ai',
+      '@ai-sdk/react',
+      '@clerk/nextjs',
     ],
   },
   

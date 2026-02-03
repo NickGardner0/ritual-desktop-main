@@ -1,0 +1,10 @@
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/uncased-d4619fa08d3c83a4.d: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/owned.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/borrowed.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/as_uncased.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libuncased-d4619fa08d3c83a4.rlib: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/owned.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/borrowed.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/as_uncased.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libuncased-d4619fa08d3c83a4.rmeta: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/owned.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/borrowed.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/as_uncased.rs
+
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/lib.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/owned.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/borrowed.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/uncased-0.9.10/src/as_uncased.rs:

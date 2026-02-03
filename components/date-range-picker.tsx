@@ -109,7 +109,7 @@ export function DateRangePicker({
   initialDateRange
 }: DateRangePickerProps) {
   const [date, setDate] = React.useState<DateRange | undefined>(initialDateRange)
-  const [selectedPreset, setSelectedPreset] = React.useState<string>("last14days")
+  const [selectedPreset, setSelectedPreset] = React.useState<string>(initialDateRange ? "custom" : "alltime")
   const [isOpen, setIsOpen] = React.useState(false)
   
   // Drag-to-select state

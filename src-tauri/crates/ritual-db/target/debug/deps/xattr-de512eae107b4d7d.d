@@ -1,0 +1,11 @@
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/xattr-de512eae107b4d7d.d: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/error.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/mod.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/util.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/linux_macos.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libxattr-de512eae107b4d7d.rlib: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/error.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/mod.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/util.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/linux_macos.rs
+
+/Users/nickgardner/Desktop/ritual-desktop-main/src-tauri/crates/ritual-db/target/debug/deps/libxattr-de512eae107b4d7d.rmeta: /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/lib.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/error.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/mod.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/util.rs /Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/linux_macos.rs
+
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/lib.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/error.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/mod.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/util.rs:
+/Users/nickgardner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/xattr-1.6.1/src/sys/linux_macos.rs:

@@ -4,10 +4,12 @@
 //! - Active application (bundle ID, app name)
 //! - Window titles (with privacy controls)
 //! - Browser URLs and domains (with privacy controls)
+//! - Browser tab changes (with dedicated polling)
 //! - AFK (away from keyboard) detection
+//! - Screen lock/unlock and sleep/wake events
 //! - Session timing with heartbeat merging
 //!
-//! Inspired by ActivityWatch's open-source implementation.
+//! Inspired by ActivityWatch's open-source implementation and Cronus's native modules.
 
 #![allow(dead_code)] // Some fields are kept for future use and debugging
 
@@ -27,8 +29,17 @@ mod browser;
 mod afk;
 mod sync_queue;
 pub mod icons;
+
 #[cfg(target_os = "macos")]
 mod notifications;
+#[cfg(target_os = "macos")]
+mod applescript_ffi;
+#[cfg(target_os = "macos")]
+mod screen_events;
+#[cfg(target_os = "macos")]
+mod browser_tracker;
+#[cfg(target_os = "macos")]
+mod window_observer;
 
 use database::WatcherDatabase;
 use config::{WatcherConfig, TitleMode, UrlMode};
@@ -36,6 +47,13 @@ use macos::get_active_window_info;
 use browser::{get_browser_info, is_browser};
 use afk::{AfkWatcher, AfkState};
 use sync_queue::SyncQueue;
+
+#[cfg(target_os = "macos")]
+use screen_events::{ScreenEventListener, ScreenEventType};
+#[cfg(target_os = "macos")]
+use browser_tracker::{BrowserTabTracker, set_active_browser};
+#[cfg(target_os = "macos")]
+use window_observer::{WindowChangeListener, observe_app};
 
 /// Ritual Watcher CLI
 #[derive(Parser, Debug)]
@@ -132,6 +150,8 @@ enum SessionCloseReason {
     PermissionLost,
     Shutdown,
     SleepWake,
+    ScreenLocked,
+    BrowserTabChanged,
 }
 
 impl std::fmt::Display for SessionCloseReason {
@@ -145,6 +165,8 @@ impl std::fmt::Display for SessionCloseReason {
             SessionCloseReason::PermissionLost => write!(f, "permission lost"),
             SessionCloseReason::Shutdown => write!(f, "watcher shutdown"),
             SessionCloseReason::SleepWake => write!(f, "sleep/wake detected"),
+            SessionCloseReason::ScreenLocked => write!(f, "screen locked"),
+            SessionCloseReason::BrowserTabChanged => write!(f, "browser tab changed"),
         }
     }
 }
@@ -301,13 +323,39 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
     #[cfg(not(target_os = "macos"))]
     let notification_listener: Option<()> = None;
 
+    // Initialize screen event listener for lock/unlock and sleep/wake detection
+    #[cfg(target_os = "macos")]
+    let screen_event_listener = Some(ScreenEventListener::new());
+    #[cfg(not(target_os = "macos"))]
+    let screen_event_listener: Option<()> = None;
+
+    // Initialize browser tab tracker (polls every 10 seconds)
+    #[cfg(target_os = "macos")]
+    let browser_tab_tracker = Some(BrowserTabTracker::new(10));
+    #[cfg(not(target_os = "macos"))]
+    let browser_tab_tracker: Option<()> = None;
+
+    // Initialize window change listener for title changes within same app
+    #[cfg(target_os = "macos")]
+    let window_change_listener = Some(WindowChangeListener::new());
+    #[cfg(not(target_os = "macos"))]
+    let window_change_listener: Option<()> = None;
+
+    // Track screen lock state
+    let mut is_screen_locked = false;
+
     info!("📡 Starting activity monitoring with heartbeat merging...");
     info!("   Pulsetime: {:.1}s", config.pulsetime_seconds);
     info!("   Hard gap threshold: {:.0}s", hard_gap_ms as f64 / 1000.0);
     info!("   Commit interval: {:.0}s", commit_interval_ms as f64 / 1000.0);
     info!("   AFK timeout: {:.0}s", config.afk_timeout_seconds);
     #[cfg(target_os = "macos")]
-    info!("   Event-driven detection: enabled");
+    {
+        info!("   Event-driven detection: enabled");
+        info!("   Screen lock detection: enabled");
+        info!("   Browser tab polling: 10s interval");
+        info!("   Window title observer: {}", if WindowChangeListener::has_permission() { "enabled" } else { "disabled (no AX permission)" });
+    }
     
     // Helper closure to close current session
     let close_session = |session: &CurrentSession, db: &WatcherDatabase, sync_queue: &Option<SyncQueue>, now: u64, reason: SessionCloseReason| {
@@ -356,11 +404,85 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
         #[cfg(not(target_os = "macos"))]
         let _notification_triggered = false;
         
-        // ===== SLEEP/WAKE DETECTION =====
+        // ===== SCREEN LOCK/UNLOCK AND SLEEP/WAKE EVENTS =====
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ref listener) = screen_event_listener {
+                for event in listener.drain() {
+                    match event.event_type {
+                        ScreenEventType::ScreenLocked => {
+                            info!("🔒 Screen locked - closing current session");
+                            is_screen_locked = true;
+                            if let Some(ref session) = current_session {
+                                close_session(session, db, &sync_queue, event.timestamp_ms, SessionCloseReason::ScreenLocked);
+                            }
+                            current_session = None;
+                        }
+                        ScreenEventType::ScreenUnlocked => {
+                            info!("🔓 Screen unlocked");
+                            is_screen_locked = false;
+                            // Reset AFK state after unlock
+                            afk_watcher = AfkWatcher::new(config.afk_timeout_seconds);
+                            was_afk = false;
+                        }
+                        ScreenEventType::WillSleep => {
+                            info!("💤 System going to sleep - closing current session");
+                            if let Some(ref session) = current_session {
+                                close_session(session, db, &sync_queue, event.timestamp_ms, SessionCloseReason::SleepWake);
+                            }
+                            current_session = None;
+                        }
+                        ScreenEventType::DidWake => {
+                            info!("⏰ System woke from sleep");
+                            // Reset AFK state after wake
+                            afk_watcher = AfkWatcher::new(config.afk_timeout_seconds);
+                            was_afk = false;
+                            last_notified_bundle = None;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // ===== BROWSER TAB CHANGE EVENTS =====
+        // Process tab changes detected by the background browser tracker
+        // Store pending tab events for processing after AFK detection
+        #[cfg(target_os = "macos")]
+        let pending_tab_events: Vec<_> = {
+            if let Some(ref tracker) = browser_tab_tracker {
+                tracker.drain()
+            } else {
+                Vec::new()
+            }
+        };
+        #[cfg(not(target_os = "macos"))]
+        let pending_tab_events: Vec<()> = Vec::new();
+        
+        // ===== WINDOW TITLE CHANGE EVENTS =====
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(ref listener) = window_change_listener {
+                for event in listener.drain() {
+                    if !is_screen_locked {
+                        debug!(
+                            "🪟 Window change detected: PID {} - {:?} ({})",
+                            event.pid,
+                            event.title.as_ref().map(|s| if s.len() > 40 { format!("{}...", &s[..40]) } else { s.clone() }),
+                            event.change_type
+                        );
+                        // Window title changes are captured but we don't force session close
+                        // The signature comparison in the main logic will handle this
+                    }
+                }
+            }
+        }
+        
+        // ===== SLEEP/WAKE DETECTION (FALLBACK) =====
         // If wall clock jumped forward significantly, we likely woke from sleep
+        // This is a fallback for cases where the explicit notifications didn't fire
         let time_since_last_poll = now.saturating_sub(last_poll_time);
         if time_since_last_poll > sleep_wake_threshold_ms {
-            info!("⏰ Sleep/wake detected: {:.1}s gap", time_since_last_poll as f64 / 1000.0);
+            info!("⏰ Sleep/wake detected via gap: {:.1}s", time_since_last_poll as f64 / 1000.0);
             // Close current session at the last known time
             if let Some(ref session) = current_session {
                 close_session(session, db, &sync_queue, last_poll_time, SessionCloseReason::SleepWake);
@@ -372,6 +494,12 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
             last_notified_bundle = None;
         }
         last_poll_time = now;
+        
+        // ===== SKIP PROCESSING IF SCREEN IS LOCKED =====
+        if is_screen_locked {
+            std::thread::sleep(poll_interval);
+            continue;
+        }
         
         // ===== AFK DETECTION =====
         let (afk_state, afk_changed, seconds_idle) = afk_watcher.check(now);
@@ -397,6 +525,34 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
         let afk_boundary_crossed = was_afk != is_afk;
         was_afk = is_afk;
 
+        // ===== PROCESS PENDING BROWSER TAB EVENTS =====
+        #[cfg(target_os = "macos")]
+        {
+            for tab_event in pending_tab_events {
+                if !is_screen_locked && !is_afk {
+                    debug!(
+                        "🌐 Browser tab change: {} -> {:?} (domain: {:?})",
+                        tab_event.bundle_id,
+                        tab_event.url.as_ref().map(|s| if s.len() > 50 { format!("{}...", &s[..50]) } else { s.clone() }),
+                        tab_event.domain
+                    );
+                    
+                    // If we have a current session for this browser, check if domain changed
+                    if let Some(ref session) = current_session {
+                        if session.signature.bundle_id == tab_event.bundle_id {
+                            // Same browser - check if domain changed (significant change)
+                            let domain_changed = session.browser_domain != tab_event.domain;
+                            if domain_changed {
+                                // Close current session - the next poll will create a new one with updated info
+                                close_session(session, db, &sync_queue, tab_event.timestamp_ms, SessionCloseReason::BrowserTabChanged);
+                                current_session = None;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ===== GET ACTIVE WINDOW INFO =====
         match get_active_window_info() {
             Ok(Some(info)) => {
@@ -404,6 +560,22 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
                     "Active: {} ({}) - {:?} [AFK: {}, idle: {:.1}s]",
                     info.app_name, info.bundle_id, info.window_title, is_afk, seconds_idle
                 );
+
+                // ===== UPDATE BROWSER TRACKER =====
+                // Notify the browser tracker which app is active so it knows when to poll
+                #[cfg(target_os = "macos")]
+                {
+                    set_active_browser(Some(info.bundle_id.clone()));
+                }
+
+                // ===== UPDATE WINDOW OBSERVER =====
+                // Set up AX observer for this app's window title changes
+                #[cfg(target_os = "macos")]
+                {
+                    if let Some(pid) = info.pid {
+                        observe_app(pid);
+                    }
+                }
 
                 // ===== EXCLUDED APP CHECK =====
                 if excluded.contains(&info.bundle_id) {

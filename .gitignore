@@ -86,3 +86,6 @@ backend/.turso_replica.db-wal
 *.backup
 *.bak
 *~
+
+# FastEmbed cache
+src-tauri/.fastembed_cache/

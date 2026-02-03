@@ -1,10 +1,10 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema.json",
   "build": {
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "",
     "beforeDevCommand": "",
     "devPath": "http://localhost:3000",
-    "distDir": "../out",
+    "distDir": "../.next",
     "withGlobalTauri": false
   },
   "package": {
@@ -28,6 +28,9 @@
         "all": true,
         "asset": true,
         "assetScope": [
+          "$HOME/.ritual/**",
+          "$HOME/.ritual/thumbnails/**",
+          "$HOME/.ritual/video/**",
           "**"
         ]
       },
@@ -116,7 +119,7 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src 'self'"
+      "csp": null
     },
     "updater": {
       "active": false,
@@ -133,10 +136,10 @@
       {
         "label": "main",
         "fullscreen": false,
-        "height": 850,
+        "height": 800,
         "resizable": true,
         "title": "",
-        "width": 1200,
+        "width": 1100,
         "minHeight": 450,
         "minWidth": 800,
         "decorations": true,

@@ -1301,6 +1301,99 @@ class WatcherService:
         except Exception as e:
             print(f"❌ Error reading daily computer time from local DB: {e}")
             return []
+
+    async def get_usage_daily_breakdown(
+        self,
+        user_id: str,
+        kind: str,
+        key: str,
+        start_date: str,
+        end_date: str,
+        device_id: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Get daily usage breakdown for a specific app or website.
+        Reads directly from LOCAL watcher SQLite database.
+        Returns list of {day, active_ms, events_count}.
+        """
+        import sqlite3
+        import os
+        
+        db_path = self._get_local_watcher_db_path()
+        
+        if not os.path.exists(db_path):
+            print(f"⚠️ Local watcher database not found at: {db_path}")
+            return []
+        
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Calculate date boundaries in milliseconds
+            start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+            start_ms = int(start_date_obj.timestamp() * 1000)
+            end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+            
+            if kind == "app":
+                cursor.execute("""
+                    SELECT ts_start, ts_end, COALESCE(is_afk, 0) as is_afk
+                    FROM activity_events
+                    WHERE ts_start >= ? AND ts_start < ?
+                      AND (app_bundle_id = ? OR app_name = ?)
+                """, (start_ms, end_ms, key, key))
+            else:
+                cursor.execute("""
+                    SELECT ts_start, ts_end, COALESCE(is_afk, 0) as is_afk
+                    FROM activity_events
+                    WHERE ts_start >= ? AND ts_start < ?
+                      AND browser_domain = ?
+                """, (start_ms, end_ms, key))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            buckets: Dict[str, Dict[str, Any]] = {}
+            
+            for ts_start, ts_end, is_afk in rows:
+                if is_afk:
+                    continue
+                if ts_end <= ts_start:
+                    continue
+                
+                day_key = datetime.fromtimestamp(ts_start / 1000).strftime("%Y-%m-%d")
+                
+                if day_key not in buckets:
+                    buckets[day_key] = {
+                        "intervals": [],
+                        "events_count": 0
+                    }
+                
+                buckets[day_key]["intervals"].append((ts_start, ts_end))
+                buckets[day_key]["events_count"] += 1
+            
+            results = []
+            for day_key in sorted(buckets.keys()):
+                intervals = buckets[day_key]["intervals"]
+                merged = self._merge_time_intervals(intervals)
+                active_ms = sum(end - start for start, end in merged)
+                first_start_ms = merged[0][0] if merged else None
+                last_end_ms = merged[-1][1] if merged else None
+                
+                results.append({
+                    "day": day_key,
+                    "active_ms": active_ms,
+                    "events_count": buckets[day_key]["events_count"],
+                    "first_start_ms": first_start_ms,
+                    "last_end_ms": last_end_ms
+                })
+            
+            print(f"📊 Local watcher breakdown {kind} {key} {start_date} to {end_date}: {len(results)} days")
+            
+            return results
+        except Exception as e:
+            print(f"❌ Error reading usage breakdown from local DB: {e}")
+            return []
     
     # ============================================================
     # AUTO-SYNC TO "COMPUTER USE" HABIT

@@ -30,7 +30,7 @@
   }
 }
 
-/* Shimmer animation for image loading overlay */
+/* Shimmer animation for image loading overlay - uses translateX for sliding effect */
 @keyframes shimmer-slide {
   0% {
     transform: translateX(-100%);
@@ -40,7 +40,9 @@
   }
 }
 
-.animate-shimmer {
+/* NOTE: .animate-shimmer is defined by Tailwind (uses background-position animation)
+   Use .animate-shimmer-slide for translateX-based sliding shimmer */
+.animate-shimmer-slide {
   animation: shimmer-slide 1.5s ease-in-out infinite;
 }
 

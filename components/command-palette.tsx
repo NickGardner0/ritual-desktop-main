@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { Command } from "cmdk";
-import * as LucideIcons from "lucide-react";
+// REMOVED: import * as LucideIcons from "lucide-react" - this imported 400+ icons
+// Now using dynamic import for the icon component
 import { 
   Search, 
   List, 
@@ -27,8 +29,11 @@ import {
   LayoutDashboard
 } from "lucide-react";
 
-// Helper to convert kebab-case to PascalCase for Lucide icons
-const kebabToPascal = (k: string) => k.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
+// Dynamic icon component - loads lucide icons on-demand
+const DynamicIcon = dynamic(() => import('@/components/ui/dynamic-icon'), {
+  ssr: false,
+  loading: () => <LayoutDashboard className="w-4 h-4 text-gray-400" />,
+});
 
 // Check if string is an emoji
 const isEmoji = (str: string) => /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(str);
@@ -44,15 +49,8 @@ const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; cla
     return <span className="text-base leading-none">{iconName}</span>;
   }
   
-  // Otherwise, it's a Lucide icon name - convert and render
-  const IconComponent = (LucideIcons as any)[kebabToPascal(iconName)];
-  
-  if (IconComponent) {
-    return <IconComponent className={`${className} text-gray-600`} />;
-  }
-  
-  // Fallback
-  return <LayoutDashboard className={`${className} text-gray-400`} />;
+  // Use dynamic icon loader for Lucide icons
+  return <DynamicIcon name={iconName} className={`${className} text-gray-600`} />;
 };
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { RitualLogo } from "@/components/ritual-logo";

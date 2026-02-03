@@ -19,13 +19,13 @@ chrono = { version = "0.4", features = ["serde"] }
 # Async runtime for JXA execution
 # (serde_json already included above for JSON parsing)
 
-# Database
-rusqlite = { version = "0.30", features = ["bundled"] }
+# Unified database with vector search
+ritual-db = { path = "../../crates/ritual-db" }
 
 # macOS specific
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
-objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString", "NSRunLoop", "NSArray", "NSURL", "NSData", "NSNotification", "NSThread"] }
+objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString", "NSRunLoop", "NSArray", "NSURL", "NSData", "NSNotification", "NSThread", "NSDictionary", "NSAppleEventDescriptor"] }
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSRunningApplication", "NSApplication", "NSImage", "NSBitmapImageRep", "NSGraphicsContext"] }
 core-foundation = "0.9"
 core-foundation-sys = "0.8"

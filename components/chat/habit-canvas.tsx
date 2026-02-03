@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo } from 'react';
-import { X, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, Monitor, Clock, ExternalLink } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -68,8 +68,25 @@ interface AnomaliesData {
   suggested_followups?: string[];
 }
 
+// Types for screen recording search results
+interface ScreenRecordingItem {
+  timestamp: string;
+  app: string;
+  window: string;
+  content_preview: string;
+  relevance: string;
+}
+
+interface ScreenRecordingsData {
+  success: boolean;
+  query: string;
+  days_searched: number;
+  result_count: number;
+  results: ScreenRecordingItem[];
+}
+
 export interface HabitCanvasData {
-  type: 'trends' | 'stats' | 'breakdown' | 'anomalies';
+  type: 'trends' | 'stats' | 'breakdown' | 'anomalies' | 'screenRecordings';
   title: string;
   habitName?: string;
   dateRange?: { start: string; end: string };
@@ -99,6 +116,7 @@ export interface HabitCanvasData {
   insights?: string[];
   trends?: TrendsData;
   anomalies?: AnomaliesData;
+  screenRecordings?: ScreenRecordingsData;
 }
 
 interface HabitCanvasProps {
@@ -407,6 +425,166 @@ const AnomaliesSection = memo(function AnomaliesSection({ anomalies }: { anomali
 });
 
 // ====================
+// SCREEN RECORDINGS SECTION
+// ====================
+const ScreenRecordingsSection = memo(function ScreenRecordingsSection({ 
+  screenRecordings 
+}: { 
+  screenRecordings: ScreenRecordingsData 
+}) {
+  // Format timestamp to readable time
+  const formatTime = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch {
+      return timestamp;
+    }
+  };
+
+  // Group results by app
+  const groupedByApp = screenRecordings.results.reduce((acc, item) => {
+    const app = item.app || 'Unknown';
+    if (!acc[app]) {
+      acc[app] = [];
+    }
+    acc[app].push(item);
+    return acc;
+  }, {} as Record<string, ScreenRecordingItem[]>);
+
+  const appCount = Object.keys(groupedByApp).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="text-[12px] text-[#707070] mb-1">Results found</div>
+          <div className="text-[18px] font-normal text-black mb-1">
+            {screenRecordings.result_count}
+          </div>
+          <div className="text-[10px] text-[#707070]">
+            In the last {screenRecordings.days_searched} days
+          </div>
+        </div>
+        <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="text-[12px] text-[#707070] mb-1">Apps involved</div>
+          <div className="text-[18px] font-normal text-black mb-1">
+            {appCount}
+          </div>
+          <div className="text-[10px] text-[#707070]">
+            Unique applications
+          </div>
+        </div>
+      </div>
+
+      {/* Results Table */}
+      {screenRecordings.results.length > 0 ? (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-[18px] font-normal text-black">
+              Screen activity
+            </h4>
+            <span className="text-[12px] text-[#707070]">
+              Sorted by relevance
+            </span>
+          </div>
+
+          <div className="border border-[#e6e6e6] max-h-[400px] overflow-y-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-[#e6e6e6]">
+                  <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Time</th>
+                  <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">App</th>
+                  <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Content</th>
+                  <th className="px-3 py-2 text-right text-[12px] text-[#707070] font-normal w-[60px]">Match</th>
+                </tr>
+              </thead>
+              <tbody>
+                {screenRecordings.results.map((item, index) => (
+                  <tr
+                    key={index}
+                    className={cn(
+                      "hover:bg-[#F2F1EF] transition-colors",
+                      index !== screenRecordings.results.length - 1 && "border-b border-[#e6e6e6]"
+                    )}
+                  >
+                    <td className="px-3 py-2 text-[11px] text-black border-r border-[#e6e6e6] whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-[#707070]" />
+                        {formatTime(item.timestamp)}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-black border-r border-[#e6e6e6]">
+                      <div className="flex items-center gap-1">
+                        <Monitor className="w-3 h-3 text-[#707070]" />
+                        <span className="truncate max-w-[100px]" title={item.app}>{item.app}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-[#707070] border-r border-[#e6e6e6]">
+                      <div className="max-w-[200px]">
+                        <div className="font-medium text-black truncate" title={item.window}>
+                          {item.window}
+                        </div>
+                        {item.content_preview && (
+                          <div className="text-[10px] text-[#999] line-clamp-2 mt-0.5">
+                            {item.content_preview.substring(0, 100)}...
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right text-[11px] tabular-nums whitespace-nowrap">
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded text-[10px]",
+                        parseInt(item.relevance) >= 70 ? "bg-green-100 text-green-700" :
+                        parseInt(item.relevance) >= 50 ? "bg-yellow-100 text-yellow-700" :
+                        "bg-gray-100 text-gray-600"
+                      )}>
+                        {item.relevance}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-8 text-[12px] text-[#707070]">
+          <Monitor className="w-5 h-5 mx-auto mb-2 opacity-40" />
+          No matching screen recordings found
+        </div>
+      )}
+
+      {/* Apps breakdown */}
+      {appCount > 0 && (
+        <div>
+          <h4 className="text-[12px] leading-normal mb-2 text-[#707070]">
+            Apps found ({appCount})
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(groupedByApp).map(([app, items]) => (
+              <span 
+                key={app}
+                className="px-2 py-1 bg-gray-100 rounded text-[11px] text-gray-700"
+              >
+                {app} ({items.length})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ====================
 // MAIN CANVAS COMPONENT - MIDDAY STYLE
 // ====================
 export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCanvasProps) {
@@ -414,6 +592,7 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
 
   const hasTrends = data.trends && data.trends.success;
   const hasAnomalies = data.anomalies && data.anomalies.success;
+  const hasScreenRecordings = data.screenRecordings && data.screenRecordings.success;
   const hasStats = data.stats;
   const hasDailyData = data.dailyData && data.dailyData.length > 0;
 
@@ -465,6 +644,11 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
         {/* Anomalies Section */}
         {hasAnomalies && data.anomalies && (
           <AnomaliesSection anomalies={data.anomalies} />
+        )}
+
+        {/* Screen Recordings Section */}
+        {hasScreenRecordings && data.screenRecordings && (
+          <ScreenRecordingsSection screenRecordings={data.screenRecordings} />
         )}
 
         {/* Stats Summary - Midday style */}

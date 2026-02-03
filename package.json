@@ -10,7 +10,7 @@
     "contracts:build": "cd packages/shared-contracts && pnpm build",
     "contracts:typecheck": "cd packages/shared-contracts && pnpm typecheck",
     "dev:webpack": "next dev -p 3000",
-    "build": "next build",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' next build",
     "start": "next start -p 3000",
     "lint": "next lint",
     "tauri": "tauri",

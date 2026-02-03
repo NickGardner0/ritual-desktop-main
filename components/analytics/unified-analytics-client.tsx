@@ -14,20 +14,40 @@ import React, { useState, useEffect, useCallback, lazy, Suspense, useRef } from 
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Plus, Download, ChevronDown } from 'lucide-react';
-import { DateRange } from 'react-day-picker';
-import { DateRangePicker } from '@/components/date-range-picker';
+import type { DateRange } from 'react-day-picker';
 import { ViewModeToggle, ViewMode } from './view-mode-toggle';
-import { OverviewView } from './overview-view';
-import { MetricsView } from './metrics-view';
 import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
-import { AnalyticsViewToggle } from './habit-ticker-view';
+// Import from separate file to avoid pulling in recharts (~500KB)
+import { AnalyticsViewToggle } from './analytics-view-toggle';
 
-// Lazy load modals and AI chat
+// Lazy load HEAVY components
+// DateRangePicker includes react-day-picker + date-fns
+const DateRangePicker = lazy(() => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })));
+
+// View components - these contain recharts, @dnd-kit, etc.
+const OverviewView = lazy(() => import('./overview-view').then(m => ({ default: m.OverviewView })));
+const MetricsView = lazy(() => import('./metrics-view').then(m => ({ default: m.MetricsView })));
+
+// Modals and AI chat
 const HabitSelectionModal = lazy(() => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })));
 const DataImportModal = lazy(() => import("@/components/data-import-modal").then(m => ({ default: m.DataImportModal })));
 const AIHabitChat = lazy(() => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })));
+
+// Loading fallback for lazy-loaded views
+function ViewLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[300px]">
+      <div className="animate-pulse text-gray-400">Loading...</div>
+    </div>
+  );
+}
+
+// Compact loading fallback for controls
+function ControlLoadingFallback() {
+  return <div className="h-9 w-32 bg-gray-100 animate-pulse" />;
+}
 
 // Inner component that uses the filter context
 function UnifiedAnalyticsContent() {
@@ -181,12 +201,14 @@ function UnifiedAnalyticsContent() {
               </div>
             )}
             
-            {/* Date Range Picker */}
-            <DateRangePicker
-              className="w-auto"
-              onDateRangeChange={setDateRange}
-              initialDateRange={dateRange}
-            />
+            {/* Date Range Picker - Lazy loaded */}
+            <Suspense fallback={<ControlLoadingFallback />}>
+              <DateRangePicker
+                className="w-auto"
+                onDateRangeChange={setDateRange}
+                initialDateRange={dateRange}
+              />
+            </Suspense>
             
             {/* View Toggle - Primary control, furthest right */}
             <ViewModeToggle
@@ -290,7 +312,7 @@ function UnifiedAnalyticsContent() {
       
       {/* Content Area with smooth view switching */}
       <div className="relative min-h-[400px]">
-        {/* Overview View */}
+        {/* Overview View - Lazy loaded */}
         <div 
           role="tabpanel"
           id="overview-panel"
@@ -302,11 +324,13 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'overview' && (
-            <OverviewView hideControls={true} />
+            <Suspense fallback={<ViewLoadingFallback />}>
+              <OverviewView hideControls={true} />
+            </Suspense>
           )}
         </div>
         
-        {/* Metrics View */}
+        {/* Metrics View - Lazy loaded */}
         <div 
           role="tabpanel"
           id="metrics-panel"
@@ -318,11 +342,13 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'metrics' && (
-            <MetricsView 
-              hideControls={true} 
-              externalChartViewMode={chartViewMode}
-              onChartViewModeChange={setChartViewMode}
-            />
+            <Suspense fallback={<ViewLoadingFallback />}>
+              <MetricsView 
+                hideControls={true} 
+                externalChartViewMode={chartViewMode}
+                onChartViewModeChange={setChartViewMode}
+              />
+            </Suspense>
           )}
         </div>
       </div>

@@ -413,6 +413,38 @@ function createTools(ctx: RitualContext) {
         }
       },
     }),
+
+    // ============================================
+    // SCREEN RECORDING SEMANTIC SEARCH INFO
+    // ============================================
+
+    getScreenRecordingInfo: tool({
+      description: `Get information about what screen recording data is available for semantic search. Use this when users ask questions like "what was I doing at 3pm", "when did I work on X", "find where I saw Y", or other questions about their specific screen activity that require searching through recordings.`,
+      inputSchema: z.object({
+        queryType: z.enum(['what_was_doing', 'find_content', 'when_did', 'general']).describe('Type of query the user is asking'),
+        userQuestion: z.string().describe('The original question the user asked'),
+      }),
+      execute: async (params) => {
+        return {
+          available: true,
+          searchFeature: 'AI Search',
+          location: 'Computer Activity panel → AI Search tab',
+          capabilities: [
+            'Search by natural language (e.g., "React documentation")',
+            'Find specific content you were viewing',
+            'See thumbnails of matched moments',
+            'Filter by time range',
+          ],
+          howToUse: `To answer "${params.userQuestion}", use the **AI Search** feature in the Computer Activity panel. Click on Computer Activity (monitor icon) in the sidebar, then select the "AI Search" tab. You can type natural language queries there.`,
+          examples: [
+            '"meeting notes" → finds when you were looking at meeting notes',
+            '"API documentation" → finds when you were reading API docs',
+            '"error message" → finds when you encountered errors',
+          ],
+          dataStored: 'OCR text from your screen + thumbnails (no video files, minimal storage)',
+        };
+      },
+    }),
   };
 }
 
@@ -442,6 +474,16 @@ Computer Activity Guidelines:
 - Use getDailyComputerActivity for trends over time
 - Format hours nicely: "2.5 hours" or "45 minutes" for smaller amounts
 - When showing top apps/websites, present as a ranked list
+
+Screen Recording Search Guidelines:
+- Use getScreenRecordingInfo when users ask:
+  * "What was I doing at [time]?" or "What was I working on?"
+  * "When did I [do something]?" or "Find when I saw [something]"
+  * Any question about finding specific content they were viewing
+  * Questions about their screen history that need semantic search
+- The AI Search feature uses OCR text from screen recordings to find moments
+- Guide users to the Computer Activity → AI Search tab for these queries
+- This is different from aggregate stats (which we can answer directly)
 </agent-specific-rules>`,
   tools: createTools,
   maxTurns: 5,
@@ -452,5 +494,8 @@ Computer Activity Guidelines:
     'computer', 'screen time', 'app', 'apps', 'website', 'websites', 'browsing',
     'productivity', 'slack', 'chrome', 'safari', 'cursor', 'vscode', 'code',
     'github', 'twitter', 'youtube', 'reddit', 'time spent', 'usage',
+    // Screen recording semantic search keywords
+    'what was i doing', 'when did i', 'find when', 'looking at', 'working on',
+    'saw', 'saw the', 'reading', 'screen', 'recording', 'moment', 'search for',
   ],
 });

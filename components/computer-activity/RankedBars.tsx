@@ -23,7 +23,7 @@ const isTauri = typeof window !== 'undefined' && '__TAURI__' in window
 /**
  * AppIcon component - fetches real macOS app icons via Tauri
  */
-function AppIcon({ appName, bundleId, className = '' }: { appName: string; bundleId?: string; className?: string }) {
+export function AppIcon({ appName, bundleId, className = '' }: { appName: string; bundleId?: string; className?: string }) {
   const [iconSrc, setIconSrc] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
@@ -128,6 +128,8 @@ interface RankedBarsProps {
   maxVisible?: number
   type?: 'apps' | 'domains'
   className?: string
+  onSelect?: (item: RankedBar) => void
+  selectedKey?: string | null
 }
 
 export function RankedBars({
@@ -135,6 +137,8 @@ export function RankedBars({
   maxVisible = 5,
   type = 'apps',
   className = '',
+  onSelect,
+  selectedKey = null,
 }: RankedBarsProps) {
   const [expanded, setExpanded] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<RankedBar | null>(null)
@@ -174,13 +178,21 @@ export function RankedBars({
       <div className="space-y-2.5">
         {visibleItems.map((item) => {
           const percentage = (item.valueMs / maxValue) * 100
+          const isSelected = selectedKey === item.key
+          const isInteractive = Boolean(onSelect)
+          const Row = isInteractive ? 'button' : 'div'
           
           return (
-            <div
+            <Row
               key={item.key}
-              className="group flex items-center gap-2.5 py-0.5 cursor-default hover:bg-[#F3F3F3]/50 -mx-1 px-1 transition-colors"
+              type={isInteractive ? 'button' : undefined}
+              className={`group flex w-full items-center gap-2.5 py-0.5 -mx-1 px-1 transition-colors text-left ${
+                isInteractive ? 'cursor-pointer appearance-none bg-transparent border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-default'
+              } ${isSelected ? 'bg-[#F3F3F3]' : 'hover:bg-[#F3F3F3]/50'}`}
+              aria-expanded={isInteractive ? isSelected : undefined}
               onMouseEnter={(e) => handleMouseEnter(item, e)}
               onMouseLeave={handleMouseLeave}
+              onClick={isInteractive ? () => onSelect?.(item) : undefined}
             >
               {/* App/Domain icon */}
               {type === 'domains' ? (
@@ -217,7 +229,7 @@ export function RankedBars({
               <span className="text-[13px] text-gray-500 tabular-nums text-right min-w-[44px]">
                 {msToHuman(item.valueMs, true)}
               </span>
-            </div>
+            </Row>
           )
         })}
       </div>
@@ -254,11 +266,11 @@ export function RankedBars({
           }}
         >
           <div 
-            className="px-2 py-1 text-xs border border-gray-200/60 shadow-md whitespace-nowrap"
+            className="px-2.5 py-1.5 text-xs border border-white/40 shadow-[0_8px_30px_rgba(15,23,42,0.12)] whitespace-nowrap"
             style={{
-              background: 'rgba(255, 255, 255, 0.92)',
-              backdropFilter: 'blur(12px) saturate(180%)',
-              WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+              background: 'rgba(255, 255, 255, 0.65)',
+              backdropFilter: 'blur(16px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(16px) saturate(180%)',
             }}
           >
             <span className="font-medium text-gray-900">{hoveredItem.label}</span>

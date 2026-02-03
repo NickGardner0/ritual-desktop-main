@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch, Video } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleHealthSyncStatus } from './apple-health-sync-status';
+import { RecorderSettings } from './screen-recorder';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -28,7 +29,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
-  const [currentView, setCurrentView] = useState<'account' | 'computer-tracking' | 'apple-health'>('account');
+  const [currentView, setCurrentView] = useState<'account' | 'computer-tracking' | 'apple-health' | 'screen-recording'>('account');
   
   // Track previous isOpen state to detect when modal opens
   const [wasOpen, setWasOpen] = useState(false);
@@ -76,6 +77,44 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
           <div className="flex-1 overflow-y-auto px-5 py-3">
             <ComputerTrackingSettings 
               userId={user?.id || ''} 
+              onClose={() => setCurrentView('account')}
+            />
+          </div>
+        </div>
+      </div>
+    );
+    return createPortal(modalContent, document.body);
+  }
+
+  // Screen Recording View
+  if (currentView === 'screen-recording') {
+    const modalContent = (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+        {/* Backdrop - beige overlay */}
+        <div 
+          className="absolute inset-0 bg-[#e8e5df]/70" 
+          onClick={onClose}
+        />
+        
+        {/* Modal */}
+        <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60 bg-white">
+            <button
+              onClick={() => setCurrentView('account')}
+              className="p-0.5 transition-colors hover:bg-gray-100"
+            >
+              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            </button>
+            <h2 className="text-sm font-medium text-gray-900">Screen Recording</h2>
+            <div className="w-6" />
+          </div>
+
+          {/* Content - Scrollable */}
+          <div className="flex-1 overflow-y-auto px-5 py-3">
+            <RecorderSettings 
+              userId={user?.id || ''} 
+              deviceId={typeof window !== 'undefined' ? `${navigator.userAgent.slice(0, 20)}-${user?.id?.slice(0, 8)}` : ''} 
               onClose={() => setCurrentView('account')}
             />
           </div>
@@ -285,6 +324,18 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
               <div className="flex items-center gap-2.5">
                 <Monitor className="w-4 h-4 text-gray-500" />
                 <span className="text-sm text-gray-900">Computer Tracking</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+
+            {/* Screen Recording */}
+            <button 
+              onClick={() => setCurrentView('screen-recording')}
+              className="w-full py-3.5 flex items-center justify-between border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+            >
+              <div className="flex items-center gap-2.5">
+                <Video className="w-4 h-4 text-gray-500" />
+                <span className="text-sm text-gray-900">Screen Recording</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>

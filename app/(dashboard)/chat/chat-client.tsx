@@ -12,9 +12,109 @@ import { Streamdown } from 'streamdown';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useAI } from '@/contexts/AIContext';
 import { RitualLogo } from '@/components/ritual-logo';
+import { useSemanticSearch, useEmbeddingService, type SemanticSearchResult } from '@/hooks/use-semantic-search';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
+}
+
+// Detect if a query is about screen recordings / computer activity
+function isScreenRecordingQuery(query: string): boolean {
+  const lowerQuery = query.toLowerCase();
+  
+  // Strong indicators - definitely about screen recordings
+  const strongPatterns = [
+    'what was i working on',
+    'what was i doing',
+    'what was i looking at',
+    'what did i do on my computer',
+    'show me what i was',
+    'when did i look at',
+    'when was i reading',
+    'when was i looking',
+    'find when i was',
+    'what apps did i use',
+    'which apps did i use',
+    'what websites',
+    'which websites',
+    'what was on my screen',
+    'screen history',
+    'screen recording',
+    'computer activity',
+    'what did i browse',
+    'what did i search',
+    'what documents',
+    'what files did i',
+    'what code was i',
+    'what project was i',
+  ];
+  
+  // Weak indicators - might be about screen recordings if combined with time references
+  const weakPatterns = [
+    'what was i',
+    'working on',
+    'looked at',
+    'browsing',
+    'viewing',
+  ];
+  
+  const timePatterns = [
+    'yesterday',
+    'this morning',
+    'this afternoon',
+    'last night',
+    'earlier today',
+    'this week',
+    'last week',
+    'today',
+    'ago',
+  ];
+  
+  // Check strong patterns
+  for (const pattern of strongPatterns) {
+    if (lowerQuery.includes(pattern)) {
+      return true;
+    }
+  }
+  
+  // Check weak patterns + time reference
+  const hasTimeRef = timePatterns.some(t => lowerQuery.includes(t));
+  if (hasTimeRef) {
+    for (const pattern of weakPatterns) {
+      if (lowerQuery.includes(pattern)) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
+// Extract time range from query for screen recording search
+function getTimeRangeFromQuery(query: string): number {
+  const lowerQuery = query.toLowerCase();
+  
+  if (lowerQuery.includes('this morning') || lowerQuery.includes('earlier today')) {
+    return 1; // Last 24 hours
+  }
+  if (lowerQuery.includes('today')) {
+    return 1; // Last 24 hours
+  }
+  if (lowerQuery.includes('yesterday')) {
+    return 2; // Last 48 hours
+  }
+  if (lowerQuery.includes('this week') || lowerQuery.includes('past week') || lowerQuery.includes('last 7')) {
+    return 7;
+  }
+  if (lowerQuery.includes('last week')) {
+    return 14;
+  }
+  if (lowerQuery.includes('this month') || lowerQuery.includes('past month') || lowerQuery.includes('last 30')) {
+    return 30;
+  }
+  
+  // Default to 7 days for broader search
+  return 7;
 }
 
 // TextShimmer component
@@ -285,6 +385,7 @@ function buildCanvasFromToolData(
     correlation?: any;
     trends?: any;
     anomalies?: any;
+    screenRecordings?: any;
     suggested_followups?: string[];
   } | null,
   question: string
@@ -297,6 +398,15 @@ function buildCanvasFromToolData(
   const habitName = habitMatch 
     ? habitMatch[0].charAt(0).toUpperCase() + habitMatch[0].slice(1).toLowerCase() 
     : 'Activity';
+  
+  // Handle screen recording search results
+  if (toolData.screenRecordings && toolData.screenRecordings.success) {
+    return {
+      type: 'screenRecordings',
+      title: 'Screen Activity',
+      screenRecordings: toolData.screenRecordings,
+    };
+  }
   
   // Phase 3: Handle trends data
   if (toolData.trends && toolData.trends.success) {
@@ -518,6 +628,18 @@ export function ChatClient() {
   const initialQuestion = searchParams.get('q');
   const { getToken } = useAuth();
   const { setIsFullScreenChat } = useAI();
+  
+  // Semantic search for screen recordings
+  const { search: semanticSearch, isSearching: isSearchingScreens } = useSemanticSearch();
+  const { 
+    isInitialized: isEmbeddingInitialized,
+    isInitializing: isEmbeddingInitializing,
+    initialize: initializeEmbedding,
+    stats: embeddingStats,
+  } = useEmbeddingService();
+  
+  // Ref to prevent race conditions during embedding service initialization
+  const embeddingInitPromiseRef = useRef<Promise<boolean> | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -776,6 +898,78 @@ export function ChatClient() {
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     
+    // Check if query is about screen recordings and pre-fetch results
+    let screenRecordingResults: SemanticSearchResult[] | null = null;
+    if (isScreenRecordingQuery(text)) {
+      console.log('🖥️ Detected screen recording query, running semantic search...');
+      try {
+        // Auto-initialize embedding service if not already initialized
+        // Use ref to prevent race conditions when multiple queries come in rapid succession
+        if (!isEmbeddingInitialized && !isEmbeddingInitializing) {
+          console.log('🔄 Auto-initializing embedding service for screen search...');
+          
+          // Check if initialization is already in progress
+          if (!embeddingInitPromiseRef.current) {
+            embeddingInitPromiseRef.current = initializeEmbedding();
+          }
+          
+          try {
+            const initSuccess = await embeddingInitPromiseRef.current;
+            if (!initSuccess) {
+              console.warn('Failed to initialize embedding service');
+              // Continue without results - the AI will explain the feature isn't available
+            }
+          } finally {
+            embeddingInitPromiseRef.current = null;
+          }
+        } else if (isEmbeddingInitializing && embeddingInitPromiseRef.current) {
+          // Wait for in-progress initialization to complete
+          console.log('🔄 Waiting for embedding service initialization...');
+          await embeddingInitPromiseRef.current;
+        }
+        
+        const daysBack = getTimeRangeFromQuery(text);
+        const now = Date.now();
+        const cutoffTime = now - (daysBack * 24 * 60 * 60 * 1000);
+        
+        console.log('🖥️ Screen search params:', { 
+          query: text, 
+          daysBack, 
+          cutoffTime: new Date(cutoffTime).toISOString(),
+          now: new Date(now).toISOString()
+        });
+        
+        // First try with time filter - use min_relevance to filter out low-quality matches
+        screenRecordingResults = await semanticSearch({
+          query: text,
+          limit: 20,
+          min_relevance: 0.3,  // Filter out results below 30% relevance
+          start_time: cutoffTime,
+          end_time: now,
+        });
+        console.log('🖥️ Screen recording search returned', screenRecordingResults?.length || 0, 'results (with time filter)');
+        
+        // If no results with time filter, try without time filter (search all data)
+        if (!screenRecordingResults || screenRecordingResults.length === 0) {
+          console.log('🖥️ No results with time filter, trying without time filter...');
+          screenRecordingResults = await semanticSearch({
+            query: text,
+            limit: 20,
+            min_relevance: 0.3,  // Filter out results below 30% relevance
+            // No time filter - search all available data
+          });
+          console.log('🖥️ Screen recording search returned', screenRecordingResults?.length || 0, 'results (without time filter)');
+        }
+        
+        if (screenRecordingResults && screenRecordingResults.length > 0) {
+          console.log('🖥️ Sample result:', screenRecordingResults[0]);
+        }
+      } catch (error) {
+        console.warn('Screen recording search failed:', error);
+        // Continue without results - the AI will explain the feature isn't available
+      }
+    }
+    
     try {
       const token = await getToken();
       
@@ -790,6 +984,7 @@ export function ChatClient() {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           conversationId: conversationId, // Include conversation ID for persistence
           responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
+          screenRecordingResults: screenRecordingResults, // Pre-fetched screen recording search results
         }),
       });
       
@@ -799,7 +994,7 @@ export function ChatClient() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
-      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
+      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenRecordings?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
       
       while (true) {
         const { done, value } = await reader.read();
@@ -901,7 +1096,7 @@ export function ChatClient() {
       setIsLoading(false);
       setCurrentQuestion('');
     }
-  }, [messages, isLoading, getToken, conversationId, loadConversationsList, voiceStyleEnabled]);
+  }, [messages, isLoading, getToken, conversationId, loadConversationsList, voiceStyleEnabled, semanticSearch, isEmbeddingInitialized, isEmbeddingInitializing, initializeEmbedding]);
 
   useEffect(() => {
     // Wait for conversation loading to complete before processing initial question
@@ -1229,10 +1424,10 @@ export function ChatClient() {
                 </div>
               </form>
 
-              <div className="flex gap-2 justify-center flex-nowrap">
+              <div className="flex gap-2 justify-center flex-wrap">
                 {[
                   "How's my sleep this week?",
-                  "Show my workout progress",
+                  "What was I working on yesterday?",
                   "What habits need attention?",
                 ].map((text) => (
                   <button
@@ -1409,7 +1604,11 @@ export function ChatClient() {
             {isLoading && !streamingContent && (
               <div className="flex items-center gap-2 py-2">
                 <TextShimmer className="text-sm" duration={1.5}>
-                  Thinking...
+                  {isEmbeddingInitializing 
+                    ? 'Initializing AI search (first time may take a moment)...' 
+                    : isSearchingScreens 
+                      ? 'Searching screen recordings...' 
+                      : 'Thinking...'}
                 </TextShimmer>
               </div>
             )}

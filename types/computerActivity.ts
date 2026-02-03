@@ -140,6 +140,28 @@ export interface DrillDownData {
 }
 
 // ============================================================
+// 1.9 Usage breakdown
+// ============================================================
+
+export type UsageBreakdownKind = 'app' | 'website'
+
+export interface BreakdownPoint {
+  date: string // YYYY-MM-DD
+  seconds: number
+  startTime?: string | null
+  endTime?: string | null
+}
+
+export interface BreakdownResponse {
+  kind: UsageBreakdownKind
+  key: string
+  start: string
+  end: string
+  points: BreakdownPoint[]
+  totalSeconds: number
+}
+
+// ============================================================
 // 1.8 Category colors (muted grayscale palette)
 // ============================================================
 
