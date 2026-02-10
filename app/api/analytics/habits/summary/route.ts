@@ -34,7 +34,10 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
-    const daysBack = searchParams.get('days_back') || '30';
+    const requestedDaysBack = Number.parseInt(searchParams.get('days_back') || '30', 10);
+    const daysBack = Number.isFinite(requestedDaysBack)
+      ? String(Math.min(Math.max(requestedDaysBack, 1), 365))
+      : '30';
 
     let url: string;
     let useCustomRange = false;

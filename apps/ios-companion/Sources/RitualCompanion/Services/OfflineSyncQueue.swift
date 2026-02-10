@@ -166,7 +166,7 @@ final class OfflineSyncQueue {
     
     // MARK: - Processing
     
-    /// Process the queue - called by BackgroundSyncManager
+    /// Process the queue - called by BackgroundSyncManagerV2
     /// Returns the payloads that should be sent
     func processQueue() async -> [QueuedPayload] {
         guard !isProcessing else {

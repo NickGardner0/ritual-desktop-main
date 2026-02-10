@@ -37,7 +37,10 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const habit1Id = searchParams.get('habit1_id');
     const habit2Id = searchParams.get('habit2_id');
-    const daysBack = searchParams.get('days_back') || '90';
+    const rawDaysBack = Number.parseInt(searchParams.get('days_back') || '90', 10);
+    const daysBack = Number.isFinite(rawDaysBack)
+      ? String(Math.min(Math.max(rawDaysBack, 7), 365))
+      : '90';
 
     if (!habit1Id || !habit2Id) {
       return NextResponse.json(

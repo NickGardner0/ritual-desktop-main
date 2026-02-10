@@ -417,14 +417,14 @@ export function DateRangePicker({
             id="date"
             variant={"outline"}
             className={cn(
-              "w-[120px] justify-between text-left font-normal text-sm px-3 py-2 h-9 border-gray-300 bg-white text-black hover:bg-[#F3F3F3] hover:border-gray-300 rounded-none",
+              "w-[120px] justify-between text-left font-normal text-[13px] px-3 py-1.5 h-8 border-gray-300 bg-white text-black hover:bg-[#F3F3F3] hover:border-gray-300 rounded-none",
               !date && "text-black",
               className
             )}
           >
-            <CalendarIcon className="w-4 h-4 mr-2" />
+            <CalendarIcon className="w-3.5 h-3.5 mr-2" />
             {formatDateRange()}
-            <ChevronDown className="w-4 h-4 ml-auto" />
+            <ChevronDown className="w-3.5 h-3.5 ml-auto" />
           </Button>
         </PopoverTrigger>
         <PopoverContent

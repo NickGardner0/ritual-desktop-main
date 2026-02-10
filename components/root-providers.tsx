@@ -1,11 +1,13 @@
 'use client';
 
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ClerkProvider } from '@clerk/nextjs';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
+import { PlatformDetector } from '@/components/platform-detector';
+import { TransparencyProbe } from '@/components/transparency-probe';
 import { showMainWindow } from '@/lib/tauri-utils';
 
 /**
@@ -15,14 +17,42 @@ import { showMainWindow } from '@/lib/tauri-utils';
  * Separated from layout.tsx to allow the layout to remain a Server Component.
  */
 export function RootProviders({ children }: { children: ReactNode }) {
+  const [isTransparencyProbe, setIsTransparencyProbe] = useState(false);
+
   // Show the Tauri window once React has mounted and content is ready
   // This prevents the "tiny window flash" issue on macOS
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('ritual_sidebar_window') === '1') {
+        return;
+      }
+    }
+
     // Small delay to ensure DOM is painted
     const timer = setTimeout(() => {
       showMainWindow();
     }, 50);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const queryValue = new URLSearchParams(window.location.search).get('ritual_transparency_probe');
+    const storageValue = window.sessionStorage.getItem('ritual_transparency_probe');
+    const enabled = queryValue === '1' || storageValue === '1';
+
+    if (enabled) {
+      window.sessionStorage.setItem('ritual_transparency_probe', '1');
+      document.documentElement.dataset.transparencyProbe = '1';
+      console.log('🧪 Transparency probe UI enabled');
+    } else {
+      window.sessionStorage.removeItem('ritual_transparency_probe');
+      delete document.documentElement.dataset.transparencyProbe;
+    }
+
+    setIsTransparencyProbe(enabled);
   }, []);
 
   return (
@@ -31,20 +61,25 @@ export function RootProviders({ children }: { children: ReactNode }) {
       forcedTheme="light"
       disableTransitionOnChange
     >
-      <ClerkProvider
-        signInUrl="/auth"
-        signUpUrl="/auth"
-        afterSignOutUrl="/"
-      >
-        <OpenPanelProvider>
-        <QueryProvider>
-          <HabitsProvider>
-            {children}
-          </HabitsProvider>
-        </QueryProvider>
-        </OpenPanelProvider>
-      </ClerkProvider>
+      {/* Detect OS and set data-platform attr for macOS vibrancy CSS */}
+      <PlatformDetector />
+      {isTransparencyProbe ? (
+        <TransparencyProbe />
+      ) : (
+        <ClerkProvider
+          signInUrl="/auth"
+          signUpUrl="/auth"
+          afterSignOutUrl="/"
+        >
+          <OpenPanelProvider>
+          <QueryProvider>
+            <HabitsProvider>
+              {children}
+            </HabitsProvider>
+          </QueryProvider>
+          </OpenPanelProvider>
+        </ClerkProvider>
+      )}
     </ThemeProvider>
   );
 }
-

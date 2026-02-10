@@ -1,0 +1,163 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CalendarDays, Plug2, Settings, TableProperties, Timer } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { isTauri } from "@/lib/tauri-utils";
+
+type SidebarState = {
+  path: string;
+  width: number;
+};
+
+const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    strokeWidth="2.1"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...props}
+  >
+    <path d="M9 6h6M12 6v12M9 18h6" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" fill="none" />
+  </svg>
+);
+
+const items = [
+  { path: "/dashboard", name: "Index", icon: ILetterIcon },
+  { path: "/activity", name: "Logs", icon: TableProperties },
+  { path: "/calendar", name: "Calendar", icon: CalendarDays },
+  { path: "/timer", name: "Timer", icon: Timer },
+  { path: "/integrations", name: "Integrations", icon: Plug2 },
+  { path: "/settings", name: "Settings", icon: Settings },
+];
+
+export function DetachedSidebarShell() {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [activePath, setActivePath] = useState("/dashboard");
+  const width = isExpanded ? 240 : 70;
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    (async () => {
+      const { invoke } = await import("@tauri-apps/api/tauri");
+      try {
+        const state = await invoke<SidebarState>("sidebar_get_main_state");
+        if (state?.path) setActivePath(state.path);
+        if (typeof state?.width === "number") setIsExpanded(state.width > 70);
+      } catch (error) {
+        console.error("Failed to read sidebar state:", error);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    (async () => {
+      const { invoke } = await import("@tauri-apps/api/tauri");
+      try {
+        await invoke("sidebar_set_width", { width });
+      } catch (error) {
+        console.error("Failed to sync sidebar width:", error);
+      }
+    })();
+  }, [width]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<string>("sidebar:route", (event) => {
+        if (typeof event.payload === "string" && event.payload.length > 0) {
+          setActivePath(event.payload);
+        }
+      });
+    })();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const navigate = async (path: string) => {
+    setActivePath(path);
+    if (!isTauri()) return;
+    const { invoke } = await import("@tauri-apps/api/tauri");
+    await invoke("sidebar_navigate", { path });
+  };
+
+  return (
+    <aside
+      className={cn(
+        "sidebar-vibrancy h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-center flex z-[1002] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+        "bg-background border-r border-gray-300",
+        isExpanded ? "w-[240px]" : "w-[70px]",
+      )}
+      onMouseEnter={() => setIsExpanded(true)}
+      onMouseLeave={() => setIsExpanded(false)}
+    >
+      <div
+        className={cn(
+          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center bg-background border-b border-gray-300 transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+          isExpanded ? "w-full" : "w-[69px]",
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => navigate("/dashboard")}
+          className="absolute left-1/2 -translate-x-1/2 top-[58%] -translate-y-1/2 transition-none"
+        >
+          <img src="/images/new_logo4.svg" alt="Ritual Logo" className="w-[36px] h-[36px] flex-shrink-0" />
+        </button>
+      </div>
+
+      <div className="flex flex-col w-full pt-[70px] flex-1 mt-6">
+        <nav className="w-full">
+          <div className="flex flex-col gap-2">
+            {items.map((item) => {
+              const isActive = activePath.startsWith(item.path);
+              const Icon = item.icon;
+              return (
+                <button key={item.path} type="button" onClick={() => navigate(item.path)} className="group text-left">
+                  <div className="relative">
+                    <div
+                      className={cn(
+                        "border border-transparent h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                        isActive && "border-gray-200",
+                        isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px] rounded-none",
+                      )}
+                      style={{ backgroundColor: isActive ? "#F3F3F3" : "transparent" }}
+                    />
+                    <div className="absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center text-black">
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    {isExpanded && (
+                      <div className="absolute top-0 left-[55px] right-[8px] h-[40px] flex items-center">
+                        <span
+                          className={cn(
+                            "text-sm font-[450] transition-colors duration-200 text-gray-600 group-hover:text-gray-900 whitespace-nowrap overflow-hidden",
+                            isActive && "text-gray-900",
+                          )}
+                        >
+                          {item.name}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      </div>
+
+      <div className="w-full flex justify-center pb-1">
+        <div className="h-12 w-12 rounded-full border border-[#3d3f43] bg-[#23262a] text-[#f2f2f2] flex items-center justify-center text-2xl font-medium">
+          N
+        </div>
+      </div>
+    </aside>
+  );
+}

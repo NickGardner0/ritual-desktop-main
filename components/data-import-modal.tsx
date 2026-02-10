@@ -619,7 +619,7 @@ export function DataImportModal({
         // - 1s for next 10s
         // - 2s thereafter
         let pollCount = 0;
-        const maxPolls = 120; // Max ~4 minutes of polling
+        const maxPolls = 600; // Max ~20 minutes of polling for large background imports
         
         const getPollInterval = (count: number): number => {
           if (count < 8) return 250;   // First 2s: every 250ms
@@ -629,7 +629,7 @@ export function DataImportModal({
         
         const pollStatus = async () => {
           if (pollCount >= maxPolls) {
-            setError("Import is taking longer than expected. Please check import history.");
+            setError("Import is still running in the background. Check Import History for live status.");
             setStep("configure");
             return;
           }

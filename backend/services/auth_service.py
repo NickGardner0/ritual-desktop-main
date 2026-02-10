@@ -5,6 +5,7 @@ Authentication Service - Handles Clerk JWT token validation and user management
 import jwt
 from jwt import PyJWKClient
 import os
+import asyncio
 import httpx
 import requests
 from typing import Optional, Dict, Any
@@ -143,15 +144,23 @@ class AuthService:
         
         try:
             print(f"🌐 [CLERK API] Fetching email for user: {user_id}")
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"https://api.clerk.com/v1/users/{user_id}",
-                    headers={
-                        "Authorization": f"Bearer {self.clerk_secret_key}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10.0
-                )
+            retries = 3
+            response = None
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for attempt in range(1, retries + 1):
+                    response = await client.get(
+                        f"https://api.clerk.com/v1/users/{user_id}",
+                        headers={
+                            "Authorization": f"Bearer {self.clerk_secret_key}",
+                            "Content-Type": "application/json"
+                        },
+                    )
+                    if response.status_code not in (408, 429, 500, 502, 503, 504):
+                        break
+                    if attempt < retries:
+                        await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
+                        continue
+                    break
                 
                 if response.status_code == 200:
                     user_data = response.json()

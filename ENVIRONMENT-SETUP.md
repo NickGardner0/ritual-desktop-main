@@ -215,6 +215,8 @@ TINYBIRD_API_URL=https://api.us-east.aws.tinybird.co
 WHOOP_CLIENT_ID=
 WHOOP_CLIENT_SECRET=
 NEXT_PUBLIC_WHOOP_REDIRECT_URI=https://yourdomain.com/api/integrations/whoop/callback
+WHOOP_API_MAX_RETRIES=3
+WHOOP_API_RETRY_BASE_DELAY=0.5
 
 # Server Config
 API_HOST=0.0.0.0
@@ -224,6 +226,7 @@ DEBUG=false
 # Security
 INTERNAL_API_KEY=
 CORS_ORIGINS=https://yourdomain.com,tauri://localhost
+TOKEN_ENCRYPTION_KEY=generate-with-python-c-"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
 ---
@@ -279,4 +282,3 @@ The Tauri app connects to your production Next.js server. Ensure:
 ### "OpenAI API errors"
 - Ensure `OPENAI_API_KEY` is valid
 - Check your OpenAI account has credits/quota
-

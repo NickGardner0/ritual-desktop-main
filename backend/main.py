@@ -3,12 +3,12 @@ Ritual FastAPI Backend
 Mirrors the current TypeScript habits-service.ts interface exactly
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status, Header, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, status, Header, Request, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 import os
 import uuid
 from datetime import datetime
@@ -375,7 +375,11 @@ async def batch_log_habits(
 
 @app.get("/api/analytics/habits/summary")
 @limiter.limit("20/minute")  # Max 20 analytics queries per minute
-async def get_habits_summary(request: Request, days_back: int = 30, current_user = Depends(get_current_user)):
+async def get_habits_summary(
+    request: Request,
+    days_back: int = Query(30, ge=1, le=36500),  # Allow "All time" queries (up to ~100 years)
+    current_user = Depends(get_current_user)
+):
     """
     Get habit analytics summary from Tinybird
     """
@@ -390,7 +394,7 @@ async def get_habits_summary(request: Request, days_back: int = 30, current_user
 async def get_habit_trends(
     request: Request,
     period: str = "day", 
-    days_back: int = 30, 
+    days_back: int = Query(30, ge=1, le=36500),  # Allow "All time" queries (up to ~100 years) 
     habit_id: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
@@ -407,7 +411,6 @@ async def get_habit_trends(
 
 @app.get("/api/analytics/habits/breakdown")
 async def get_habits_breakdown(
-    user_id: str,
     start_date: str,
     end_date: str,
     current_user = Depends(get_current_user)
@@ -418,7 +421,7 @@ async def get_habits_breakdown(
     """
     try:
         breakdown = await habits_service.get_category_breakdown(
-            user_id, start_date, end_date
+            current_user["id"], start_date, end_date
         )
         return {"breakdown": breakdown}
     except Exception as e:
@@ -438,7 +441,7 @@ async def get_habit_stats(
     habit_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    days_back: int = 30,
+    days_back: int = Query(30, ge=1, le=36500),  # Allow "All time" queries (up to ~100 years)
     current_user = Depends(get_current_user)
 ):
     """
@@ -473,7 +476,7 @@ async def get_daily_breakdown(
     habit_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    days_back: int = 30,
+    days_back: int = Query(30, ge=1, le=36500),  # Allow "All time" queries (up to ~100 years)
     timezone: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
@@ -511,7 +514,7 @@ async def get_correlation(
     habit1_name: Optional[str] = None,
     habit2_id: Optional[str] = None,
     habit2_name: Optional[str] = None,
-    days_back: int = 30,
+    days_back: int = Query(30, ge=7, le=36500),  # Allow "All time" queries
     current_user = Depends(get_current_user)
 ):
     """
@@ -556,7 +559,7 @@ async def get_analytics_trends(
     request: Request,
     habit_id: Optional[str] = None,
     habit_name: Optional[str] = None,
-    window_days: int = 30,
+    window_days: int = Query(30, ge=7, le=36500),  # Allow "All time" queries
     current_user = Depends(get_current_user)
 ):
     """
@@ -587,9 +590,9 @@ async def get_analytics_anomalies(
     habit_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    days_back: int = 30,
+    days_back: int = Query(30, ge=1, le=36500),  # Allow "All time" queries (up to ~100 years)
     z_threshold: float = 2.0,
-    max_results: int = 5,
+    max_results: int = Query(5, ge=1, le=50),
     current_user = Depends(get_current_user)
 ):
     """
@@ -634,6 +637,22 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     WebSocket endpoint for real-time updates
     Replaces Supabase real-time subscriptions
     """
+    auth_header = websocket.headers.get("authorization")
+    token = auth_service.extract_token_from_header(auth_header or "")
+
+    # Fallback for websocket clients that pass token as a query string.
+    if not token:
+        token = websocket.query_params.get("token")
+
+    if not token:
+        await websocket.close(code=1008, reason="Authentication required")
+        return
+
+    user = await auth_service.get_user_from_token(token)
+    if not user or user.get("id") != user_id:
+        await websocket.close(code=1008, reason="Invalid authentication token")
+        return
+
     await websocket_manager.connect(websocket, user_id)
     try:
         while True:
@@ -1898,6 +1917,11 @@ from models.import_models import (
     ChunkIngestRequest, ChunkIngestResponse, UndoImportResponse
 )
 
+# In-process background import task registry.
+# This keeps long-running imports off the request path.
+_import_tasks: Dict[str, asyncio.Task] = {}
+_import_tasks_lock = asyncio.Lock()
+
 
 class ImportRunCreateRequest(BaseModel):
     """Request to create a new import run"""
@@ -2437,7 +2461,7 @@ async def preview_import(
 
 class ImportStartRequest(BaseModel):
     """Request to start importing"""
-    import_run_id: str
+    import_run_id: Optional[str] = None
     conflict_policy: str = "skip_existing"
     create_habits: bool = True  # Whether to auto-create habits that don't exist
 
@@ -2453,85 +2477,131 @@ async def start_import(
     Uses chunked processing for large imports.
     """
     try:
-        # Get the import run
         run = await import_service.get_import_run(run_id, current_user["id"])
         if not run:
             raise HTTPException(status_code=404, detail="Import run not found")
-        
-        if run.status != ImportStatus.READY:
+
+        if start_request.import_run_id and start_request.import_run_id != run_id:
+            raise HTTPException(status_code=400, detail="Path run_id and payload import_run_id do not match")
+
+        if run.status == ImportStatus.IMPORTING:
+            async with _import_tasks_lock:
+                task = _import_tasks.get(run_id)
+                if task and not task.done():
+                    return JSONResponse(
+                        status_code=202,
+                        content={
+                            "status": "importing",
+                            "import_run_id": run_id,
+                            "message": "Import is already running in the background",
+                        },
+                    )
+
+        if run.status not in [ImportStatus.READY, ImportStatus.IMPORTING]:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Import run is not ready. Current status: {run.status.value}"
             )
-        
-        # Update status to importing
-        await import_service.update_import_run_status(run_id, ImportStatus.IMPORTING)
-        
-        # Get all items from staging
+
+        if run.status == ImportStatus.READY:
+            await import_service.update_import_run_status(run_id, ImportStatus.IMPORTING)
+
+        async with _import_tasks_lock:
+            existing = _import_tasks.get(run_id)
+            if existing and not existing.done():
+                return JSONResponse(
+                    status_code=202,
+                    content={
+                        "status": "importing",
+                        "import_run_id": run_id,
+                        "message": "Import is already running in the background",
+                    },
+                )
+
+            _import_tasks[run_id] = asyncio.create_task(
+                _run_import_job(
+                    run_id=run_id,
+                    user_id=current_user["id"],
+                    conflict_policy_raw=start_request.conflict_policy,
+                    create_habits=start_request.create_habits,
+                )
+            )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "importing",
+                "import_run_id": run_id,
+                "message": "Import started in background",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Start import error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _run_import_job(
+    run_id: str,
+    user_id: str,
+    conflict_policy_raw: str,
+    create_habits: bool
+) -> None:
+    """
+    Execute a long-running import in a background task.
+    """
+    try:
+        run = await import_service.get_import_run(run_id, user_id)
+        if not run:
+            return
+
         items = await import_service.get_import_items(run_id, limit=10000)
         total_items = len(items)
-        
+
         if total_items == 0:
             await import_service.update_import_run_status(
                 run_id,
                 ImportStatus.COMPLETED,
                 summary=ImportRunSummary()
             )
-            return {"status": "completed", "message": "No items to import"}
-        
-        # Update progress total
+            return
+
         await import_service.update_import_progress(run_id, 0, total_items)
-        
-        # Parse conflict policy
+
         try:
-            conflict_policy = ConflictPolicy(start_request.conflict_policy)
+            conflict_policy = ConflictPolicy(conflict_policy_raw)
         except ValueError:
             conflict_policy = ConflictPolicy.SKIP_EXISTING
-        
-        # Group items by habit_key
+
         from collections import defaultdict
         items_by_habit = defaultdict(list)
         for item in items:
             items_by_habit[item.habit_key].append(item)
-        
-        # Process and create habits + logs
+
         from models.import_models import BatchLogCreate, BatchLogsRequest as BatchRequest
-        
+
         summary = ImportRunSummary(total_rows=total_items)
         created_habit_ids = []
-        
-        # Get all existing habits once (for all items)
-        existing_habits = await habits_service.get_habits(current_user["id"])
-        
+        existing_habits = await habits_service.get_habits(user_id)
+
         def fuzzy_match_habit(csv_name: str, existing_habits: list) -> tuple:
-            """
-            Advanced fuzzy matching for CSV columns to existing habits.
-            Uses synonyms, unit inference, word stemming, and semantic matching.
-            Returns (habit_id, confidence, inferred_unit) or (None, 0, None)
-            """
-            # Synonym mappings for common terms
             SYNONYMS = {
-                # Sleep related
                 "sleep": ["sleep", "rest", "slept", "sleeping", "bed", "nap"],
                 "duration": ["duration", "time", "hours", "length", "total"],
-                # Exercise related
                 "steps": ["steps", "step", "walking", "walk", "walked", "footsteps"],
                 "workout": ["workout", "exercise", "training", "gym", "fitness"],
                 "run": ["run", "running", "jog", "jogging"],
-                # Nutrition related
                 "caffeine": ["caffeine", "coffee", "tea", "espresso", "energy"],
                 "water": ["water", "hydration", "drink", "fluid", "h2o"],
                 "calories": ["calories", "cal", "kcal", "energy", "food"],
-                # Wellness related
                 "meditation": ["meditation", "meditate", "mindfulness", "mindful", "zen", "calm"],
                 "reading": ["reading", "read", "book", "pages", "literature"],
                 "screen": ["screen", "screentime", "phone", "device", "digital"],
-                # Health metrics
                 "heart": ["heart", "hr", "heartrate", "pulse", "bpm"],
                 "weight": ["weight", "mass", "kg", "lbs", "pounds"],
             }
-            
-            # Unit inference from column name suffixes/keywords
+
             UNIT_INFERENCE = {
                 "_mg": "Milligrams", "mg": "Milligrams", "milligrams": "Milligrams",
                 "_hours": "Hours", "hours": "Hours", "_hrs": "Hours", "hrs": "Hours",
@@ -2548,64 +2618,51 @@ async def start_import(
                 "_kg": "Kilograms", "kg": "Kilograms",
                 "_lbs": "Pounds", "lbs": "Pounds", "pounds": "Pounds",
             }
-            
+
             def get_synonym_group(word: str) -> set:
-                """Get all synonyms for a word"""
                 result = {word}
                 for key, synonyms in SYNONYMS.items():
                     if word in synonyms or key == word:
                         result.update(synonyms)
                         result.add(key)
                 return result
-            
+
             def infer_unit(name: str) -> str:
-                """Infer unit type from column name"""
                 name_lower = name.lower()
                 for pattern, unit in UNIT_INFERENCE.items():
                     if name_lower.endswith(pattern) or pattern in name_lower.split("_"):
                         return unit
-                return "Count"  # Default
-            
+                return "Count"
+
             def tokenize(name: str) -> set:
-                """Smart tokenization handling underscores, camelCase, etc."""
                 import re
-                # Replace separators with spaces
                 name = name.replace("_", " ").replace("-", " ").replace(".", " ")
-                # Split camelCase
                 name = re.sub(r'([a-z])([A-Z])', r'\1 \2', name)
-                # Get words, filter short ones
-                words = {w.lower() for w in name.split() if len(w) >= 2}
-                return words
-            
+                return {w.lower() for w in name.split() if len(w) >= 2}
+
             def calculate_match_score(csv_words: set, habit_words: set) -> float:
-                """Calculate semantic similarity score between word sets"""
                 if not csv_words or not habit_words:
                     return 0
-                
-                # Expand both sets with synonyms
+
                 csv_expanded = set()
                 for w in csv_words:
                     csv_expanded.update(get_synonym_group(w))
-                
+
                 habit_expanded = set()
                 for w in habit_words:
                     habit_expanded.update(get_synonym_group(w))
-                
-                # Check for direct overlap
+
                 direct_overlap = csv_words & habit_words
                 if direct_overlap:
                     return 0.95
-                
-                # Check for synonym overlap
+
                 synonym_overlap = csv_expanded & habit_expanded
                 if synonym_overlap:
                     return 0.85
-                
-                # Check for partial word matches (prefix matching)
+
                 for cw in csv_words:
                     for hw in habit_words:
                         if len(cw) >= 4 and len(hw) >= 4:
-                            # Check if words share a common root (first 4+ chars)
                             min_len = min(len(cw), len(hw))
                             prefix_len = 0
                             for i in range(min_len):
@@ -2615,78 +2672,66 @@ async def start_import(
                                     break
                             if prefix_len >= 4:
                                 return 0.75
-                
+
                 return 0
-            
-            # Tokenize CSV column name
+
             csv_words = tokenize(csv_name)
             inferred_unit = infer_unit(csv_name)
-            
             best_match = None
             best_score = 0
-            
+
             for h in existing_habits:
                 habit_words = tokenize(h.name)
-                
-                # 1. Exact name match (case-insensitive)
+
                 if csv_name.lower().replace("_", " ") == h.name.lower():
                     return (h.id, 1.0, inferred_unit)
-                
-                # 2. Calculate semantic similarity
+
                 score = calculate_match_score(csv_words, habit_words)
-                
-                # 3. Bonus for unit type match
                 if h.unit_type and inferred_unit.lower() == h.unit_type.lower():
                     score = min(score + 0.05, 1.0)
-                
+
                 if score > best_score:
                     best_match = h.id
                     best_score = score
-            
-            # Only return match if confidence is high enough
+
             return (best_match, best_score, inferred_unit) if best_score >= 0.5 else (None, 0, inferred_unit)
-        
+
         for habit_key, habit_items in items_by_habit.items():
-            # Get or create habit
+            latest_run = await import_service.get_import_run(run_id, user_id)
+            if latest_run and latest_run.status == ImportStatus.CANCELED:
+                return
+
             habit_name = habit_items[0].habit_name or habit_key.split(":")[-1]
             unit_type = habit_items[0].unit_type
-            
-            # Check if habit exists - use fuzzy matching
             habit_id = None
-            
-            # First try exact metric_type match
+
             for h in existing_habits:
                 if h.metric_type and h.metric_type == habit_key.split(":")[-1]:
                     habit_id = h.id
                     print(f"✅ Matched '{habit_name}' to existing habit '{h.name}' by metric_type")
                     break
-            
-            # If no metric_type match, try fuzzy name matching
+
             if not habit_id:
                 matched_id, confidence, inferred_unit = fuzzy_match_habit(habit_name, existing_habits)
                 if matched_id:
                     habit_id = matched_id
                     matched_habit = next((h for h in existing_habits if h.id == matched_id), None)
                     print(f"✅ Fuzzy matched '{habit_name}' to existing habit '{matched_habit.name}' (confidence: {confidence:.0%})")
-                else:
-                    # Use inferred unit for new habit
-                    if not unit_type:
-                        unit_type = inferred_unit
-                        print(f"📋 Inferred unit '{inferred_unit}' for new habit '{habit_name}'")
-            
-            # Create habit if not exists and allowed
-            if not habit_id and start_request.create_habits:
-                # Determine source and category from habit_key
+                elif not unit_type:
+                    unit_type = inferred_unit
+                    print(f"📋 Inferred unit '{inferred_unit}' for new habit '{habit_name}'")
+
+            if not habit_id and create_habits:
                 source_prefix = habit_key.split(":")[0] if ":" in habit_key else "csv"
                 metric_type = habit_key.split(":")[-1] if ":" in habit_key else None
-                
+
                 category_map = {
                     "steps": "health", "hr": "health", "hrv": "health",
                     "sleep": "health", "active_energy": "health",
                     "screen_time": "wellness", "meetings": "productivity"
                 }
                 category = category_map.get(metric_type, "other")
-                
+
                 new_habit = await habits_service.create_habit(
                     HabitCreate(
                         name=habit_name,
@@ -2696,17 +2741,15 @@ async def start_import(
                         integration_source=source_prefix if source_prefix in ["apple_health", "whoop", "oura", "garmin"] else "import",
                         metric_type=metric_type
                     ),
-                    current_user["id"]
+                    user_id
                 )
                 habit_id = new_habit.id
                 created_habit_ids.append(habit_id)
-            
+
             if not habit_id:
-                # Skip items for this habit
                 summary.skipped += len(habit_items)
                 continue
-            
-            # Create batch logs
+
             logs = [
                 BatchLogCreate(
                     habit_id=habit_id,
@@ -2717,32 +2760,27 @@ async def start_import(
                     dedupe_key=item.dedupe_key
                 )
                 for item in habit_items
-                if item.date  # Skip items without dates
+                if item.date
             ]
-            
+
             if logs:
                 batch_req = BatchRequest(
                     import_run_id=run_id,
                     conflict_policy=conflict_policy,
                     logs=logs
                 )
-                
-                result = await import_service.create_logs_batch(
-                    current_user["id"],
-                    batch_req
-                )
-                
+
+                result = await import_service.create_logs_batch(user_id, batch_req)
+
                 summary.imported += result.inserted
                 summary.updated += result.updated
                 summary.skipped += result.skipped
                 summary.errors += result.errors
-                
-                # Sync to Tinybird for analytics
-                # Get the habit info for unit type
-                habit_for_tinybird = await habits_service.get_habit_by_id(habit_id, current_user["id"])
+
+                habit_for_tinybird = await habits_service.get_habit_by_id(habit_id, user_id)
                 if habit_for_tinybird and tinybird_service:
                     synced_count = 0
-                    for idx, log_result in enumerate(result.results):
+                    for log_result in result.results:
                         if log_result.status in ["inserted", "updated"] and log_result.log_id:
                             log_data = logs[log_result.index] if log_result.index < len(logs) else None
                             if log_data:
@@ -2751,7 +2789,7 @@ async def start_import(
                                         'id': log_result.log_id,
                                         'habit_id': habit_id,
                                         'habit_name': habit_for_tinybird.name,
-                                        'user_id': current_user["id"],
+                                        'user_id': user_id,
                                         'date': log_data.date,
                                         'duration': log_data.duration or 0,
                                         'amount': log_data.amount or 0,
@@ -2764,41 +2802,33 @@ async def start_import(
                                     synced_count += 1
                                 except Exception as tb_err:
                                     print(f"⚠️ Tinybird sync error for log {log_result.log_id}: {tb_err}")
-                    
+
                     if synced_count > 0:
                         print(f"📊 Synced {synced_count} logs to Tinybird for habit '{habit_for_tinybird.name}'")
-            
-            # Update progress
+
             processed = summary.imported + summary.updated + summary.skipped + summary.errors
             await import_service.update_import_progress(run_id, processed, total_items)
-        
-        # Complete the import
+
         summary.created_habit_ids = created_habit_ids
         await import_service.update_import_run_status(
             run_id,
             ImportStatus.COMPLETED,
             summary=summary
         )
-        
-        return {
-            "status": "completed",
-            "import_run_id": run_id,
-            "summary": summary.model_dump()
-        }
-        
-    except HTTPException:
+
+    except asyncio.CancelledError:
+        await import_service.update_import_run_status(run_id, ImportStatus.CANCELED)
         raise
     except Exception as e:
-        # Mark as failed
         await import_service.update_import_run_status(
             run_id,
             ImportStatus.FAILED,
             errors=[{"error": str(e)}]
         )
-        print(f"❌ Start import error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Import background job failed ({run_id}): {str(e)}")
+    finally:
+        async with _import_tasks_lock:
+            _import_tasks.pop(run_id, None)
 
 
 @app.post("/api/import/runs/{run_id}/cancel")
@@ -2819,10 +2849,21 @@ async def cancel_import(
                 status_code=400,
                 detail=f"Cannot cancel import in status: {run.status.value}"
             )
+
+        task_canceled = False
+        async with _import_tasks_lock:
+            task = _import_tasks.get(run_id)
+            if task and not task.done():
+                task.cancel()
+                task_canceled = True
         
         await import_service.update_import_run_status(run_id, ImportStatus.CANCELED)
         
-        return {"status": "canceled", "import_run_id": run_id}
+        return {
+            "status": "canceled",
+            "import_run_id": run_id,
+            "task_canceled": task_canceled
+        }
         
     except HTTPException:
         raise

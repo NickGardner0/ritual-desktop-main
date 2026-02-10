@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
     const habitId = searchParams.get('habit_id');
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
-    const limit = searchParams.get('limit') || '1000';
+    const rawLimit = Number.parseInt(searchParams.get('limit') || '1000', 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 1000;
 
     if (!startDate || !endDate) {
       return NextResponse.json(
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
       user_id: userId,
       start_date: startDate,
       end_date: endDate,
-      limit: limit,
+      limit: String(limit),
     });
 
     if (habitId) {
@@ -93,4 +94,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

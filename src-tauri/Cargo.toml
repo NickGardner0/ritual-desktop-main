@@ -31,7 +31,7 @@ chrono = "0.4"
 dirs = "5.0"
 base64 = "0.21"
 
-# Legacy database (still used by watcher.rs and recorder.rs for existing functionality)
+# Legacy database (still used by recorder.rs - watcher.rs has been migrated to ritual-db)
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Unified database layer with vector search (new - for semantic search)
@@ -81,9 +81,12 @@ tauri = { version = "1.8.1", features = [
   "window-print"
 ] }
 
-# macOS specific for watcher
+# macOS specific for watcher + vibrancy
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"
+window-vibrancy = "0.4"
+cocoa = "0.25"
+objc = "0.2"
 
 # ============================================================================
 # REMOVED OAuth dependencies - Clerk handles all authentication via web UI

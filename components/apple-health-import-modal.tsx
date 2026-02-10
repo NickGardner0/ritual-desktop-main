@@ -160,6 +160,18 @@ interface ImportResult {
   message: string;
 }
 
+interface ImportRunPollResult {
+  status: string;
+  progress_current?: number;
+  progress_total?: number;
+  summary?: {
+    imported?: number;
+    updated?: number;
+    errors?: number;
+  };
+  errors?: Array<{ error?: string; message?: string }>;
+}
+
 interface AppleHealthImportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -305,6 +317,11 @@ export function AppleHealthImportModal({
     setStep("importing");
     setIsLoading(true);
     setError(null);
+    setImportProgress({
+      current: 0,
+      total: Math.max(getEstimatedRecords(), 1),
+      currentMetric: "Queued",
+    });
     
     try {
       const formData = new FormData();
@@ -327,17 +344,77 @@ export function AppleHealthImportModal({
       if (!response.ok) {
         throw new Error(result.error || "Import failed");
       }
-      
-      setImportResult(result);
-      setStep("complete");
-      onImportComplete();
+
+      const runId = result.import_run_id as string | undefined;
+      if (!runId) {
+        throw new Error("Import did not return a run id");
+      }
+
+      let pollCount = 0;
+      const maxPolls = 600; // Up to ~20 minutes for large imports
+      let lastStatus = "importing";
+
+      while (pollCount < maxPolls) {
+        const statusRes = await fetch(`/api/import/runs/${runId}`);
+        const run = (await statusRes.json()) as ImportRunPollResult;
+
+        if (!statusRes.ok) {
+          throw new Error((run as { error?: string }).error || "Failed to fetch import status");
+        }
+
+        lastStatus = run.status;
+        const progressCurrent = run.progress_current ?? 0;
+        const progressTotal = run.progress_total && run.progress_total > 0
+          ? run.progress_total
+          : Math.max(getEstimatedRecords(), 1);
+
+        setImportProgress({
+          current: progressCurrent,
+          total: progressTotal,
+          currentMetric: run.status === "importing" ? "Importing records" : run.status,
+        });
+
+        if (run.status === "completed") {
+          const imported = (run.summary?.imported ?? 0) + (run.summary?.updated ?? 0);
+          const errors = run.summary?.errors ?? 0;
+          setImportResult({
+            success: true,
+            imported,
+            errors,
+            message: `Successfully imported ${imported.toLocaleString()} records`,
+          });
+          setStep("complete");
+          onImportComplete();
+          return;
+        }
+
+        if (run.status === "failed") {
+          const reason = run.errors?.[0]?.error || run.errors?.[0]?.message || "Import failed";
+          throw new Error(reason);
+        }
+
+        if (run.status === "canceled") {
+          throw new Error("Import was canceled");
+        }
+
+        // Fast polling at first, then slow down.
+        const intervalMs = pollCount < 8 ? 250 : pollCount < 18 ? 1000 : 2000;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        pollCount++;
+      }
+
+      throw new Error(
+        lastStatus === "importing"
+          ? "Import is still running in the background. Check Import History for live status."
+          : "Import timed out"
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
       setStep("configure");
     } finally {
       setIsLoading(false);
     }
-  }, [file, selectedMetrics, getDateFilter, onImportComplete]);
+  }, [file, selectedMetrics, getDateFilter, onImportComplete, parseResult]);
 
   // Calculate estimated records based on date filter
   const getEstimatedRecords = useCallback(() => {
@@ -665,4 +742,3 @@ export function AppleHealthImportModal({
     </Dialog>
   );
 }
-

@@ -46,6 +46,8 @@ import {
   ResponsiveContainer,
   Tooltip
 } from 'recharts';
+import { PerplexityExpandedHabitChart, type RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
+import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
 
 // Type definitions
 type HabitData = {
@@ -1667,133 +1669,20 @@ export function AnalyticsClient() {
                       </div>
                     )}
 
+                    {/* Chart - Perplexity Finance Style */}
                     <Suspense fallback={
                       <div className="flex items-center justify-center h-[300px]">
                         <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
                       </div>
                     }>
-                      <div className="h-[350px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          {viewMode === 'chart' ? (
-                            <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                              <XAxis
-                                dataKey="shortDate"
-                                stroke={COLORS.gray[400]}
-                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                axisLine={{ stroke: COLORS.gray[200] }}
-                                tickLine={false}
-                                dy={10}
-                              />
-                              <YAxis
-                                yAxisId="left"
-                                stroke={COLORS.gray[400]}
-                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                axisLine={false}
-                                tickLine={false}
-                                label={{ value: habit.unit_type || (habit as any).unit || '', angle: -90, position: 'insideLeft', style: { fill: COLORS.gray[400], fontSize: 10, fontWeight: 600 } }}
-                              />
-                              {compHabit && (
-                                <YAxis
-                                  yAxisId="right"
-                                  orientation="right"
-                                  stroke="#64748B"
-                                  tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }}
-                                  axisLine={false}
-                                  tickLine={false}
-                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#64748B", fontSize: 10, fontWeight: 600 } }}
-                                />
-                              )}
-                              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
-                              <Bar
-                                yAxisId="left"
-                                dataKey="value"
-                                name={habit.habit_name}
-                                fill="#4A4A4C"
-                                radius={[0, 0, 0, 0]}
-                                maxBarSize={50}
-                              />
-                              {compHabit && (
-                                <Bar
-                                  yAxisId="right"
-                                  dataKey="compValue"
-                                  name={compHabit.habit_name}
-                                  fill="#64748B"
-                                  radius={[0, 0, 0, 0]}
-                                  maxBarSize={50}
-                                />
-                              )}
-                            </BarChart>
-                          ) : (
-                            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                              <defs>
-                                <linearGradient id={`gradient-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#4A4A4C" stopOpacity={0.25} />
-                                  <stop offset="95%" stopColor="#4A4A4C" stopOpacity={0.03} />
-                                </linearGradient>
-                                {compHabit && (
-                                  <linearGradient id={`gradient-comp`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#64748B" stopOpacity={0.15} />
-                                    <stop offset="95%" stopColor="#64748B" stopOpacity={0} />
-                                  </linearGradient>
-                                )}
-                              </defs>
-                              <CartesianGrid strokeDasharray="3 3" stroke={COLORS.gray[200]} vertical={false} />
-                              <XAxis
-                                dataKey="shortDate"
-                                stroke={COLORS.gray[400]}
-                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                axisLine={{ stroke: COLORS.gray[200] }}
-                                tickLine={false}
-                                dy={10}
-                              />
-                              <YAxis
-                                yAxisId="left"
-                                stroke={COLORS.gray[400]}
-                                tick={{ fill: COLORS.gray[600], fontSize: 11, fontWeight: 500 }}
-                                axisLine={false}
-                                tickLine={false}
-                                label={{ value: habit.unit_type || (habit as any).unit || '', angle: -90, position: 'insideLeft', style: { fill: COLORS.gray[400], fontSize: 10, fontWeight: 600 } }}
-                              />
-                              {compHabit && (
-                                <YAxis
-                                  yAxisId="right"
-                                  orientation="right"
-                                  stroke="#64748B"
-                                  tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }}
-                                  axisLine={false}
-                                  tickLine={false}
-                                  label={{ value: compHabit.unit_type || (compHabit as any).unit || '', angle: 90, position: 'insideRight', style: { fill: "#64748B", fontSize: 10, fontWeight: 600 } }}
-                                />
-                              )}
-                              <Tooltip content={<CustomTooltip />} cursor={{ stroke: COLORS.gray[300], strokeWidth: 1, strokeDasharray: '4 4' }} />
-                              <Area
-                                yAxisId="left"
-                                type="monotone"
-                                dataKey="value"
-                                stroke="#4A4A4C"
-                                strokeWidth={2}
-                                fill={`url(#gradient-${expandedHabit})`}
-                                name={habit.habit_name}
-                                activeDot={{ r: 4, fill: '#4A4A4C', stroke: '#fff', strokeWidth: 2 }}
-                              />
-
-                              {compHabit && (
-                                <Area
-                                  yAxisId="right"
-                                  type="monotone"
-                                  dataKey="compValue"
-                                  stroke="#64748B"
-                                  strokeWidth={2}
-                                  fill={`url(#gradient-comp)`}
-                                  name={compHabit.habit_name}
-                                  activeDot={{ r: 4, fill: '#64748B', stroke: '#fff', strokeWidth: 2 }}
-                                />
-                              )}
-                            </AreaChart>
-                          )}
-                        </ResponsiveContainer>
-                      </div>
+                      <PerplexityExpandedHabitChart
+                        title={habit.habit_name}
+                        subtitle={`At close: ${chartData.length > 0 ? chartData[chartData.length - 1]?.date : ''}`}
+                        points={habitToFinanceSeries(chartData)}
+                        range={expandedTimeRange as RangeKey}
+                        onRangeChange={(r) => setExpandedTimeRange(r as any)}
+                        unit={habit.unit_type || (habit as any).unit || ''}
+                      />
                     </Suspense>
                     </div>
                   </>

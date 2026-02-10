@@ -6,6 +6,7 @@ Handles OAuth and data sync with Whoop API
 import os
 import uuid
 import json
+import asyncio
 import httpx
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -15,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from database.models import WhoopIntegrationDB
 from database.connection import get_db_session
 from services.tinybird_service import TinybirdService
+from services.token_crypto import token_crypto
 
 class WhoopService:
     """Service for Whoop integration"""
@@ -35,15 +37,61 @@ class WhoopService:
             print(f"⚠️  Tinybird service not available for Whoop: {e}")
             self.tinybird = None
             self.tinybird_enabled = False
+
+    def _encrypt_token(self, token: Optional[str]) -> Optional[str]:
+        if token is None:
+            return None
+        return token_crypto.encrypt(token)
+
+    def _decrypt_token(self, token: Optional[str]) -> Optional[str]:
+        return token_crypto.decrypt(token)
+
+    async def _request_with_retry(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        **kwargs
+    ) -> httpx.Response:
+        """
+        Perform an HTTP request with exponential backoff retries for transient failures.
+        """
+        max_attempts = int(os.getenv("WHOOP_API_MAX_RETRIES", "3"))
+        base_delay = float(os.getenv("WHOOP_API_RETRY_BASE_DELAY", "0.5"))
+        retryable_statuses = {408, 429, 500, 502, 503, 504}
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = await client.request(method, url, **kwargs)
+                if response.status_code in retryable_statuses and attempt < max_attempts:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    print(
+                        f"⚠️ Whoop API transient error {response.status_code} on {url}; "
+                        f"retrying in {delay:.1f}s ({attempt}/{max_attempts})"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                return response
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                if attempt >= max_attempts:
+                    raise
+                delay = base_delay * (2 ** (attempt - 1))
+                print(
+                    f"⚠️ Whoop API request error ({exc}); retrying in {delay:.1f}s "
+                    f"({attempt}/{max_attempts})"
+                )
+                await asyncio.sleep(delay)
     
     async def exchange_code_for_token(self, code: str) -> Dict[str, Any]:
         """Exchange OAuth authorization code for access token"""
         if not self.client_id or not self.client_secret or not self.redirect_uri:
             raise Exception("Whoop OAuth configuration missing")
         
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.WHOOP_TOKEN_URL,
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await self._request_with_retry(
+                client=client,
+                method="POST",
+                url=self.WHOOP_TOKEN_URL,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'},
                 data={
                     'grant_type': 'authorization_code',
@@ -63,9 +111,11 @@ class WhoopService:
     
     async def get_whoop_user_info(self, access_token: str) -> Dict[str, Any]:
         """Get user info from Whoop API (v1)"""
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.WHOOP_API_BASE}/developer/v1/user/profile/basic",
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await self._request_with_retry(
+                client=client,
+                method="GET",
+                url=f"{self.WHOOP_API_BASE}/developer/v1/user/profile/basic",
                 headers={'Authorization': f'Bearer {access_token}'}
             )
             
@@ -96,8 +146,8 @@ class WhoopService:
                 
                 if integration:
                     # Update existing integration
-                    integration.access_token = access_token
-                    integration.refresh_token = refresh_token
+                    integration.access_token = self._encrypt_token(access_token)
+                    integration.refresh_token = self._encrypt_token(refresh_token) if refresh_token else None
                     integration.token_expires_at = expires_at
                     integration.whoop_user_id = whoop_user_id
                     integration.is_active = True
@@ -109,8 +159,8 @@ class WhoopService:
                         id=str(uuid.uuid4()),
                         user_id=user_id,
                         whoop_user_id=whoop_user_id,
-                        access_token=access_token,
-                        refresh_token=refresh_token,
+                        access_token=self._encrypt_token(access_token),
+                        refresh_token=self._encrypt_token(refresh_token) if refresh_token else None,
                         token_expires_at=expires_at,
                         connected_at=datetime.utcnow(),
                         is_active=True
@@ -136,7 +186,11 @@ class WhoopService:
                     .where(WhoopIntegrationDB.user_id == user_id)
                     .where(WhoopIntegrationDB.is_active == True)
                 )
-                return result.scalar_one_or_none()
+                integration = result.scalar_one_or_none()
+                if integration:
+                    integration.access_token = self._decrypt_token(integration.access_token)
+                    integration.refresh_token = self._decrypt_token(integration.refresh_token)
+                return integration
             except SQLAlchemyError as e:
                 print(f"❌ Error fetching Whoop integration: {str(e)}")
                 return None
@@ -164,9 +218,11 @@ class WhoopService:
             return None
         
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.WHOOP_TOKEN_URL,
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await self._request_with_retry(
+                    client=client,
+                    method="POST",
+                    url=self.WHOOP_TOKEN_URL,
                     headers={'Content-Type': 'application/x-www-form-urlencoded'},
                     data={
                         'grant_type': 'refresh_token',
@@ -190,13 +246,13 @@ class WhoopService:
                 # Update in database
                 async with get_db_session() as session:
                     update_values = {
-                        'access_token': new_access_token,
+                        'access_token': self._encrypt_token(new_access_token),
                         'token_expires_at': datetime.utcnow() + timedelta(seconds=new_expires_in)
                     }
                     
                     # Update refresh token if a new one was provided
                     if new_refresh_token:
-                        update_values['refresh_token'] = new_refresh_token
+                        update_values['refresh_token'] = self._encrypt_token(new_refresh_token)
                         print(f"🔄 New refresh token received from Whoop")
                     
                     await session.execute(
@@ -283,7 +339,10 @@ class WhoopService:
             start_date = end_date - timedelta(days=30)
             print(f"📅 First sync: fetching last 30 days of historical data")
         
-        async with httpx.AsyncClient() as client:
+        # Track whether ANY API call succeeded (to avoid updating last_sync_at on total auth failure)
+        any_api_success = False
+        
+        async with httpx.AsyncClient(timeout=20.0) as client:
             try:
                 # Fetch recovery data (v1 API - v2 not available yet)
                 # Whoop API returns max 25 records per page, so we need pagination
@@ -299,13 +358,16 @@ class WhoopService:
                     if next_token:
                         params['nextToken'] = next_token
                     
-                    recovery_response = await client.get(
-                        f"{self.WHOOP_API_BASE}/developer/v1/recovery",
+                    recovery_response = await self._request_with_retry(
+                        client=client,
+                        method="GET",
+                        url=f"{self.WHOOP_API_BASE}/developer/v1/recovery",
                         headers={'Authorization': f'Bearer {access_token}'},
                         params=params
                     )
                     
                     if recovery_response.is_success:
+                        any_api_success = True
                         recovery_page = recovery_response.json()
                         page_records = recovery_page.get('records', [])
                         all_recovery.extend(page_records)
@@ -314,6 +376,9 @@ class WhoopService:
                         next_token = recovery_page.get('next_token')
                         if not next_token:
                             break  # No more pages
+                    elif recovery_response.status_code == 401:
+                        print(f"❌ Whoop API returned 401 (unauthorized) - token may be expired or invalid")
+                        break
                     else:
                         print(f"⚠️  Error fetching recovery: {recovery_response.status_code}")
                         break
@@ -338,13 +403,16 @@ class WhoopService:
                     if next_token:
                         params['nextToken'] = next_token
                     
-                    cycle_response = await client.get(
-                        f"{self.WHOOP_API_BASE}/developer/v1/cycle",
+                    cycle_response = await self._request_with_retry(
+                        client=client,
+                        method="GET",
+                        url=f"{self.WHOOP_API_BASE}/developer/v1/cycle",
                         headers={'Authorization': f'Bearer {access_token}'},
                         params=params
                     )
                     
                     if cycle_response.is_success:
+                        any_api_success = True
                         cycle_page = cycle_response.json()
                         page_records = cycle_page.get('records', [])
                         all_cycles.extend(page_records)
@@ -353,6 +421,9 @@ class WhoopService:
                         next_token = cycle_page.get('next_token')
                         if not next_token:
                             break  # No more pages
+                    elif cycle_response.status_code == 401:
+                        print(f"❌ Whoop API returned 401 (unauthorized) for cycles")
+                        break
                     else:
                         print(f"⚠️  Error fetching cycles: {cycle_response.status_code}")
                         break
@@ -374,8 +445,10 @@ class WhoopService:
                             continue
                         
                         try:
-                            sleep_response = await client.get(
-                                f"{self.WHOOP_API_BASE}/developer/v2/cycle/{cycle_id}/sleep",
+                            sleep_response = await self._request_with_retry(
+                                client=client,
+                                method="GET",
+                                url=f"{self.WHOOP_API_BASE}/developer/v2/cycle/{cycle_id}/sleep",
                                 headers={'Authorization': f'Bearer {access_token}'}
                             )
                             
@@ -423,13 +496,16 @@ class WhoopService:
                     if next_token:
                         params['nextToken'] = next_token
                     
-                    workout_response = await client.get(
-                        f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
+                    workout_response = await self._request_with_retry(
+                        client=client,
+                        method="GET",
+                        url=f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
                         headers={'Authorization': f'Bearer {access_token}'},
                         params=params
                     )
                     
                     if workout_response.is_success:
+                        any_api_success = True
                         workout_page = workout_response.json()
                         page_records = workout_page.get('records', [])
                         all_workouts.extend(page_records)
@@ -438,6 +514,9 @@ class WhoopService:
                         next_token = workout_page.get('next_token')
                         if not next_token:
                             break  # No more pages
+                    elif workout_response.status_code == 401:
+                        print(f"❌ Whoop API returned 401 (unauthorized) for workouts")
+                        break
                     else:
                         print(f"⚠️  Error fetching workouts: {workout_response.status_code}")
                         break
@@ -477,7 +556,17 @@ class WhoopService:
             except Exception as e:
                 print(f"⚠️  Error fetching Whoop data: {str(e)}")
         
-        # Update last sync time
+        # If no API call succeeded at all, this is likely a total auth failure
+        # Don't update last_sync_at so the next sync uses the correct date range
+        if not any_api_success:
+            total_records = sum(synced_data.values())
+            if total_records == 0:
+                raise Exception(
+                    "Whoop API authentication failed - all requests returned 401. "
+                    "Please disconnect and reconnect your Whoop integration to get fresh tokens."
+                )
+        
+        # Update last sync time (only if we successfully talked to the API)
         async with get_db_session() as session:
             try:
                 await session.execute(
@@ -911,4 +1000,3 @@ class WhoopService:
                 await session.rollback()
                 print(f"❌ Error syncing to habit_logs: {str(e)}")
                 raise
-

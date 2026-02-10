@@ -76,9 +76,10 @@ Sources/RitualCompanion/
 │   ├── NormalizedMetric.swift      # Metric data models
 │   └── APIModels.swift             # API request/response types
 ├── Services/
-│   ├── BackgroundSyncManager.swift # Background sync + HealthKit observers
-│   ├── HealthKitManager.swift      # HealthKit queries
-│   └── RitualAPIClient.swift       # API client + signing
+│   ├── BackgroundSyncManagerV2.swift # Incremental background sync + batching
+│   ├── HealthKitManagerV2.swift      # HealthKit incremental + aggregate queries
+│   ├── OfflineSyncQueue.swift        # Offline retry queue for failed sync batches
+│   └── RitualAPIClient.swift         # API client + signing
 └── Views/
     ├── ContentView.swift           # Main container
     ├── ConnectView.swift           # Clerk auth + connection flow

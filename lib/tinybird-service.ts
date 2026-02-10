@@ -54,7 +54,7 @@ class TinybirdService {
     
     // Get tokens from environment
     const cloudToken = process.env.TINYBIRD_TOKEN;
-    const localToken = process.env.TINYBIRD_LOCAL_TOKEN || 'admin local_testing@tinybird.co';
+    const localToken = process.env.TINYBIRD_LOCAL_TOKEN;
     
     // Validate that required token is present
     if (useCloud && !cloudToken) {
@@ -312,4 +312,3 @@ export const tinybirdService = new TinybirdService();
 
 // Export types
 export type { HabitLogData, WhoopSleepData };
-

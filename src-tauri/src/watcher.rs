@@ -1,16 +1,45 @@
 //! Ritual Watcher Tauri Commands
 //!
 //! Orchestrates the ritual-watcher sidecar process for computer activity tracking.
+//! Uses the unified ritual-db (libSQL) database for all queries.
 
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+
+use crate::ritual_database::{RITUAL_DB, get_db};
 
 /// Global state for the watcher process
 static WATCHER_PROCESS: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(None));
+
+/// Stored device ID from the most recent watcher start
+static DEVICE_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
+/// Get the current device_id (set when watcher starts)
+fn get_device_id() -> Option<String> {
+    DEVICE_ID.lock().ok().and_then(|g| g.clone())
+}
+
+/// Get device_id or try to read it from the config file
+fn get_device_id_or_config() -> Option<String> {
+    // First try the in-memory stored device_id
+    if let Some(id) = get_device_id() {
+        return Some(id);
+    }
+    
+    // Fallback: read from config file
+    let home = dirs::home_dir()?;
+    let config_path = home.join(".ritual").join("watcher_config.json");
+    if config_path.exists() {
+        std::fs::read_to_string(&config_path).ok()
+            .and_then(|s| serde_json::from_str::<WatcherConfig>(&s).ok())
+            .map(|c| c.device_id)
+    } else {
+        None
+    }
+}
 
 /// Watcher configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +84,25 @@ pub struct DetailedActivityEvent {
     pub browser_domain: Option<String>,
     pub is_afk: bool,
     pub is_incognito: bool,
+}
+
+/// Convert a ritual-db ActivityEvent to our Tauri response type
+impl From<ritual_db::ActivityEvent> for DetailedActivityEvent {
+    fn from(e: ritual_db::ActivityEvent) -> Self {
+        Self {
+            id: e.id.unwrap_or(0),
+            ts_start: e.ts_start,
+            ts_end: e.ts_end,
+            duration_ms: e.ts_end.saturating_sub(e.ts_start),
+            app_bundle_id: e.app_bundle_id,
+            app_name: e.app_name,
+            window_title: e.window_title,
+            browser_url: e.browser_url,
+            browser_domain: e.browser_domain,
+            is_afk: e.is_afk,
+            is_incognito: e.is_incognito,
+        }
+    }
 }
 
 /// Summary of activity by app
@@ -188,21 +236,17 @@ fn find_watcher_executable() -> Option<PathBuf> {
     None
 }
 
-/// Get the database path
-fn get_database_path() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".ritual/watcher.db")
-    } else {
-        PathBuf::from("./watcher.db")
-    }
-}
-
 /// Start the ritual-watcher sidecar
 #[tauri::command]
 pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, String> {
     println!("🚀 Starting Ritual Watcher...");
     println!("   Device ID: {}", config.device_id);
     println!("   Title Mode: {}", config.title_mode);
+
+    // Store device_id for later query use
+    if let Ok(mut guard) = DEVICE_ID.lock() {
+        *guard = Some(config.device_id.clone());
+    }
 
     // CRITICAL: Kill any existing watcher processes first to prevent duplicates
     // This handles orphaned processes from crashes or previous sessions
@@ -229,15 +273,9 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
 
     println!("📍 Using executable: {:?}", executable);
 
-    // Get database path
-    let db_path = get_database_path();
-    
-    // Ensure parent directory exists
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-
     // Build command arguments
+    // Note: --database flag is kept for CLI compatibility but the watcher binary
+    // uses the unified ritual.db via ritual-db regardless
     let mut args = vec![
         "--device-id".to_string(),
         config.device_id.clone(),
@@ -250,7 +288,7 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
         "--truncate-length".to_string(),
         config.truncate_length.to_string(),
         "--database".to_string(),
-        db_path.to_string_lossy().to_string(),
+        "~/.ritual/ritual.db".to_string(),
         "--foreground".to_string(),
         // V2: New arguments
         "--afk-timeout".to_string(),
@@ -299,6 +337,11 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     println!("   Device ID: {}", config.device_id);
     println!("   Title Mode: {}", config.title_mode);
 
+    // Store device_id for later query use
+    if let Ok(mut guard) = DEVICE_ID.lock() {
+        *guard = Some(config.device_id.clone());
+    }
+
     // CRITICAL: Kill any existing watcher processes first to prevent duplicates
     #[cfg(target_os = "macos")]
     {
@@ -322,14 +365,6 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
 
     println!("📍 Using executable: {:?}", executable);
 
-    // Get database path
-    let db_path = get_database_path();
-    
-    // Ensure parent directory exists
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
-
     // Build command arguments
     let mut args = vec![
         "--device-id".to_string(),
@@ -343,7 +378,7 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
         "--truncate-length".to_string(),
         config.truncate_length.to_string(),
         "--database".to_string(),
-        db_path.to_string_lossy().to_string(),
+        "~/.ritual/ritual.db".to_string(),
         "--foreground".to_string(),
         "--afk-timeout".to_string(),
         config.afk_timeout_seconds.to_string(),
@@ -424,7 +459,7 @@ pub async fn get_watcher_status() -> WatcherStatus {
         WatcherStatus {
             is_running: true,  // We assume it's running if we have a handle
             pid: Some(child.id()),
-            device_id: None,  // We don't track this currently
+            device_id: get_device_id(),
         }
     } else {
         WatcherStatus {
@@ -452,149 +487,70 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     }
 }
 
-/// Query detailed activity from local SQLite database
-/// This returns full URLs and window titles that are stored locally
+/// Query detailed activity from the unified ritual.db (libSQL)
+/// Returns events, app/domain summaries, and active/afk totals
 #[tauri::command]
 pub async fn get_detailed_activity(
     start_ts: i64,
     end_ts: i64,
     limit: Option<i64>,
 ) -> Result<DetailedActivityResponse, String> {
-    let db_path = get_database_path();
+    let device_id = get_device_id_or_config().unwrap_or_default();
     
-    if !db_path.exists() {
-        return Ok(DetailedActivityResponse {
-            events: vec![],
-            apps: vec![],
-            domains: vec![],
-            total_active_ms: 0,
-            total_afk_ms: 0,
-        });
-    }
-
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
-
-    let limit_val = limit.unwrap_or(500);
-
-    // Query detailed events
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT 
-            id, ts_start, ts_end, 
-            (ts_end - ts_start) as duration_ms,
-            app_bundle_id, app_name, 
-            window_title, browser_url, browser_domain,
-            COALESCE(is_afk, 0) as is_afk,
-            COALESCE(is_incognito, 0) as is_incognito
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start <= ?2
-        ORDER BY ts_start DESC
-        LIMIT ?3
-        "#
-    ).map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-    let events: Vec<DetailedActivityEvent> = stmt
-        .query_map([start_ts, end_ts, limit_val], |row| {
-            Ok(DetailedActivityEvent {
-                id: row.get(0)?,
-                ts_start: row.get(1)?,
-                ts_end: row.get(2)?,
-                duration_ms: row.get(3)?,
-                app_bundle_id: row.get(4)?,
-                app_name: row.get(5)?,
-                window_title: row.get(6)?,
-                browser_url: row.get(7)?,
-                browser_domain: row.get(8)?,
-                is_afk: row.get::<_, i32>(9)? != 0,
-                is_incognito: row.get::<_, i32>(10)? != 0,
-            })
-        })
-        .map_err(|e| format!("Failed to query events: {}", e))?
-        .filter_map(|r| r.ok())
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
+    
+    // Get events in range
+    let all_events = db.get_events_in_range(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to query events: {}", e))?;
+    
+    // Apply limit (events are already sorted by ts_start ASC, reverse for DESC)
+    let limit_val = limit.unwrap_or(500) as usize;
+    let events: Vec<DetailedActivityEvent> = all_events.into_iter()
+        .rev() // DESC order like the original query
+        .take(limit_val)
+        .map(DetailedActivityEvent::from)
         .collect();
-
-    // Query app summaries
-    let mut app_stmt = conn.prepare(
-        r#"
-        SELECT 
-            app_bundle_id, app_name,
-            SUM(ts_end - ts_start) as total_duration_ms,
-            COUNT(*) as event_count
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start <= ?2 AND COALESCE(is_afk, 0) = 0
-        GROUP BY app_bundle_id, app_name
-        ORDER BY total_duration_ms DESC
-        LIMIT 20
-        "#
-    ).map_err(|e| format!("Failed to prepare app query: {}", e))?;
-
-    let apps: Vec<AppActivitySummary> = app_stmt
-        .query_map([start_ts, end_ts], |row| {
-            Ok(AppActivitySummary {
-                app_bundle_id: row.get(0)?,
-                app_name: row.get(1)?,
-                total_duration_ms: row.get(2)?,
-                event_count: row.get(3)?,
-            })
+    
+    // Get app summaries
+    let app_summaries = db.get_app_summary(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to query app summaries: {}", e))?;
+    
+    let apps: Vec<AppActivitySummary> = app_summaries.into_iter()
+        .map(|s| AppActivitySummary {
+            app_bundle_id: s.bundle_id,
+            app_name: s.app_name,
+            total_duration_ms: s.total_ms,
+            event_count: s.event_count,
         })
-        .map_err(|e| format!("Failed to query apps: {}", e))?
-        .filter_map(|r| r.ok())
         .collect();
-
-    // Query domain summaries
-    let mut domain_stmt = conn.prepare(
-        r#"
-        SELECT 
-            browser_domain,
-            SUM(ts_end - ts_start) as total_duration_ms,
-            COUNT(*) as event_count
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start <= ?2 
-            AND browser_domain IS NOT NULL 
-            AND browser_domain != ''
-            AND COALESCE(is_afk, 0) = 0
-        GROUP BY browser_domain
-        ORDER BY total_duration_ms DESC
-        LIMIT 20
-        "#
-    ).map_err(|e| format!("Failed to prepare domain query: {}", e))?;
-
-    let domains: Vec<DomainActivitySummary> = domain_stmt
-        .query_map([start_ts, end_ts], |row| {
-            Ok(DomainActivitySummary {
-                domain: row.get(0)?,
-                total_duration_ms: row.get(1)?,
-                event_count: row.get(2)?,
-            })
+    
+    // Get domain summaries
+    let domain_summaries = db.get_domain_summary(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to query domain summaries: {}", e))?;
+    
+    let domains: Vec<DomainActivitySummary> = domain_summaries.into_iter()
+        .map(|s| DomainActivitySummary {
+            domain: s.domain,
+            total_duration_ms: s.total_ms,
+            event_count: s.event_count,
         })
-        .map_err(|e| format!("Failed to query domains: {}", e))?
-        .filter_map(|r| r.ok())
         .collect();
-
-    // Calculate totals
-    let mut total_stmt = conn.prepare(
-        r#"
-        SELECT 
-            COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 0 THEN ts_end - ts_start ELSE 0 END), 0) as active_ms,
-            COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 1 THEN ts_end - ts_start ELSE 0 END), 0) as afk_ms
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start <= ?2
-        "#
-    ).map_err(|e| format!("Failed to prepare totals query: {}", e))?;
-
-    let (total_active_ms, total_afk_ms): (i64, i64) = total_stmt
-        .query_row([start_ts, end_ts], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .unwrap_or((0, 0));
-
+    
+    // Get daily summary for active/afk totals
+    let summary = db.get_daily_summary(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to query daily summary: {}", e))?;
+    
     Ok(DetailedActivityResponse {
         events,
         apps,
         domains,
-        total_active_ms,
-        total_afk_ms,
+        total_active_ms: summary.active_ms,
+        total_afk_ms: summary.afk_ms,
     })
 }
 
@@ -604,51 +560,16 @@ pub async fn get_activity_timeline(
     start_ts: i64,
     end_ts: i64,
 ) -> Result<Vec<DetailedActivityEvent>, String> {
-    let db_path = get_database_path();
+    let device_id = get_device_id_or_config().unwrap_or_default();
     
-    if !db_path.exists() {
-        return Ok(vec![]);
-    }
-
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
-
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT 
-            id, ts_start, ts_end, 
-            (ts_end - ts_start) as duration_ms,
-            app_bundle_id, app_name, 
-            window_title, browser_url, browser_domain,
-            COALESCE(is_afk, 0) as is_afk,
-            COALESCE(is_incognito, 0) as is_incognito
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start <= ?2
-        ORDER BY ts_start ASC
-        "#
-    ).map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-    let events: Vec<DetailedActivityEvent> = stmt
-        .query_map([start_ts, end_ts], |row| {
-            Ok(DetailedActivityEvent {
-                id: row.get(0)?,
-                ts_start: row.get(1)?,
-                ts_end: row.get(2)?,
-                duration_ms: row.get(3)?,
-                app_bundle_id: row.get(4)?,
-                app_name: row.get(5)?,
-                window_title: row.get(6)?,
-                browser_url: row.get(7)?,
-                browser_domain: row.get(8)?,
-                is_afk: row.get::<_, i32>(9)? != 0,
-                is_incognito: row.get::<_, i32>(10)? != 0,
-            })
-        })
-        .map_err(|e| format!("Failed to query events: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(events)
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
+    
+    let events = db.get_events_in_range(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to query timeline: {}", e))?;
+    
+    Ok(events.into_iter().map(DetailedActivityEvent::from).collect())
 }
 
 /// Sync queue item for backend sync
@@ -661,171 +582,69 @@ pub struct SyncQueueItem {
     pub retry_count: i64,
 }
 
-/// Get sync queue path
-fn get_sync_queue_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".ritual").join("sync_queue.db")
-}
-
 /// Get pending sync items count
 #[tauri::command]
 pub async fn get_sync_queue_count() -> Result<i64, String> {
-    let queue_path = get_sync_queue_path();
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !queue_path.exists() {
-        return Ok(0);
-    }
-
-    let conn = Connection::open(&queue_path)
-        .map_err(|e| format!("Failed to open sync queue: {}", e))?;
-
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    Ok(count)
+    db.pending_sync_count()
+        .await
+        .map_err(|e| format!("Failed to get sync count: {}", e))
 }
 
 /// Get pending sync items for processing
 #[tauri::command]
 pub async fn get_pending_sync_items(limit: i64) -> Result<Vec<SyncQueueItem>, String> {
-    let queue_path = get_sync_queue_path();
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !queue_path.exists() {
-        return Ok(vec![]);
-    }
-
-    let conn = Connection::open(&queue_path)
-        .map_err(|e| format!("Failed to open sync queue: {}", e))?;
-
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT id, entry_type, event_id, ts_end, retry_count
-        FROM sync_queue
-        WHERE status = 'pending'
-        ORDER BY created_at ASC
-        LIMIT ?1
-        "#
-    ).map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-    let items: Vec<SyncQueueItem> = stmt
-        .query_map([limit], |row| {
-            Ok(SyncQueueItem {
-                id: row.get(0)?,
-                entry_type: row.get(1)?,
-                event_id: row.get(2)?,
-                ts_end: row.get(3)?,
-                retry_count: row.get(4)?,
-            })
-        })
-        .map_err(|e| format!("Failed to query sync queue: {}", e))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(items)
+    let items = db.get_pending_sync(limit)
+        .await
+        .map_err(|e| format!("Failed to query sync queue: {}", e))?;
+    
+    Ok(items.into_iter().map(|item| SyncQueueItem {
+        id: item.id,
+        entry_type: item.entry_type,
+        event_id: item.event_id,
+        ts_end: item.ts_end,
+        retry_count: item.retry_count,
+    }).collect())
 }
 
 /// Mark a sync item as completed
 #[tauri::command]
 pub async fn mark_sync_item_complete(queue_id: i64) -> Result<(), String> {
-    let queue_path = get_sync_queue_path();
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !queue_path.exists() {
-        return Err("Sync queue not found".to_string());
-    }
-
-    let conn = Connection::open(&queue_path)
-        .map_err(|e| format!("Failed to open sync queue: {}", e))?;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
-
-    conn.execute(
-        "UPDATE sync_queue SET status = 'synced', updated_at = ?1 WHERE id = ?2",
-        [now, queue_id],
-    ).map_err(|e| format!("Failed to mark item complete: {}", e))?;
-
-    Ok(())
+    db.mark_synced(queue_id)
+        .await
+        .map_err(|e| format!("Failed to mark item complete: {}", e))
 }
 
 /// Mark a sync item as failed (will retry)
 #[tauri::command]
 pub async fn mark_sync_item_failed(queue_id: i64) -> Result<(), String> {
-    let queue_path = get_sync_queue_path();
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !queue_path.exists() {
-        return Err("Sync queue not found".to_string());
-    }
-
-    let conn = Connection::open(&queue_path)
-        .map_err(|e| format!("Failed to open sync queue: {}", e))?;
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
-
-    conn.execute(
-        "UPDATE sync_queue SET status = 'failed', retry_count = retry_count + 1, updated_at = ?1 WHERE id = ?2",
-        [now, queue_id],
-    ).map_err(|e| format!("Failed to mark item failed: {}", e))?;
-
-    Ok(())
+    db.mark_sync_failed(queue_id)
+        .await
+        .map_err(|e| format!("Failed to mark item failed: {}", e))
 }
 
 /// Get full event data for syncing
 #[tauri::command]
 pub async fn get_event_for_sync(event_id: i64) -> Result<Option<DetailedActivityEvent>, String> {
-    let db_path = get_database_path();
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !db_path.exists() {
-        return Ok(None);
-    }
-
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
-
-    let result = conn.query_row(
-        r#"
-        SELECT 
-            id, ts_start, ts_end, 
-            (ts_end - ts_start) as duration_ms,
-            app_bundle_id, app_name, 
-            window_title, browser_url, browser_domain,
-            COALESCE(is_afk, 0) as is_afk,
-            COALESCE(is_incognito, 0) as is_incognito
-        FROM activity_events
-        WHERE id = ?1
-        "#,
-        [event_id],
-        |row| {
-            Ok(DetailedActivityEvent {
-                id: row.get(0)?,
-                ts_start: row.get(1)?,
-                ts_end: row.get(2)?,
-                duration_ms: row.get(3)?,
-                app_bundle_id: row.get(4)?,
-                app_name: row.get(5)?,
-                window_title: row.get(6)?,
-                browser_url: row.get(7)?,
-                browser_domain: row.get(8)?,
-                is_afk: row.get::<_, i32>(9)? != 0,
-                is_incognito: row.get::<_, i32>(10)? != 0,
-            })
-        },
-    );
-
-    match result {
-        Ok(event) => Ok(Some(event)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(format!("Failed to get event: {}", e)),
-    }
+    let event = db.get_activity_event(event_id)
+        .await
+        .map_err(|e| format!("Failed to get event: {}", e))?;
+    
+    Ok(event.map(DetailedActivityEvent::from))
 }
 
 /// Daily summary for efficient syncing
@@ -843,20 +662,8 @@ pub struct DailySummary {
 /// Get daily summary for a specific date (YYYY-MM-DD)
 #[tauri::command]
 pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
-    let db_path = get_database_path();
+    let device_id = get_device_id_or_config().unwrap_or_default();
     
-    if !db_path.exists() {
-        return Ok(DailySummary {
-            date: date.clone(),
-            total_active_ms: 0,
-            total_afk_ms: 0,
-            total_hours: 0.0,
-            app_count: 0,
-            domain_count: 0,
-            event_count: 0,
-        });
-    }
-
     // Parse date and calculate timestamps
     let date_parts: Vec<&str> = date.split('-').collect();
     if date_parts.len() != 3 {
@@ -867,7 +674,6 @@ pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
     let month: u32 = date_parts[1].parse().map_err(|_| "Invalid month")?;
     let day: u32 = date_parts[2].parse().map_err(|_| "Invalid day")?;
 
-    // Calculate start and end timestamps for the day
     use chrono::{TimeZone, Local};
     let start_of_day = Local.with_ymd_and_hms(year, month, day, 0, 0, 0)
         .single()
@@ -879,41 +685,22 @@ pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
     let start_ts = start_of_day.timestamp_millis();
     let end_ts = end_of_day.timestamp_millis();
 
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
-
-    let result = conn.query_row(
-        r#"
-        SELECT 
-            COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as active_ms,
-            COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 1 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as afk_ms,
-            COUNT(*) as event_count,
-            COUNT(DISTINCT app_bundle_id) as app_count,
-            COUNT(DISTINCT browser_domain) as domain_count
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start < ?2
-        "#,
-        [start_ts, end_ts],
-        |row| {
-            let active_ms: i64 = row.get(0)?;
-            let afk_ms: i64 = row.get(1)?;
-            let event_count: i64 = row.get(2)?;
-            let app_count: i64 = row.get(3)?;
-            let domain_count: i64 = row.get(4)?;
-            
-            Ok(DailySummary {
-                date: date.clone(),
-                total_active_ms: active_ms,
-                total_afk_ms: afk_ms,
-                total_hours: active_ms as f64 / (1000.0 * 60.0 * 60.0),
-                app_count,
-                domain_count,
-                event_count,
-            })
-        },
-    ).map_err(|e| format!("Failed to get summary: {}", e))?;
-
-    Ok(result)
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
+    
+    let summary = db.get_daily_summary(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to get summary: {}", e))?;
+    
+    Ok(DailySummary {
+        date,
+        total_active_ms: summary.active_ms,
+        total_afk_ms: summary.afk_ms,
+        total_hours: summary.active_ms as f64 / (1000.0 * 60.0 * 60.0),
+        app_count: summary.app_count,
+        domain_count: summary.domain_count,
+        event_count: summary.event_count,
+    })
 }
 
 // ============================================================
@@ -933,72 +720,51 @@ pub struct DbStats {
 
 /// Get database statistics and diagnostics
 #[tauri::command]
-pub fn get_watcher_db_stats() -> Result<DbStats, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let db_path = home.join(".ritual").join("watcher.db");
+pub async fn get_watcher_db_stats() -> Result<DbStats, String> {
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !db_path.exists() {
-        return Ok(DbStats {
-            event_count: 0,
+    let stats = db.get_stats()
+        .await
+        .map_err(|e| format!("Failed to get stats: {}", e))?;
+    
+    // Get date range from the device_id's events
+    let device_id = get_device_id_or_config().unwrap_or_default();
+    let db_stats = db.get_db_stats(&device_id)
+        .await
+        .unwrap_or_else(|_| ritual_db::blocking::DbStats {
+            event_count: stats.activity_event_count,
             afk_count: 0,
-            oldest_event_date: None,
-            newest_event_date: None,
-            db_size_mb: 0.0,
-            days_of_data: 0,
+            oldest_event_ts: None,
+            newest_event_ts: None,
+            db_size_bytes: stats.db_size_bytes,
         });
-    }
     
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
-    
-    let event_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM activity_events", [], |row| row.get(0)
-    ).unwrap_or(0);
-    
-    let afk_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM afk_events", [], |row| row.get(0)
-    ).unwrap_or(0);
-    
-    let oldest_ts: Option<i64> = conn.query_row(
-        "SELECT MIN(ts_start) FROM activity_events", [], |row| row.get(0)
-    ).ok();
-    
-    let newest_ts: Option<i64> = conn.query_row(
-        "SELECT MAX(ts_end) FROM activity_events", [], |row| row.get(0)
-    ).ok();
-    
-    // Convert timestamps to dates
-    let oldest_event_date = oldest_ts.map(|ts| {
+    let oldest_event_date = db_stats.oldest_event_ts.map(|ts| {
         chrono::DateTime::from_timestamp_millis(ts)
             .map(|dt| dt.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "Unknown".to_string())
     });
     
-    let newest_event_date = newest_ts.map(|ts| {
+    let newest_event_date = db_stats.newest_event_ts.map(|ts| {
         chrono::DateTime::from_timestamp_millis(ts)
             .map(|dt| dt.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "Unknown".to_string())
     });
     
-    // Calculate days of data
-    let days_of_data = match (oldest_ts, newest_ts) {
+    let days_of_data = match (db_stats.oldest_event_ts, db_stats.newest_event_ts) {
         (Some(oldest), Some(newest)) => {
             ((newest - oldest) / (24 * 60 * 60 * 1000)).max(1)
         }
         _ => 0,
     };
     
-    // Get database size
-    let page_count: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0)).unwrap_or(0);
-    let page_size: i64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0)).unwrap_or(0);
-    let db_size_mb = (page_count * page_size) as f64 / (1024.0 * 1024.0);
-    
     Ok(DbStats {
-        event_count,
-        afk_count,
+        event_count: db_stats.event_count,
+        afk_count: db_stats.afk_count,
         oldest_event_date,
         newest_event_date,
-        db_size_mb,
+        db_size_mb: db_stats.db_size_bytes as f64 / (1024.0 * 1024.0),
         days_of_data,
     })
 }
@@ -1006,47 +772,19 @@ pub fn get_watcher_db_stats() -> Result<DbStats, String> {
 /// Delete events older than the specified number of days
 /// Returns the number of deleted events
 #[tauri::command]
-pub fn cleanup_old_events(days: i64) -> Result<i64, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let db_path = home.join(".ritual").join("watcher.db");
+pub async fn cleanup_old_events(days: i64) -> Result<i64, String> {
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    if !db_path.exists() {
-        return Ok(0);
-    }
-    
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
-    
-    let cutoff_ms = chrono::Utc::now().timestamp_millis() - (days * 24 * 60 * 60 * 1000);
-    
-    let deleted = conn.execute(
-        "DELETE FROM activity_events WHERE ts_end < ?1",
-        [cutoff_ms],
-    ).map_err(|e| format!("Failed to delete events: {}", e))?;
-    
-    // Also clean up old AFK events
-    conn.execute(
-        "DELETE FROM afk_events WHERE ts_end < ?1",
-        [cutoff_ms],
-    ).ok();
-    
-    // Vacuum if we deleted significant data
-    if deleted > 100 {
-        conn.execute_batch("VACUUM;").ok();
-    }
-    
-    Ok(deleted as i64)
+    db.delete_old_events(days)
+        .await
+        .map_err(|e| format!("Failed to delete events: {}", e))
 }
 
 /// Export events for a date range
 #[tauri::command]
-pub fn export_events(start_date: String, end_date: String) -> Result<Vec<DetailedActivityEvent>, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let db_path = home.join(".ritual").join("watcher.db");
-    
-    if !db_path.exists() {
-        return Ok(vec![]);
-    }
+pub async fn export_events(start_date: String, end_date: String) -> Result<Vec<DetailedActivityEvent>, String> {
+    let device_id = get_device_id_or_config().unwrap_or_default();
     
     // Parse dates
     use chrono::{NaiveDate, TimeZone, Local};
@@ -1064,41 +802,14 @@ pub fn export_events(start_date: String, end_date: String) -> Result<Vec<Detaile
         .ok_or("Invalid end date")?
         .timestamp_millis();
     
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT id, ts_start, ts_end, app_bundle_id, app_name, 
-               window_title, browser_url, browser_domain, 
-               COALESCE(is_afk, 0) as is_afk, COALESCE(is_incognito, 0) as is_incognito
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_end <= ?2
-        ORDER BY ts_start ASC
-        "#
-    ).map_err(|e| format!("Failed to prepare query: {}", e))?;
+    let events = db.get_events_in_range(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to export events: {}", e))?;
     
-    let events: Vec<DetailedActivityEvent> = stmt.query_map([start_ts, end_ts], |row| {
-        let ts_start: i64 = row.get(1)?;
-        let ts_end: i64 = row.get(2)?;
-        Ok(DetailedActivityEvent {
-            id: row.get(0)?,
-            ts_start,
-            ts_end,
-            duration_ms: ts_end - ts_start,
-            app_bundle_id: row.get(3)?,
-            app_name: row.get(4)?,
-            window_title: row.get(5)?,
-            browser_url: row.get(6)?,
-            browser_domain: row.get(7)?,
-            is_afk: row.get::<_, i64>(8)? != 0,
-            is_incognito: row.get::<_, i64>(9)? != 0,
-        })
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
-    
-    Ok(events)
+    Ok(events.into_iter().map(DetailedActivityEvent::from).collect())
 }
 
 // ============================================================
@@ -1118,20 +829,8 @@ pub struct FocusMetrics {
 
 /// Get focus metrics for a specific day
 #[tauri::command]
-pub fn get_focus_metrics(date: String) -> Result<FocusMetrics, String> {
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let db_path = home.join(".ritual").join("watcher.db");
-    
-    if !db_path.exists() {
-        return Ok(FocusMetrics {
-            context_switches: 0,
-            longest_focus_session_minutes: 0.0,
-            focus_sessions_30min_plus: 0,
-            fragmented_time_minutes: 0.0,
-            deep_work_minutes: 0.0,
-            average_session_minutes: 0.0,
-        });
-    }
+pub async fn get_focus_metrics(date: String) -> Result<FocusMetrics, String> {
+    let device_id = get_device_id_or_config().unwrap_or_default();
     
     // Parse date
     let date_parts: Vec<&str> = date.split('-').collect();
@@ -1152,82 +851,31 @@ pub fn get_focus_metrics(date: String) -> Result<FocusMetrics, String> {
         .ok_or("Invalid date")?
         .timestamp_millis();
     
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open database: {}", e))?;
+    let guard = get_db().await?;
+    let db = guard.as_ref().unwrap();
     
-    // Get all non-AFK events for the day
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT ts_start, ts_end, app_bundle_id
-        FROM activity_events
-        WHERE ts_start >= ?1 AND ts_start < ?2 AND COALESCE(is_afk, 0) = 0
-        ORDER BY ts_start ASC
-        "#
-    ).map_err(|e| format!("Failed to prepare query: {}", e))?;
+    let metrics = db.get_focus_metrics(&device_id, start_ts, end_ts)
+        .await
+        .map_err(|e| format!("Failed to get focus metrics: {}", e))?;
     
-    let events: Vec<(i64, i64, String)> = stmt.query_map([start_ts, end_ts], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    }).map_err(|e| format!("Query failed: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
+    // Compute average session from events
+    let events = db.get_events_in_range(&device_id, start_ts, end_ts)
+        .await
+        .unwrap_or_default();
     
-    if events.is_empty() {
-        return Ok(FocusMetrics {
-            context_switches: 0,
-            longest_focus_session_minutes: 0.0,
-            focus_sessions_30min_plus: 0,
-            fragmented_time_minutes: 0.0,
-            deep_work_minutes: 0.0,
-            average_session_minutes: 0.0,
-        });
-    }
-    
-    let mut context_switches: i64 = 0;
-    let mut longest_focus_session_ms: i64 = 0;
-    let mut focus_sessions_30min_plus: i64 = 0;
-    let mut fragmented_time_ms: i64 = 0;
-    let mut deep_work_time_ms: i64 = 0;
-    let mut total_duration_ms: i64 = 0;
-    let mut last_app: Option<String> = None;
-    
-    for (start, end, app) in &events {
-        let duration = end - start;
-        total_duration_ms += duration;
-        
-        // Track context switches
-        if let Some(ref prev_app) = last_app {
-            if prev_app != app {
-                context_switches += 1;
-            }
-        }
-        last_app = Some(app.clone());
-        
-        // Track longest session
-        if duration > longest_focus_session_ms {
-            longest_focus_session_ms = duration;
-        }
-        
-        // 30+ minute sessions
-        if duration >= 30 * 60 * 1000 {
-            focus_sessions_30min_plus += 1;
-            deep_work_time_ms += duration;
-        }
-        
-        // Fragmented time (< 2 minutes)
-        if duration < 2 * 60 * 1000 {
-            fragmented_time_ms += duration;
-        }
-    }
-    
-    let event_count = events.len() as i64;
+    let active_events: Vec<_> = events.iter().filter(|e| !e.is_afk).collect();
+    let total_duration_ms: i64 = active_events.iter()
+        .map(|e| e.ts_end.saturating_sub(e.ts_start))
+        .sum();
+    let event_count = active_events.len() as i64;
     let average_session_ms = if event_count > 0 { total_duration_ms / event_count } else { 0 };
     
     Ok(FocusMetrics {
-        context_switches,
-        longest_focus_session_minutes: longest_focus_session_ms as f64 / 60000.0,
-        focus_sessions_30min_plus,
-        fragmented_time_minutes: fragmented_time_ms as f64 / 60000.0,
-        deep_work_minutes: deep_work_time_ms as f64 / 60000.0,
+        context_switches: metrics.context_switches,
+        longest_focus_session_minutes: metrics.longest_focus_session_ms as f64 / 60000.0,
+        focus_sessions_30min_plus: metrics.focus_sessions_30min_plus,
+        fragmented_time_minutes: metrics.fragmented_time_ms as f64 / 60000.0,
+        deep_work_minutes: metrics.deep_work_time_ms as f64 / 60000.0,
         average_session_minutes: average_session_ms as f64 / 60000.0,
     })
 }
@@ -1251,66 +899,57 @@ pub struct WatcherExtendedStatus {
 
 /// Get extended watcher status including real-time info
 #[tauri::command]
-pub fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, String> {
-    let mut process_guard = WATCHER_PROCESS.lock().map_err(|e| e.to_string())?;
-    
-    let is_running = process_guard.as_mut()
-        .map(|child| child.try_wait().map(|s| s.is_none()).unwrap_or(false))
-        .unwrap_or(false);
-    
-    let pid = if is_running {
-        process_guard.as_ref().map(|c| c.id())
-    } else {
-        None
-    };
-    
-    // Read config file for device_id
-    let home = dirs::home_dir().ok_or("Could not find home directory")?;
-    let config_path = home.join(".ritual").join("watcher_config.json");
-    let device_id = if config_path.exists() {
-        std::fs::read_to_string(&config_path).ok()
-            .and_then(|s| serde_json::from_str::<WatcherConfig>(&s).ok())
-            .map(|c| c.device_id)
-    } else {
-        None
-    };
-    
-    // Get last heartbeat from DB
-    let db_path = home.join(".ritual").join("watcher.db");
-    let (last_heartbeat_ts, current_app, session_duration_seconds) = if db_path.exists() && device_id.is_some() {
-        let conn = Connection::open(&db_path).ok();
-        let device = device_id.as_ref().unwrap();
+pub async fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, String> {
+    let (is_running, pid) = {
+        let mut process_guard = WATCHER_PROCESS.lock().map_err(|e| e.to_string())?;
         
-        let heartbeat: Option<i64> = conn.as_ref()
-            .and_then(|c| c.query_row(
-                "SELECT last_seen_ts FROM watcher_heartbeat WHERE device_id = ?1",
-                [device],
-                |row| row.get(0)
-            ).ok());
+        let running = process_guard.as_mut()
+            .map(|child| child.try_wait().map(|s| s.is_none()).unwrap_or(false))
+            .unwrap_or(false);
         
-        // Get most recent active event
-        let recent: Option<(String, i64, i64)> = conn.as_ref()
-            .and_then(|c| c.query_row(
-                r#"SELECT app_name, ts_start, ts_end FROM activity_events 
-                   WHERE device_id = ?1 ORDER BY ts_end DESC LIMIT 1"#,
-                [device],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            ).ok());
-        
-        let (app, session_dur) = match recent {
-            Some((app_name, ts_start, ts_end)) => {
+        let p = if running {
+            process_guard.as_ref().map(|c| c.id())
+        } else {
+            None
+        };
+        (running, p)
+    }; // Drop the MutexGuard before any .await
+    
+    let device_id = get_device_id_or_config();
+    
+    // Query real-time info from the unified database
+    let (last_heartbeat_ts, current_app, session_duration_seconds) = if let Some(ref dev_id) = device_id {
+        let guard = RITUAL_DB.read().await;
+        if let Some(ref db) = *guard {
+            // Get last heartbeat
+            let heartbeat = db.get_last_heartbeat(dev_id)
+                .await
+                .unwrap_or(None);
+            
+            // Get most recent event
+            let recent_events = db.get_recent_events(dev_id, 1)
+                .await
+                .unwrap_or_default();
+            
+            let (app, session_dur) = if let Some(event) = recent_events.first() {
                 let now_ms = chrono::Utc::now().timestamp_millis();
                 // If event is recent (within 10 seconds), it's the current session
-                if now_ms - ts_end < 10_000 {
-                    (Some(app_name), Some((ts_end - ts_start) / 1000))
+                if now_ms - event.ts_end < 10_000 {
+                    (
+                        Some(event.app_name.clone()),
+                        Some((event.ts_end - event.ts_start) / 1000),
+                    )
                 } else {
                     (None, None)
                 }
-            }
-            None => (None, None),
-        };
-        
-        (heartbeat, app, session_dur)
+            } else {
+                (None, None)
+            };
+            
+            (heartbeat, app, session_dur)
+        } else {
+            (None, None, None)
+        }
     } else {
         (None, None, None)
     };
@@ -1323,11 +962,62 @@ pub fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, String> {
         pid,
         device_id,
         last_heartbeat_ts,
-        is_paused: false, // TODO: Implement pause state tracking
+        is_paused: false,
         seconds_since_heartbeat,
         current_app,
         session_duration_seconds,
     })
+}
+
+/// Check watcher health and auto-restart if hung
+/// Returns true if watcher was restarted, false if it was healthy
+#[tauri::command]
+pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result<bool, String> {
+    let status = get_watcher_extended_status().await?;
+    
+    // Check if watcher is supposedly running but heartbeat is stale
+    if status.is_running {
+        if let Some(seconds_stale) = status.seconds_since_heartbeat {
+            if seconds_stale > max_stale_seconds {
+                println!("⚠️ Watcher hung detected! Heartbeat stale for {} seconds (threshold: {})", 
+                         seconds_stale, max_stale_seconds);
+                
+                // Stop the hung watcher
+                if let Err(e) = stop_watcher().await {
+                    println!("   Failed to stop hung watcher: {}", e);
+                }
+                
+                // Small delay to ensure process is terminated
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                
+                // Read existing config
+                let home = dirs::home_dir().ok_or("Could not find home directory")?;
+                let config_path = home.join(".ritual").join("watcher_config.json");
+                
+                if config_path.exists() {
+                    let config_str = std::fs::read_to_string(&config_path)
+                        .map_err(|e| format!("Failed to read config: {}", e))?;
+                    let config: WatcherConfig = serde_json::from_str(&config_str)
+                        .map_err(|e| format!("Failed to parse config: {}", e))?;
+                    
+                    // Restart watcher
+                    match start_watcher_sync(config) {
+                        Ok(_) => {
+                            println!("✅ Watcher auto-restarted after hang detection");
+                            return Ok(true);
+                        }
+                        Err(e) => {
+                            return Err(format!("Failed to restart watcher: {}", e));
+                        }
+                    }
+                } else {
+                    return Err("No watcher config found for restart".to_string());
+                }
+            }
+        }
+    }
+    
+    Ok(false)
 }
 
 // ============================================================
@@ -1519,4 +1209,3 @@ fn find_icns_file(app_path: &str) -> Option<String> {
         .find(|e| e.path().extension().map(|ext| ext == "icns").unwrap_or(false))
         .and_then(|e| e.path().to_str().map(|s| s.to_string()))
 }
-

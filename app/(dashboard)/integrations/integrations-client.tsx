@@ -293,6 +293,7 @@ export function IntegrationsClient() {
   const callbackProcessedRef = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const oauthSessionIdRef = useRef<string | null>(null);
+  const oauthSessionTokenRef = useRef<string | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -385,13 +386,17 @@ export function IntegrationsClient() {
         }
 
         const sessionId = oauthSessionIdRef.current;
-        if (sessionId) {
-          const codeResponse = await fetch(`/api/integrations/whoop/store-code?sessionId=${sessionId}`);
+        const sessionToken = oauthSessionTokenRef.current;
+        if (sessionId && sessionToken) {
+          const codeResponse = await fetch(
+            `/api/integrations/whoop/store-code?sessionId=${encodeURIComponent(sessionId)}&sessionToken=${encodeURIComponent(sessionToken)}`
+          );
 
           if (codeResponse.ok) {
             const codeData = await codeResponse.json();
             if (codeData.found && codeData.code) {
               oauthSessionIdRef.current = null;
+              oauthSessionTokenRef.current = null;
               await handleWhoopCallback(codeData.code);
               stopPolling();
               return;
@@ -435,6 +440,8 @@ export function IntegrationsClient() {
   async function handleWhoopConnect() {
     try {
       setWhoopConnecting(true);
+      oauthSessionIdRef.current = null;
+      oauthSessionTokenRef.current = null;
 
       const clientId = process.env.NEXT_PUBLIC_WHOOP_CLIENT_ID;
       const redirectUri = process.env.NEXT_PUBLIC_WHOOP_REDIRECT_URI;
@@ -454,13 +461,18 @@ export function IntegrationsClient() {
         sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
           .map(b => b.toString(16).padStart(2, '0'))
           .join('');
+        const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
         oauthSessionIdRef.current = sessionId;
+        oauthSessionTokenRef.current = sessionToken;
       }
 
       const stateData = {
         random: randomState,
         source: isDesktopApp ? 'desktop' : 'web',
-        ...(sessionId && { sessionId })
+        ...(sessionId && { sessionId }),
+        ...(oauthSessionTokenRef.current && { sessionToken: oauthSessionTokenRef.current })
       };
       const state = btoa(JSON.stringify(stateData));
 
@@ -505,7 +517,9 @@ export function IntegrationsClient() {
       }
 
       const result = await response.json();
-      const { recovery, sleep, workouts } = result.data || {};
+      // result.data is the Python backend response which has its own nested "data" field
+      const syncCounts = result.data?.data || result.data || {};
+      const { recovery, sleep, workouts } = syncCounts;
       const total = (recovery || 0) + (sleep || 0) + (workouts || 0);
 
       // Refresh habits and logs to reflect new data
@@ -840,4 +854,3 @@ export function IntegrationsClient() {
     </>
   );
 }
-

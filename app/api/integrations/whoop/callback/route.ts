@@ -23,11 +23,13 @@ export async function GET(request: NextRequest) {
     // Decode state to check if request came from desktop app and get session ID
     let source = 'web'; // default to web
     let sessionId = null;
+    let sessionToken = null;
     try {
       if (state) {
         const stateData = JSON.parse(atob(state));
         source = stateData.source || 'web';
         sessionId = stateData.sessionId || null;
+        sessionToken = stateData.sessionToken || null;
       }
     } catch (e) {
       console.warn('Could not decode state parameter:', e);
@@ -45,6 +47,7 @@ export async function GET(request: NextRequest) {
         const errorUrl = new URL('/integrations/success', request.url);
         errorUrl.searchParams.set('error', errorDescription);
         if (sessionId) errorUrl.searchParams.set('sessionId', sessionId);
+        if (sessionToken) errorUrl.searchParams.set('sessionToken', sessionToken);
         return NextResponse.redirect(errorUrl);
       }
       
@@ -61,6 +64,7 @@ export async function GET(request: NextRequest) {
         const errorUrl = new URL('/integrations/success', request.url);
         errorUrl.searchParams.set('error', 'no_code');
         if (sessionId) errorUrl.searchParams.set('sessionId', sessionId);
+        if (sessionToken) errorUrl.searchParams.set('sessionToken', sessionToken);
         return NextResponse.redirect(errorUrl);
       }
       
@@ -81,6 +85,9 @@ export async function GET(request: NextRequest) {
       if (sessionId) {
         successUrl.searchParams.set('sessionId', sessionId);
         console.log(`🎫 Passing session ID to success page: ${sessionId}`);
+      }
+      if (sessionToken) {
+        successUrl.searchParams.set('sessionToken', sessionToken);
       }
       
       return NextResponse.redirect(successUrl);

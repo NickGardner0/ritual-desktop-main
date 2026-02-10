@@ -20,7 +20,7 @@ class TinybirdService:
             self.token = os.getenv('TINYBIRD_TOKEN')
         else:
             self.base_url = os.getenv('TINYBIRD_LOCAL_URL', 'http://localhost:7181')
-            self.token = os.getenv('TINYBIRD_LOCAL_TOKEN', 'admin local_testing@tinybird.co')
+            self.token = os.getenv('TINYBIRD_LOCAL_TOKEN')
         
         if not self.token:
             raise ValueError(f"Tinybird token not found for environment: {'cloud' if self.use_cloud else 'local'}")

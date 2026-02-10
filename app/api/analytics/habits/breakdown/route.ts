@@ -1,6 +1,6 @@
 /**
  * Habit Breakdown by Category API - Uses Turso database
- * GET /api/analytics/habits/breakdown?user_id=xxx&days_back=30
+ * GET /api/analytics/habits/breakdown?days_back=30
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
-    const daysBack = parseInt(searchParams.get('days_back') || '30');
+    const requestedDaysBack = Number.parseInt(searchParams.get('days_back') || '30', 10);
+    const daysBack = Number.isFinite(requestedDaysBack)
+      ? Math.min(Math.max(requestedDaysBack, 1), 365)
+      : 30;
 
     // Calculate date range - use local dates, not UTC
     const endDate = new Date();
@@ -39,7 +42,7 @@ export async function GET(request: NextRequest) {
     const token = await getToken();
     
     const response = await fetch(
-      `${backendUrl}/api/analytics/habits/breakdown?user_id=${clerkUserId}&start_date=${startDateStr}&end_date=${endDateStr}`,
+      `${backendUrl}/api/analytics/habits/breakdown?start_date=${startDateStr}&end_date=${endDateStr}`,
       {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -57,7 +60,6 @@ export async function GET(request: NextRequest) {
       success: true,
       data: data.breakdown || [],
       meta: {
-        user_id: clerkUserId,
         days_back: daysBack,
         start_date: startDateStr,
         end_date: endDateStr,
@@ -72,4 +74,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

@@ -44,7 +44,8 @@ export async function GET(request: NextRequest) {
     const sources = searchParams.get('sources')?.split(',').filter(Boolean) || [];
     const sort = searchParams.get('sort') || 'date';
     const order = searchParams.get('order') || 'desc';
-    const limit = parseInt(searchParams.get('limit') || '500', 10);
+    const requestedLimit = Number.parseInt(searchParams.get('limit') || '500', 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 500;
 
     const tinybirdToken = process.env.TINYBIRD_TOKEN;
     const tinybirdHost = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co';
@@ -240,4 +241,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

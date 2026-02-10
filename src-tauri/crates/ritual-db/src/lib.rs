@@ -401,6 +401,18 @@ impl RitualDatabase {
         activity::ActivityOps::new(&conn).delete_old_events(days).await
     }
     
+    /// Get the last heartbeat timestamp for a device
+    pub async fn get_last_heartbeat(&self, device_id: &str) -> Result<Option<i64>> {
+        let conn = self.conn.read().await;
+        activity::ActivityOps::new(&conn).get_last_heartbeat(device_id).await
+    }
+    
+    /// Get database statistics (event counts, date range, size)
+    pub async fn get_db_stats(&self, _device_id: &str) -> Result<blocking::DbStats> {
+        let conn = self.conn.read().await;
+        activity::ActivityOps::new(&conn).get_db_stats().await
+    }
+    
     // --------------------------------------------------------------------
     // Recorder Operations
     // --------------------------------------------------------------------
