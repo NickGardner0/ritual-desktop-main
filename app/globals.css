@@ -176,6 +176,14 @@
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
+
+  /* macOS sidebar vibrancy tuning knobs (light mode)
+     Lower alpha = more native frosted glass visible.
+     Raise alpha = more opaque white overlay. */
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.12);
+  --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.25);
+  --content-bg: #ffffff;
 }
 
 .dark {
@@ -198,6 +206,12 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 212.7 26.8% 83.9%;
+
+  /* macOS sidebar vibrancy tuning knobs (dark mode) */
+  --sidebar-vibrancy-bg: rgba(20, 20, 22, 0.15);
+  --sidebar-vibrancy-border: rgba(255, 255, 255, 0.10);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.06);
+  --content-bg: #0b0b0c;
 }
 
 @layer base {
@@ -280,7 +294,6 @@
 
   html.desktop body {
     position: relative;
-    background: hsl(var(--background)) !important;
     overscroll-behavior: none !important;
     margin: 0;
     padding: 0;
@@ -289,6 +302,147 @@
     width: 100%;
     overflow: auto;
   }
+
+  /* Non-macOS desktop gets opaque background */
+  html.desktop[data-platform="windows"] body,
+  html.desktop[data-platform="linux"] body {
+    background: hsl(var(--background)) !important;
+  }
+
+  /* ===== Transparency Probe Mode ===== */
+  html.desktop[data-transparency-probe="1"] body,
+  html.desktop[data-transparency-probe="1"] #__next,
+  html.desktop[data-transparency-probe="1"] #root {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.desktop[data-transparency-probe="1"] .tauri-drag-region {
+    display: none !important;
+  }
+
+  .transparency-probe-root {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-start;
+    background: transparent;
+    padding: 24px;
+  }
+
+  .transparency-probe-panel {
+    width: min(360px, 42vw);
+    min-width: 280px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: saturate(145%) blur(18px);
+    -webkit-backdrop-filter: saturate(145%) blur(18px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 32px rgba(0, 0, 0, 0.18);
+    padding: 20px;
+  }
+
+  .transparency-probe-title {
+    margin: 0 0 10px 0;
+    font-size: 20px;
+    line-height: 1.2;
+    color: #111111;
+  }
+
+  .transparency-probe-body {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #222222;
+  }
+
+  .transparency-probe-list {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #202020;
+  }
+  /* ===== End Transparency Probe Mode ===== */
+
+  /* ===== macOS Liquid Glass Sidebar (native NSGlassEffectView) ===== */
+  /* Apple's NSGlassEffectView (macOS 26+) renders the frosted glass
+     at the OS compositor level — no CSS backdrop-filter, no flicker.
+     CSS just needs to be transparent where the glass should show. */
+
+  /* Every wrapper from <html> down to .app-container must be transparent
+     so the native NSGlassEffectView shows through the sidebar. */
+  html.desktop[data-platform="macos"],
+  html.desktop:not([data-platform]) {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.desktop[data-platform="macos"] body,
+  html.desktop:not([data-platform]) body {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.desktop[data-platform="macos"] #__next,
+  html.desktop:not([data-platform]) #__next,
+  html.desktop[data-platform="macos"] #root,
+  html.desktop:not([data-platform]) #root {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.desktop[data-platform="macos"] .app-container,
+  html.desktop:not([data-platform]) .app-container {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  /* Sidebar: semi-transparent white over the native glass.
+     The NSGlassEffectView provides the blur of what's behind the window.
+     This white overlay makes it frosty/white like Codex's sidebar.
+     ~55% white gives a bright frost while the glass blur is still visible. */
+  html.desktop[data-platform="macos"] .sidebar-vibrancy,
+  html.desktop:not([data-platform]) .sidebar-vibrancy {
+    background: rgba(255, 255, 255, 0.75) !important;
+    background-color: rgba(255, 255, 255, 0.75) !important;
+    border-right: 1px solid rgba(0, 0, 0, 0.08) !important;
+  }
+
+  /* All children inside the sidebar must be transparent */
+  html.desktop[data-platform="macos"] .sidebar-vibrancy *,
+  html.desktop:not([data-platform]) .sidebar-vibrancy * {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.desktop[data-platform="macos"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform]) .sidebar-vibrancy .sidebar-header {
+    border-color: rgba(0, 0, 0, 0.04) !important;
+  }
+
+  /* Opaque main content — covers the glass so only sidebar is glassy */
+  html.desktop[data-platform="macos"] .content-opaque,
+  html.desktop:not([data-platform]) .content-opaque {
+    background: var(--content-bg) !important;
+    background-color: var(--content-bg) !important;
+  }
+
+  /* Clip any fixed-position children (like AI chat bar) inside
+     the content area so they can't bleed into the sidebar column.
+     The content wrapper gets isolation so fixed children are clipped. */
+  html.desktop[data-platform="macos"] .content-opaque {
+    clip-path: inset(0 0 0 0);
+  }
+
+  /* Dark mode */
+  .dark html.desktop[data-platform="macos"] .sidebar-vibrancy,
+  .dark html.desktop:not([data-platform]) .sidebar-vibrancy {
+    background: rgba(30, 30, 32, 0.55) !important;
+    background-color: rgba(30, 30, 32, 0.55) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+  /* ===== End macOS Liquid Glass Sidebar ===== */
 
   /* Key fix: Set default cursor for all desktop elements */
   .desktop div,
@@ -465,4 +619,3 @@
 .font-geist *:not([class*="font-"]):not(code):not(pre):not(kbd) {
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
-

@@ -1,5 +1,6 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(unexpected_cfgs)]
 
 mod native_widget;
 mod recorder;
@@ -10,6 +11,7 @@ use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager
 use std::path::PathBuf;
 use std::fs;
 use std::env;
+use std::sync::Mutex;
 
 // ============================================================================
 // AUTHENTICATION NOTE:
@@ -69,6 +71,467 @@ fn get_app_url() -> String {
             url
         }
     }
+}
+
+fn env_flag_enabled(name: &str) -> bool {
+    env::var(name)
+        .map(|v| {
+            let value = v.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+fn with_query_param(url: &str, query: &str) -> String {
+    if url.contains('?') {
+        format!("{url}&{query}")
+    } else {
+        format!("{url}?{query}")
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn configure_macos_window_transparency(window: &tauri::Window) {
+    use cocoa::appkit::{NSColor, NSWindow};
+    use cocoa::base::{id, nil};
+    use objc::{msg_send, sel, sel_impl};
+
+    println!("🔧 Configuring macOS window transparency + liquid glass…");
+
+    match window.ns_window() {
+        Ok(raw_window) => unsafe {
+            let ns_win: id = raw_window as id;
+            ns_win.setOpaque_(cocoa::base::NO);
+            ns_win.setBackgroundColor_(NSColor::clearColor(nil));
+            println!("✅ NSWindow transparent configured (non-opaque + clear)");
+
+            // -----------------------------------------------------------
+            // Apply Apple Liquid Glass (macOS 26+ / NSGlassEffectView)
+            // Falls back to NSVisualEffectView vibrancy on older macOS.
+            // -----------------------------------------------------------
+            let content_view: id = msg_send![ns_win, contentView];
+            if content_view.is_null() {
+                eprintln!("❌ contentView is null, cannot apply glass");
+                return;
+            }
+
+            // Try to get NSGlassEffectView class (macOS 26+ / Tahoe)
+            let glass_cls = objc::runtime::Class::get("NSGlassEffectView");
+            if let Some(cls) = glass_cls {
+                // Instantiate NSGlassEffectView
+                let frame: cocoa::foundation::NSRect = msg_send![content_view, bounds];
+                let alloc: id = msg_send![cls, alloc];
+                if alloc.is_null() {
+                    eprintln!("⚠️ NSGlassEffectView alloc returned null, falling back to vibrancy");
+                    apply_vibrancy_fallback(window);
+                    return;
+                }
+                let glass_view: id = msg_send![alloc, initWithFrame: frame];
+                if glass_view.is_null() {
+                    eprintln!("⚠️ NSGlassEffectView initWithFrame returned null, falling back");
+                    apply_vibrancy_fallback(window);
+                    return;
+                }
+
+                // Style 16 = Sidebar (matches NSGlassEffectViewStyle::Sidebar)
+                let _: () = msg_send![glass_view, setStyle: 16_isize];
+
+                // White tint on the native glass for a frostier look
+                let tint: id = NSColor::colorWithRed_green_blue_alpha_(
+                    nil, 1.0, 1.0, 1.0, 0.35,
+                );
+                let _: () = msg_send![glass_view, setTintColor: tint];
+
+                // Make it resize with the window
+                // NSViewWidthSizable (2) | NSViewHeightSizable (16) = 18
+                let _: () = msg_send![glass_view, setAutoresizingMask: 18_u64];
+
+                // Add BELOW the WKWebView so web content renders on top
+                // NSWindowOrderingMode::Below = -1
+                let below: i64 = -1;
+                let _: () = msg_send![
+                    content_view,
+                    addSubview: glass_view
+                    positioned: below
+                    relativeTo: nil
+                ];
+
+                println!("✅ Apple Liquid Glass applied (NSGlassEffectView, style=Sidebar)");
+            } else {
+                println!("⚠️ NSGlassEffectView not available, falling back to vibrancy");
+                apply_vibrancy_fallback(window);
+            }
+        },
+        Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
+    }
+}
+
+/// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
+#[cfg(target_os = "macos")]
+fn apply_vibrancy_fallback(window: &tauri::Window) {
+    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+
+    match apply_vibrancy(window, NSVisualEffectMaterial::Sidebar, Some(NSVisualEffectState::Active), None) {
+        Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material)"),
+        Err(e) => eprintln!("❌ Fallback vibrancy also failed: {e:?}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn configure_macos_webview_transparency(window: &tauri::Window) {
+    use cocoa::appkit::NSColor;
+    use cocoa::base::{id, nil, NO, YES};
+    use cocoa::foundation::NSString;
+    use objc::{class, msg_send, sel, sel_impl};
+    use objc::runtime::BOOL;
+
+    /// Recursively clear background on a view and all its subviews/layers.
+    unsafe fn clear_view_tree(view: id, depth: usize) {
+        if view.is_null() { return; }
+        let prefix = "  ".repeat(depth);
+        let cls: id = msg_send![view, class];
+        let cls_name: id = msg_send![cls, className];
+        let name_cstr: *const std::ffi::c_char = msg_send![cls_name, UTF8String];
+        let name = if name_cstr.is_null() {
+            "<unknown>".to_string()
+        } else {
+            std::ffi::CStr::from_ptr(name_cstr).to_string_lossy().to_string()
+        };
+
+        // Make the view itself non-opaque
+        let responds_opaque: BOOL = msg_send![view, respondsToSelector: sel!(setOpaque:)];
+        if responds_opaque != NO {
+            let _: () = msg_send![view, setOpaque: NO];
+        }
+
+        // Clear background color if the view supports it
+        let responds_bg: BOOL = msg_send![view, respondsToSelector: sel!(setBackgroundColor:)];
+        if responds_bg != NO {
+            let clear = NSColor::clearColor(nil);
+            let _: () = msg_send![view, setBackgroundColor: clear];
+        }
+
+        // Clear drawsBackground via KVC if available
+        let draws_bg_key = NSString::alloc(nil).init_str("drawsBackground");
+        // Use @try equivalent: check via valueForKey first
+        let responds_draws: BOOL = msg_send![view, respondsToSelector: sel!(setDrawsBackground:)];
+        if responds_draws != NO {
+            let _: () = msg_send![view, setDrawsBackground: NO];
+        }
+
+        // Make the layer transparent
+        let has_layer: BOOL = msg_send![view, respondsToSelector: sel!(layer)];
+        if has_layer != NO {
+            let layer: id = msg_send![view, layer];
+            if !layer.is_null() {
+                let _: () = msg_send![layer, setOpaque: NO];
+                let cg_clear: id = msg_send![class!(NSColor), clearColor];
+                let cg_color: id = msg_send![cg_clear, CGColor];
+                let _: () = msg_send![layer, setBackgroundColor: cg_color];
+            }
+        }
+
+        println!("  {prefix}🔍 Cleared: {name}");
+        let _ = draws_bg_key; // prevent unused warning
+
+        // Recurse into subviews
+        let responds_subviews: BOOL = msg_send![view, respondsToSelector: sel!(subviews)];
+        if responds_subviews != NO {
+            let subviews: id = msg_send![view, subviews];
+            if !subviews.is_null() {
+                let count: usize = msg_send![subviews, count];
+                for i in 0..count {
+                    let child: id = msg_send![subviews, objectAtIndex: i];
+                    clear_view_tree(child, depth + 1);
+                }
+            }
+        }
+    }
+
+    let result = window.with_webview(|webview| {
+        let guarded = std::panic::catch_unwind(|| unsafe {
+            let wk: id = webview.inner();
+            if wk.is_null() {
+                eprintln!("❌ WKWebView handle is null");
+                return;
+            }
+
+            // 1. Mark the WKWebView as non-opaque and clear its background color.
+            let _: () = msg_send![wk, setOpaque: NO];
+            let clear = NSColor::clearColor(nil);
+            let _: () = msg_send![wk, setBackgroundColor: clear];
+            println!("✅ WKWebView setOpaque(NO) + clearColor applied");
+
+            // 2. Disable drawsBackground via KVC (Key-Value Coding).
+            let key = NSString::alloc(nil).init_str("drawsBackground");
+            let no_val: id = msg_send![class!(NSNumber), numberWithBool: NO];
+            let _: () = msg_send![wk, setValue: no_val forKey: key];
+
+            // Verify the value actually stuck.
+            let readback: id = msg_send![wk, valueForKey: key];
+            let readback_bool: BOOL = msg_send![readback, boolValue];
+            if readback_bool == NO {
+                println!("✅ WKWebView drawsBackground=NO via KVC (verified)");
+            } else {
+                eprintln!("❌ WKWebView drawsBackground KVC set did NOT stick (still YES)");
+            }
+
+            // 3. Set underPageBackgroundColor to clear (public API, macOS 12+).
+            let has_under_page: BOOL = msg_send![wk, respondsToSelector: sel!(setUnderPageBackgroundColor:)];
+            if has_under_page != NO {
+                let _: () = msg_send![wk, setUnderPageBackgroundColor: clear];
+                println!("✅ WKWebView underPageBackgroundColor set to clear");
+            } else {
+                eprintln!("⚠️ WKWebView does not respond to setUnderPageBackgroundColor:");
+            }
+
+            // 4. Try the underscore-prefixed private API as a fallback.
+            let has_private: BOOL = msg_send![wk, respondsToSelector: sel!(_setDrawsBackground:)];
+            if has_private != NO {
+                let _: () = msg_send![wk, _setDrawsBackground: NO];
+                println!("✅ WKWebView _setDrawsBackground(NO) applied");
+            }
+
+            // 5. Nuclear: make the WKWebView's own layer transparent.
+            let _: () = msg_send![wk, setWantsLayer: YES];
+            let wk_layer: id = msg_send![wk, layer];
+            if !wk_layer.is_null() {
+                let _: () = msg_send![wk_layer, setOpaque: NO];
+                let cg_clear = NSColor::clearColor(nil);
+                let cg_color: id = msg_send![cg_clear, CGColor];
+                let _: () = msg_send![wk_layer, setBackgroundColor: cg_color];
+                println!("✅ WKWebView layer set to non-opaque + clear");
+            }
+
+            // 6. Traverse ALL subviews of the WKWebView and clear their backgrounds/layers.
+            println!("🔍 Traversing WKWebView subview tree:");
+            let subviews: id = msg_send![wk, subviews];
+            if !subviews.is_null() {
+                let count: usize = msg_send![subviews, count];
+                println!("  Found {count} direct subviews");
+                for i in 0..count {
+                    let child: id = msg_send![subviews, objectAtIndex: i];
+                    clear_view_tree(child, 1);
+                }
+            }
+
+            // 7. Also clear the WKWebView's superview (wry container) if present.
+            let superview: id = msg_send![wk, superview];
+            if !superview.is_null() {
+                let _: () = msg_send![superview, setOpaque: NO];
+                let responds_bg: BOOL = msg_send![superview, respondsToSelector: sel!(setBackgroundColor:)];
+                if responds_bg != NO {
+                    let _: () = msg_send![superview, setBackgroundColor: clear];
+                }
+                let _: () = msg_send![superview, setWantsLayer: YES];
+                let sv_layer: id = msg_send![superview, layer];
+                if !sv_layer.is_null() {
+                    let _: () = msg_send![sv_layer, setOpaque: NO];
+                    let cg_clear = NSColor::clearColor(nil);
+                    let cg_color: id = msg_send![cg_clear, CGColor];
+                    let _: () = msg_send![sv_layer, setBackgroundColor: cg_color];
+                }
+                let cls: id = msg_send![superview, class];
+                let cls_name: id = msg_send![cls, className];
+                let name_cstr: *const std::ffi::c_char = msg_send![cls_name, UTF8String];
+                let name = if name_cstr.is_null() {
+                    "<unknown>".to_string()
+                } else {
+                    std::ffi::CStr::from_ptr(name_cstr).to_string_lossy().to_string()
+                };
+                println!("✅ Superview ({name}) cleared");
+            }
+
+            println!("✅ WKWebView transparency fully configured (nuclear pass complete)");
+        });
+
+        if guarded.is_err() {
+            eprintln!("❌ WKWebView transparency configuration panicked");
+        }
+    });
+
+    if let Err(e) = result {
+        eprintln!("❌ Failed to access WKWebView handle: {e}");
+    }
+}
+
+fn normalize_nav_path(path: &str) -> String {
+    if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{}", path)
+    }
+}
+
+#[derive(Default)]
+struct SidebarWindowState {
+    width: Mutex<f64>,
+    detached_enabled: Mutex<bool>,
+}
+
+impl SidebarWindowState {
+    fn get_width(&self) -> f64 {
+        let lock = self.width.lock().unwrap();
+        if *lock <= 0.0 { 70.0 } else { *lock }
+    }
+
+    fn set_width(&self, width: f64) -> f64 {
+        let clamped = width.clamp(70.0, 240.0);
+        let mut lock = self.width.lock().unwrap();
+        *lock = clamped;
+        clamped
+    }
+
+    fn is_detached_enabled(&self) -> bool {
+        *self.detached_enabled.lock().unwrap()
+    }
+
+    fn set_detached_enabled(&self, enabled: bool) {
+        let mut lock = self.detached_enabled.lock().unwrap();
+        *lock = enabled;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn sync_detached_sidebar_window(app: &tauri::AppHandle, width: f64) -> Result<(), String> {
+    let main = app
+        .get_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let sidebar = app
+        .get_window("sidebar")
+        .ok_or_else(|| "Sidebar window not found".to_string())?;
+
+    let main_pos = main
+        .outer_position()
+        .map_err(|e| format!("Failed to read main window position: {e}"))?;
+    let main_size = main
+        .outer_size()
+        .map_err(|e| format!("Failed to read main window size: {e}"))?;
+
+    let sidebar_width = width.clamp(70.0, 240.0).round() as u32;
+    let _ = sidebar.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+        x: main_pos.x,
+        y: main_pos.y,
+    }));
+    let _ = sidebar.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+        width: sidebar_width,
+        height: main_size.height,
+    }));
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_detached_sidebar_window(app: &tauri::AppHandle, app_url: &str, width: f64) -> Result<(), String> {
+    let sidebar_url = with_query_param(
+        &format!("{}/sidebar", app_url.trim_end_matches('/')),
+        "ritual_sidebar_window=1",
+    );
+
+    if app.get_window("sidebar").is_none() {
+        let sidebar_external_url = sidebar_url
+            .parse()
+            .map_err(|e| format!("Invalid sidebar URL: {e}"))?;
+
+        tauri::WindowBuilder::new(
+            app,
+            "sidebar",
+            tauri::WindowUrl::External(sidebar_external_url),
+        )
+        .title("")
+        .decorations(false)
+        .transparent(true)
+        .visible(true)
+        .resizable(false)
+        .skip_taskbar(true)
+        .focused(false)
+        .build()
+        .map_err(|e| format!("Failed to create detached sidebar window: {e}"))?;
+    } else if let Some(sidebar) = app.get_window("sidebar") {
+        let sidebar_url_json = serde_json::to_string(&sidebar_url).unwrap_or_else(|_| "\"http://localhost:3000/sidebar\"".to_string());
+        let _ = sidebar.eval(&format!("window.location.replace({});", sidebar_url_json));
+    }
+
+    if let Some(sidebar) = app.get_window("sidebar") {
+        configure_macos_window_transparency(&sidebar);
+        let _ = sidebar.set_always_on_top(false);
+    }
+    sync_detached_sidebar_window(app, width)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn sidebar_set_width(
+    app: tauri::AppHandle,
+    state: tauri::State<SidebarWindowState>,
+    width: f64,
+) -> Result<(), String> {
+    let width = state.set_width(width);
+    #[cfg(target_os = "macos")]
+    {
+        if state.is_detached_enabled() {
+            let _ = sync_detached_sidebar_window(&app, width);
+        }
+    }
+    if let Some(main) = app.get_window("main") {
+        let _ = main.emit("sidebar:width", width);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn sidebar_navigate(
+    app: tauri::AppHandle,
+    state: tauri::State<SidebarWindowState>,
+    path: String,
+) -> Result<(), String> {
+    let mut target = normalize_nav_path(&path);
+    if state.is_detached_enabled() {
+        target = with_query_param(&target, "ritual_detached_sidebar=1");
+    }
+
+    let target_json = serde_json::to_string(&target)
+        .map_err(|e| format!("Failed to serialize target path: {e}"))?;
+    let main = app
+        .get_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    main
+        .eval(&format!("window.location.replace({});", target_json))
+        .map_err(|e| format!("Failed to navigate main window: {e}"))?;
+    if let Some(sidebar) = app.get_window("sidebar") {
+        let _ = sidebar.emit("sidebar:route", target);
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize)]
+struct SidebarMainState {
+    path: String,
+    width: f64,
+}
+
+#[tauri::command]
+fn sidebar_get_main_state(
+    app: tauri::AppHandle,
+    state: tauri::State<SidebarWindowState>,
+) -> Result<SidebarMainState, String> {
+    let width = state.get_width();
+    let mut path = "/dashboard".to_string();
+    if let Some(main) = app.get_window("main") {
+        let url = main.url();
+        let mut p = url.path().to_string();
+        if let Some(query) = url.query() {
+            p.push('?');
+            p.push_str(query);
+        }
+        if !p.is_empty() {
+            path = p;
+        }
+    }
+    Ok(SidebarMainState { path, width })
 }
 
 /// Show the main window (called from frontend when React is ready)
@@ -144,10 +607,14 @@ fn main() {
   let system_tray = SystemTray::new().with_menu(tray_menu);
 
   tauri::Builder::default()
+    .manage(SidebarWindowState::default())
     // Only expose native macOS features - auth is handled by Clerk
     .invoke_handler(tauri::generate_handler![
       // Window management
       show_main_window,
+      sidebar_set_width,
+      sidebar_navigate,
+      sidebar_get_main_state,
       // Native widget commands
       native_widget::create_native_timer_widget,
       native_widget::close_native_timer_widget,
@@ -183,6 +650,8 @@ fn main() {
       watcher::get_focus_metrics,
       // Real-time status
       watcher::get_watcher_extended_status,
+      // Watchdog - auto-restart hung watcher
+      watcher::check_and_restart_watcher_if_hung,
       // App icon extraction
       watcher::get_app_icon,
       watcher::get_app_icons_batch,
@@ -259,17 +728,76 @@ fn main() {
       let handle = app.handle();
       
       // Get the app URL based on environment (Midday pattern)
-      let app_url = get_app_url();
+      let mut app_url = get_app_url();
+      let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
+      if transparency_probe {
+        println!("🧪 Transparency probe mode enabled (RITUAL_TRANSPARENCY_PROBE=1)");
+        println!("🧪 Probe checklist: transparent window + clear NSWindow + guarded WKWebView clear pass + vibrancy material");
+        app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
+      }
       
       // Configure window and navigate to the correct URL
       if let Some(window) = app.get_window("main") {
         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1100.0, height: 800.0 }));
         let _ = window.center();
+        let mut main_url = app_url.clone();
+
+        #[cfg(target_os = "macos")]
+        {
+          configure_macos_window_transparency(&window);
+          configure_macos_webview_transparency(&window);
+
+          let detached_sidebar_enabled = !transparency_probe
+            && env::var("RITUAL_DETACHED_SIDEBAR")
+              .map(|v| {
+                let value = v.trim().to_ascii_lowercase();
+                matches!(value.as_str(), "1" | "true" | "on" | "yes")
+              })
+              .unwrap_or(false);
+          let sidebar_state = app.state::<SidebarWindowState>();
+          sidebar_state.set_detached_enabled(detached_sidebar_enabled);
+          sidebar_state.set_width(70.0);
+
+          if detached_sidebar_enabled {
+            println!("✅ Detached sidebar mode enabled (two-window)");
+            main_url = with_query_param(&main_url, "ritual_detached_sidebar=1");
+            let _ = ensure_detached_sidebar_window(&app.handle(), &app_url, sidebar_state.get_width());
+            let _ = window.emit("sidebar:width", sidebar_state.get_width());
+
+            let app_handle_for_sync = app.handle();
+            window.on_window_event(move |event| {
+              match event {
+                tauri::WindowEvent::Moved(_)
+                | tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                  let state = app_handle_for_sync.state::<SidebarWindowState>();
+                  let width = state.get_width();
+                  let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
+                  if let Some(main_window) = app_handle_for_sync.get_window("main") {
+                    let _ = main_window.emit("sidebar:width", width);
+                  }
+                }
+                tauri::WindowEvent::CloseRequested { .. } => {
+                  if let Some(sidebar_window) = app_handle_for_sync.get_window("sidebar") {
+                    let _ = sidebar_window.close();
+                  }
+                }
+                _ => {}
+              }
+            });
+          } else {
+            sidebar_state.set_detached_enabled(false);
+            if let Some(sidebar_window) = app.get_window("sidebar") {
+              let _ = sidebar_window.close();
+            }
+          }
+        }
         
         // Navigate to the app URL (this overrides tauri.conf.json devPath/distDir)
         // This allows us to load from localhost in dev or hosted URL in production
-        println!("🚀 Navigating to: {}", app_url);
-        let _ = window.eval(&format!("window.location.replace('{}');", app_url));
+        println!("🚀 Navigating to: {}", main_url);
+        let app_url_json = serde_json::to_string(&main_url).unwrap_or_else(|_| "\"http://localhost:3000\"".to_string());
+        let _ = window.eval(&format!("window.location.replace({});", app_url_json));
         
         // Fallback timer: show window after 3 seconds if frontend hasn't shown it
         // This prevents the app from appearing stuck if there's a loading issue

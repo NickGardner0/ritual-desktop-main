@@ -5,16 +5,15 @@ const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === 'true',
 });
 
+const corsAllowOrigin =
+  process.env.CORS_ALLOW_ORIGIN ||
+  process.env.NEXT_PUBLIC_APP_ORIGIN ||
+  'tauri://localhost';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable strict mode for better development experience and catching potential issues
   reactStrictMode: true,
-  
-  // Skip TypeScript checks during build
-  // TODO: Fix TypeScript errors properly later
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   
   // Enable experimental features for better performance
   experimental: {
@@ -55,7 +54,7 @@ const nextConfig = {
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
-            value: '*',
+            value: corsAllowOrigin,
           },
           {
             key: 'Access-Control-Allow-Methods',

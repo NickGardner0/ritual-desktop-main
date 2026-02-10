@@ -71,13 +71,13 @@ If you prefer, you can update the values directly in the generated `Info.plist` 
 
 ### 3.1 For Local Development
 
-Update `AppConfig.swift` or set the `API_BASE_URL_DEBUG` build setting to your Mac's local IP address:
+Set the `API_BASE_URL_DEBUG` build setting to your Mac's local IP address:
 
 1. Find your Mac's IP address:
    ```bash
    ifconfig | grep "inet " | grep -v 127.0.0.1
    ```
-2. Update the debug URL (e.g., `http://192.168.1.237:8000`)
+2. Set `API_BASE_URL_DEBUG` (e.g., `http://192.168.1.237:8000`)
 
 ### 3.2 For Production
 
@@ -168,7 +168,7 @@ Once the app is configured and working:
 
 1. **Test on a real device** - Associated domains require a real device
 2. **Set up background sync** - Configure background delivery for HealthKit
-3. **Add more metrics** - Extend HealthKitManager to sync additional health data
+3. **Add more metrics** - Extend `HealthKitManagerV2` to sync additional health data
 4. **Improve UI** - Customize the design to match your brand
 5. **Add analytics** - Track app usage and sync success rates
 
@@ -186,4 +186,3 @@ If you encounter issues:
 2. Review backend logs for API errors
 3. Verify all configuration values are correct
 4. Test with a fresh install (delete app and reinstall)
-

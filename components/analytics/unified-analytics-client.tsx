@@ -19,6 +19,9 @@ import { ViewModeToggle, ViewMode } from './view-mode-toggle';
 import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
+import { useQueryClient } from '@tanstack/react-query';
+import { habitLogKeys } from '@/hooks/use-habits-query';
+import { useUser } from '@clerk/nextjs';
 // Import from separate file to avoid pulling in recharts (~500KB)
 import { AnalyticsViewToggle } from './analytics-view-toggle';
 
@@ -46,7 +49,7 @@ function ViewLoadingFallback() {
 
 // Compact loading fallback for controls
 function ControlLoadingFallback() {
-  return <div className="h-9 w-32 bg-gray-100 animate-pulse" />;
+  return <div className="h-8 w-28 bg-gray-100 animate-pulse" />;
 }
 
 // Inner component that uses the filter context
@@ -72,10 +75,14 @@ function UnifiedAnalyticsContent() {
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   
   // Get habits context for refresh after creating/importing
-  const { habits, fetchHabits, fetchHabitLogs } = useHabits();
+  const { habits, habitLogs, fetchHabits, fetchHabitLogs } = useHabits();
   
   // Get AI context for chat
   const { showAIChat, isFullScreenChat } = useAI();
+  
+  // For optimistic updates via React Query
+  const queryClient = useQueryClient();
+  const { user } = useUser();
   
   // Load chart view mode from localStorage
   useEffect(() => {
@@ -149,74 +156,73 @@ function UnifiedAnalyticsContent() {
     }
   }, [fetchHabits]);
 
+  // Render page-specific controls into the header slot via portal
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setHeaderSlot(document.getElementById('header-right-slot'));
+  }, []);
+
   return (
     <div className="space-y-3">
-      {/* Header Row */}
-      {!isFullScreenChat && (
-        <div className="flex items-center justify-between gap-4 -mt-2">
-          {/* Left side - Metrics-specific controls */}
-          <div className="flex items-center gap-3">
-            {viewMode === 'metrics' && (
-              <>
-                {/* Spark/Bar Toggle */}
-                <AnalyticsViewToggle
-                  currentView={chartViewMode}
-                  onViewChange={setChartViewMode}
-                  darkMode={false}
-                />
-                
-                {/* Habit Filter Dropdown */}
-                <div className="relative">
-                  <button
-                    ref={habitDropdownButtonRef}
-                    onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
-                    className="flex items-center gap-2 px-3 h-9 bg-white border border-gray-200 text-sm text-gray-600 hover:bg-[#F7F7F7] transition-colors"
-                  >
-                    <span>
-                      {selectedHabits.length === habits.length
-                        ? 'All habits'
-                        : `${selectedHabits.length} of ${habits.length}`
-                      }
-                    </span>
-                    <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          
-          {/* Right side controls - Add (overview only) + Date picker + View toggle */}
-          <div className="flex items-center gap-2">
-            {/* Add menu button - Only in Overview mode */}
-            {viewMode === 'overview' && (
+      {/* Page controls — portalled into the header-right-slot */}
+      {!isFullScreenChat && headerSlot && createPortal(
+        <>
+          {/* Metrics-specific controls */}
+          {viewMode === 'metrics' && (
+            <>
+              <AnalyticsViewToggle
+                currentView={chartViewMode}
+                onViewChange={setChartViewMode}
+                darkMode={false}
+              />
               <div className="relative">
                 <button
-                  ref={overflowButtonRef}
-                  onClick={() => setShowOverflowMenu(!showOverflowMenu)}
-                  className="h-9 w-9 border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F7F7F7] transition-colors flex items-center justify-center"
-                  aria-label="Add"
+                  ref={habitDropdownButtonRef}
+                  onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
+                  className="flex items-center gap-2 px-3 h-8 bg-white border border-gray-200 text-[13px] text-gray-600 hover:bg-[#F7F7F7] transition-colors"
                 >
-                  <Plus className="w-4 h-4" />
+                  <span>
+                    {selectedHabits.length === habits.length
+                      ? 'All habits'
+                      : `${selectedHabits.length} of ${habits.length}`
+                    }
+                  </span>
+                  <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
               </div>
-            )}
-            
-            {/* Date Range Picker - Lazy loaded */}
-            <Suspense fallback={<ControlLoadingFallback />}>
-              <DateRangePicker
-                className="w-auto"
-                onDateRangeChange={setDateRange}
-                initialDateRange={dateRange}
-              />
-            </Suspense>
-            
-            {/* View Toggle - Primary control, furthest right */}
-            <ViewModeToggle
-              currentView={viewMode}
-              onViewChange={handleViewChange}
+            </>
+          )}
+
+          {/* Add menu button - Only in Overview mode */}
+          {viewMode === 'overview' && (
+            <div className="relative">
+              <button
+                ref={overflowButtonRef}
+                onClick={() => setShowOverflowMenu(!showOverflowMenu)}
+                className="h-8 w-8 border border-gray-200 bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F7F7F7] transition-colors flex items-center justify-center"
+                aria-label="Add"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          
+          {/* Date Range Picker */}
+          <Suspense fallback={<ControlLoadingFallback />}>
+            <DateRangePicker
+              className="w-auto"
+              onDateRangeChange={setDateRange}
+              initialDateRange={dateRange}
             />
-          </div>
-        </div>
+          </Suspense>
+          
+          {/* View Toggle */}
+          <ViewModeToggle
+            currentView={viewMode}
+            onViewChange={handleViewChange}
+          />
+        </>,
+        headerSlot
       )}
       
       {/* Overflow Menu Portal */}
@@ -379,19 +385,120 @@ function UnifiedAnalyticsContent() {
       
       {/* AI Habit Chat - Fixed at bottom, only visible in Overview mode */}
       {showAIChat && viewMode === 'overview' && (
-        <div className="fixed bottom-0 left-16 right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white via-white/95 to-transparent">
+        <div className="fixed bottom-0 left-[70px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white via-white/95 to-transparent">
           <div className="w-full max-w-2xl">
             <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
               <AIHabitChat
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
-                  if (habitData.refreshNeeded) {
+                  
+                  if (habitData.optimisticUpdate) {
+                    // Optimistic update: instantly add a temporary log to the UI
+                    console.log('🚀 Optimistic update received, updating UI immediately...');
+                    
+                    if (habitData.habitId && (habitData.duration !== undefined || habitData.amount !== undefined)) {
+                      const tempLog = {
+                        id: `temp-${Date.now()}`,
+                        habit_id: habitData.habitId,
+                        duration: habitData.duration ? habitData.duration * 60 : 0,
+                        amount: habitData.amount || null,
+                        date: new Date().toISOString().split('T')[0],
+                        completed_at: new Date().toISOString(),
+                        status: 'completed' as const,
+                        notes: habitData.notes || '',
+                        unit: habitData.unit || ''
+                      };
+                      
+                      // Add temporary log via React Query cache for instant UI update
+                      if (user?.id) {
+                        queryClient.setQueryData(
+                          habitLogKeys.list(user.id),
+                          (old: any[] | undefined) => old ? [...old, tempLog] : [tempLog]
+                        );
+                        console.log('✅ Added optimistic log to React Query cache:', tempLog);
+                      }
+                    }
+                    
+                    // Play the ring sound effect
+                    if (habitData.playSound) {
+                      try {
+                        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                        if (audioContext.state === 'suspended') {
+                          await audioContext.resume();
+                        }
+                        
+                        const oscillator1 = audioContext.createOscillator();
+                        const oscillator2 = audioContext.createOscillator();
+                        const gainNode = audioContext.createGain();
+                        
+                        oscillator1.connect(gainNode);
+                        oscillator2.connect(gainNode);
+                        gainNode.connect(audioContext.destination);
+                        
+                        oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
+                        oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
+                        
+                        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                        gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
+                        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+                        
+                        oscillator1.type = 'sine';
+                        oscillator2.type = 'sine';
+                        
+                        oscillator1.start(audioContext.currentTime);
+                        oscillator2.start(audioContext.currentTime);
+                        oscillator1.stop(audioContext.currentTime + 0.6);
+                        oscillator2.stop(audioContext.currentTime + 0.6);
+                      } catch (e) {
+                        console.log('Sound playback failed:', e);
+                      }
+                    }
+                    
+                    console.log('✅ Optimistic update complete, waiting for backend confirmation...');
+                  } else if (habitData.refreshNeeded) {
+                    // Backend confirmed - now refresh from database
+                    console.log('🔄 Backend confirmed success, refreshing from database...');
                     try {
                       await Promise.all([
                         fetchHabits(),
                         fetchHabitLogs()
                       ]);
                       console.log('✅ Dashboard data refreshed after habit log');
+                      
+                      // Play sound on successful multi-intent log (when no optimistic update was done)
+                      if (habitData.playSound) {
+                        try {
+                          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                          if (audioContext.state === 'suspended') {
+                            await audioContext.resume();
+                          }
+                          
+                          const oscillator1 = audioContext.createOscillator();
+                          const oscillator2 = audioContext.createOscillator();
+                          const gainNode = audioContext.createGain();
+                          
+                          oscillator1.connect(gainNode);
+                          oscillator2.connect(gainNode);
+                          gainNode.connect(audioContext.destination);
+                          
+                          oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
+                          oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
+                          
+                          gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                          gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
+                          gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+                          
+                          oscillator1.type = 'sine';
+                          oscillator2.type = 'sine';
+                          
+                          oscillator1.start(audioContext.currentTime);
+                          oscillator2.start(audioContext.currentTime);
+                          oscillator1.stop(audioContext.currentTime + 0.6);
+                          oscillator2.stop(audioContext.currentTime + 0.6);
+                        } catch (e) {
+                          console.log('Sound playback failed:', e);
+                        }
+                      }
                     } catch (error) {
                       console.error('❌ Error refreshing dashboard data:', error);
                     }

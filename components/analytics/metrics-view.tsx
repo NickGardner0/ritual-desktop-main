@@ -42,6 +42,8 @@ import {
   ResponsiveContainer,
   Tooltip
 } from 'recharts';
+import { PerplexityExpandedHabitChart, type RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
+import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
 
 type HabitData = {
   habit_id: string;
@@ -1383,7 +1385,7 @@ export function MetricsView({
 
           {/* Expanded View */}
           {expandedHabit && (
-            <div className="mt-4 bg-white border border-gray-200 p-6">
+            <div className="mt-3 bg-white border border-gray-200 p-4">
               {loadingExpandedLogs ? (
                 <div className="flex items-center justify-center h-[400px]">
                   <div className="text-center">
@@ -1405,44 +1407,41 @@ export function MetricsView({
                 return (
                   <>
                     {/* Header Row */}
-                    <div className="flex items-start justify-between mb-8">
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <h3 className="text-2xl font-medium text-gray-900 tracking-tight">{habit.habit_name}</h3>
-                          {compHabit && (
-                            <span className="text-gray-400 text-xl font-medium flex items-center">
-                              <span className="mr-2">vs</span>
-                              <span className="text-slate-500">{compHabit.habit_name}</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                    {/* Compact header - title + close */}
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-lg font-medium text-gray-900">
+                        {habit.habit_name}
+                        {compHabit && (
+                          <span className="text-gray-400 font-normal ml-2">
+                            vs <span className="text-gray-600">{compHabit.habit_name}</span>
+                          </span>
+                        )}
+                      </h3>
                       <button
                         onClick={() => setExpandedHabit(null)}
-                        className="p-2 transition-colors"
+                        className="p-1.5 hover:bg-gray-100 rounded transition-colors"
                       >
-                        <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                        <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
                       </button>
                     </div>
 
-                    {/* Toolbar */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+                    {/* Toolbar - range pills + compare on same row */}
+                    <div className="flex items-center justify-between gap-3 mb-4">
                       {hasCustomDateRange ? (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-[#F3F3F3] border border-gray-300">
-                          <span className="text-xs font-medium text-gray-700">
+                        <div className="flex items-center gap-2 px-2.5 py-1 bg-gray-50 border border-gray-200 text-xs">
+                          <span className="font-medium text-gray-700">
                             {format(dateRange!.from!, 'MMM d')} – {format(dateRange!.to!, 'MMM d, yyyy')}
                           </span>
-                          <span className="text-[10px] text-gray-500">(from date picker)</span>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-0.5 p-1 bg-white border border-gray-200 shadow-sm">
+                        <div className="flex items-center gap-0.5 p-0.5 bg-white border border-gray-200">
                           {ranges.map((range) => (
                             <button
                               key={range}
                               onClick={() => setExpandedTimeRange(range as any)}
-                              className={`px-3 py-1.5 text-xs transition-all duration-200 ${expandedTimeRange === range
-                                ? 'bg-[#F3F3F3] text-gray-900 font-medium shadow-sm'
-                                : 'text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3] font-normal'
+                              className={`px-2.5 py-1 text-xs transition-all ${expandedTimeRange === range
+                                ? 'bg-gray-100 text-gray-900 font-medium'
+                                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
                               }`}
                             >
                               {range}
@@ -1451,144 +1450,65 @@ export function MetricsView({
                         </div>
                       )}
 
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-medium text-gray-400 uppercase tracking-widest">Compare</span>
-                          <CustomSelect
-                            value={compareHabitId}
-                            options={compareOptions}
-                            onChange={(val: string) => setCompareHabitId(val || null)}
-                            placeholder="None"
-                          />
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">Compare</span>
+                        <CustomSelect
+                          value={compareHabitId}
+                          options={compareOptions}
+                          onChange={(val: string) => setCompareHabitId(val || null)}
+                          placeholder="None"
+                        />
                       </div>
                     </div>
 
-                    {/* Stats Grid */}
-                    <div ref={chartRef} className="bg-white">
-                      <div className="grid grid-cols-5 gap-3 mb-8">
-                        <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
-                          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Total</p>
-                          <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{totalValue.toFixed(1)}</p>
-                        </div>
-                        <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
-                          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Average</p>
-                          <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{avgValue.toFixed(1)}</p>
-                        </div>
-                        <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
-                          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Min</p>
-                          <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{minValue.toFixed(1)}</p>
-                        </div>
-                        <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
-                          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Max</p>
-                          <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{maxValue.toFixed(1)}</p>
-                        </div>
-                        <div className="bg-white border border-gray-200 p-2 shadow-sm backdrop-blur-sm">
-                          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide mb-0.5">Std Dev</p>
-                          <p className="text-lg font-medium text-gray-900 tabular-nums tracking-tight">{stdDev.toFixed(1)}</p>
-                        </div>
+                    {/* Inline stats row - compact horizontal layout */}
+                    <div className="flex items-center gap-4 mb-3 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-400 uppercase tracking-wide">Total</span>
+                        <span className="font-medium text-gray-900 tabular-nums">{totalValue.toFixed(1)}</span>
                       </div>
-
-                      {/* Correlation Display */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-400 uppercase tracking-wide">Avg</span>
+                        <span className="font-medium text-gray-900 tabular-nums">{avgValue.toFixed(1)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-400 uppercase tracking-wide">Min</span>
+                        <span className="font-medium text-gray-900 tabular-nums">{minValue.toFixed(1)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-400 uppercase tracking-wide">Max</span>
+                        <span className="font-medium text-gray-900 tabular-nums">{maxValue.toFixed(1)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-gray-400 uppercase tracking-wide">Std</span>
+                        <span className="font-medium text-gray-900 tabular-nums">{stdDev.toFixed(1)}</span>
+                      </div>
+                      {/* Correlation inline */}
                       {compHabit && correlationData && (
-                        <div className="mb-4 inline-flex items-center gap-2 px-2.5 py-1.5 bg-white/70 backdrop-blur-md border border-gray-200/60 shadow-sm">
-                          <span className="text-[10px] text-gray-500 uppercase tracking-wide">Correlation</span>
-                          <span className="text-sm font-semibold text-gray-900 tabular-nums">
+                        <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-gray-200">
+                          <span className="text-gray-400 uppercase tracking-wide">Corr</span>
+                          <span className="font-medium text-gray-900 tabular-nums">
                             {correlationData.correlation?.coefficient?.toFixed(2)}
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            {correlationData.correlation?.strength}
                           </span>
                         </div>
                       )}
+                    </div>
 
-                      {/* Chart - Perplexity/TradingView Spark Style */}
+                    {/* Chart - Perplexity Finance Style */}
+                    <div ref={chartRef}>
                       <Suspense fallback={
-                        <div className="flex items-center justify-center h-[300px]">
-                          <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+                        <div className="flex items-center justify-center h-[180px]">
+                          <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
                         </div>
                       }>
-                        <div className="h-[350px] w-full bg-white">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData} margin={{ top: 20, right: 20, left: 10, bottom: 20 }}>
-                              <defs>
-                                {/* Subtle gradient fill - matching TradingView/Perplexity style */}
-                                <linearGradient id={`area-fill-${expandedHabit}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="0%" stopColor="#64748B" stopOpacity={0.08} />
-                                  <stop offset="100%" stopColor="#64748B" stopOpacity={0} />
-                                </linearGradient>
-                                {compHabit && (
-                                  <linearGradient id={`area-fill-comp`} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#94A3B8" stopOpacity={0.06} />
-                                    <stop offset="100%" stopColor="#94A3B8" stopOpacity={0} />
-                                  </linearGradient>
-                                )}
-                              </defs>
-                              {/* Subtle horizontal grid lines only */}
-                              <CartesianGrid 
-                                strokeDasharray="3 3" 
-                                stroke="#E2E8F0" 
-                                vertical={false} 
-                              />
-                              <XAxis
-                                dataKey="shortDate"
-                                axisLine={false}
-                                tickLine={false}
-                                tick={{ fill: '#94A3B8', fontSize: 11 }}
-                                dy={8}
-                                interval="preserveStartEnd"
-                              />
-                              <YAxis
-                                yAxisId="left"
-                                axisLine={false}
-                                tickLine={false}
-                                tick={{ fill: '#94A3B8', fontSize: 11 }}
-                                width={45}
-                              />
-                              {compHabit && (
-                                <YAxis
-                                  yAxisId="right"
-                                  orientation="right"
-                                  axisLine={false}
-                                  tickLine={false}
-                                  tick={{ fill: '#94A3B8', fontSize: 11 }}
-                                  width={45}
-                                />
-                              )}
-                              <Tooltip 
-                                content={<CustomTooltip />} 
-                                cursor={{ stroke: '#CBD5E1', strokeWidth: 1, strokeDasharray: '3 3' }} 
-                              />
-                              {/* Area fill - very subtle */}
-                              <Area
-                                yAxisId="left"
-                                type="monotone"
-                                dataKey="value"
-                                stroke="#475569"
-                                strokeWidth={1.5}
-                                fill={`url(#area-fill-${expandedHabit})`}
-                                name={habit.habit_name}
-                                isAnimationActive={false}
-                                dot={false}
-                                activeDot={{ r: 4, fill: '#475569', stroke: '#fff', strokeWidth: 2 }}
-                              />
-                              {compHabit && (
-                                <Area
-                                  yAxisId="right"
-                                  type="monotone"
-                                  dataKey="compValue"
-                                  stroke="#94A3B8"
-                                  strokeWidth={1.5}
-                                  fill={`url(#area-fill-comp)`}
-                                  name={compHabit.habit_name}
-                                  isAnimationActive={false}
-                                  dot={false}
-                                  activeDot={{ r: 4, fill: '#94A3B8', stroke: '#fff', strokeWidth: 2 }}
-                                />
-                              )}
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        </div>
+                        <PerplexityExpandedHabitChart
+                          title={habit.habit_name}
+                          subtitle={`At close: ${chartData.length > 0 ? chartData[chartData.length - 1]?.date : ''}`}
+                          points={habitToFinanceSeries(chartData)}
+                          range={expandedTimeRange as RangeKey}
+                          onRangeChange={(r) => setExpandedTimeRange(r as any)}
+                          unit={habit.unit_type || (habit as any).unit || ''}
+                        />
                       </Suspense>
                     </div>
                   </>

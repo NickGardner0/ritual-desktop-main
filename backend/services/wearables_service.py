@@ -25,6 +25,7 @@ from database.models import (
     HabitDB,
     HabitLogDB,
 )
+from services.token_crypto import token_crypto
 from schemas.wearables_apple import (
     NormalizedMetricSchema,
     AppleIngestRequest,
@@ -49,6 +50,13 @@ class WearablesService:
         self._pending_tinybird_syncs: List[Dict[str, Any]] = []
         self._tinybird_batch_size = 50
         self._tinybird_flush_interval = 5  # seconds
+
+    def _decrypt_device_secret(self, stored_secret: str) -> str:
+        """Resolve legacy plaintext and encrypted device secrets."""
+        resolved = token_crypto.decrypt(stored_secret)
+        if not resolved:
+            raise ValueError("Device secret missing")
+        return resolved
     
     def queue_tinybird_sync(self, log_data: Dict[str, Any]) -> None:
         """Queue a habit log for async Tinybird sync"""
@@ -130,9 +138,8 @@ class WearablesService:
         device_secret_bytes = os.urandom(32)
         device_secret = base64.b64encode(device_secret_bytes).decode('utf-8')
         
-        # For now, store the secret directly (can add encryption later)
-        # In production, you might want to hash this or use envelope encryption
-        device_secret_hash = device_secret
+        # Encrypt secrets at rest before storing in the database.
+        device_secret_hash = token_crypto.encrypt(device_secret)
         
         async with get_db_session() as session:
             device = WearableDeviceDB(
@@ -230,11 +237,7 @@ class WearablesService:
                 hashlib.sha256
             ).digest()
             expected_sig_b64 = base64.b64encode(expected_sig).decode('utf-8')
-            
-            print(f"📝 Backend expected signature: {expected_sig_b64}")
-            print(f"📝 Backend received signature: {provided_signature}")
-            print(f"📝 Signatures match: {hmac.compare_digest(expected_sig_b64, provided_signature)}")
-            
+
             # Constant-time comparison to prevent timing attacks
             return hmac.compare_digest(expected_sig_b64, provided_signature)
         except Exception as e:
@@ -421,7 +424,8 @@ class WearablesService:
             request.captured_at
         )
         
-        if not self.verify_signature(device.device_secret_hash, canonical, request.signature):
+        device_secret = self._decrypt_device_secret(device.device_secret_hash)
+        if not self.verify_signature(device_secret, canonical, request.signature):
             print(f"❌ Signature verification failed for device {request.device_id}")
             return False, [], "Invalid signature"
         
@@ -552,7 +556,8 @@ class WearablesService:
             request.captured_at
         )
         
-        if not self.verify_signature(device.device_secret_hash, canonical, request.signature):
+        device_secret = self._decrypt_device_secret(device.device_secret_hash)
+        if not self.verify_signature(device_secret, canonical, request.signature):
             print(f"❌ Signature verification failed for device {request.device_id}")
             return False, [], [], [], "Invalid signature"
         

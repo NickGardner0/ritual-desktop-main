@@ -19,8 +19,14 @@ function IntegrationSuccessContent() {
     const code = searchParams.get('code');
     const error = searchParams.get('error');
     const sessionId = searchParams.get('sessionId');
+    const sessionToken = searchParams.get('sessionToken');
 
-    console.log('📱 Success page loaded', { hasCode: !!code, hasError: !!error, sessionId });
+    console.log('📱 Success page loaded', {
+      hasCode: !!code,
+      hasError: !!error,
+      sessionId,
+      hasSessionToken: !!sessionToken,
+    });
 
     // Handle error from OAuth
     if (error) {
@@ -30,12 +36,15 @@ function IntegrationSuccessContent() {
     }
 
     // Store code for desktop app to retrieve
-    if (code && sessionId) {
-      storeCode(code, sessionId);
+    if (code && sessionId && sessionToken) {
+      storeCode(code, sessionId, sessionToken);
     } else if (code && !sessionId) {
       // No session ID means something went wrong
       setStatus('error');
       setErrorMessage('Missing session ID. Please try connecting again from your desktop app.');
+    } else if (code && !sessionToken) {
+      setStatus('error');
+      setErrorMessage('Missing session token. Please try connecting again from your desktop app.');
     } else {
       // No code means something went wrong
       setStatus('error');
@@ -46,7 +55,7 @@ function IntegrationSuccessContent() {
   /**
    * Store OAuth code temporarily for desktop app to retrieve
    */
-  async function storeCode(code: string, sessionId: string) {
+  async function storeCode(code: string, sessionId: string, sessionToken: string) {
     try {
       console.log('💾 Storing OAuth code for session:', sessionId);
 
@@ -55,7 +64,7 @@ function IntegrationSuccessContent() {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ code, sessionId })
+        body: JSON.stringify({ code, sessionId, sessionToken })
       });
 
       if (!response.ok) {

@@ -17,9 +17,6 @@ struct RitualCompanionApp: App {
         // Set up V2 background sync - this registers the background task handler
         // MUST be called before the app finishes launching
         BackgroundSyncManagerV2.shared.setupBackgroundSync()
-        
-        // Also register V1 task for backwards compatibility (can remove later)
-        BackgroundSyncManager.shared.setupBackgroundSync()
     }
     
     var body: some Scene {

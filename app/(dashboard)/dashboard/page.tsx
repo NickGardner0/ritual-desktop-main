@@ -52,7 +52,7 @@ function DashboardLoading() {
 export default function DashboardPage() {
   return (
     <div className="flex-1 overflow-auto bg-white relative">
-      <div className="max-w-7xl mx-auto p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-10 pb-6">
         <Suspense fallback={<DashboardLoading />}>
           <UnifiedAnalyticsClient />
         </Suspense>

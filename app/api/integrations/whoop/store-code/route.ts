@@ -1,15 +1,15 @@
 /**
  * Temporary OAuth Code Storage
  * 
- * This endpoint allows storing OAuth codes from the browser (no auth required)
- * The desktop app can then retrieve and exchange them (with auth)
+ * This endpoint stores OAuth codes keyed by a session ID + session token pair.
+ * The desktop app must present both values when polling.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
 // In-memory storage for OAuth codes (temporary, will be lost on restart)
 // In production, you'd use Redis or a database
-const codeStore = new Map<string, { code: string, timestamp: number }>();
+const codeStore = new Map<string, { code: string, sessionToken: string, timestamp: number }>();
 
 // Clean up old codes every minute
 setInterval(() => {
@@ -26,11 +26,11 @@ setInterval(() => {
 
 export async function POST(request: NextRequest) {
   try {
-    const { code, sessionId } = await request.json();
+    const { code, sessionId, sessionToken } = await request.json();
     
-    if (!code || !sessionId) {
+    if (!code || !sessionId || !sessionToken) {
       return NextResponse.json(
-        { error: 'Missing code or sessionId' },
+        { error: 'Missing code, sessionId, or sessionToken' },
         { status: 400 }
       );
     }
@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     
     codeStore.set(sessionId, {
       code,
+      sessionToken,
       timestamp: Date.now()
     });
 
@@ -60,17 +61,18 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const sessionId = searchParams.get('sessionId');
+    const sessionToken = searchParams.get('sessionToken');
     
-    if (!sessionId) {
+    if (!sessionId || !sessionToken) {
       return NextResponse.json(
-        { error: 'Missing sessionId' },
+        { error: 'Missing sessionId or sessionToken' },
         { status: 400 }
       );
     }
 
     const stored = codeStore.get(sessionId);
     
-    if (!stored) {
+    if (!stored || stored.sessionToken !== sessionToken) {
       return NextResponse.json(
         { found: false },
         { status: 200 }
@@ -95,4 +97,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

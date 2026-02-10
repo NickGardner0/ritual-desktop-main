@@ -1,28 +1,63 @@
 import Foundation
 
-/// App configuration - Simple hardcoded values for your Ritual instance
+/// App configuration loaded from build settings / Info.plist.
 enum AppConfig {
+    private static func configuredValue(
+        infoPlistKey: String,
+        environmentKey: String
+    ) -> String? {
+        if let envValue = ProcessInfo.processInfo.environment[environmentKey], !envValue.isEmpty {
+            return envValue
+        }
+
+        guard let value = Bundle.main.object(forInfoDictionaryKey: infoPlistKey) as? String else {
+            return nil
+        }
+
+        // Ignore unresolved build setting placeholders like "$(CLERK_PUBLISHABLE_KEY)".
+        if value.isEmpty || value.contains("$(") {
+            return nil
+        }
+
+        return value
+    }
+
+    private static func requireConfiguredValue(
+        infoPlistKey: String,
+        environmentKey: String
+    ) -> String {
+        guard let value = configuredValue(infoPlistKey: infoPlistKey, environmentKey: environmentKey) else {
+            fatalError("Missing required iOS config value: \(environmentKey)")
+        }
+        return value
+    }
     
     // MARK: - Clerk Configuration
     
-    /// Your Clerk publishable key
-    static let clerkPublishableKey = "pk_test_cmF0aW9uYWwtcmF0dGxlci03Ny5jbGVyay5hY2NvdW50cy5kZXYk"
+    static let clerkPublishableKey = requireConfiguredValue(
+        infoPlistKey: "RitualClerkPublishableKey",
+        environmentKey: "CLERK_PUBLISHABLE_KEY"
+    )
     
-    /// Your Clerk frontend API domain (used for associated domains)
-    static let clerkFrontendAPI = "rational-rattler-77.clerk.accounts.dev"
+    static let clerkFrontendAPI = requireConfiguredValue(
+        infoPlistKey: "RitualClerkFrontendAPI",
+        environmentKey: "CLERK_FRONTEND_API"
+    )
     
     // MARK: - API Configuration
     
-    /// Backend API base URL
-    /// For local development: Use your Mac's IP address (run `ifconfig | grep "inet "` to find it)
-    /// For production: Use your deployed API URL
     static var apiBaseURL: String {
         #if DEBUG
-        // Local development - update this IP if your network changes
-        return "http://192.168.1.237:8000"
+        // Local development default keeps simulator usage simple.
+        return configuredValue(
+            infoPlistKey: "RitualAPIBaseURLDebug",
+            environmentKey: "API_BASE_URL_DEBUG"
+        ) ?? "http://127.0.0.1:8000"
         #else
-        // Production
-        return "https://api.ritual.app"
+        return requireConfiguredValue(
+            infoPlistKey: "RitualAPIBaseURL",
+            environmentKey: "API_BASE_URL"
+        )
         #endif
     }
     
@@ -36,4 +71,3 @@ enum AppConfig {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
 }
-

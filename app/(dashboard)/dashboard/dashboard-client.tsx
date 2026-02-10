@@ -968,7 +968,7 @@ export function DashboardClient() {
 
       {/* AI Habit Chat - Conditionally rendered */}
       {showAIChat && (
-        <div className="fixed bottom-0 left-16 right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white via-white/95 to-transparent">
+        <div className="fixed bottom-0 left-[70px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white via-white/95 to-transparent">
           <div className="w-full max-w-2xl">
             <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
               <AIHabitChat

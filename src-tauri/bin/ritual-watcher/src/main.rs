@@ -278,9 +278,32 @@ fn main() {
     info!("👋 Ritual Watcher stopped");
 }
 
+/// Pump the main thread's run loop for the given duration instead of sleeping.
+/// This allows macOS system events (like NSWorkspace app activation notifications)
+/// to be processed, keeping NSWorkspace.frontmostApplication() up to date.
+/// Without this, a command-line process gets stale data from frontmostApplication().
+#[cfg(target_os = "macos")]
+fn pump_run_loop(duration: Duration) {
+    use core_foundation_sys::runloop::{kCFRunLoopDefaultMode, CFRunLoopRunInMode};
+    unsafe {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, duration.as_secs_f64(), 0);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pump_run_loop(duration: Duration) {
+    std::thread::sleep(duration);
+}
+
 fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<AtomicBool>) {
     let poll_interval = Duration::from_millis(config.poll_interval_ms);
     let excluded: HashSet<String> = config.excluded_bundle_ids.iter().cloned().collect();
+
+    // On macOS, pump the main thread's run loop instead of sleeping.
+    // This is critical: without a running run loop, NSWorkspace.frontmostApplication()
+    // returns stale/cached data because system events that update workspace state
+    // (like app activations) are never delivered to this process.
+    info!("✅ Using run loop pumping for accurate app detection");
     let pulsetime_ms = (config.pulsetime_seconds * 1000.0) as u64;
     
     // Hard gap threshold: if time since last heartbeat exceeds this, always close the event
@@ -300,6 +323,8 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
     let mut last_poll_time = now_ms();
     let mut was_afk = false; // Track AFK state for boundary detection
     let mut last_notified_bundle: Option<String> = None; // Track last notification to avoid duplicates
+    let mut loop_iteration: u64 = 0; // Track loop iterations for diagnostics
+    let mut last_status_log = now_ms(); // Periodic status logging
     
     // Initialize sync queue for backend reliability
     let sync_queue = match SyncQueue::new(&config.database_path.replace("watcher.db", "sync_queue.db")) {
@@ -497,7 +522,7 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
         
         // ===== SKIP PROCESSING IF SCREEN IS LOCKED =====
         if is_screen_locked {
-            std::thread::sleep(poll_interval);
+            pump_run_loop(poll_interval);
             continue;
         }
         
@@ -553,6 +578,15 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
             }
         }
 
+        // ===== APP SWITCH SETTLING DELAY =====
+        // After an app switch notification, wait 100ms before querying window info.
+        // This gives macOS time to fully update the window list and focus state,
+        // preventing stale window titles from being attributed to the new app.
+        #[cfg(target_os = "macos")]
+        if _notification_triggered {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
         // ===== GET ACTIVE WINDOW INFO =====
         match get_active_window_info() {
             Ok(Some(info)) => {
@@ -584,7 +618,7 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
                         close_session(session, db, &sync_queue, now, SessionCloseReason::AppExcluded);
                     }
                     current_session = None;
-                    std::thread::sleep(poll_interval);
+                    pump_run_loop(poll_interval);
                     continue;
                 }
 
@@ -832,7 +866,25 @@ fn run_watcher_loop(config: &WatcherConfig, db: &WatcherDatabase, running: Arc<A
             error!("Failed to update heartbeat: {}", e);
         }
 
-        std::thread::sleep(poll_interval);
+        // Increment loop counter
+        loop_iteration += 1;
+
+        // Periodic status logging (every 5 minutes) to help diagnose hangs
+        let status_interval_ms: u64 = 5 * 60 * 1000; // 5 minutes
+        if now.saturating_sub(last_status_log) > status_interval_ms {
+            let session_info = current_session.as_ref()
+                .map(|s| format!("{} ({:.1}s)", s.app_name, (now - s.start_time) as f64 / 1000.0))
+                .unwrap_or_else(|| "none".to_string());
+            info!(
+                "📊 Watcher status: {} iterations, current session: {}, AFK: {}",
+                loop_iteration,
+                session_info,
+                if was_afk { "yes" } else { "no" }
+            );
+            last_status_log = now;
+        }
+
+        pump_run_loop(poll_interval);
     }
 
     // ===== SHUTDOWN: Close final session =====

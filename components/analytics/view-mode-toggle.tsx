@@ -41,7 +41,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
         aria-controls="overview-panel"
         onClick={() => onViewChange('overview')}
         className={cn(
-          "h-9 px-3 text-sm font-normal border border-gray-200 transition-colors",
+          "h-8 px-3 text-[13px] font-normal border border-gray-200 transition-colors",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
           currentView === 'overview'
             ? "bg-[#F7F7F7] text-black border-gray-300"
@@ -56,7 +56,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
         aria-controls="metrics-panel"
         onClick={() => onViewChange('metrics')}
         className={cn(
-          "h-9 px-3 text-sm font-normal border border-gray-200 border-l-0 transition-colors",
+          "h-8 px-3 text-[13px] font-normal border border-gray-200 border-l-0 transition-colors",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
           currentView === 'metrics'
             ? "bg-[#F7F7F7] text-black border-gray-300"

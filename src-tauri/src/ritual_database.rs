@@ -25,11 +25,11 @@ use ritual_db::{
 };
 
 /// Global database instance (lazy initialized)
-static RITUAL_DB: Lazy<Arc<RwLock<Option<RitualDatabase>>>> = 
+pub(crate) static RITUAL_DB: Lazy<Arc<RwLock<Option<RitualDatabase>>>> = 
     Lazy::new(|| Arc::new(RwLock::new(None)));
 
 /// Tokio runtime for async operations
-static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+pub(crate) static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -78,7 +78,7 @@ pub fn initialize_database() -> Result<(), String> {
 }
 
 /// Get database or return error
-async fn get_db() -> Result<tokio::sync::RwLockReadGuard<'static, Option<RitualDatabase>>, String> {
+pub(crate) async fn get_db() -> Result<tokio::sync::RwLockReadGuard<'static, Option<RitualDatabase>>, String> {
     let guard = RITUAL_DB.read().await;
     if guard.is_none() {
         return Err("Database not initialized. Call initialize_database() first.".to_string());

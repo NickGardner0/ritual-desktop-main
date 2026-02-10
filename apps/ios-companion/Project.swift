@@ -35,6 +35,11 @@ let project = Project(
                     "fetch",
                     "processing"
                 ],
+                // Runtime configuration values injected via build settings.
+                "RitualClerkPublishableKey": "$(CLERK_PUBLISHABLE_KEY)",
+                "RitualClerkFrontendAPI": "$(CLERK_FRONTEND_API)",
+                "RitualAPIBaseURLDebug": "$(API_BASE_URL_DEBUG)",
+                "RitualAPIBaseURL": "$(API_BASE_URL)"
             ]),
             sources: ["Sources/**"],
             resources: ["Resources/**"],

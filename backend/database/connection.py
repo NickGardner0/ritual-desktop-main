@@ -55,6 +55,7 @@ local_db_path = project_root / ".turso_replica.db"
 print(f"💾 Local replica: {local_db_path}")
 
 # Create the engine with embedded replica
+# Note: Must use NullPool for async SQLite/libsql engines - QueuePool is not compatible
 engine = create_async_engine(
     f"sqlite+aiolibsql:///{local_db_path}",
     echo=False,
@@ -66,7 +67,6 @@ engine = create_async_engine(
         # Note: sync_interval removed - libsql uses default (5 seconds)
         # Setting to 0 causes Rust panic: "`period` must be non-zero"
     },
-    pool_pre_ping=False,
 )
 
 # Create session factory

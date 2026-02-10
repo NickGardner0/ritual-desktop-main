@@ -27,7 +27,7 @@ class TinybirdClient:
         
         if self.env == 'local':
             self.base_url = os.getenv('TINYBIRD_LOCAL_URL', 'http://localhost:7181')
-            self.token = os.getenv('TINYBIRD_LOCAL_TOKEN', 'admin local_testing@tinybird.co')
+            self.token = os.getenv('TINYBIRD_LOCAL_TOKEN')
         else:
             self.base_url = os.getenv('TINYBIRD_API_URL', 'https://api.tinybird.co')
             self.token = os.getenv('TINYBIRD_TOKEN')
@@ -263,4 +263,3 @@ if __name__ == '__main__':
     
     result = client.ingest_habit_log(test_log)
     print(json.dumps(result, indent=2))
-

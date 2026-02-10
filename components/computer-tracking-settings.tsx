@@ -288,6 +288,31 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
     loadSettings();
   }, [loadSettings]);
 
+  // Watchdog: Periodically check if watcher is hung and auto-restart
+  useEffect(() => {
+    if (!isEnabled || !isRunning) return;
+    
+    const watchdogInterval = setInterval(async () => {
+      try {
+        // Check if watcher is hung (heartbeat stale > 60 seconds) and auto-restart
+        const wasRestarted = await invoke<boolean>('check_and_restart_watcher_if_hung', { 
+          maxStaleSeconds: 60 
+        });
+        
+        if (wasRestarted) {
+          console.log('🔄 Watcher was auto-restarted due to hang detection');
+          // Refresh status after restart
+          await getStatus();
+        }
+      } catch (e) {
+        // Silently ignore - watchdog is best-effort
+        console.debug('Watchdog check failed:', e);
+      }
+    }, 60_000); // Check every 60 seconds
+    
+    return () => clearInterval(watchdogInterval);
+  }, [isEnabled, isRunning, getStatus]);
+
   // Request accessibility permission
   const requestAccessibility = async () => {
     try {

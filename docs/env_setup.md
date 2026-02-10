@@ -66,6 +66,9 @@ Create a file named `.env` in the `backend/` directory:
 # ============================
 # Turso Cloud URL format: libsql://[HOST].turso.io?authToken=[TOKEN]
 DATABASE_URL=libsql://your-db.turso.io?authToken=eyJ...
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=10
+DB_POOL_TIMEOUT=30
 
 # ============================
 # Clerk Authentication (Required)
@@ -85,6 +88,8 @@ TINYBIRD_API_URL=https://api.us-east.aws.tinybird.co
 WHOOP_CLIENT_ID=
 WHOOP_CLIENT_SECRET=
 NEXT_PUBLIC_WHOOP_REDIRECT_URI=http://localhost:3000/api/integrations/whoop/callback
+WHOOP_API_MAX_RETRIES=3
+WHOOP_API_RETRY_BASE_DELAY=0.5
 
 # ============================
 # Wearables (Apple Health)
@@ -95,6 +100,13 @@ WEARABLES_MASTER_SECRET=ritual-wearables-dev-secret
 # CORS (Optional)
 # ============================
 CORS_ORIGINS=http://localhost:3000,https://localhost:3000,tauri://localhost
+
+# ============================
+# Token Encryption (Required for integrations)
+# ============================
+# Generate with:
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TOKEN_ENCRYPTION_KEY=
 ```
 
 ---
@@ -142,4 +154,3 @@ The iOS app stores credentials in the Keychain after device registration.
 ---
 
 *Last updated: January 2026*
-

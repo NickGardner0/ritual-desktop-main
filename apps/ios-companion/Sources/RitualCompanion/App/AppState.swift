@@ -39,8 +39,9 @@ final class AppState: ObservableObject {
     
     // MARK: - Services
     
-    let healthKitManager = HealthKitManager()
+    let healthKitManager = HealthKitManagerV2()
     let apiClient = RitualAPIClient()
+    private let syncManager = BackgroundSyncManagerV2.shared
     
     // MARK: - Computed Properties
     
@@ -79,14 +80,14 @@ final class AppState: ObservableObject {
     
     /// Debug info about background sync
     var backgroundSyncDebugInfo: String {
-        BackgroundSyncManager.shared.debugInfo
+        syncManager.debugInfo
     }
     
     // MARK: - Initialization
     
     init() {
-        // Load persisted last sync time from BackgroundSyncManager
-        lastSyncTime = BackgroundSyncManager.shared.lastSyncTime
+        // Load persisted last sync time from background sync manager.
+        lastSyncTime = syncManager.lastSyncTime
         
         Task {
             await checkInitialState()
@@ -118,7 +119,7 @@ final class AppState: ObservableObject {
             
             // If valid, set up background delivery for tracked metrics
             if !trackedMetricTypes.isEmpty {
-                await BackgroundSyncManager.shared.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
+                await syncManager.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
             }
         }
         
@@ -126,7 +127,7 @@ final class AppState: ObservableObject {
         healthAccessStatus = await healthKitManager.checkAuthorizationStatus()
         
         // Update last sync time from background manager
-        lastSyncTime = BackgroundSyncManager.shared.lastSyncTime
+        lastSyncTime = syncManager.lastSyncTime
     }
     
     /// Verify that stored credentials are still valid
@@ -171,10 +172,10 @@ final class AppState: ObservableObject {
             
             // Enable background delivery for these specific metrics
             if !trackedMetricTypes.isEmpty {
-                await BackgroundSyncManager.shared.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
+                await syncManager.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
                 
                 // Schedule background sync if not already scheduled
-                BackgroundSyncManager.shared.scheduleBackgroundSync()
+                syncManager.scheduleBackgroundSync()
             }
         } catch let error as APIError {
             // Check for expired token
@@ -205,7 +206,7 @@ final class AppState: ObservableObject {
             
             // If we got access and are connected, enable background delivery
             if authorized && isConnected && !trackedMetricTypes.isEmpty {
-                await BackgroundSyncManager.shared.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
+                await syncManager.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
             }
         } catch {
             healthAccessStatus = .denied
@@ -220,7 +221,7 @@ final class AppState: ObservableObject {
         
         // If we now have access and are connected, enable background delivery
         if healthAccessStatus == .authorized && isConnected && !trackedMetricTypes.isEmpty {
-            await BackgroundSyncManager.shared.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
+            await syncManager.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
         }
     }
     
@@ -236,7 +237,7 @@ final class AppState: ObservableObject {
             errorMessage = nil
             
             // Schedule background sync now that we're connected
-            BackgroundSyncManager.shared.scheduleBackgroundSync()
+            syncManager.scheduleBackgroundSync()
             
         } catch let error as APIError {
             connectionStatus = .disconnected
@@ -285,8 +286,8 @@ final class AppState: ObservableObject {
         trackedHabits = []
         
         // Disable background sync and cancel pending tasks
-        BackgroundSyncManager.shared.disableAllObservers()
-        BackgroundSyncManager.shared.cancelScheduledSync()
+        syncManager.disableAllObservers()
+        syncManager.cancelScheduledSync()
         
         // Sign out of Clerk
         do {
@@ -332,10 +333,9 @@ final class AppState: ObservableObject {
         print("📱 Starting manual sync via V2 incremental sync...")
         
         // Use V2 sync manager which handles incremental sync with batching
-        await BackgroundSyncManagerV2.shared.performIncrementalSync(isBackground: false)
+        await syncManager.performIncrementalSync(isBackground: false)
         
         // Update UI state from V2 manager
-        let syncManager = BackgroundSyncManagerV2.shared
         lastSyncTime = syncManager.lastSyncTime
         syncStatus = syncManager.syncStatus
         

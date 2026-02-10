@@ -2,13 +2,15 @@
 
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
-import { TeamDropdown } from '@/components/team-dropdown';
+// TeamDropdown moved to sidebar
 import { FeedbackModal } from '@/components/feedback-modal';
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
+import { isTauri } from '@/lib/tauri-utils';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 // Lazy load heavy components that are only used when opened
 const TimeTrackerWidget = lazy(() => import('@/components/timer/TimeTrackerWidget').then(m => ({ default: m.TimeTrackerWidget })));
@@ -21,10 +23,14 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
+  const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(70);
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
   const { fontClass } = useFont();
   const { user } = useUser();
   const { getToken } = useAuth();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
 
   const openTimeTrackerWindow = async () => {
@@ -111,8 +117,69 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return () => clearInterval(interval);
   }, [getToken, lastTokenRefreshCheck]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get('ritual_detached_sidebar') === '1';
+    const enabled = fromQuery;
+
+    if (enabled) {
+      window.sessionStorage.setItem('ritual_detached_sidebar', '1');
+      setDetachedSidebarMode(true);
+    } else {
+      window.sessionStorage.removeItem('ritual_detached_sidebar');
+      setDetachedSidebarMode(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!detachedSidebarMode || !isTauri()) return;
+
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      const { invoke } = await import('@tauri-apps/api/tauri');
+      const { listen } = await import('@tauri-apps/api/event');
+      const { WebviewWindow } = await import('@tauri-apps/api/window');
+
+      try {
+        const state = await invoke<{ width?: number }>('sidebar_get_main_state');
+        if (typeof state?.width === 'number') {
+          setDetachedSidebarWidth(Math.max(70, Math.min(240, state.width)));
+        }
+      } catch (error) {
+        console.error('Failed to get detached sidebar state:', error);
+      }
+
+      unlisten = await listen<number>('sidebar:width', (event) => {
+        if (typeof event.payload === 'number') {
+          setDetachedSidebarWidth(Math.max(70, Math.min(240, event.payload)));
+        }
+      });
+
+      const route = `${window.location.pathname}${window.location.search}`;
+      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      await sidebarWindow?.emit('sidebar:route', route);
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [detachedSidebarMode]);
+
+  useEffect(() => {
+    if (!detachedSidebarMode || !isTauri()) return;
+    (async () => {
+      const { WebviewWindow } = await import('@tauri-apps/api/window');
+      const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
+      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      await sidebarWindow?.emit('sidebar:route', route);
+    })();
+  }, [detachedSidebarMode, pathname, searchParams]);
+
+  const contentOffset = !isFullScreenChat ? (detachedSidebarMode ? detachedSidebarWidth : 70) : 0;
+
   return (
-    <div className={`app-container flex h-screen bg-white overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
+    <div className={`app-container flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
       {/* Handle URL search parameters (wrapped in Suspense for prerendering) */}
       <Suspense fallback={null}>
         <DashboardSearchHandler 
@@ -127,23 +194,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       />
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-      {!isFullScreenChat && (
-        <Sidebar />
+      {!isFullScreenChat && !detachedSidebarMode && (
+        <Sidebar onFeedbackClick={() => setShowFeedback(true)} />
       )}
 
       {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col overflow-hidden border-0 ${!isFullScreenChat ? 'ml-[70px]' : ''}`}>
+      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-white">
         {/* Top Header - Midday Style - Hidden in Full-Screen Chat */}
         {!isFullScreenChat && (
-        <header className="px-6 h-[70px] flex items-center border-b border-gray-300">
+        <header className="content-opaque px-5 h-[56px] flex items-center bg-white">
           <div className="flex items-center justify-between w-full">
             {/* Left side - Quick Actions buttons */}
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2.5">
               {/* Quick Actions Button - Command Palette with Search */}
               <div>
-                <Suspense fallback={<div className="h-9 w-auto px-3 py-2 text-sm text-gray-600 flex items-center gap-2 border border-gray-300 shadow-sm rounded-none">Loading...</div>}>
+                <Suspense fallback={<div className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 border border-gray-300 shadow-sm rounded-none">Loading...</div>}>
                   <CommandPalette 
-                    className="h-9 w-auto px-3 py-2 text-sm text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] rounded-none"
+                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] rounded-none"
                     initialOpen={shouldOpenWhoopModal}
                   />
                 </Suspense>
@@ -154,33 +221,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 variant="outline"
                 size="sm"
                 onClick={openTimeTrackerWindow}
-                className="flex items-center gap-2 text-sm text-gray-600 px-3 py-2 h-9 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] focus-visible:outline-none focus-visible:ring-0 rounded-none"
+                className="flex items-center gap-2 text-[13px] text-gray-600 px-3 py-1.5 h-8 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] focus-visible:outline-none focus-visible:ring-0 rounded-none"
               >
                 <span>Tracker</span>
-                <kbd className="ml-auto pointer-events-none inline-flex h-5 select-none items-center gap-1 border border-gray-200 bg-gray-50 px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                  <span className="text-xs">⌘</span>T
+                <kbd className="ml-auto pointer-events-none inline-flex h-[18px] select-none items-center gap-0.5 border border-gray-200 bg-gray-50 px-1 font-mono text-[9px] font-medium text-muted-foreground opacity-100">
+                  <span className="text-[10px]">⌘</span>T
                 </kbd>
               </Button>
             </div>
 
-            {/* Right side - Feedback button and User dropdown */}
-            <div className="flex items-center space-x-3">
-              {/* Feedback Button */}
-              <button
-                onClick={() => setShowFeedback(true)}
-                className="px-3.5 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-full hover:bg-[#F5F5F5] transition-colors"
-              >
-                Feedback
-              </button>
-              
-              <TeamDropdown isExpanded={true} placement="header" />
-            </div>
+            {/* Right side - reserved for page-specific controls rendered via portal */}
+            <div id="header-right-slot" className="flex items-center gap-2" />
           </div>
         </header>
         )}
 
         {/* Main Content */}
-        <main className={`flex-1 overflow-auto border-0 ${isFullScreenChat ? 'bg-[#fbfbf9]' : 'bg-white'}`}>
+        <main className={`content-opaque flex-1 overflow-auto border-0 ${isFullScreenChat ? 'bg-[#fbfbf9]' : 'bg-white'}`}>
           {children}
         </main>
       </div>

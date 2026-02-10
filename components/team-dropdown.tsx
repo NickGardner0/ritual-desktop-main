@@ -123,44 +123,38 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
     );
   }
 
-  // Sidebar placement (original)
+  // Sidebar placement — inline in sidebar flex layout (no position:fixed)
   return (
-    <div className="relative h-[32px]" ref={ref}>
-      {/* Avatar - fixed position like Midday */}
-      <div className="fixed left-[19px] bottom-4 w-[32px] h-[32px]">
-        <Avatar
-          className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] cursor-pointer"
-          onClick={() => setActive(!isActive)}
-        >
+    <div className="relative w-full" ref={ref}>
+      {/* Avatar row */}
+      <div
+        className={cn(
+          "flex items-center h-[32px] cursor-pointer",
+          isExpanded ? "gap-2 px-1" : "justify-center",
+        )}
+        onClick={() => setActive(!isActive)}
+      >
+        <Avatar className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] flex-shrink-0">
           <AvatarImage src={user?.imageUrl} />
           <AvatarFallback className="rounded-none w-[32px] h-[32px]">
-            <span className="text-xs font-medium">
-              {getUserInitials()}
-            </span>
+            <span className="text-xs font-medium">{getUserInitials()}</span>
           </AvatarFallback>
         </Avatar>
-      </div>
-
-      {/* User name - appears to the right of the fixed avatar */}
-      {isExpanded && (
-        <div className="fixed left-[62px] bottom-4 h-[32px] flex items-center">
-          <span
-            className="text-sm text-primary truncate transition-opacity duration-200 ease-in-out hover:opacity-80 cursor-pointer"
-            onClick={() => setActive(!isActive)}
-          >
+        {isExpanded && (
+          <span className="text-sm text-primary truncate hover:opacity-80">
             {getUserName()}
           </span>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Simple dropdown menu (not animated like Midday's team switcher) */}
+      {/* Dropdown menu — absolute, positioned above the avatar */}
       {isActive && (
-        <div className="fixed left-[19px] bottom-[50px] w-56 bg-white border border-[#DCDAD2] rounded-md shadow-lg z-50">
+        <div className="absolute bottom-[40px] left-0 w-56 bg-white border border-[#DCDAD2] rounded-md shadow-lg z-50">
           <div className="p-2 border-b border-[#DCDAD2]">
             <p className="text-sm font-medium">{getUserName()}</p>
             <p className="text-xs text-gray-500">{user?.primaryEmailAddress?.emailAddress}</p>
           </div>
-          
+
           <div className="p-1">
             <button
               onClick={handleAccount}
@@ -169,7 +163,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
               <User className="h-4 w-4 mr-2" />
               Profile
             </button>
-            
+
             <button
               onClick={handleSupport}
               className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
@@ -178,7 +172,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
               Support
             </button>
           </div>
-          
+
           <div className="border-t border-[#DCDAD2] p-1">
             <button
               onClick={handleSignOut}

@@ -301,9 +301,17 @@ fn extract_domain(url: &str) -> Option<String> {
             || url.starts_with("chrome://")
             || url.starts_with("edge://")
             || url.starts_with("brave://")
+            || url.starts_with("arc://")
+            || url.starts_with("vivaldi://")
             || url.starts_with("file://")
         {
-            return Some(url.split("://").next().unwrap_or("internal").to_string());
+            // Handle both "scheme://" and "scheme:" (e.g., about:blank)
+            let scheme = url
+                .split("://")
+                .next()
+                .and_then(|s| s.split(':').next())
+                .unwrap_or("internal");
+            return Some(scheme.to_string());
         }
         return None;
     }
@@ -446,6 +454,14 @@ mod tests {
         assert_eq!(
             extract_domain("chrome://settings"),
             Some("chrome".to_string())
+        );
+        assert_eq!(
+            extract_domain("arc://boost/123"),
+            Some("arc".to_string())
+        );
+        assert_eq!(
+            extract_domain("vivaldi://settings"),
+            Some("vivaldi".to_string())
         );
     }
 

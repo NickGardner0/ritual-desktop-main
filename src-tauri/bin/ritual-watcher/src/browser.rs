@@ -56,11 +56,16 @@ fn extract_domain(url: &str) -> Option<String> {
     
     // Skip non-http(s) URLs
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        // Could be about:, chrome://, file://, etc.
+        // Could be about:, chrome://, file://, arc://, etc.
         if url.starts_with("about:") || url.starts_with("chrome://") || 
            url.starts_with("edge://") || url.starts_with("brave://") ||
+           url.starts_with("arc://") || url.starts_with("vivaldi://") ||
            url.starts_with("file://") {
-            return Some(url.split("://").next().unwrap_or("internal").to_string());
+            // Handle both "scheme://" and "scheme:" (e.g., about:blank)
+            let scheme = url.split("://").next()
+                .and_then(|s| s.split(':').next())
+                .unwrap_or("internal");
+            return Some(scheme.to_string());
         }
         return None;
     }
@@ -143,6 +148,8 @@ mod tests {
         assert_eq!(extract_domain("http://localhost:3000/path"), Some("localhost".to_string()));
         assert_eq!(extract_domain("chrome://settings"), Some("chrome".to_string()));
         assert_eq!(extract_domain("about:blank"), Some("about".to_string()));
+        assert_eq!(extract_domain("arc://boost/123"), Some("arc".to_string()));
+        assert_eq!(extract_domain("vivaldi://settings"), Some("vivaldi".to_string()));
     }
     
     #[test]
@@ -150,6 +157,11 @@ mod tests {
         assert!(is_browser("com.apple.Safari"));
         assert!(is_browser("com.google.Chrome"));
         assert!(is_browser("org.mozilla.firefox"));
+        assert!(is_browser("company.thebrowser.Browser")); // Arc
+        assert!(is_browser("com.brave.Browser"));
+        assert!(is_browser("com.microsoft.edgemac"));
+        assert!(is_browser("com.vivaldi.Vivaldi"));
+        assert!(is_browser("com.operasoftware.Opera"));
         assert!(!is_browser("com.apple.finder"));
         assert!(!is_browser("com.spotify.client"));
     }
