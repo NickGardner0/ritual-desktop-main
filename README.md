@@ -8,8 +8,8 @@ The goal of the ritual project is to build the tooling that makes your persona
 
 ## Repository Structure
 
-- `apps/dashboard/`: canonical Next.js dashboard app code
-- `apps/backend/`: canonical FastAPI services and data layer
+- `apps/dashboard/`: Next.js dashboard frontend
+- `apps/backend/`: FastAPI services and data layer
 - `apps/browser-extension/`: browser extension
 - `apps/desktop/src-tauri/`: Tauri desktop wrapper and Rust binaries
 - `apps/desktop/ritual-icon/`: desktop icon source assets
@@ -19,4 +19,3 @@ The goal of the ritual project is to build the tooling that makes your persona
 - `packages/ui/`: shared UI utilities
 - `docs/`: organized project documentation (`guides/`, `analysis/`, `notes/`)
 
-See `docs/README.md` for documentation index and quick links.
