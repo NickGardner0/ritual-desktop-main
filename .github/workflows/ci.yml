@@ -23,8 +23,9 @@ jobs:
 
       # Using npm install (not npm ci) during migration while lockfile/workspaces
       # are being normalized in-repo.
+      # --legacy-peer-deps: react-day-picker@8 expects React 18; project uses React 19
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: Check repository structure
         run: npm run repo:check
