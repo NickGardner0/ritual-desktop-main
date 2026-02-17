@@ -1,0 +1,10 @@
+{
+  "name": "@ritual/ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cn": "./src/cn.ts"
+  }
+}

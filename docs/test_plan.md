@@ -12,22 +12,22 @@ This document outlines the testing strategy for Ritual's production launch.
 
 | Module | Test File | Priority | Status |
 |--------|-----------|----------|--------|
-| Auth Service | `backend/tests/test_auth_service.py` | P0 | ❌ TODO |
-| Habits Service | `backend/tests/test_habits_service.py` | P0 | ❌ TODO |
-| Whoop Service | `backend/tests/test_whoop_service.py` | P1 | ❌ TODO |
-| Tinybird Service | `backend/tests/test_tinybird_service.py` | P1 | ❌ TODO |
-| Wearables Service | `backend/tests/test_wearables_service.py` | P1 | ❌ TODO |
-| Database Models | `backend/tests/test_backend.py` | P0 | ✅ Passing |
+| Auth Service | `apps/backend/tests/test_auth_service.py` | P0 | ❌ TODO |
+| Habits Service | `apps/backend/tests/test_habits_service.py` | P0 | ❌ TODO |
+| Whoop Service | `apps/backend/tests/test_whoop_service.py` | P1 | ❌ TODO |
+| Tinybird Service | `apps/backend/tests/test_tinybird_service.py` | P1 | ❌ TODO |
+| Wearables Service | `apps/backend/tests/test_wearables_service.py` | P1 | ❌ TODO |
+| Database Models | `apps/backend/tests/test_backend.py` | P0 | ✅ Passing |
 
-**Test Runner:** `pytest backend/tests/`
+**Test Runner:** `pytest apps/backend/tests/`
 
 ### Frontend (TypeScript/React)
 
 | Module | Test File | Priority | Status |
 |--------|-----------|----------|--------|
-| Habits Context | `__tests__/contexts/habits.test.tsx` | P0 | ❌ TODO |
-| API Client | `__tests__/lib/api-client.test.ts` | P0 | ❌ TODO |
-| Use Habits Query | `__tests__/hooks/use-habits-query.test.ts` | P1 | ❌ TODO |
+| Habits Context | `apps/dashboard/__tests__/contexts/habits.test.tsx` | P0 | ❌ TODO |
+| API Client | `apps/dashboard/__tests__/lib/api-client.test.ts` | P0 | ❌ TODO |
+| Use Habits Query | `apps/dashboard/__tests__/hooks/use-habits-query.test.ts` | P1 | ❌ TODO |
 
 **Test Runner:** `npm test`
 
@@ -38,7 +38,7 @@ This document outlines the testing strategy for Ritual's production launch.
 ### API Integration Tests
 
 ```python
-# backend/tests/test_api_integration.py
+# apps/backend/tests/test_api_integration.py
 
 class TestHabitsAPI:
     """Test habits CRUD operations end-to-end"""
@@ -89,7 +89,7 @@ class TestWearablesAPI:
 ### Database Integration Tests
 
 ```python
-# backend/tests/test_database_integration.py
+# apps/backend/tests/test_database_integration.py
 
 class TestTursoConnection:
     """Verify Turso connection and queries"""
@@ -266,7 +266,7 @@ class TestTursoConnection:
 ```bash
 # 1. Install dependencies
 npm install
-pip install -r backend/requirements.txt
+pip install -r apps/backend/requirements.txt
 
 # 2. Set up test database
 export DATABASE_URL="libsql://test.turso.io?authToken=..."
@@ -295,8 +295,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-      - run: pip install -r backend/requirements.txt
-      - run: pytest backend/tests/
+      - run: pip install -r apps/backend/requirements.txt
+      - run: pytest apps/backend/tests/
 
   frontend:
     runs-on: ubuntu-latest

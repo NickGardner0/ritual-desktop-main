@@ -44,10 +44,10 @@ The screen recording system consists of several interconnected components:
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `ritual-recorder` | `src-tauri/bin/ritual-recorder/` | Sidecar binary for screen capture, OCR, thumbnails |
-| `ritual-db` | `src-tauri/crates/ritual-db/` | Unified libSQL database with vector search |
-| Tauri Commands | `src-tauri/src/ritual_database.rs` | Bridge between frontend and database |
-| Frontend Hooks | `hooks/use-semantic-search.ts` | React hooks for search UI |
+| `ritual-recorder` | `apps/desktop/src-tauri/bin/ritual-recorder/` | Sidecar binary for screen capture, OCR, thumbnails |
+| `ritual-db` | `apps/desktop/src-tauri/crates/ritual-db/` | Unified libSQL database with vector search |
+| Tauri Commands | `apps/desktop/src-tauri/src/ritual_database.rs` | Bridge between frontend and database |
+| Frontend Hooks | `apps/dashboard/hooks/use-semantic-search.ts` | React hooks for search UI |
 
 ---
 

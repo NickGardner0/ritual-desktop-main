@@ -33,7 +33,7 @@ Sentry.init({
 Product analytics are configured:
 
 ```typescript
-// components/openpanel-provider.tsx
+// apps/dashboard/components/openpanel-provider.tsx
 <OpenPanelComponent
   clientId={process.env.OPENPANEL_CLIENT_ID}
   // ...
@@ -52,10 +52,10 @@ Product analytics are configured:
 
 ### Backend Structured Logging
 
-Add to `backend/services/`:
+Add to `apps/backend/services/`:
 
 ```python
-# backend/config/logging.py
+# apps/backend/config/logging.py
 import logging
 import json
 from datetime import datetime
@@ -131,7 +131,7 @@ logger.info("habit_logged", user_id=user_id, habit_id=habit_id, value=value)
 ### Suggested Metrics Service
 
 ```python
-# backend/config/metrics.py
+# apps/backend/config/metrics.py
 from dataclasses import dataclass
 from typing import Optional
 import time
@@ -161,7 +161,7 @@ class MetricsCollector:
 Ritual already uses Tinybird - can add a `metrics` datasource:
 
 ```sql
--- tinybird/datasources/api_metrics.datasource
+-- apps/tinybird/datasources/api_metrics.datasource
 SCHEMA >
     timestamp DateTime,
     endpoint String,
@@ -182,7 +182,7 @@ ENGINE_SORTING_KEY (timestamp, endpoint)
 ### Current Implementation
 
 ```python
-# backend/main.py
+# apps/backend/main.py
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
@@ -210,7 +210,7 @@ async def get_habits():
 ### Backend Health Endpoint
 
 ```python
-# Already in backend/main.py
+# Already in apps/backend/main.py
 @app.get("/health")
 async def health_check():
     return {
@@ -276,7 +276,7 @@ async def deep_health_check():
 ### Suggested Implementation
 
 ```typescript
-// lib/feature-flags.ts
+// apps/dashboard/lib/feature-flags.ts
 export const flags = {
   AI_CHAT_ENABLED: true,
   WHOOP_INTEGRATION: true,
@@ -301,7 +301,7 @@ export function isEnabled(flag: keyof typeof flags): boolean {
 For emergency situations:
 
 ```python
-# backend/config/settings.py
+# apps/backend/config/settings.py
 KILL_SWITCHES = {
     "disable_whoop_sync": os.getenv("KILL_WHOOP_SYNC", "false") == "true",
     "disable_tinybird": os.getenv("KILL_TINYBIRD", "false") == "true",

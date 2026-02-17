@@ -148,7 +148,7 @@ Ritual is a habit tracking and personal analytics platform consisting of:
 ### Directory Structure
 
 ```
-app/
+apps/dashboard/app/
 ├── (dashboard)/              # Route group for authenticated pages
 │   ├── layout.tsx            # Shared dashboard layout
 │   ├── dashboard/            # Main dashboard
@@ -167,7 +167,7 @@ app/
 ├── onboarding/               # Onboarding flow
 └── sign-in/, sign-up/        # Clerk auth pages
 
-components/
+apps/dashboard/components/
 ├── analytics/                # Analytics components (11 files)
 ├── computer-activity/        # Activity tracking UI (8 files)
 ├── screen-recorder/          # Screen recording UI (5 files)
@@ -175,18 +175,18 @@ components/
 ├── ui/                       # shadcn/ui primitives (34 files)
 └── dashboard-layout.tsx      # Main layout wrapper
 
-contexts/
+apps/dashboard/contexts/
 ├── HabitsContext.tsx         # Habits state (React Query wrapper)
 ├── AIContext.tsx             # Chat visibility/mode state
 └── FontContext.tsx           # Font preference persistence
 
-hooks/
+apps/dashboard/hooks/
 ├── use-habits-query.ts       # React Query hooks for habits
 ├── use-recorder.ts           # Screen recording state
 ├── use-semantic-search.ts    # AI-powered search
 └── use-usage-breakdown.ts    # Activity analytics
 
-lib/
+apps/dashboard/lib/
 ├── ai/                       # AI agent definitions
 ├── query-client.ts           # React Query configuration
 ├── tinybird-analytics-service.ts  # Tinybird client
@@ -211,7 +211,7 @@ export function DashboardLayoutClient({ children }) {
 
 #### React Query Configuration
 ```typescript
-// lib/query-client.ts
+// apps/dashboard/lib/query-client.ts
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -225,7 +225,7 @@ export const queryClient = new QueryClient({
 
 #### Lazy Loading for Performance
 ```typescript
-// components/dashboard-layout.tsx
+// apps/dashboard/components/dashboard-layout.tsx
 const TimeTrackerWidget = lazy(() => import('@/components/timer/TimeTrackerWidget'));
 const CommandPalette = lazy(() => import('@/components/habit-selector'));
 ```
@@ -256,7 +256,7 @@ const CommandPalette = lazy(() => import('@/components/habit-selector'));
 ### Directory Structure
 
 ```
-backend/
+apps/backend/
 ├── main.py                   # Entry point (3,447 lines - needs refactoring)
 ├── database/
 │   ├── connection.py         # Turso connection setup
@@ -355,7 +355,7 @@ backend/
 ### Architecture
 
 ```
-src-tauri/
+apps/desktop/src-tauri/
 ├── src/
 │   ├── main.rs               # Entry point, command registration
 │   ├── watcher.rs            # Activity tracking commands (25)
@@ -669,7 +669,7 @@ static var apiBaseURL: String {
 **Recommendation**: Use environment-based configuration or remote config.
 
 #### 4. No CSP in Tauri App
-**Location**: `src-tauri/tauri.conf.json`
+**Location**: `apps/desktop/src-tauri/tauri.conf.json`
 ```json
 "csp": null // ⚠️ No Content Security Policy
 ```
@@ -685,7 +685,7 @@ static var apiBaseURL: String {
 **Recommendation**: Encrypt tokens at rest.
 
 #### 6. Overly Permissive File System Access
-**Location**: `src-tauri/tauri.conf.json`
+**Location**: `apps/desktop/src-tauri/tauri.conf.json`
 ```json
 "fs": {
   "scope": ["$HOME/*", "**/*"] // ⚠️ Full file system access
@@ -1019,22 +1019,22 @@ static var apiBaseURL: String {
 
 ### Key Configuration Files
 - `next.config.mjs` - Next.js configuration
-- `src-tauri/tauri.conf.json` - Tauri configuration
-- `backend/database/connection.py` - Database setup
+- `apps/desktop/src-tauri/tauri.conf.json` - Tauri configuration
+- `apps/backend/database/connection.py` - Database setup
 - `apps/ios-companion/Sources/Config/AppConfig.swift` - iOS config
 - `.env.example` - Environment variables
 
 ### Critical Code Paths
-- `app/(dashboard)/layout.tsx` - Dashboard layout
-- `backend/main.py` - All API endpoints
-- `src-tauri/src/watcher.rs` - Activity tracking
-- `src-tauri/src/recorder.rs` - Screen recording
+- `apps/dashboard/app/(dashboard)/layout.tsx` - Dashboard layout
+- `apps/backend/main.py` - All API endpoints
+- `apps/desktop/src-tauri/src/watcher.rs` - Activity tracking
+- `apps/desktop/src-tauri/src/recorder.rs` - Screen recording
 - `apps/ios-companion/Sources/Services/BackgroundSyncManagerV2.swift` - iOS sync
 
 ### Database Schemas
-- `backend/database/models.py` - SQLAlchemy models
-- `tinybird/*.datasource` - Tinybird schemas
-- `src-tauri/crates/ritual-db/` - Desktop database
+- `apps/backend/database/models.py` - SQLAlchemy models
+- `apps/tinybird/*.datasource` - Tinybird schemas
+- `apps/desktop/src-tauri/crates/ritual-db/` - Desktop database
 
 ---
 

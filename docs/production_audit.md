@@ -32,13 +32,13 @@
 │                                                                              │
 │  ┌────────────────────┐     ┌────────────────────────────────────────────┐  │
 │  │    Tauri Shell     │     │            Next.js 16 Frontend             │  │
-│  │   (src-tauri/)     │     │            (app/, components/)             │  │
+│  │   (apps/desktop/src-tauri/)     │     │            (apps/dashboard/app/, apps/dashboard/components/)             │  │
 │  │                    │     │                                            │  │
-│  │  • macOS bundle    │◄────┤  • App Router (app/)                       │  │
+│  │  • macOS bundle    │◄────┤  • App Router (apps/dashboard/app/)                       │  │
 │  │  • Native APIs     │     │  • React 19 + TanStack Query              │  │
 │  │  • System tray     │     │  • Clerk Auth (middleware.ts)             │  │
-│  │  • Window mgmt     │     │  • Server Actions (app/actions/)          │  │
-│  │  • File system     │     │  • API Routes (app/api/)                  │  │
+│  │  • Window mgmt     │     │  • Server Actions (apps/dashboard/app/actions/)          │  │
+│  │  • File system     │     │  • API Routes (apps/dashboard/app/api/)                  │  │
 │  └────────────────────┘     └────────────────────────────────────────────┘  │
 │                                           │                                  │
 └───────────────────────────────────────────┼──────────────────────────────────┘
@@ -48,7 +48,7 @@
                          ▼                                     ▼
 ┌────────────────────────────────────┐   ┌─────────────────────────────────────┐
 │      FastAPI Backend (Python)      │   │           Tinybird (Analytics)      │
-│         (backend/)                 │   │           (tinybird/)               │
+│         (apps/backend/)                 │   │           (apps/tinybird/)               │
 │                                    │   │                                     │
 │  • Auth: Clerk JWT via JWKS        │   │  • habit_logs datasource            │
 │  • DB: Turso (SQLite + cloud sync) │   │  • whoop_* datasources              │
@@ -99,11 +99,11 @@
 
 | Component | Path | Technology | Description |
 |-----------|------|------------|-------------|
-| **Tauri Desktop** | `src-tauri/` | Rust + Tauri 1.6 | macOS native wrapper, system tray, window management |
-| **Next.js Frontend** | `app/`, `components/` | Next.js 16, React 19 | Web UI, API routes, server components |
-| **FastAPI Backend** | `backend/` | Python 3.9+, FastAPI | Core API, auth, database, integrations |
-| **Database** | `backend/database/` | Turso (libSQL) | SQLite with cloud sync, embedded replica |
-| **Tinybird Analytics** | `tinybird/` | Tinybird | Real-time analytics, aggregations |
+| **Tauri Desktop** | `apps/desktop/src-tauri/` | Rust + Tauri 1.6 | macOS native wrapper, system tray, window management |
+| **Next.js Frontend** | `apps/dashboard/app/`, `apps/dashboard/components/` | Next.js 16, React 19 | Web UI, API routes, server components |
+| **FastAPI Backend** | `apps/backend/` | Python 3.9+, FastAPI | Core API, auth, database, integrations |
+| **Database** | `apps/backend/database/` | Turso (libSQL) | SQLite with cloud sync, embedded replica |
+| **Tinybird Analytics** | `apps/tinybird/` | Tinybird | Real-time analytics, aggregations |
 | **iOS Companion** | `apps/ios-companion/` | Swift, SwiftUI | Apple Health → Ritual sync |
 | **Shared Contracts** | `packages/shared-contracts/` | TypeScript | Type definitions |
 
@@ -112,11 +112,11 @@
 | File | Purpose |
 |------|---------|
 | `package.json` | npm/pnpm dependencies, scripts |
-| `src-tauri/tauri.conf.json` | Tauri bundling, permissions, windows |
-| `backend/requirements.txt` | Python dependencies |
+| `apps/desktop/src-tauri/tauri.conf.json` | Tauri bundling, permissions, windows |
+| `apps/backend/requirements.txt` | Python dependencies |
 | `middleware.ts` | Clerk auth route protection |
 | `next.config.mjs` | Next.js configuration |
-| `tinybird/datasources/*.datasource` | Tinybird schema definitions |
+| `apps/tinybird/datasources/*.datasource` | Tinybird schema definitions |
 
 ---
 
@@ -207,7 +207,7 @@ Dashboard Request → /api/analytics/habits/* → FastAPI → Turso Query
 
 OR (for heavy analytics):
 
-Dashboard Request → lib/tinybird-analytics-service.ts → Tinybird Pipe
+Dashboard Request → apps/dashboard/lib/tinybird-analytics-service.ts → Tinybird Pipe
                                                             ↓
                                                 ← Pre-aggregated data ←
 ```
@@ -216,7 +216,7 @@ Dashboard Request → lib/tinybird-analytics-service.ts → Tinybird Pipe
 
 ## 3. Environment Variables
 
-### 3.1 Next.js Frontend (`.env.local`)
+### 3.1 Next.js Frontend (`apps/dashboard/.env.local`)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -235,7 +235,7 @@ Dashboard Request → lib/tinybird-analytics-service.ts → Tinybird Pipe
 | `SENTRY_DSN` | Optional | Error tracking |
 | `OPENPANEL_CLIENT_ID` | Optional | Analytics |
 
-### 3.2 FastAPI Backend (`backend/.env`)
+### 3.2 FastAPI Backend (`apps/backend/.env`)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -259,9 +259,9 @@ Dashboard Request → lib/tinybird-analytics-service.ts → Tinybird Pipe
 ### 3.4 Environment Files Status
 
 ```
-✅ tinybird/python-service/env.example - Exists
+✅ apps/tinybird/python-service/env.example - Exists
 ❌ .env.example - Missing (should be created)
-❌ backend/.env.example - Missing (should be created)
+❌ apps/backend/.env.example - Missing (should be created)
 ```
 
 ---
@@ -320,7 +320,7 @@ Test Results: 3/3 tests passed
 
 The project uses React Query effectively:
 
-**Habits Context (`contexts/HabitsContext.tsx`)**
+**Habits Context (`apps/dashboard/contexts/HabitsContext.tsx`)**
 ```typescript
 - useHabitsQuery: staleTime 5 minutes
 - useHabitLogsQuery: staleTime 2 minutes
@@ -357,8 +357,8 @@ The project uses React Query effectively:
 | Location | Purpose | Status |
 |----------|---------|--------|
 | `middleware.ts` | Route protection | ✅ Verified |
-| `backend/services/auth_service.py` | JWT validation via JWKS | ✅ Verified |
-| `app/api/*/route.ts` | `auth()` from `@clerk/nextjs/server` | ✅ All 28 routes checked |
+| `apps/backend/services/auth_service.py` | JWT validation via JWKS | ✅ Verified |
+| `apps/dashboard/app/api/*/route.ts` | `auth()` from `@clerk/nextjs/server` | ✅ All 28 routes checked |
 | `iOS Companion` | Device registration with JWT | ✅ HMAC-SHA256 signing |
 
 ### 6.2 Protected Routes
@@ -376,7 +376,7 @@ The project uses React Query effectively:
 ### 6.3 Backend Auth (FastAPI)
 
 ```python
-# backend/services/auth_service.py
+# apps/backend/services/auth_service.py
 - Clerk JWKS URL derived from NEXT_PUBLIC_CLERK_SIGN_IN_URL
 - PyJWKClient with 1-hour cache for signing keys
 - RS256 algorithm verification
@@ -631,7 +631,7 @@ npm run lint           # ESLint
 cd backend && python scripts/migrate_add_import_tables.py
 
 # Tinybird
-cd tinybird && tb push  # Deploy datasources and pipes
+cd apps/tinybird && tb push  # Deploy datasources and pipes
 ```
 
 ---
@@ -640,7 +640,7 @@ cd tinybird && tb push  # Deploy datasources and pipes
 
 **Key Files Modified During Audit:**
 - `package.json` - Added xml2js dependency
-- `backend/tests/test_backend.py` - Fixed Python path for imports
+- `apps/backend/tests/test_backend.py` - Fixed Python path for imports
 
 **Documentation Created:**
 - `docs/production_audit.md` - This document
@@ -652,4 +652,3 @@ cd tinybird && tb push  # Deploy datasources and pipes
 ---
 
 *Document last updated: January 4, 2026*
-

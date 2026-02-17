@@ -7,7 +7,7 @@ This document describes the Apple Health integration architecture for Ritual.
 The Apple Health integration consists of three components:
 
 1. **iOS Companion App** (`apps/ios-companion/`) - SwiftUI app that reads HealthKit data
-2. **Backend API** (`backend/`) - FastAPI endpoints for device registration and metric ingestion
+2. **Backend API** (`apps/backend/`) - FastAPI endpoints for device registration and metric ingestion
 3. **Shared Contracts** (`packages/shared-contracts/`) - TypeScript types shared across apps
 
 ## Architecture

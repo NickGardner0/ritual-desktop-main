@@ -1,10 +1,16 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+apps/**/node_modules/
+packages/**/node_modules/
+apps/**/package-lock.json
+packages/**/package-lock.json
 
 # Next.js
 .next/
 out/
+apps/dashboard/.next/
+apps/dashboard/out/
 
 # Production
 build/
@@ -30,19 +36,21 @@ yarn-debug.log*
 yarn-error.log*
 
 # Tauri
-src-tauri/target/
-src-tauri/Cargo.lock
-src-tauri/bin/*/target/
-src-tauri/crates/*/target/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/Cargo.lock
+apps/desktop/src-tauri/bin/*/target/
+apps/desktop/src-tauri/crates/*/target/
 
 # Root target directory (rust-analyzer, etc)
 target/
+apps/ios-companion/Derived/
 
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts 
 # clerk configuration (can include secrets)
 /.clerk/
+apps/**/.clerk/
 
 # Trigger.dev
 .trigger/
@@ -77,19 +85,22 @@ htmlcov/
 test_*.db
 
 # Ritual Database Files
-backend/ritual.db
-backend/ritual.db-shm
-backend/ritual.db-wal
+apps/backend/ritual.db
+apps/backend/ritual.db-shm
+apps/backend/ritual.db-wal
 
 # Turso Cloud Replica (local cache)
-backend/.turso_replica.db
-backend/.turso_replica.db-shm
-backend/.turso_replica.db-wal
+apps/backend/.turso_replica.db
+apps/backend/.turso_replica.db-shm
+apps/backend/.turso_replica.db-wal
+apps/backend/.turso_replica.db-info
+apps/backend/:memory*
 
 # Backup files
+backups/
 *.backup
 *.bak
 *~
 
-# FastEmbed cache
-src-tauri/.fastembed_cache/
+# FastEmbed cache (model downloads, can be 80MB+)
+.fastembed_cache/

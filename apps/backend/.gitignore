@@ -1,0 +1,9 @@
+.trigger
+.venv/
+__pycache__/
+*.py[cod]
+.turso_replica.db
+.turso_replica.db-shm
+.turso_replica.db-wal
+.turso_replica.db-info
+:memory*

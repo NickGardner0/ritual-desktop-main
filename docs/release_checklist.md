@@ -11,7 +11,7 @@
 ### Build Verification
 - [ ] `npm run build` passes
 - [ ] `npm run lint` passes (or warnings acceptable)
-- [ ] Python backend tests pass: `pytest backend/tests/`
+- [ ] Python backend tests pass: `pytest apps/backend/tests/`
 - [ ] No TypeScript errors
 
 ---
@@ -120,11 +120,11 @@ tb pipe data habit_logs_summary --limit 5
 rustup update stable
 
 # 2. Build for release
-cd src-tauri
+cd apps/desktop/src-tauri
 cargo build --release
 
 # 3. Bundle
-npm run tauri build
+npm run tauri:build
 ```
 
 ### Code Signing

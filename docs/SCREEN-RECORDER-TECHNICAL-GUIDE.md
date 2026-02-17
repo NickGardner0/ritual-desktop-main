@@ -69,7 +69,7 @@ This document provides a comprehensive breakdown of how the Ritual screen record
 The recorder uses the `xcap` Rust crate for cross-platform screen capture:
 
 ```rust
-// From src-tauri/bin/ritual-recorder/src/capture.rs
+// From apps/desktop/src-tauri/bin/ritual-recorder/src/capture.rs
 let buffer = self.monitor.capture_image()
     .context("Failed to capture screen")?;
 let image = DynamicImage::ImageRgba8(
@@ -134,7 +134,7 @@ Frames are encoded to H.265/HEVC video using FFmpeg:
 OCR is performed using Apple's native Vision framework via AppleScript:
 
 ```rust
-// From src-tauri/bin/ritual-recorder/src/ocr.rs
+// From apps/desktop/src-tauri/bin/ritual-recorder/src/ocr.rs
 let script = format!(r#"
     use framework "Vision"
     set textRequest to current application's VNRecognizeTextRequest's alloc()'s init()

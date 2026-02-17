@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ritual Browser Tracker</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      width: 320px;
+      background: #fafafa;
+      color: #1a1a1a;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px;
+      border-bottom: 1px solid #eee;
+      background: white;
+    }
+
+    .header-icon {
+      width: 28px;
+      height: 28px;
+      background: #1a1a1a;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .header-text h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .header-text p {
+      font-size: 11px;
+      color: #888;
+      margin-top: 1px;
+    }
+
+    .status-section {
+      padding: 16px;
+      background: white;
+      border-bottom: 1px solid #eee;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+    }
+
+    .status-label {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .status-value {
+      font-size: 12px;
+      font-weight: 500;
+      color: #1a1a1a;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    .status-dot.connected {
+      background: #22c55e;
+      box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+    }
+
+    .status-dot.disconnected {
+      background: #ef4444;
+      box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+    }
+
+    .current-section {
+      padding: 16px;
+      background: white;
+      border-bottom: 1px solid #eee;
+    }
+
+    .current-label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .current-domain {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: #1a1a1a;
+    }
+
+    .current-title {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .stats-section {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      border: 1px solid #eee;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #1a1a1a;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .footer {
+      padding: 12px 16px;
+      text-align: center;
+    }
+
+    .footer-text {
+      font-size: 10px;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-icon">R</div>
+    <div class="header-text">
+      <h1>Ritual Browser Tracker</h1>
+      <p id="browser-name">Chrome</p>
+    </div>
+  </div>
+
+  <div class="status-section">
+    <div class="status-row">
+      <span class="status-label">Server</span>
+      <span class="status-value">
+        <span id="status-dot" class="status-dot disconnected"></span>
+        <span id="status-text">Disconnected</span>
+      </span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Last heartbeat</span>
+      <span class="status-value" id="last-heartbeat">Never</span>
+    </div>
+    <div class="status-row">
+      <span class="status-label">Idle state</span>
+      <span class="status-value" id="idle-state">Active</span>
+    </div>
+  </div>
+
+  <div class="current-section">
+    <div class="current-label">Currently Tracking</div>
+    <div class="current-domain" id="current-domain">-</div>
+    <div class="current-title" id="current-title">No active tab</div>
+  </div>
+
+  <div class="stats-section">
+    <div class="stat-card">
+      <div class="stat-value" id="total-heartbeats">0</div>
+      <div class="stat-label">Heartbeats sent</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="total-errors">0</div>
+      <div class="stat-label">Errors</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span class="footer-text">Sends heartbeats to Ritual Watcher roughly every 20-30s</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

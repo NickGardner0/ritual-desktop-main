@@ -110,7 +110,7 @@ The Ritual iOS Companion app serves as a bridge between Apple Health/Apple Watch
 
 ## Backend API Components
 
-### 1. Wearables Service (`backend/services/wearables_service.py`)
+### 1. Wearables Service (`apps/backend/services/wearables_service.py`)
 
 #### Device Registration:
 - Generates UUID for `device_id`
@@ -451,7 +451,7 @@ self.timezone = timezone ?? TimeZone.current.identifier
 
 ### New Desktop Component
 
-1. **`components/apple-health-sync-status.tsx`** - Sync status UI
+1. **`apps/dashboard/components/apple-health-sync-status.tsx`** - Sync status UI
    - Shows connection status with visual indicators
    - Device list with last sync times
    - Error display with details

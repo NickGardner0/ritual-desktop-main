@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./computer-activity": {
+      "types": "./dist/computer-activity.d.ts",
+      "import": "./dist/computer-activity.js"
     }
   },
   "scripts": {

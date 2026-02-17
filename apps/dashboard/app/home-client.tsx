@@ -1,0 +1,471 @@
+"use client";
+
+import { useUser, useAuth, SignIn, SignUp } from '@clerk/nextjs';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useRef } from 'react';
+import Link from 'next/link';
+import { setStandardWindowSize, setOnboardingWindowSize } from '@/lib/tauri-utils';
+import { ArrowRight } from 'lucide-react';
+import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
+
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const TOTAL_PAGES = 4;
+
+export function HomeClient() {
+  const { isSignedIn, isLoaded, user } = useUser();
+  const { getToken } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const hasChecked = useRef(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isLogoSpinning, setIsLogoSpinning] = useState(false);
+  const logoRef = useRef<HTMLImageElement>(null);
+  
+  // Welcome flow state
+  const pageParam = searchParams.get('page');
+  const authMode = searchParams.get('mode');
+  const [currentPage, setCurrentPage] = useState(pageParam ? parseInt(pageParam) : 1);
+  const [showSignUp, setShowSignUp] = useState(authMode === 'signup');
+  const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
+
+  // Update showSignUp when URL changes
+  useEffect(() => {
+    setShowSignUp(authMode === 'signup');
+  }, [authMode]);
+
+  // Attach click handler directly to logo via DOM
+  useEffect(() => {
+    const logo = logoRef.current;
+    if (!logo) return;
+
+    const handleLogoClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setIsLogoSpinning(prev => !prev);
+    };
+
+    logo.addEventListener('click', handleLogoClick, true);
+    return () => logo.removeEventListener('click', handleLogoClick, true);
+  }, []);
+
+  // Set window size based on current state
+  useEffect(() => {
+    if (isNewUser) {
+      setOnboardingWindowSize();
+    } else {
+      setStandardWindowSize();
+    }
+  }, [isNewUser]);
+
+  // Determine if new user or returning user
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const hasSeenWelcome = localStorage.getItem('ritual-onboarding-completed');
+    
+    // Not signed in
+    if (!isSignedIn) {
+      // New user - show welcome flow
+      if (!hasSeenWelcome) {
+        setIsNewUser(true);
+        return;
+      }
+      // Returning user - show simple home page
+      setIsNewUser(false);
+      return;
+    }
+
+    // User is signed in - check if they need onboarding
+    if (!user || hasChecked.current) {
+      return;
+    }
+
+    hasChecked.current = true;
+    setIsChecking(true);
+
+    const checkAndRedirect = async () => {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const token = await getToken({ skipCache: false }).catch((err) => {
+          console.error('Token fetch error:', err);
+          return null;
+        });
+
+        if (!token) {
+          router.replace('/onboarding');
+          return;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          signal: controller.signal
+        }).catch((err) => {
+          console.error('Profile fetch error:', err);
+          return null;
+        }).finally(() => clearTimeout(timeoutId));
+
+        if (response && response.ok) {
+          const profile = await response.json();
+          const localOnboardingCompleted = localStorage.getItem('ritual-onboarding-backend-completed') === 'true';
+
+          if (profile.onboarding_completed || localOnboardingCompleted) {
+            router.replace('/dashboard');
+          } else {
+            try {
+              const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              if (habitsResponse.ok) {
+                const habits = await habitsResponse.json();
+                if (habits && habits.length > 0) {
+                  router.replace('/dashboard');
+                  return;
+                }
+              }
+            } catch (e) {
+              console.log('Could not check habits, proceeding with onboarding check');
+            }
+            router.replace('/onboarding');
+          }
+        } else {
+          router.replace('/dashboard');
+        }
+      } catch (error) {
+        console.error('Error checking profile:', error);
+        router.replace('/dashboard');
+      }
+    };
+
+    checkAndRedirect();
+  }, [isSignedIn, isLoaded, user, getToken, router]);
+
+  // Handle signed in users during welcome flow
+  useEffect(() => {
+    if (isLoaded && isSignedIn && isNewUser) {
+      const hasCompletedWelcomeFlow = localStorage.getItem('ritual-onboarding-completed');
+      const hasCompletedBackendOnboarding = localStorage.getItem('ritual-onboarding-backend-completed');
+
+      // If returning from backend onboarding, continue to page 4
+      if (hasCompletedBackendOnboarding === 'true' && pageParam === '4') {
+        return;
+      }
+
+      // If fully completed, go to dashboard
+      if (hasCompletedWelcomeFlow === 'true') {
+        router.replace('/dashboard');
+      }
+    }
+  }, [isSignedIn, isLoaded, isNewUser, router, pageParam]);
+
+  // Set flag when user reaches page 3 (auth page)
+  useEffect(() => {
+    if (currentPage === 3) {
+      localStorage.setItem('ritual-from-welcome', 'true');
+    }
+  }, [currentPage]);
+
+  const handleNext = () => {
+    if (currentPage === TOTAL_PAGES) {
+      localStorage.setItem('ritual-onboarding-completed', 'true');
+      localStorage.removeItem('ritual-from-welcome');
+      localStorage.removeItem('ritual-onboarding-backend-completed');
+      router.push('/dashboard');
+      return;
+    }
+    setCurrentPage(prev => Math.min(prev + 1, TOTAL_PAGES));
+  };
+
+  const handleDotClick = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  // Show loading while checking auth state for signed-in users
+  if (isSignedIn && isChecking) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
+          <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // Still determining user type
+  if (isNewUser === null) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
+          <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // NEW USER: Show 4-page welcome flow
+  if (isNewUser) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col relative welcome-page" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
+        <ClerkOAuthHandler />
+        <style jsx global>{`
+          .welcome-page [class*="user"], 
+          .welcome-page [class*="profile"],
+          .welcome-page [class*="avatar"] {
+            display: none !important;
+          }
+        `}</style>
+
+        {/* Window Drag Region */}
+        <div
+          data-tauri-drag-region
+          className="fixed top-0 left-0 w-full h-12 z-50"
+        />
+
+        {/* Main Content */}
+        <div className="flex-1 flex items-center justify-center">
+          <div className={`w-full text-center ${currentPage === 2 ? 'max-w-none px-0' : currentPage === 3 ? 'max-w-none px-0' : 'max-w-2xl px-8'}`}>
+            
+            {/* Page 1: Welcome */}
+            {currentPage === 1 && (
+              <div className="animate-in fade-in duration-500 flex flex-col items-center">
+                <div className="mb-6">
+                  <img
+                    ref={logoRef}
+                    src="/images/new_logo4.svg"
+                    alt="Ritual Logo"
+                    width={55}
+                    height={55}
+                    className="cursor-pointer"
+                    style={{
+                      transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
+                      transition: 'transform 500ms ease-in-out'
+                    }}
+                  />
+                </div>
+                <h1 className="text-gray-900 mb-8" style={{
+                  fontSize: '32px',
+                  lineHeight: '1.2',
+                  WebkitFontSmoothing: 'antialiased',
+                  letterSpacing: '-0.01em',
+                  fontWeight: 500
+                }}>
+                  Welcome to Ritual
+                </h1>
+              </div>
+            )}
+
+            {/* Page 2: Why Ritual */}
+            {currentPage === 2 && (
+              <div className="animate-in fade-in duration-500">
+                <div className="max-w-lg mx-auto text-left text-gray-900 px-8">
+                  <p className="text-xl leading-relaxed">
+                    Ritual is a collection of self-tracking tools and integrations used to measure and quantify your behavior.
+                  </p>
+                  <p className="text-xl leading-relaxed mt-6">
+                    As you connect your wearable devices and create logs in the app, the system quietly generates metadata. Over time, your scattered behavior and patterns become structured data that start to form a model of your life.
+                  </p>
+                  <div className="mt-10 flex flex-col items-center gap-4">
+                    <button
+                      onClick={handleNext}
+                      className="px-4 py-2 bg-black text-white rounded-none hover:bg-[#1f2937] transition-colors flex items-center gap-2 text-sm font-medium"
+                    >
+                      Next
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                    <div className="flex items-center gap-2">
+                      {Array.from({ length: TOTAL_PAGES }).map((_, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleDotClick(index + 1)}
+                          className={`w-[7px] h-[7px] rounded-full transition-all ${currentPage === index + 1
+                              ? 'bg-gray-900'
+                              : 'bg-gray-300 hover:bg-gray-400'
+                            }`}
+                          aria-label={`Go to page ${index + 1}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Page 3: Clerk Auth Components */}
+            {currentPage === 3 && (
+              <div className="animate-in fade-in duration-500 flex justify-center">
+                {showSignUp ? (
+                  <SignUp
+                    routing="virtual"
+                    signInUrl="/?page=3&mode=signin"
+                    afterSignUpUrl="/auth/sso-callback"
+                    redirectUrl="/auth/sso-callback"
+                    appearance={{
+                      elements: {
+                        socialButtonsBlockButton: {
+                          '&:hover': {
+                            cursor: 'pointer'
+                          }
+                        }
+                      }
+                    }}
+                  />
+                ) : (
+                  <SignIn
+                    routing="virtual"
+                    signUpUrl="/?page=3&mode=signup"
+                    afterSignInUrl="/auth/sso-callback"
+                    redirectUrl="/auth/sso-callback"
+                    appearance={{
+                      elements: {
+                        socialButtonsBlockButton: {
+                          '&:hover': {
+                            cursor: 'pointer'
+                          }
+                        }
+                      }
+                    }}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Page 4: You're all set */}
+            {currentPage === 4 && (
+              <div className="animate-in fade-in duration-500">
+                <div className="flex justify-center mb-8">
+                  <img
+                    src="/images/new_logo4.svg"
+                    alt="Ritual Logo"
+                    width={60}
+                    height={60}
+                  />
+                </div>
+                <h1 className="text-4xl font-medium text-gray-900 mb-4">
+                  You&apos;re all set!
+                </h1>
+                <p className="text-lg text-gray-600 max-w-md mx-auto">
+                  Let&apos;s start building your first ritual.
+                </p>
+              </div>
+            )}
+
+            {/* Navigation Buttons - Pages 1 and 4 */}
+            {(currentPage === 1 || currentPage === 4) && (
+              <div className="flex items-center justify-center">
+                <button
+                  onClick={handleNext}
+                  className="px-12 py-2.5 bg-black text-white rounded-none hover:bg-[#1f2937] transition-colors flex items-center justify-center text-sm font-medium"
+                  style={{ fontWeight: 500 }}
+                >
+                  {currentPage === 1 && 'Get Started'}
+                  {currentPage === TOTAL_PAGES && 'Go to Dashboard'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Terms of Service - Page 1 only */}
+        {currentPage === 1 && (
+          <footer className="py-8 text-center">
+            <p className="text-sm text-gray-400" style={{ fontWeight: 400 }}>
+              By signing in you agree to our{' '}
+              <a href="/terms" className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200">
+                Terms of service
+              </a>
+              {' '}&{' '}
+              <a href="/privacy" className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200">
+                Privacy policy
+              </a>
+            </p>
+          </footer>
+        )}
+      </div>
+    );
+  }
+
+  // RETURNING USER: Show simple home page with Sign In
+  return (
+    <div className="min-h-screen bg-white relative flex flex-col" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
+      {/* Window Drag Region */}
+      <div
+        data-tauri-drag-region
+        className="fixed top-0 left-0 w-full h-16 z-50"
+      />
+
+      {/* Main Content - True center */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6">
+        <div className="flex flex-col items-center">
+          <div className="mb-6">
+            <img
+              ref={logoRef}
+              src="/images/new_logo4.svg"
+              alt="Ritual Logo"
+              width={55}
+              height={55}
+              className="cursor-pointer"
+              style={{
+                transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
+                transition: 'transform 500ms ease-in-out'
+              }}
+            />
+          </div>
+
+          <h1 className="text-gray-900 mb-8" style={{
+            fontSize: '32px',
+            lineHeight: '1.2',
+            WebkitFontSmoothing: 'antialiased',
+            letterSpacing: '-0.01em',
+            fontWeight: 500
+          }}>
+            Welcome to Ritual
+          </h1>
+
+          <Link
+            href="/sign-in"
+            className="inline-flex items-center justify-center bg-black text-white px-12 py-2.5 rounded-none font-medium text-sm"
+            style={{
+              userSelect: 'none',
+              transition: 'all 0.2s ease-out',
+              fontWeight: 500
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#1f2937';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#000000';
+            }}
+          >
+            Sign In
+          </Link>
+        </div>
+      </main>
+
+      {/* Terms of Service - Fixed at bottom */}
+      <footer className="py-8 text-center">
+        <p className="text-sm text-gray-400" style={{ fontWeight: 400 }}>
+          By signing in you agree to our{' '}
+          <a
+            href="/terms"
+            className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200"
+          >
+            Terms of service
+          </a>
+          {' '}&{' '}
+          <a
+            href="/privacy"
+            className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200"
+          >
+            Privacy policy
+          </a>
+        </p>
+      </footer>
+    </div>
+  );
+}

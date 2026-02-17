@@ -1,0 +1,5 @@
+{
+  "name": "@ritual/browser-extension",
+  "private": true,
+  "type": "module"
+}

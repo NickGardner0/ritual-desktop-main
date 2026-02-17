@@ -5,3 +5,18 @@ If the goal of creating a personal model of your life is to be realized, we need
 Current attempts of creating such a model have tried to adapt the tooling of general-purpose computing towards the behavioral domain without teaching the computer about behavior. Personal databases of your life should be exploding for exploratory research - mining health and behavioral data for insight and patterns - and they should do so autonomously and continuously. Not a single log or metric should be allowed to go unexamined.
 
 The goal of the ritual project is to build the tooling that makes your personal data useful.
+
+## Repository Structure
+
+- `apps/dashboard/`: canonical Next.js dashboard app code
+- `apps/backend/`: canonical FastAPI services and data layer
+- `apps/browser-extension/`: browser extension
+- `apps/desktop/src-tauri/`: Tauri desktop wrapper and Rust binaries
+- `apps/desktop/ritual-icon/`: desktop icon source assets
+- `apps/ios-companion/`: iOS companion app source
+- `apps/tinybird/`: Tinybird data sources, pipes, and deployment scripts
+- `packages/shared-contracts/`: shared TypeScript contracts
+- `packages/ui/`: shared UI utilities
+- `docs/`: organized project documentation (`guides/`, `analysis/`, `notes/`)
+
+See `docs/README.md` for documentation index and quick links.

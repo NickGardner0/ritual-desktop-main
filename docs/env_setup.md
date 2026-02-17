@@ -4,9 +4,9 @@ This document contains the required environment variables for running Ritual.
 
 ---
 
-## Frontend (.env.local)
+## Frontend (`apps/dashboard/.env.local`)
 
-Create a file named `.env.local` in the project root with these variables:
+Create a file named `.env.local` in `apps/dashboard/` with these variables:
 
 ```env
 # ============================
@@ -56,9 +56,9 @@ NEXT_PUBLIC_DEBUG_API=false
 
 ---
 
-## Backend (backend/.env)
+## Backend (apps/backend/.env)
 
-Create a file named `.env` in the `backend/` directory:
+Create a file named `.env` in the `apps/backend/` directory:
 
 ```env
 # ============================
