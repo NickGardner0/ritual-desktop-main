@@ -10,7 +10,8 @@
 
 'use client';
 
-import React, { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Plus, Download, ChevronDown } from 'lucide-react';
@@ -27,25 +28,48 @@ import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { habitLogKeys } from '@/hooks/use-habits-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
+import { getLocationPermissionStatus, requestCurrentLocation } from '@/lib/location-utils';
 // Import from separate file to avoid pulling in recharts (~500KB)
 import { AnalyticsViewToggle } from './analytics-view-toggle';
 
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
+const WEATHER_AUTO_SYNC_INTERVAL_MS = 45 * 60 * 1000;
+const WEATHER_AUTO_SYNC_LAST_KEY = 'ritual:weather-auto-sync:last';
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
-// Lazy load HEAVY components
-// DateRangePicker includes react-day-picker + date-fns
-const DateRangePicker = lazy(() => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })));
+// Dynamic imports with ssr:false — Turbopack skips these modules during
+// server-side compilation, cutting the initial /dashboard compile from ~70s.
+const DateRangePicker = dynamic(
+  () => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })),
+  { ssr: false, loading: () => <ControlLoadingFallback /> }
+);
 
-// View components - these contain recharts, @dnd-kit, etc.
-const OverviewView = lazy(() => import('./overview-view').then(m => ({ default: m.OverviewView })));
-const MetricsView = lazy(() => import('./metrics-view').then(m => ({ default: m.MetricsView })));
+const OverviewView = dynamic(
+  () => import('./overview-view').then(m => ({ default: m.OverviewView })),
+  { ssr: false, loading: () => <ViewLoadingFallback /> }
+);
 
-// Modals and AI chat
-const HabitSelectionModal = lazy(() => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })));
-const DataImportModal = lazy(() => import("@/components/data-import-modal").then(m => ({ default: m.DataImportModal })));
-const AIHabitChat = lazy(() => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })));
+const MetricsView = dynamic(
+  () => import('./metrics-view').then(m => ({ default: m.MetricsView })),
+  { ssr: false, loading: () => <ViewLoadingFallback /> }
+);
+
+const HabitSelectionModal = dynamic(
+  () => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })),
+  { ssr: false }
+);
+
+const DataImportModal = dynamic(
+  () => import("@/components/data-import-modal").then(m => ({ default: m.DataImportModal })),
+  { ssr: false }
+);
+
+const AIHabitChat = dynamic(
+  () => import("@/components/ai-habit-chat").then(m => ({ default: m.AIHabitChat })),
+  { ssr: false }
+);
 
 // Loading fallback for lazy-loaded views
 function ViewLoadingFallback() {
@@ -89,6 +113,7 @@ function UnifiedAnalyticsContent() {
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
+  const { getToken } = useAuth();
 
   // Keep "Computer Use" habit in sync on dashboard load.
   // Guarded to avoid duplicate calls from StrictMode/remounts.
@@ -139,6 +164,113 @@ function UnifiedAnalyticsContent() {
       cancelled = true;
     };
   }, [userLoaded, isSignedIn]);
+
+  // Optional Weather background sync while app is active.
+  // This never prompts for location; it runs only if permission is already granted.
+  useEffect(() => {
+    if (!userLoaded || !isSignedIn) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const runWeatherAutoSync = async () => {
+      if (cancelled) return;
+
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+
+      if (typeof window !== 'undefined') {
+        const inFlight = Boolean((window as any).__ritualWeatherSyncInFlight);
+        if (inFlight) return;
+        (window as any).__ritualWeatherSyncInFlight = true;
+      }
+
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const now = Date.now();
+        const lastLocalSync = typeof window !== 'undefined'
+          ? Number(sessionStorage.getItem(WEATHER_AUTO_SYNC_LAST_KEY) || '0')
+          : 0;
+        if (now - lastLocalSync < WEATHER_AUTO_SYNC_INTERVAL_MS) {
+          return;
+        }
+
+        const statusResponse = await fetch(`${PYTHON_API_BASE}/api/integrations/weather/status`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        if (!statusResponse.ok) return;
+
+        const statusPayload = await statusResponse.json();
+        if (!statusPayload?.enabled) return;
+
+        if (statusPayload?.last_sync_at) {
+          const lastServerSync = new Date(statusPayload.last_sync_at).getTime();
+          if (Number.isFinite(lastServerSync) && now - lastServerSync < 30 * 60 * 1000) {
+            return;
+          }
+        }
+
+        const permission = await getLocationPermissionStatus();
+        if (permission !== 'granted') {
+          return;
+        }
+
+        const location = await requestCurrentLocation({
+          timeoutMs: 10000,
+          maximumAgeMs: 5 * 60 * 1000,
+          enableHighAccuracy: false,
+        });
+
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const syncResponse = await fetch(`${PYTHON_API_BASE}/api/integrations/weather/sync`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            lat: location.lat,
+            lon: location.lon,
+            tz,
+            locationLabel: 'Near you',
+            storePreciseLocation: false,
+          }),
+        });
+
+        if (syncResponse.ok && typeof window !== 'undefined') {
+          sessionStorage.setItem(WEATHER_AUTO_SYNC_LAST_KEY, String(now));
+        }
+      } catch (error) {
+        console.debug('Weather background sync skipped:', error);
+      } finally {
+        if (typeof window !== 'undefined') {
+          (window as any).__ritualWeatherSyncInFlight = false;
+        }
+      }
+    };
+
+    runWeatherAutoSync();
+    const intervalId = setInterval(runWeatherAutoSync, WEATHER_AUTO_SYNC_INTERVAL_MS);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        runWeatherAutoSync();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [userLoaded, isSignedIn, getToken]);
   
   // Load chart view mode from localStorage
   useEffect(() => {
@@ -207,48 +339,43 @@ function UnifiedAnalyticsContent() {
   // DOM references. This is critical because router.replace() during view switching
   // can cause the Suspense boundary to re-suspend and remount the component,
   // which would leave the old cached references pointing at detached nodes.
-  const [portalMounted, setPortalMounted] = useState(false);
-  useEffect(() => { setPortalMounted(true); }, []);
-  const headerRightSlot = portalMounted ? document.getElementById('header-right-slot') : null;
-  const headerLeftSlot = portalMounted ? document.getElementById('header-left-slot') : null;
+  const headerRightSlot =
+    typeof document !== 'undefined'
+      ? document.getElementById('header-right-slot')
+      : null;
 
   return (
     <div className="space-y-3">
-      {/* + button — portalled into header left slot (next to Search/Tracker), overview only */}
-      {!isFullScreenChat && headerLeftSlot && viewMode === 'overview' && createPortal(
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-none focus:outline-none"
-              aria-label="Add"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6}>
-            <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add habit
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setShowImportModal(true)}>
-              <Download className="w-4 h-4 mr-2" />
-              Import data
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>,
-        headerLeftSlot
-      )}
-
-      {/* Date picker + View toggle — portalled into header right slot */}
+      {/* + button (overview) + Date picker + View toggle — portalled into header right slot */}
       {!isFullScreenChat && headerRightSlot && createPortal(
         <>
-          <Suspense fallback={<ControlLoadingFallback />}>
-            <DateRangePicker
-              className="w-auto"
-              onDateRangeChange={setDateRange}
-              initialDateRange={dateRange}
-            />
-          </Suspense>
+          {viewMode === 'overview' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-none focus:outline-none"
+                  aria-label="Add"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6}>
+                <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add habit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowImportModal(true)}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Import data
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <DateRangePicker
+            className="w-auto"
+            onDateRangeChange={setDateRange}
+            initialDateRange={dateRange}
+          />
           <ViewModeToggle
             currentView={viewMode}
             onViewChange={handleViewChange}
@@ -257,7 +384,7 @@ function UnifiedAnalyticsContent() {
         headerRightSlot
       )}
 
-      {/* Inline content-area controls (Spark/Bar, All habits) — metrics only */}
+      {/* Inline content-area controls (Spark/Bar, All) — metrics only */}
       {!isFullScreenChat && viewMode === 'metrics' && (
         <div className="flex items-center gap-2">
           <AnalyticsViewToggle
@@ -273,7 +400,7 @@ function UnifiedAnalyticsContent() {
             >
               <span>
                 {selectedHabits.length === habits.length
-                  ? 'All habits'
+                  ? 'All'
                   : `${selectedHabits.length} of ${habits.length}`
                 }
               </span>
@@ -348,9 +475,7 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'overview' && (
-            <Suspense fallback={<ViewLoadingFallback />}>
-              <OverviewView hideControls={true} />
-            </Suspense>
+            <OverviewView hideControls={true} />
           )}
         </div>
         
@@ -366,46 +491,39 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'metrics' && (
-            <Suspense fallback={<ViewLoadingFallback />}>
-              <MetricsView 
-                hideControls={true} 
-                externalChartViewMode={chartViewMode}
-                onChartViewModeChange={setChartViewMode}
-              />
-            </Suspense>
+            <MetricsView 
+              hideControls={true} 
+              externalChartViewMode={chartViewMode}
+              onChartViewModeChange={setChartViewMode}
+            />
           )}
         </div>
       </div>
       
       {/* Modals */}
       {showSelectionModal && (
-        <Suspense fallback={null}>
-          <HabitSelectionModal
-            isOpen={showSelectionModal}
-            onClose={() => setShowSelectionModal(false)}
-            onHabitCreated={handleHabitCreated}
-          />
-        </Suspense>
+        <HabitSelectionModal
+          isOpen={showSelectionModal}
+          onClose={() => setShowSelectionModal(false)}
+          onHabitCreated={handleHabitCreated}
+        />
       )}
 
       {showImportModal && (
-        <Suspense fallback={null}>
-          <DataImportModal
-            isOpen={showImportModal}
-            onClose={() => setShowImportModal(false)}
-            onImportComplete={() => {
-              fetchHabits();
-              fetchHabitLogs();
-            }}
-          />
-        </Suspense>
+        <DataImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onImportComplete={() => {
+            fetchHabits();
+            fetchHabitLogs();
+          }}
+        />
       )}
       
       {/* AI Habit Chat - Fixed at bottom, only visible in Overview mode */}
       {showAIChat && viewMode === 'overview' && (
         <div className="fixed bottom-0 left-[70px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white/90 via-white/60 to-transparent">
           <div className="w-full max-w-2xl">
-            <Suspense fallback={<div className="text-center py-4">Loading AI Chat...</div>}>
               <AIHabitChat
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
@@ -524,7 +642,6 @@ function UnifiedAnalyticsContent() {
                   }
                 }}
               />
-            </Suspense>
           </div>
         </div>
       )}

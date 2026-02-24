@@ -16,6 +16,7 @@ import { RankedBars } from './RankedBars'
 import { DeepDrillDrawer } from './DeepDrillDrawer'
 import { UsageBreakdownCard } from './UsageBreakdownCard'
 import { useUsageBreakdown } from '@/hooks/use-usage-breakdown'
+import { BrailleSpinner } from '@/components/ui/braille-spinner'
 
 /**
  * Format milliseconds to human-readable time
@@ -200,7 +201,7 @@ export function ComputerActivityPanel({
               title="Refresh data"
               disabled={isLoading}
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? <BrailleSpinner className="text-sm text-gray-600" /> : <RefreshCw className="w-4 h-4" />}
             </button>
             {onDismiss && (
               <button
@@ -260,7 +261,7 @@ export function ComputerActivityPanel({
       {/* Loading State */}
       {isLoading && !hasData && (
         <div className="flex items-center justify-center h-48 px-5">
-          <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+          <BrailleSpinner className="text-base text-gray-600" />
         </div>
       )}
       

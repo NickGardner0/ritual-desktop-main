@@ -8,6 +8,7 @@ FastAPI backend for Ritual.
 - `apps/backend/services`: business logic
 - `apps/backend/database`: DB connection and models
 - `apps/backend/tests`: backend test suite
+- `docs/guides/weatherkit-setup.md`: WeatherKit setup + verification
 
 ## Run
 

@@ -19,7 +19,6 @@ The script will:
 import asyncio
 import os
 import sys
-from datetime import datetime
 from typing import Dict, Any, List
 
 # Add parent directory to path for imports
@@ -32,25 +31,6 @@ from database.connection import get_db_session
 from database.models import HabitLogDB, HabitDB
 from services.tinybird_service import TinybirdService
 from sqlalchemy import select
-
-
-def format_utc_timestamp(iso_string: str) -> str:
-    """
-    Convert ISO UTC timestamp to Tinybird format.
-    
-    Input:  2025-12-07T00:02:08.352Z (Turso format)
-    Output: 2025-12-07 00:02:08 (Tinybird format)
-    """
-    if not iso_string:
-        return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Replace T with space, remove Z and milliseconds
-    result = iso_string.replace('T', ' ')
-    if 'Z' in result:
-        result = result.replace('Z', '')
-    if '.' in result:
-        result = result.split('.')[0]
-    return result
 
 
 async def get_all_habits(session) -> Dict[str, HabitDB]:
@@ -116,8 +96,8 @@ async def resync_logs():
             # Get the completed_at timestamp (Turso stores as ISO UTC)
             completed_at = log.completed_at if log.completed_at else None
             
-            # Convert to Tinybird format (space-separated UTC)
-            timestamp_utc = format_utc_timestamp(completed_at) if completed_at else f"{log.date} 12:00:00"
+            # Provide a deterministic UTC fallback when historical rows only have a date.
+            completed_at_for_tinybird = completed_at or f"{log.date}T12:00:00Z"
             
             # Prepare log data for Tinybird
             log_data = {
@@ -131,7 +111,7 @@ async def resync_logs():
                 'unit': habit.unit_type or 'none',
                 'status': log.status or 'completed',
                 'notes': log.notes or 'none',
-                'completed_at': completed_at,  # Pass to ingest_habit_log for proper formatting
+                'completed_at': completed_at_for_tinybird,  # Pass to ingest_habit_log for proper formatting
             }
             
             try:
@@ -165,4 +145,3 @@ if __name__ == "__main__":
     print("   with correct UTC timestamp format.\n")
     
     asyncio.run(resync_logs())
-

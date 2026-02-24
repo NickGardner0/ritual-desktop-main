@@ -77,12 +77,29 @@ interface ScreenRecordingItem {
   relevance: string;
 }
 
+interface ScreenRecordingsDebug {
+  enabled: boolean;
+  mode_used: string;
+  status: string;
+  warning?: string;
+  source_counts?: {
+    hybrid?: number;
+    text?: number;
+    activity?: number;
+    unknown?: number;
+  };
+}
+
 interface ScreenRecordingsData {
   success: boolean;
   query: string;
   days_searched: number;
   result_count: number;
   results: ScreenRecordingItem[];
+  mode_used?: string;
+  status?: string;
+  warning?: string;
+  debug?: ScreenRecordingsDebug;
 }
 
 export interface HabitCanvasData {
@@ -459,6 +476,7 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
   }, {} as Record<string, ScreenRecordingItem[]>);
 
   const appCount = Object.keys(groupedByApp).length;
+  const debug = screenRecordings.debug;
 
   return (
     <div className="space-y-6">
@@ -483,6 +501,31 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
           </div>
         </div>
       </div>
+
+      {/* Debug/QA metadata (enabled only when backend debug flag is on) */}
+      {debug?.enabled && (
+        <div className="border border-[#e6e6e6] p-3 bg-[#f9fafb]">
+          <div className="text-[11px] text-[#707070] mb-1 uppercase tracking-wide">QA debug</div>
+          <div className="flex flex-wrap gap-2 text-[11px] text-black">
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              mode: {debug.mode_used}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              status: {debug.status}
+            </span>
+            {debug.source_counts && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                sources h:{debug.source_counts.hybrid || 0} t:{debug.source_counts.text || 0} a:{debug.source_counts.activity || 0}
+              </span>
+            )}
+          </div>
+          {debug.warning && (
+            <div className="text-[10px] text-amber-700 mt-2">
+              {debug.warning}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Results Table */}
       {screenRecordings.results.length > 0 ? (

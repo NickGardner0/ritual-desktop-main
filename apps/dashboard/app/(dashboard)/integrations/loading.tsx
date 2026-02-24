@@ -6,6 +6,8 @@
  * approach of showing instant UI shells.
  */
 
+import { BrailleSpinner } from "@/components/ui/braille-spinner";
+
 const shimmerClass = "animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200";
 
 export default function IntegrationsLoading() {
@@ -53,7 +55,7 @@ export default function IntegrationsLoading() {
         {/* Loading indicator */}
         <div className="fixed bottom-4 right-4 bg-white border border-gray-300 px-4 py-2 rounded-none shadow-lg">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+            <BrailleSpinner className="text-sm text-gray-600" />
             <span className="text-sm text-gray-600">Loading integrations...</span>
           </div>
         </div>

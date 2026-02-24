@@ -25,7 +25,6 @@ import {
   FileArchive,
   Check,
   AlertCircle,
-  Loader2,
   Calendar,
   Activity,
   Heart,
@@ -38,6 +37,7 @@ import {
   Brain,
   X,
 } from "lucide-react";
+import { BrailleSpinner } from "@/components/ui/braille-spinner";
 
 // Apple Health record types we support
 const SUPPORTED_METRICS = {
@@ -537,7 +537,7 @@ export function AppleHealthImportModal({
               <Button onClick={handleParseFile} disabled={!file || isLoading}>
                 {isLoading ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <BrailleSpinner className="mr-2 text-sm" />
                     Parsing...
                   </>
                 ) : (
@@ -685,7 +685,7 @@ export function AppleHealthImportModal({
                 >
                   {isLoading ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      <BrailleSpinner className="mr-2 text-sm" />
                       Importing...
                     </>
                   ) : (
@@ -700,7 +700,7 @@ export function AppleHealthImportModal({
         {/* Step 3: Importing */}
         {step === "importing" && (
           <div className="py-8 text-center space-y-4">
-            <Loader2 className="h-12 w-12 animate-spin text-blue-500 mx-auto" />
+            <BrailleSpinner className="mx-auto text-4xl text-blue-500" />
             <div>
               <p className="font-medium">Importing your health data...</p>
               <p className="text-sm text-gray-500 mt-1">This may take a few minutes for large exports</p>

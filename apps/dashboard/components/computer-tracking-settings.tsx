@@ -15,10 +15,10 @@ import {
   Lock,
   Unlock,
   Activity,
-  Loader2,
   Clock
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 interface WatcherConfig {
   device_id: string;
@@ -548,7 +548,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
         {isStatusLoading && !cachedState.current ? (
           // Show loading spinner only if we don't have cached state
           <div className="h-5 w-9 flex items-center justify-center">
-            <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+            <BrailleSpinner className="text-sm text-gray-400" />
           </div>
         ) : (
           <button
@@ -571,7 +571,11 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
       {isEnabled && (
         <div className="py-2.5 border-b border-gray-200/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <RefreshCw className={`w-4 h-4 text-gray-400 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? (
+              <BrailleSpinner className="text-sm text-gray-400" />
+            ) : (
+              <RefreshCw className="w-4 h-4 text-gray-400" />
+            )}
             <div>
               <span className="text-sm text-gray-900">Sync to Habit</span>
               {lastSyncTime && (
@@ -707,7 +711,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           disabled={isSaving}
           className="px-3 py-1.5 text-sm text-white bg-black hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center gap-1.5"
         >
-          {isSaving && <RefreshCw className="w-3 h-3 animate-spin" />}
+          {isSaving && <BrailleSpinner className="text-xs text-white" />}
           Save
         </button>
       </div>

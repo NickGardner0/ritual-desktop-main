@@ -17,7 +17,6 @@ import {
   Upload,
   Check,
   AlertCircle,
-  Loader2,
   X,
   ChevronLeft,
   Camera,
@@ -26,6 +25,7 @@ import {
   ChevronDown,
   History,
 } from "lucide-react";
+import { BrailleSpinner } from "@/components/ui/braille-spinner";
 
 // Check if we're in Tauri environment
 const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
@@ -943,7 +943,7 @@ export function DataImportModal({
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <BrailleSpinner className="text-sm text-white" />
                       Analyzing...
                     </span>
                   ) : (
@@ -1313,7 +1313,7 @@ export function DataImportModal({
           {/* Step 4: Importing Progress */}
           {step === "importing" && (
             <div className="py-8 text-center space-y-4">
-              <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto" />
+              <BrailleSpinner className="mx-auto text-2xl text-gray-400" />
               <div>
                 <p className="text-sm font-medium text-gray-900">Importing your data...</p>
                 {importProgress.total > 0 && (
@@ -1386,7 +1386,7 @@ export function DataImportModal({
             <div className="space-y-3">
               {isLoadingHistory ? (
                 <div className="py-8 text-center">
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+                  <BrailleSpinner className="mx-auto text-lg text-gray-400" />
                 </div>
               ) : importHistory.length === 0 ? (
                 <div className="py-8 text-center text-gray-500">

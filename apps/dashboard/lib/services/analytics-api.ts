@@ -1,8 +1,8 @@
 /**
  * Analytics API Service - Frontend client for Python analytics backend
- * 
- * This is the single source of truth for all habit statistics.
- * All calculations are done on the Python backend.
+ *
+ * Python analytics is used as a fallback path when Tinybird analytics
+ * endpoints are unavailable.
  */
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -354,4 +354,3 @@ export function useCorrelation(options: {
 
   return { data, loading, error, refetch: fetchCorrelation };
 }
-

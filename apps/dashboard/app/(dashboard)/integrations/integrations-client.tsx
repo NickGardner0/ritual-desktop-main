@@ -17,14 +17,19 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
-import { Loader, Power, Monitor, ChevronLeft } from 'lucide-react';
+import { Monitor, ChevronLeft, CloudSun, AlertCircle, Trash2 } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Slider } from '@/components/ui/slider';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ComputerTrackingSettings } from '@/components/computer-tracking-settings';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import {
+  getLocationPermissionStatus,
+  requestCurrentLocation,
+  type LocationErrorCode,
+  type LocationPermissionState,
+} from '@/lib/location-utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
@@ -33,6 +38,37 @@ function formatHour(hour: number): string {
   const period = hour >= 12 ? 'PM' : 'AM';
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${hour12}:00 ${period}`;
+}
+
+function formatRelativeTime(dateValue: string | null | undefined): string {
+  if (!dateValue) {
+    return 'Never';
+  }
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / (1000 * 60));
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+
+  return date.toLocaleString();
+}
+
+function getPermissionLabel(permission: LocationPermissionState): string {
+  if (permission === 'granted') return 'Granted';
+  if (permission === 'denied') return 'Denied';
+  if (permission === 'prompt') return 'Not requested';
+  return 'Unsupported';
 }
 
 /**
@@ -133,6 +169,29 @@ function useComputerTrackingStatus() {
   });
 }
 
+function useWeatherStatus() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ['weather-status', user?.id],
+    queryFn: async () => {
+      const token = await getToken();
+      const response = await fetch(`${API_BASE_URL}/api/integrations/weather/status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch Weather status');
+      }
+
+      return response.json();
+    },
+    staleTime: 1000 * 60 * 2,
+    enabled: !!user?.id,
+  });
+}
+
 // Memoized integration card
 const IntegrationCard = memo(({
   logo,
@@ -142,6 +201,7 @@ const IntegrationCard = memo(({
   isConnected,
   isConnecting,
   isSyncing,
+  connectVariant = 'primary',
   onConnect,
   onSync,
   onDisconnect,
@@ -154,6 +214,7 @@ const IntegrationCard = memo(({
   isConnected?: boolean
   isConnecting?: boolean
   isSyncing?: boolean
+  connectVariant?: 'primary' | 'outline'
   onConnect?: () => void
   onSync?: () => void
   onDisconnect?: () => void
@@ -192,7 +253,7 @@ const IntegrationCard = memo(({
             >
               {isSyncing ? (
                 <>
-                  <Loader className="w-3.5 h-3.5 mr-1.5 animate-spin inline-block" />
+                  <BrailleSpinner className="mr-1.5 inline-block text-sm" />
                   Syncing...
                 </>
               ) : (
@@ -224,11 +285,15 @@ const IntegrationCard = memo(({
           <button
             onClick={onConnect}
             disabled={isConnecting}
-            className="px-3 py-1.5 text-sm bg-black text-white rounded-none hover:bg-gray-800 disabled:opacity-50"
+            className={
+              connectVariant === 'outline'
+                ? "px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
+                : "px-3 py-1.5 text-sm bg-black text-white rounded-none hover:bg-gray-800 disabled:opacity-50"
+            }
           >
             {isConnecting ? (
               <>
-                <Loader className="w-3.5 h-3.5 mr-1.5 animate-spin inline-block" />
+                <BrailleSpinner className="mr-1.5 inline-block text-sm" />
                 Connecting...
               </>
             ) : (
@@ -260,11 +325,16 @@ export function IntegrationsClient() {
   const { data: whoopStatusData, isLoading, refetch: refetchWhoopStatus } = useWhoopStatus();
   const { data: appleWatchStatusData, isLoading: isLoadingAppleWatch, refetch: refetchAppleWatchStatus } = useAppleWatchStatus();
   const { data: computerTrackingStatus, isLoading: isLoadingComputerTracking, refetch: refetchComputerTracking } = useComputerTrackingStatus();
+  const { data: weatherStatusData, isLoading: isLoadingWeather, refetch: refetchWeatherStatus } = useWeatherStatus();
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopSyncHour, setWhoopSyncHour] = useState(9); // Default to 9 AM
   const [whoopConnecting, setWhoopConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [appleWatchSyncing, setAppleWatchSyncing] = useState(false);
+  const [weatherConnected, setWeatherConnected] = useState(false);
+  const [weatherConnecting, setWeatherConnecting] = useState(false);
+  const [weatherSyncing, setWeatherSyncing] = useState(false);
+  const [weatherPermission, setWeatherPermission] = useState<LocationPermissionState>('prompt');
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
@@ -281,6 +351,10 @@ export function IntegrationsClient() {
   const computerTrackingConnected = computerTrackingStatus?.connected || false;
   const computerTrackingEnabled = computerTrackingStatus?.enabled || false;
   const computerTrackingDeviceName = computerTrackingStatus?.deviceName || 'My Mac';
+  const weatherLastSync = weatherStatusData?.last_sync_at || null;
+  const weatherLastError = weatherStatusData?.last_error || null;
+  const weatherLocationLabel = weatherStatusData?.last_location_label || 'Near you';
+  const weatherStorePrecise = !!weatherStatusData?.store_precise_location;
 
   // Update local state when query data changes
   useEffect(() => {
@@ -289,6 +363,18 @@ export function IntegrationsClient() {
       setWhoopSyncHour(whoopStatusData.sync_hour || 9);
     }
   }, [whoopStatusData]);
+
+  useEffect(() => {
+    if (weatherStatusData !== undefined) {
+      setWeatherConnected(!!weatherStatusData.enabled);
+    }
+  }, [weatherStatusData]);
+
+  useEffect(() => {
+    getLocationPermissionStatus()
+      .then(setWeatherPermission)
+      .catch(() => setWeatherPermission('unsupported'));
+  }, []);
 
   const callbackProcessedRef = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -660,10 +746,174 @@ export function IntegrationsClient() {
     );
   }
 
+  // ================================
+  // WEATHER HANDLERS
+  // ================================
+
+  async function syncWeatherWithCurrentLocation() {
+    const token = await getToken();
+    if (!token) return false;
+
+    const location = await requestCurrentLocation({
+      timeoutMs: 15000,
+      maximumAgeMs: 2 * 60 * 1000,
+      enableHighAccuracy: false,
+    });
+    setWeatherPermission(location.permission);
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+
+    const response = await fetch(`${API_BASE_URL}/api/integrations/weather/sync`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        lat: location.lat,
+        lon: location.lon,
+        tz,
+        locationLabel: weatherLocationLabel || 'Near you',
+        storePreciseLocation: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || 'Weather sync failed');
+    }
+
+    await refetchWeatherStatus();
+    return true;
+  }
+
+  async function handleWeatherConnect() {
+    try {
+      setWeatherConnecting(true);
+
+      const token = await getToken();
+      if (!token) return;
+
+      const connectResponse = await fetch(`${API_BASE_URL}/api/integrations/weather/connect`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!connectResponse.ok) {
+        throw new Error('Failed to connect Weather integration');
+      }
+
+      setWeatherConnected(true);
+      await refetchWeatherStatus();
+
+      try {
+        await syncWeatherWithCurrentLocation();
+      } catch (error: any) {
+        const locationCode = error?.code as LocationErrorCode | undefined;
+        if (locationCode === 'PERMISSION_DENIED') {
+          setWeatherPermission('denied');
+          await refetchWeatherStatus();
+          alert('Weather connected. Location access is denied, so weather cannot sync until you enable Location Services in System Settings.');
+          return;
+        }
+        throw error;
+      }
+
+      alert('Weather connected and synced successfully.');
+    } catch (error) {
+      console.error('❌ Error connecting Weather:', error);
+      alert(`Failed to connect Weather: ${error}`);
+    } finally {
+      setWeatherConnecting(false);
+    }
+  }
+
+  async function handleWeatherSync() {
+    try {
+      setWeatherSyncing(true);
+      await syncWeatherWithCurrentLocation();
+      alert('Weather synced successfully.');
+    } catch (error: any) {
+      const locationCode = error?.code as LocationErrorCode | undefined;
+      if (locationCode === 'PERMISSION_DENIED') {
+        setWeatherPermission('denied');
+      }
+      console.error('❌ Error syncing Weather:', error);
+      alert(`Weather sync failed: ${error?.message || error}`);
+    } finally {
+      setWeatherSyncing(false);
+    }
+  }
+
+  async function handleWeatherDisconnect() {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      if (!confirm('Disconnect Weather integration?')) {
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/integrations/weather/disconnect`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to disconnect Weather');
+      }
+
+      setWeatherConnected(false);
+      await refetchWeatherStatus();
+      alert('Weather disconnected.');
+    } catch (error) {
+      console.error('❌ Error disconnecting Weather:', error);
+      alert(`Failed to disconnect Weather: ${error}`);
+    }
+  }
+
+  async function handleDeleteWeatherData() {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      if (!confirm('Delete all stored weather snapshots? This cannot be undone.')) {
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/integrations/weather/data`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete weather data');
+      }
+
+      alert('Stored weather data deleted.');
+    } catch (error) {
+      console.error('❌ Error deleting weather data:', error);
+      alert(`Failed to delete weather data: ${error}`);
+    }
+  }
+
   // Show loading skeleton on first fetch only
   const shimmerClass = "animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200";
 
-  if ((isLoading && whoopStatusData === undefined) || (isLoadingAppleWatch && appleWatchStatusData === undefined) || (isLoadingComputerTracking && computerTrackingStatus === undefined)) {
+  if (
+    (isLoading && whoopStatusData === undefined) ||
+    (isLoadingAppleWatch && appleWatchStatusData === undefined) ||
+    (isLoadingComputerTracking && computerTrackingStatus === undefined) ||
+    (isLoadingWeather && weatherStatusData === undefined)
+  ) {
     return (
       <>
         <div className="flex items-center mb-6">
@@ -701,6 +951,27 @@ export function IntegrationsClient() {
             onDetails={() => setShowComputerTrackingSettings(true)}
           />
         )}
+
+        <IntegrationCard
+          logo={<CloudSun className="h-7 w-7 text-gray-900" />}
+          title="Weather"
+          description={
+            weatherConnected
+              ? `Connected. Last location: ${weatherLocationLabel}.`
+              : 'Show current weather context and daily summary from your current location.'
+          }
+          isConnected={weatherConnected}
+          isConnecting={weatherConnecting}
+          isSyncing={weatherSyncing}
+          connectVariant="outline"
+          onConnect={handleWeatherConnect}
+          onSync={handleWeatherSync}
+          onDisconnect={handleWeatherDisconnect}
+          onDetails={() => {
+            setSelectedIntegration('weather');
+            setDetailsOpen(true);
+          }}
+        />
 
         {/* Whoop Card */}
         <IntegrationCard
@@ -817,10 +1088,92 @@ export function IntegrationsClient() {
       {/* Side Panel for Integration Details */}
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
         <SheetContent className="overflow-hidden [&>button]:hidden">
-          <SheetHeader className="sr-only">
-            <SheetTitle>Integration Details</SheetTitle>
-          </SheetHeader>
-          {/* Empty for now */}
+          {selectedIntegration === 'weather' ? (
+            <>
+              <SheetHeader className="pb-3 border-b border-gray-200">
+                <SheetTitle className="text-base font-medium">Weather</SheetTitle>
+              </SheetHeader>
+              <ScrollArea className="h-[calc(100vh-110px)] pr-4">
+                <div className="py-4 space-y-4 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-gray-500">Connection</div>
+                      <div className="text-gray-900">{weatherConnected ? 'Connected' : 'Not connected'}</div>
+                    </div>
+                    <button
+                      onClick={weatherConnected ? handleWeatherDisconnect : handleWeatherConnect}
+                      className={`px-3 py-1.5 text-sm rounded-none border ${
+                        weatherConnected
+                          ? 'border-gray-300 hover:bg-[#F3F3F3]'
+                          : 'bg-black text-white border-black hover:bg-gray-800'
+                      }`}
+                    >
+                      {weatherConnected ? 'Disconnect' : 'Connect'}
+                    </button>
+                  </div>
+
+                  <div>
+                    <div className="text-gray-500">Location permission</div>
+                    <div className={`${weatherPermission === 'denied' ? 'text-red-600' : 'text-gray-900'} flex items-center gap-1.5`}>
+                      {weatherPermission === 'denied' && <AlertCircle className="w-4 h-4" />}
+                      <span>{getPermissionLabel(weatherPermission)}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-gray-500">Last sync</div>
+                    <div className="text-gray-900">{formatRelativeTime(weatherLastSync)}</div>
+                  </div>
+
+                  <div>
+                    <div className="text-gray-500">Stored location label</div>
+                    <div className="text-gray-900">{weatherLocationLabel}</div>
+                  </div>
+
+                  {weatherLastError && (
+                    <div className="border border-red-200 bg-red-50 text-red-700 px-3 py-2">
+                      {weatherLastError}
+                    </div>
+                  )}
+
+                  <div className="text-xs text-gray-500 leading-relaxed border border-gray-200 bg-gray-50 p-3">
+                    We store weather snapshots (conditions + daily summary) with timezone and a user-facing location label.
+                    Precise latitude/longitude is not stored by default.
+                  </div>
+
+                  <div className="text-xs text-gray-500">
+                    Precise coordinate storage: {weatherStorePrecise ? 'Enabled' : 'Disabled'}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={handleWeatherSync}
+                      disabled={weatherSyncing || !weatherConnected}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] disabled:opacity-50"
+                    >
+                      {weatherSyncing ? 'Syncing...' : 'Sync Now'}
+                    </button>
+                    <button
+                      onClick={handleDeleteWeatherData}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] inline-flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete weather data
+                    </button>
+                  </div>
+                </div>
+              </ScrollArea>
+            </>
+          ) : (
+            <>
+              <SheetHeader className="pb-3 border-b border-gray-200">
+                <SheetTitle className="text-base font-medium">Integration Details</SheetTitle>
+              </SheetHeader>
+              <div className="p-4 text-sm text-gray-600">
+                Select Weather to view connection status, permission state, sync controls, and retention details.
+              </div>
+            </>
+          )}
         </SheetContent>
       </Sheet>
 

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@clerk/nextjs'
-import { Loader } from 'lucide-react'
+import { BrailleSpinner } from '@/components/ui/braille-spinner'
+import { getPostOnboardingRoute } from '@/lib/onboarding-flow'
 
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState('Processing authentication...')
@@ -18,7 +19,7 @@ export default function AuthCallbackPage() {
         if (user) {
           console.log('✅ User authenticated via Clerk, redirecting to dashboard');
           setStatus('Authentication successful! Redirecting...')
-          router.push('/dashboard');
+          router.push(getPostOnboardingRoute('/dashboard'));
         } else {
           console.log('❌ No user found, redirecting to home');
           setStatus('Authentication failed. Redirecting...')
@@ -64,7 +65,7 @@ export default function AuthCallbackPage() {
           {/* Elegant Loading Spinner */}
           <div className="mb-6">
             <div className="w-8 h-8 mx-auto">
-              <Loader className="h-8 w-8 animate-spin text-gray-900" />
+              <BrailleSpinner className="h-8 w-8 text-2xl text-gray-900" />
             </div>
           </div>
           
@@ -80,7 +81,7 @@ export default function AuthCallbackPage() {
         <div className="text-xs text-gray-400 mt-8">
           If Ritual does not open in a few seconds, <button onClick={() => {
             if (typeof window !== 'undefined') {
-              window.location.href = '/dashboard'
+              window.location.href = getPostOnboardingRoute('/dashboard')
             }
           }} className="underline hover:text-gray-600 transition-colors">click here</button>.
         </div>

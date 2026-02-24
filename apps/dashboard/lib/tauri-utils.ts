@@ -13,6 +13,9 @@ export function isTauri(): boolean {
 // Track if window has been shown to prevent multiple calls
 let windowShown = false;
 
+const DEFAULT_WINDOW_WIDTH = 1150;
+const DEFAULT_WINDOW_HEIGHT = 800;
+
 /**
  * Show the main Tauri window (called after React app is ready)
  * This prevents the "tiny window flash" by waiting until content is loaded
@@ -84,23 +87,19 @@ export async function resizeWindow(width: number, height: number): Promise<void>
  * Set window to standard size (used across all pages)
  */
 export async function setStandardWindowSize(): Promise<void> {
-  // 1100x800 is the preferred size
-  await resizeWindow(1100, 800);
+  await resizeWindow(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
 }
 
 /**
  * Set window to compact size for onboarding
  */
 export async function setOnboardingWindowSize(): Promise<void> {
-  // 1100x800 is the preferred size
-  await resizeWindow(1100, 800);
+  await resizeWindow(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
 }
 
 /**
  * Set window to full size for dashboard
  */
 export async function setDashboardWindowSize(): Promise<void> {
-  // 1100x800 is the preferred size
-  await resizeWindow(1100, 800);
+  await resizeWindow(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
 }
-

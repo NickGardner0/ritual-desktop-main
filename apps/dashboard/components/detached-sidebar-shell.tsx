@@ -10,18 +10,18 @@ type SidebarState = {
   width: number;
 };
 
-const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
+const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
   <svg
     viewBox="0 0 24 24"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    strokeWidth="2.1"
+    strokeWidth={strokeWidth}
     stroke="currentColor"
     strokeLinecap="round"
     strokeLinejoin="round"
     {...props}
   >
-    <path d="M9 6h6M12 6v12M9 18h6" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" fill="none" />
+    <path d="M9 6h6M12 6v12M9 18h6" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
   </svg>
 );
 
@@ -109,7 +109,7 @@ export function DetachedSidebarShell() {
           onClick={() => navigate("/dashboard")}
           className="absolute left-1/2 -translate-x-1/2 top-[58%] -translate-y-1/2 transition-none"
         >
-          <img src="/images/new_logo4.svg" alt="Ritual Logo" className="w-[36px] h-[36px] flex-shrink-0" />
+          <img src="/images/eclipse.svg" alt="Ritual Logo" className="w-[36px] h-[36px] flex-shrink-0" />
         </button>
       </div>
 
@@ -118,27 +118,32 @@ export function DetachedSidebarShell() {
           <div className="flex flex-col gap-2">
             {items.map((item) => {
               const isActive = activePath.startsWith(item.path);
+              const isCollapsedActive = isActive && !isExpanded;
               const Icon = item.icon;
               return (
                 <button key={item.path} type="button" onClick={() => navigate(item.path)} className="group text-left">
                   <div className="relative">
                     <div
                       className={cn(
-                        "border border-transparent h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
-                        isActive && "border-gray-200",
+                        "h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
                         isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px] rounded-none",
                       )}
-                      style={{ backgroundColor: isActive ? "#F3F3F3" : "transparent" }}
                     />
-                    <div className="absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center text-black">
-                      <Icon className="w-5 h-5" />
+                    <div
+                      className={cn(
+                        "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200",
+                        "text-gray-600 group-hover:text-gray-800",
+                        isCollapsedActive && "text-gray-900 scale-[1.04]",
+                      )}
+                    >
+                      <Icon className="w-5 h-5" strokeWidth={isCollapsedActive ? 2.45 : 2.1} />
                     </div>
                     {isExpanded && (
                       <div className="absolute top-0 left-[55px] right-[8px] h-[40px] flex items-center">
                         <span
                           className={cn(
-                            "text-sm font-[450] transition-colors duration-200 text-gray-600 group-hover:text-gray-900 whitespace-nowrap overflow-hidden",
-                            isActive && "text-gray-900",
+                            "text-sm font-[450] transition-colors duration-200 text-gray-700 group-hover:text-gray-900 whitespace-nowrap overflow-hidden",
+                            isActive && "text-gray-900 font-[600]",
                           )}
                         >
                           {item.name}

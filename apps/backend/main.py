@@ -32,9 +32,9 @@ from services.screenshot_analyzer import analyze_screenshot_for_habits
 from models.habit_models import Habit, HabitLog, HabitCreate, HabitUpdate, HabitLogCreate
 from models.user_models import OnboardingData, UserProfile
 from database.connection import get_db_session
-from database.models import WhoopIntegrationDB
+from database.models import WhoopIntegrationDB, ScheduledBlockDB
 from database.helpers import user_db_to_profile, parse_json_field
-from sqlalchemy import select
+from sqlalchemy import select, and_
 import json
 
 app = FastAPI(title="Ritual Backend API", version="1.0.0")
@@ -65,9 +65,23 @@ security = HTTPBearer()
 # Initialize services
 habits_service = HabitsService()
 auth_service = AuthService()
-tinybird_service = TinybirdService()
+try:
+    tinybird_service: Optional[TinybirdService] = TinybirdService()
+    print("✅ Tinybird service initialized")
+except Exception as e:
+    tinybird_service = None
+    print(f"⚠️ Tinybird service unavailable; analytics sync disabled: {e}")
 whoop_service = WhoopService()
 user_service = UserService()
+
+
+def require_tinybird() -> TinybirdService:
+    if tinybird_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Tinybird analytics is not configured on this backend instance.",
+        )
+    return tinybird_service
 
 # Dependency to get current user from JWT token
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -165,7 +179,11 @@ async def create_habit(habit_data: HabitCreate, request: Request, current_user =
         habit = await habits_service.create_habit(habit_data, current_user["id"])
         
         # Dual write: also write to Tinybird for analytics
-        await tinybird_service.ingest_habit_definition(habit)
+        if tinybird_service:
+            try:
+                await tinybird_service.ingest_habit_definition(habit)
+            except Exception as tb_error:
+                print(f"⚠️ Tinybird habit-definition sync failed (non-fatal): {tb_error}")
         
         return habit
     except Exception as e:
@@ -244,7 +262,11 @@ async def update_habit(habit_id: str, updates: HabitUpdate, current_user = Depen
         habit = await habits_service.update_habit(habit_id, updates, current_user["id"])
         
         # Update in Tinybird as well
-        await tinybird_service.update_habit_definition(habit)
+        if tinybird_service:
+            try:
+                await tinybird_service.update_habit_definition(habit)
+            except Exception as tb_error:
+                print(f"⚠️ Tinybird habit-definition update failed (non-fatal): {tb_error}")
         
         return habit
     except Exception as e:
@@ -303,6 +325,242 @@ async def get_all_habit_logs(current_user = Depends(get_current_user)):
     try:
         logs = await habits_service.get_habit_logs(None, current_user["id"])
         return logs
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ================================
+# CALENDAR SCHEDULED BLOCKS ENDPOINTS
+# ================================
+
+class ScheduledBlockBase(BaseModel):
+    title: str
+    notes: Optional[str] = None
+    day: str  # YYYY-MM-DD
+    start_minutes: int  # 0..1439
+    end_minutes: int  # 1..1440
+
+
+class ScheduledBlockCreate(ScheduledBlockBase):
+    pass
+
+
+class ScheduledBlockUpdate(BaseModel):
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    day: Optional[str] = None
+    start_minutes: Optional[int] = None
+    end_minutes: Optional[int] = None
+
+
+class ScheduledBlock(ScheduledBlockBase):
+    id: str
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+def _validate_scheduled_block_values(day: str, start_minutes: int, end_minutes: int):
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
+
+    if start_minutes < 0 or start_minutes > 1439:
+        raise HTTPException(status_code=400, detail="start_minutes must be between 0 and 1439")
+
+    if end_minutes < 1 or end_minutes > 1440:
+        raise HTTPException(status_code=400, detail="end_minutes must be between 1 and 1440")
+
+    if end_minutes <= start_minutes:
+        raise HTTPException(status_code=400, detail="end_minutes must be greater than start_minutes")
+
+
+@app.get("/api/calendar/scheduled-blocks", response_model=List[ScheduledBlock])
+async def get_scheduled_blocks(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user = Depends(get_current_user),
+):
+    """
+    Get scheduled calendar blocks for the current user.
+    Optional date filtering by inclusive YYYY-MM-DD range.
+    """
+    try:
+        if start_date:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        if end_date:
+            datetime.strptime(end_date, "%Y-%m-%d")
+
+        async with get_db_session() as session:
+            query = select(ScheduledBlockDB).where(
+                ScheduledBlockDB.user_id == current_user["id"]
+            )
+
+            if start_date:
+                query = query.where(ScheduledBlockDB.day >= start_date)
+            if end_date:
+                query = query.where(ScheduledBlockDB.day <= end_date)
+
+            query = query.order_by(
+                ScheduledBlockDB.day.asc(),
+                ScheduledBlockDB.start_minutes.asc(),
+            )
+
+            result = await session.execute(query)
+            return result.scalars().all()
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/calendar/scheduled-blocks", response_model=ScheduledBlock)
+async def create_scheduled_block(
+    block_data: ScheduledBlockCreate,
+    current_user = Depends(get_current_user),
+):
+    """
+    Create a scheduled calendar block for the current user.
+    """
+    try:
+        title = block_data.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title is required")
+
+        _validate_scheduled_block_values(
+            day=block_data.day,
+            start_minutes=block_data.start_minutes,
+            end_minutes=block_data.end_minutes,
+        )
+
+        now = datetime.utcnow()
+        block = ScheduledBlockDB(
+            id=str(uuid.uuid4()),
+            user_id=current_user["id"],
+            title=title,
+            notes=block_data.notes.strip() if block_data.notes else None,
+            day=block_data.day,
+            start_minutes=block_data.start_minutes,
+            end_minutes=block_data.end_minutes,
+            created_at=now,
+            updated_at=now,
+        )
+
+        async with get_db_session() as session:
+            session.add(block)
+            await session.commit()
+            await session.refresh(block)
+            return block
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/calendar/scheduled-blocks/{block_id}", response_model=ScheduledBlock)
+async def update_scheduled_block(
+    block_id: str,
+    block_data: ScheduledBlockUpdate,
+    current_user = Depends(get_current_user),
+):
+    """
+    Update a scheduled block owned by the current user.
+    """
+    try:
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(ScheduledBlockDB).where(
+                    and_(
+                        ScheduledBlockDB.id == block_id,
+                        ScheduledBlockDB.user_id == current_user["id"],
+                    )
+                )
+            )
+            block = result.scalar_one_or_none()
+
+            if not block:
+                raise HTTPException(status_code=404, detail="Scheduled block not found")
+
+            next_day = block_data.day if block_data.day is not None else block.day
+            next_start = (
+                block_data.start_minutes
+                if block_data.start_minutes is not None
+                else block.start_minutes
+            )
+            next_end = (
+                block_data.end_minutes
+                if block_data.end_minutes is not None
+                else block.end_minutes
+            )
+
+            _validate_scheduled_block_values(
+                day=next_day,
+                start_minutes=next_start,
+                end_minutes=next_end,
+            )
+
+            if block_data.title is not None:
+                title = block_data.title.strip()
+                if not title:
+                    raise HTTPException(status_code=400, detail="title cannot be empty")
+                block.title = title
+
+            if block_data.notes is not None:
+                block.notes = block_data.notes.strip() or None
+
+            block.day = next_day
+            block.start_minutes = next_start
+            block.end_minutes = next_end
+            block.updated_at = datetime.utcnow()
+
+            await session.commit()
+            await session.refresh(block)
+            return block
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/calendar/scheduled-blocks/{block_id}")
+async def delete_scheduled_block(
+    block_id: str,
+    current_user = Depends(get_current_user),
+):
+    """
+    Delete a scheduled block owned by the current user.
+    """
+    try:
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(ScheduledBlockDB).where(
+                    and_(
+                        ScheduledBlockDB.id == block_id,
+                        ScheduledBlockDB.user_id == current_user["id"],
+                    )
+                )
+            )
+            block = result.scalar_one_or_none()
+
+            if not block:
+                raise HTTPException(status_code=404, detail="Scheduled block not found")
+
+            await session.delete(block)
+            await session.commit()
+
+            return {"deleted": True, "id": block_id}
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -384,8 +642,11 @@ async def get_habits_summary(
     Get habit analytics summary from Tinybird
     """
     try:
-        summary = await tinybird_service.get_user_habits_summary(current_user["id"], days_back)
+        tb = require_tinybird()
+        summary = await tb.get_user_habits_summary(current_user["id"], days_back)
         return summary
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -402,10 +663,13 @@ async def get_habit_trends(
     Get habit trends from Tinybird
     """
     try:
-        trends = await tinybird_service.get_habit_trends(
+        tb = require_tinybird()
+        trends = await tb.get_habit_trends(
             current_user["id"], period, days_back, habit_id
         )
         return trends
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -3548,6 +3812,9 @@ async def search_status():
 # ================================
 # WATCHER API ROUTER - Computer Activity Tracking
 # ================================
+
+from integrations.weather.router import router as weather_router
+app.include_router(weather_router)
 
 from api.watcher import router as watcher_router
 app.include_router(watcher_router)

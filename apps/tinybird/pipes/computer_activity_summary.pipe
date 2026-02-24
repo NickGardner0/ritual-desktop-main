@@ -1,7 +1,7 @@
 DESCRIPTION >
-    Aggregated computer activity summary for a user (V2)
-    Returns total screen time, top apps, top domains, and daily trends
-    Now includes AFK tracking and browser domain analytics
+    Aggregated computer activity summary for a user (V3)
+    Supports summary, daily totals, top apps, top domains, and per-key daily breakdown.
+    This is the canonical aggregate endpoint for computer analytics.
 
 TOKEN "read_computer_activity" READ
 
@@ -18,13 +18,13 @@ SQL >
         sum(afk_ms) as total_afk_ms,
         sum(events_count) as total_events,
         count(distinct app_bundle_id) as unique_apps,
-        count(distinct browser_domain) as unique_domains
+        uniqExactIf(browser_domain, browser_domain != '' AND browser_domain IS NOT NULL) as unique_domains
     FROM computer_activity_daily
     WHERE user_id = {{ String(user_id, required=True) }}
       AND day >= {{ Date(start_date, required=True) }}
       AND day <= {{ Date(end_date, required=True) }}
     GROUP BY user_id, day
-    ORDER BY day DESC
+    ORDER BY day ASC
 
 NODE top_apps
 DESCRIPTION >
@@ -81,13 +81,59 @@ SQL >
         sum(afk_ms) as total_afk_ms,
         sum(events_count) as total_events,
         count(distinct app_bundle_id) as unique_apps,
-        count(distinct browser_domain) as unique_domains,
+        uniqExactIf(browser_domain, browser_domain != '' AND browser_domain IS NOT NULL) as unique_domains,
         count(distinct day) as days_tracked,
-        avg(active_ms) as avg_daily_ms
+        if(count(distinct day) > 0, sum(active_ms) / count(distinct day), 0) as avg_daily_ms
     FROM computer_activity_daily
     WHERE user_id = {{ String(user_id, required=True) }}
       AND day >= {{ Date(start_date, required=True) }}
       AND day <= {{ Date(end_date, required=True) }}
     GROUP BY user_id
 
+NODE usage_breakdown
+DESCRIPTION >
+    Daily breakdown for one app (by bundle_id/name) or one website domain
 
+SQL >
+    %
+    SELECT
+        day,
+        sum(active_ms) as active_ms,
+        sum(events_count) as events_count,
+        min(first_start_ms) as first_start_ms,
+        max(last_end_ms) as last_end_ms
+    FROM computer_activity_daily
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND day >= {{ Date(start_date, required=True) }}
+      AND day <= {{ Date(end_date, required=True) }}
+      AND (
+        (
+          {{ String(kind, 'app') }} = 'app'
+          AND (
+            app_bundle_id = {{ String(key, '') }}
+            OR app_name = {{ String(key, '') }}
+          )
+        )
+        OR (
+          {{ String(kind, 'app') }} = 'website'
+          AND browser_domain = {{ String(key, '') }}
+        )
+      )
+    GROUP BY day
+    ORDER BY day ASC
+
+NODE endpoint
+TYPE ENDPOINT
+SQL >
+    %
+    {% if String(output, 'summary') == 'daily' %}
+        SELECT * FROM daily_totals
+    {% elif String(output, 'summary') == 'apps' %}
+        SELECT * FROM top_apps
+    {% elif String(output, 'summary') == 'domains' %}
+        SELECT * FROM top_domains
+    {% elif String(output, 'summary') == 'breakdown' %}
+        SELECT * FROM usage_breakdown
+    {% else %}
+        SELECT * FROM summary
+    {% end %}

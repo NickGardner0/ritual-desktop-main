@@ -11,6 +11,7 @@
 import { Suspense } from 'react';
 import { HomeClient } from './home-client';
 import type { Metadata } from 'next';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 export const metadata: Metadata = {
   title: 'Ritual',
@@ -22,7 +23,7 @@ function HomeLoading() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="text-center space-y-4">
-        <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto" />
+        <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
       </div>
     </div>
   );

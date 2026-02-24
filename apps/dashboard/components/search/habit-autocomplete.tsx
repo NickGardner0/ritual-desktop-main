@@ -1,9 +1,10 @@
 'use client';
 
 import * as React from "react";
-import { Search, Loader2, Check, Plus } from "lucide-react";
+import { Search, Check, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
+import { BrailleSpinner } from "@/components/ui/braille-spinner";
 
 // ================================
 // TYPES
@@ -198,7 +199,7 @@ export function HabitAutocomplete({
           )}
         />
         {isLoading && (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-gray-400" />
+          <BrailleSpinner className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400" />
         )}
       </div>
 

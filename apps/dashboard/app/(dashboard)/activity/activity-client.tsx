@@ -2,12 +2,26 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { format, parseISO, subDays } from 'date-fns';
+import { useQuery, useMutation, keepPreviousData } from '@tanstack/react-query';
+import { Download, Trash2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { HabitLogsSearchFilter } from '@/components/habit-logs-search-filter';
 import { HabitLogsActions } from '@/components/habit-logs-actions';
+import { cn } from '@/lib/utils';
 import { ActivityLoading } from './loading';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 export type HabitLog = {
   id: string;
@@ -36,6 +50,20 @@ export type FilterState = {
   sources: string[] | null;
 };
 
+export type TableDensity = 'comfortable' | 'compact';
+
+export type SavedFilterView = {
+  id: string;
+  name: string;
+  filters: FilterState;
+  sortColumn: string | null;
+  sortDirection: 'asc' | 'desc';
+  createdAt: string;
+};
+
+export type BuiltInFilterPresetId = 'all' | 'today' | 'last7' | 'completed' | 'manual';
+type ActivityTab = 'all' | 'review';
+
 const defaultFilters: FilterState = {
   q: null,
   start: null,
@@ -46,10 +74,79 @@ const defaultFilters: FilterState = {
   sources: null,
 };
 
+const BUILT_IN_PRESETS: Array<{ id: BuiltInFilterPresetId; label: string }> = [
+  { id: 'all', label: 'All logs' },
+  { id: 'today', label: 'Today' },
+  { id: 'last7', label: 'Last 7 days' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'manual', label: 'Manual source' },
+];
+
+function toLocalDateString(date: Date): string {
+  return date.toLocaleDateString('en-CA');
+}
+
+function cloneFilters(filters: FilterState): FilterState {
+  return {
+    q: filters.q ?? null,
+    start: filters.start ?? null,
+    end: filters.end ?? null,
+    categories: filters.categories ? [...filters.categories] : null,
+    habits: filters.habits ? [...filters.habits] : null,
+    statuses: filters.statuses ? [...filters.statuses] : null,
+    sources: filters.sources ? [...filters.sources] : null,
+  };
+}
+
+function buildDateTimeForUpdatedDate(nextDate: string, completedAt?: string): string {
+  const isoTime = completedAt?.match(/T(\d{2}:\d{2}:\d{2})/)?.[1];
+  const spacedTime = completedAt?.match(/ (\d{2}:\d{2}:\d{2})/)?.[1];
+  const shortTime = completedAt?.match(/(\d{1,2}:\d{2})(?!:\d{2})/)?.[1];
+
+  const time = isoTime || spacedTime || (shortTime ? `${shortTime}:00` : '12:00:00');
+  return `${nextDate} ${time}`;
+}
+
+function getFiltersForPreset(presetId: BuiltInFilterPresetId): FilterState {
+  const now = new Date();
+
+  switch (presetId) {
+    case 'today': {
+      const today = toLocalDateString(now);
+      return {
+        ...defaultFilters,
+        start: today,
+        end: today,
+      };
+    }
+    case 'last7': {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 7);
+      return {
+        ...defaultFilters,
+        start: toLocalDateString(start),
+        end: toLocalDateString(now),
+      };
+    }
+    case 'completed':
+      return {
+        ...defaultFilters,
+        statuses: ['completed'],
+      };
+    case 'manual':
+      return {
+        ...defaultFilters,
+        sources: ['manual'],
+      };
+    case 'all':
+    default:
+      return cloneFilters(defaultFilters);
+  }
+}
+
 export function ActivityClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
-  const queryClient = useQueryClient();
 
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [sortColumn, setSortColumn] = useState<string | null>('date');
@@ -58,7 +155,7 @@ export function ActivityClient() {
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({
     select: true,
     date: true,
-    time: true,
+    time: false,
     habit: true,
     value: true,
     category: true,
@@ -67,6 +164,27 @@ export function ActivityClient() {
     notes: false,
     actions: true,
   });
+  const [density, setDensity] = useState<TableDensity>('comfortable');
+  const [activeTab, setActiveTab] = useState<ActivityTab>('all');
+  const [savedViews, setSavedViews] = useState<SavedFilterView[]>([]);
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [localEdits, setLocalEdits] = useState<Record<string, Partial<HabitLog>>>({});
+  const [updatingLogIds, setUpdatingLogIds] = useState<Record<string, boolean>>({});
+
+  const savedViewsStorageKey = useMemo(
+    () => `ritual-logs-saved-views-${user?.id || 'anonymous'}`,
+    [user?.id],
+  );
+
+  const densityStorageKey = useMemo(
+    () => `ritual-logs-density-${user?.id || 'anonymous'}`,
+    [user?.id],
+  );
+
+  const tabStorageKey = useMemo(
+    () => `ritual-logs-tab-${user?.id || 'anonymous'}`,
+    [user?.id],
+  );
 
   // Fetch habits for filter dropdown
   const { data: habitsData } = useQuery({
@@ -75,7 +193,7 @@ export function ActivityClient() {
       const token = await getToken();
       const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
       const res = await fetch(`${backendUrl}/api/habits`, {
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Failed to fetch habits');
       return res.json();
@@ -87,7 +205,7 @@ export function ActivityClient() {
   // Build query params from filters
   const queryParams = useMemo(() => {
     const params = new URLSearchParams();
-    
+
     if (filters.q) params.set('q', filters.q);
     if (filters.start) params.set('start_date', filters.start);
     if (filters.end) params.set('end_date', filters.end);
@@ -99,12 +217,11 @@ export function ActivityClient() {
       params.set('sort', sortColumn);
       params.set('order', sortDirection);
     }
-    
+
     return params.toString();
   }, [filters, sortColumn, sortDirection]);
 
   // Fetch habit logs with filters
-  // Using keepPreviousData to prevent skeleton flash during search/filter changes
   const { data: logsData, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['habit-logs', user?.id, queryParams],
     queryFn: async () => {
@@ -125,7 +242,7 @@ export function ActivityClient() {
       const res = await fetch(`${backendUrl}/api/habit-logs/bulk-delete`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ ids }),
@@ -139,10 +256,87 @@ export function ActivityClient() {
     },
   });
 
+  // Inline quick-edit mutation for status/source/date
+  const quickEditMutation = useMutation({
+    mutationFn: async ({
+      log,
+      updates,
+    }: {
+      log: HabitLog;
+      updates: Partial<Pick<HabitLog, 'status' | 'date' | 'completed_at' | 'integration_source'>>;
+    }) => {
+      const token = await getToken();
+      const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+      const payload: Record<string, string> = {};
+      if (updates.status) payload.status = updates.status;
+      if (updates.date) payload.date = updates.date;
+      if (updates.completed_at) payload.completed_at = updates.completed_at;
+      if (updates.integration_source) payload.integration_source = updates.integration_source;
+
+      const response = await fetch(`${backendUrl}/api/habits/${log.habit_id}/logs/${log.id}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || 'Failed to update log');
+      }
+
+      try {
+        return await response.json();
+      } catch {
+        return null;
+      }
+    },
+    onMutate: ({ log, updates }) => {
+      setUpdatingLogIds((prev) => ({
+        ...prev,
+        [log.id]: true,
+      }));
+
+      setLocalEdits((prev) => ({
+        ...prev,
+        [log.id]: {
+          ...(prev[log.id] || {}),
+          ...updates,
+        },
+      }));
+    },
+    onError: (_error, variables) => {
+      setLocalEdits((prev) => {
+        const next = { ...prev };
+        delete next[variables.log.id];
+        return next;
+      });
+    },
+    onSuccess: () => {
+      refetch();
+    },
+    onSettled: (_data, _error, variables) => {
+      setUpdatingLogIds((prev) => {
+        const next = { ...prev };
+        delete next[variables.log.id];
+        return next;
+      });
+
+      setLocalEdits((prev) => {
+        const next = { ...prev };
+        delete next[variables.log.id];
+        return next;
+      });
+    },
+  });
+
   const habits = habitsData || [];
 
   // Deduplicate logs by ID (Tinybird can return duplicates)
-  const logs: HabitLog[] = useMemo(() => {
+  const baseLogs: HabitLog[] = useMemo(() => {
     const rawLogs = logsData?.data || [];
     const seen = new Set<string>();
     return rawLogs.filter((log: HabitLog) => {
@@ -153,6 +347,29 @@ export function ActivityClient() {
       return true;
     });
   }, [logsData]);
+
+  const logs: HabitLog[] = useMemo(() => {
+    return baseLogs.map((log) => {
+      if (!localEdits[log.id]) {
+        return log;
+      }
+      return {
+        ...log,
+        ...localEdits[log.id],
+      };
+    });
+  }, [baseLogs, localEdits]);
+
+  const scopedLogs = useMemo(() => {
+    if (activeTab === 'review') {
+      return logs.filter((log) => log.status !== 'completed');
+    }
+    return logs;
+  }, [activeTab, logs]);
+
+  const reviewCount = useMemo(() => {
+    return logs.filter((log) => log.status !== 'completed').length;
+  }, [logs]);
 
   // Extract unique categories from habits
   const categories = useMemo(() => {
@@ -166,11 +383,11 @@ export function ActivityClient() {
   // Extract unique sources from logs
   const sources = useMemo(() => {
     const srcs = new Set<string>();
-    logs.forEach((log) => {
+    scopedLogs.forEach((log) => {
       srcs.add(log.integration_source || 'manual');
     });
-    return Array.from(srcs);
-  }, [logs]);
+    return Array.from(srcs).sort((a, b) => a.localeCompare(b));
+  }, [scopedLogs]);
 
   // Check if any filters are active
   const hasFilters = useMemo(() => {
@@ -181,13 +398,78 @@ export function ActivityClient() {
     });
   }, [filters]);
 
+  const hasScopedFilters = hasFilters || activeTab === 'review';
+
+  // Hydrate saved views from local storage
+  useEffect(() => {
+    if (!user?.id) return;
+
+    try {
+      const raw = localStorage.getItem(savedViewsStorageKey);
+      if (!raw) {
+        setSavedViews([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as SavedFilterView[];
+      const normalized = parsed
+        .filter((view) => view && view.id && view.name)
+        .map((view) => ({
+          ...view,
+          filters: cloneFilters(view.filters),
+        }));
+
+      setSavedViews(normalized);
+    } catch {
+      setSavedViews([]);
+    }
+  }, [savedViewsStorageKey, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    localStorage.setItem(savedViewsStorageKey, JSON.stringify(savedViews));
+  }, [savedViews, savedViewsStorageKey, user?.id]);
+
+  // Hydrate density from local storage
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const storedDensity = localStorage.getItem(densityStorageKey);
+    if (storedDensity === 'compact' || storedDensity === 'comfortable') {
+      setDensity(storedDensity);
+    }
+  }, [densityStorageKey, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    localStorage.setItem(densityStorageKey, density);
+  }, [density, densityStorageKey, user?.id]);
+
+  // Hydrate active tab from local storage
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const storedTab = localStorage.getItem(tabStorageKey);
+    if (storedTab === 'all' || storedTab === 'review') {
+      setActiveTab(storedTab);
+    }
+  }, [tabStorageKey, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    localStorage.setItem(tabStorageKey, activeTab);
+  }, [activeTab, tabStorageKey, user?.id]);
+
   // Handle filter changes
   const handleFilterChange = useCallback((newFilters: Partial<FilterState>) => {
-    setFilters(prev => ({ ...prev, ...newFilters }));
+    setActiveViewId(null);
+    setFilters((prev) => ({ ...prev, ...newFilters }));
   }, []);
 
   // Handle sort changes
   const handleSort = useCallback((column: string) => {
+    setActiveViewId(null);
+
     if (sortColumn === column) {
       if (sortDirection === 'asc') {
         setSortDirection('desc');
@@ -201,26 +483,181 @@ export function ActivityClient() {
     }
   }, [sortColumn, sortDirection]);
 
+  const applyBuiltInPreset = useCallback((presetId: BuiltInFilterPresetId) => {
+    const nextFilters = getFiltersForPreset(presetId);
+    setFilters(cloneFilters(nextFilters));
+    setSortColumn('date');
+    setSortDirection('desc');
+    setActiveViewId(`preset:${presetId}`);
+  }, []);
+
+  const applySavedView = useCallback((viewId: string) => {
+    const view = savedViews.find((candidate) => candidate.id === viewId);
+    if (!view) return;
+
+    setFilters(cloneFilters(view.filters));
+    setSortColumn(view.sortColumn);
+    setSortDirection(view.sortDirection);
+    setActiveViewId(view.id);
+  }, [savedViews]);
+
+  const saveCurrentView = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const snapshotFilters = cloneFilters(filters);
+
+    setSavedViews((prev) => {
+      const existing = prev.find((view) => view.name.toLowerCase() === trimmed.toLowerCase());
+
+      if (existing) {
+        setActiveViewId(existing.id);
+        return prev.map((view) => {
+          if (view.id !== existing.id) return view;
+          return {
+            ...view,
+            name: trimmed,
+            filters: snapshotFilters,
+            sortColumn,
+            sortDirection,
+          };
+        });
+      }
+
+      const nextView: SavedFilterView = {
+        id: `view-${Date.now()}`,
+        name: trimmed,
+        filters: snapshotFilters,
+        sortColumn,
+        sortDirection,
+        createdAt: new Date().toISOString(),
+      };
+
+      setActiveViewId(nextView.id);
+      return [nextView, ...prev].slice(0, 15);
+    });
+  }, [filters, sortColumn, sortDirection]);
+
+  const deleteSavedView = useCallback((viewId: string) => {
+    setSavedViews((prev) => prev.filter((view) => view.id !== viewId));
+    setActiveViewId((prev) => (prev === viewId ? null : prev));
+  }, []);
+
+  const handleQuickEdit = useCallback((
+    log: HabitLog,
+    updates: Partial<Pick<HabitLog, 'status' | 'date' | 'integration_source' | 'completed_at'>>,
+  ) => {
+    if (updatingLogIds[log.id]) return;
+
+    const normalizedUpdates = {
+      ...updates,
+      ...(updates.date && !updates.completed_at
+        ? { completed_at: buildDateTimeForUpdatedDate(updates.date, log.completed_at) }
+        : {}),
+    };
+
+    quickEditMutation.mutate({
+      log,
+      updates: normalizedUpdates,
+    });
+  }, [quickEditMutation, updatingLogIds]);
+
+  const quickSaveCurrentView = useCallback(() => {
+    const suggestedName = activeTab === 'review' ? 'Review Queue' : 'Saved View';
+    const name = window.prompt('Name this view', suggestedName);
+    if (!name) return;
+    saveCurrentView(name);
+  }, [activeTab, saveCurrentView]);
+
   // Calculate totals for bottom bar
   const totals = useMemo(() => {
-    if (!hasFilters || logs.length === 0) return null;
+    if (!hasScopedFilters || scopedLogs.length === 0) return null;
 
-    const totalDuration = logs.reduce((sum, log) => sum + (log.duration || 0), 0);
-    const totalAmount = logs.reduce((sum, log) => sum + (log.amount || 0), 0);
-    const completedCount = logs.filter(log => log.status === 'completed').length;
+    const totalDuration = scopedLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+    const totalAmount = scopedLogs.reduce((sum, log) => sum + (log.amount || 0), 0);
+    const completedCount = scopedLogs.filter((log) => log.status === 'completed').length;
 
     return {
-      count: logs.length,
+      count: scopedLogs.length,
       totalDuration,
       totalAmount,
       completedCount,
-      completionRate: logs.length > 0 ? (completedCount / logs.length * 100) : 0,
+      completionRate: scopedLogs.length > 0 ? (completedCount / scopedLogs.length) * 100 : 0,
     };
-  }, [logs, hasFilters]);
+  }, [scopedLogs, hasScopedFilters]);
 
   // Selected logs for export bar
   const selectedCount = Object.keys(rowSelection).length;
-  const selectedLogs = logs.filter(log => rowSelection[log.id]);
+  const selectedLogs = scopedLogs.filter((log) => rowSelection[log.id]);
+
+  const exportLogsToCsv = useCallback((logsToExport: HabitLog[]) => {
+    if (!logsToExport.length) return;
+
+    const headers = [
+      'Date',
+      'Time',
+      'Habit',
+      'Category',
+      'Status',
+      'Value',
+      'Unit',
+      'Source',
+      'Notes',
+    ];
+
+    const toCsvCell = (value: string | number | null | undefined) => {
+      const text = value === null || value === undefined ? '' : String(value);
+      const escaped = text.replace(/"/g, '""');
+      return `"${escaped}"`;
+    };
+
+    const rows = logsToExport.map((log) => {
+      const value = log.duration && log.duration > 0
+        ? (log.duration / 3600).toFixed(2)
+        : (log.amount ?? '');
+
+      return [
+        log.date,
+        log.completed_at || '',
+        log.habit_name,
+        log.category,
+        log.status,
+        value,
+        log.unit_type || '',
+        log.integration_source || 'manual',
+        log.notes || '',
+      ].map(toCsvCell).join(',');
+    });
+
+    const csv = [headers.map(toCsvCell).join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `ritual-logs-${dateStamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    const ids = Object.keys(rowSelection);
+    if (!ids.length || deleteMutation.isPending) return;
+    deleteMutation.mutate(ids);
+  }, [rowSelection, deleteMutation]);
+
+  // Keep selection stable when new data arrives (remove IDs no longer in table)
+  useEffect(() => {
+    setRowSelection((prev) => {
+      const validIds = new Set(scopedLogs.map((log) => log.id));
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([id, selected]) => selected && validIds.has(id)),
+      );
+      return next;
+    });
+  }, [scopedLogs]);
 
   if (isLoading && logs.length === 0) {
     return <ActivityLoading />;
@@ -228,37 +665,170 @@ export function ActivityClient() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header: Search/Filter + Actions */}
-      <div className="flex justify-between items-center py-6 px-8">
+      <div className="flex justify-between items-center py-6 px-6 gap-4">
         <HabitLogsSearchFilter
           filters={filters}
           onFilterChange={handleFilterChange}
           habits={habits}
           categories={categories}
           sources={sources}
+          builtInPresets={BUILT_IN_PRESETS}
+          savedViews={savedViews}
+          activeViewId={activeViewId}
+          onApplyPreset={applyBuiltInPreset}
+          onApplySavedView={applySavedView}
+          onSaveCurrentView={saveCurrentView}
+          onDeleteSavedView={deleteSavedView}
         />
-        <HabitLogsActions
-          columnVisibility={columnVisibility}
-          onColumnVisibilityChange={setColumnVisibility}
-        />
+        <div className="flex items-center gap-4">
+          <div className="hidden md:flex items-center gap-2">
+            <HabitLogsActions
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+              onExportFiltered={() => exportLogsToCsv(scopedLogs)}
+              exportDisabled={!scopedLogs.length}
+              density={density}
+              onDensityChange={setDensity}
+              onQuickSaveView={quickSaveCurrentView}
+            />
+          </div>
+
+          <div className="relative hidden md:flex items-stretch bg-[#F7F7F7] w-fit">
+            <button
+              type="button"
+              onClick={() => setActiveTab('all')}
+              className={cn(
+                'group relative flex items-center gap-1.5 px-3 py-1.5 text-[14px] transition-all whitespace-nowrap border border-transparent h-[34px] min-h-[34px]',
+                'text-[#707070] hover:text-black bg-[#F7F7F7] mb-0 relative z-[1]',
+                activeTab === 'all' && 'text-black bg-[#E6E6E6] mb-[-1px] z-10',
+              )}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('review')}
+              className={cn(
+                'group relative flex items-center gap-1.5 px-3 py-1.5 text-[14px] transition-all whitespace-nowrap border border-transparent h-[34px] min-h-[34px]',
+                'text-[#707070] hover:text-black bg-[#F7F7F7] mb-0 relative z-[1]',
+                activeTab === 'review' && 'text-black bg-[#E6E6E6] mb-[-1px] z-10',
+              )}
+            >
+              Review
+              {reviewCount > 0 ? (
+                <span className="ml-1 text-xs text-[#878787]">
+                  ({reviewCount})
+                </span>
+              ) : null}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Data Table */}
-      <div className="flex-1 overflow-hidden px-8">
+      {totals && (
+        <div className="px-6 pb-3 flex flex-wrap items-center gap-2">
+          <div className="border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+            {totals.count} filtered logs
+          </div>
+          <div className="border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+            {totals.completedCount} completed ({totals.completionRate.toFixed(0)}%)
+          </div>
+          <div className="border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+            {(totals.totalDuration / 3600).toFixed(1)}h total duration
+          </div>
+          <div className="border border-gray-200 bg-white px-2 py-1 text-xs text-gray-600">
+            {totals.totalAmount.toFixed(1)} total amount
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-hidden px-6">
         <HabitLogsDataTable
-          logs={logs}
+          logs={scopedLogs}
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
           columnVisibility={columnVisibility}
           sortColumn={sortColumn}
           sortDirection={sortDirection}
           onSort={handleSort}
-          hasFilters={hasFilters}
+          hasFilters={hasScopedFilters}
           totals={totals}
-          isLoading={isLoading}
+          isLoading={isLoading || isFetching}
+          availableSources={sources}
+          onQuickEdit={handleQuickEdit}
+          updatingLogIds={updatingLogIds}
+          density={density}
         />
       </div>
+
+      <AnimatePresence>
+        {selectedCount > 0 && (
+          <motion.div
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
+            <div className="border border-gray-300 bg-white shadow-lg h-12 px-3 flex items-center gap-2">
+              <span className="text-sm text-gray-900 min-w-[98px]">
+                {selectedCount} selected
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setRowSelection({})}
+                className="h-8 px-2 border border-gray-300 text-sm text-gray-700 hover:bg-[#F5F5F5]"
+              >
+                Deselect
+              </button>
+
+              <button
+                type="button"
+                onClick={() => exportLogsToCsv(selectedLogs)}
+                className="h-8 px-2 border border-gray-300 text-sm text-gray-700 hover:bg-[#F5F5F5] inline-flex items-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </button>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="h-8 px-2 border border-red-200 text-sm text-red-700 hover:bg-red-50 inline-flex items-center gap-1.5"
+                    disabled={deleteMutation.isPending}
+                  >
+                    {deleteMutation.isPending ? (
+                      <BrailleSpinner className="text-sm text-red-700" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    Delete
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-none">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete selected logs?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete {selectedCount} selected log{selectedCount === 1 ? '' : 's'}.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="rounded-none">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="rounded-none"
+                      onClick={handleDeleteSelected}
+                    >
+                      Confirm delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-

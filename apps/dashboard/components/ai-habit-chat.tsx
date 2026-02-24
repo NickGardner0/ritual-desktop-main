@@ -1,7 +1,8 @@
 "use client"
 
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { ArrowUp, ArrowUpRight, AudioLines, Loader, Paperclip, X, Check, AlertTriangle, ChevronDown, ImageIcon, Sparkles } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, Paperclip, X, Check, AlertTriangle, ChevronDown, ChevronUp, ImageIcon, Sparkles } from 'lucide-react';
+import spinners, { type BrailleSpinnerName } from 'unicode-animations';
 import { cn } from "@/lib/utils";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -76,6 +77,41 @@ interface Suggestion {
   value?: number;
 }
 
+interface HabitOption {
+  id: string;
+  name: string;
+  unit_type: string;
+}
+
+interface BrailleSpinnerProps {
+  name?: BrailleSpinnerName;
+  className?: string;
+}
+
+function BrailleSpinner({ name = 'braille', className }: BrailleSpinnerProps) {
+  const spinner = useMemo(() => spinners[name] ?? spinners.braille, [name]);
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setFrame((current) => (current + 1) % spinner.frames.length);
+    }, spinner.interval);
+    return () => window.clearInterval(timer);
+  }, [spinner]);
+
+  return (
+    <span
+      className={cn(
+        "font-mono leading-none tracking-[-0.02em] text-base scale-110 origin-center text-[#1f2937]",
+        className
+      )}
+      aria-hidden="true"
+    >
+      {spinner.frames[frame]}
+    </span>
+  );
+}
+
 /**
  * Simplified AI Habit Logger
  * 
@@ -99,7 +135,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [editedValue, setEditedValue] = useState<string>('');
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
   const [isConfirming, setIsConfirming] = useState(false);
-  const [showHabitDropdown, setShowHabitDropdown] = useState(false);
+  const [showHabitPicker, setShowHabitPicker] = useState(false);
   
   // Phase 5A: Multi-intent logging state
   const [clarifications, setClarifications] = useState<Clarification[]>([]);
@@ -119,6 +155,38 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const { getToken } = useAuth();
   const router = useRouter();
   const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
+
+  const screenshotHabitOptions = useMemo<HabitOption[]>(() => {
+    if (!screenshotPreview) return [];
+
+    const optionMap = new Map<string, HabitOption>();
+
+    screenshotPreview.available_habits.forEach((habit) => {
+      if (!habit.id) return;
+      optionMap.set(habit.id, {
+        id: habit.id,
+        name: habit.name,
+        unit_type: habit.unit_type || '',
+      });
+    });
+
+    habits.forEach((habit) => {
+      if (!habit.id) return;
+      if (optionMap.has(habit.id)) return;
+      optionMap.set(habit.id, {
+        id: habit.id,
+        name: habit.name,
+        unit_type: habit.unit_type || '',
+      });
+    });
+
+    return Array.from(optionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [screenshotPreview, habits]);
+
+  const selectedScreenshotHabit = useMemo(() => {
+    if (!selectedHabitId) return null;
+    return screenshotHabitOptions.find((habit) => habit.id === selectedHabitId) ?? null;
+  }, [selectedHabitId, screenshotHabitOptions]);
 
   // ================================
   // SUGGESTIONS - Perplexity-style autocomplete
@@ -773,6 +841,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       setScreenshotPreview(data);
       setEditedValue(String(data.value));
       setSelectedHabitId(data.habit_id);
+      setShowHabitPicker(false);
       
       // Clear any existing input
       setInput('');
@@ -800,9 +869,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
       
       // Find the selected habit name
-      const selectedHabit = screenshotPreview.available_habits.find(h => h.id === selectedHabitId);
-      const habitName = selectedHabit?.name || screenshotPreview.habit_name;
-      const habitUnit = selectedHabit?.unit_type || screenshotPreview.unit;
+      const habitName = selectedScreenshotHabit?.name || screenshotPreview.habit_name;
+      const habitUnit = selectedScreenshotHabit?.unit_type || screenshotPreview.unit;
       
       const res = await fetch(`${apiUrl}/api/screenshot/confirm`, {
         method: 'POST',
@@ -868,8 +936,17 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     setScreenshotPreview(null);
     setEditedValue('');
     setSelectedHabitId(null);
+    setShowHabitPicker(false);
     setIsUploadingScreenshot(false);
     setError(null);
+  };
+
+  const adjustEditedValue = (delta: number) => {
+    const parsed = Number.parseFloat(editedValue);
+    const fallback = screenshotPreview?.value ?? 0;
+    const base = Number.isFinite(parsed) ? parsed : fallback;
+    const next = Math.max(0, Math.round((base + delta) * 10) / 10);
+    setEditedValue(next.toString());
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -886,22 +963,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   }, [input]);
-
-  // Close habit dropdown on outside click
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest("[data-habit-dropdown]")) {
-        setShowHabitDropdown(false);
-      }
-    };
-
-    if (showHabitDropdown) {
-      window.addEventListener("mousedown", onDown);
-    }
-
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [showHabitDropdown]);
 
   return (
     <div className="w-full">
@@ -973,54 +1034,45 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         </div>
       )}
 
-      {/* Screenshot Modal - Matches app design system (square corners) */}
+      {/* Screenshot Modal - Compact macOS-inspired */}
       {(isUploadingScreenshot || screenshotPreview) && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/20"
+            className="absolute inset-0"
             onClick={handleCancelScreenshot}
           />
 
           {/* Modal */}
           <div
-            className="relative z-10 w-[92vw] max-w-md overflow-hidden border border-gray-300 bg-white shadow-xl"
+            className="relative z-10 w-[92vw] max-w-[470px] rounded-none border border-gray-300 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16)]"
             onClick={(e) => e.stopPropagation()}
           >
             {/* HEADER */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-200/80 px-4 py-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  {isUploadingScreenshot ? (
-                    <Loader className="h-4 w-4 animate-spin text-gray-700" />
-                  ) : screenshotPreview?.low_confidence ? (
+                  {!isUploadingScreenshot && screenshotPreview?.low_confidence && (
                     <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  ) : (
+                  )}
+                  {!isUploadingScreenshot && !screenshotPreview?.low_confidence && (
                     <Check className="h-4 w-4 text-gray-900" />
                   )}
 
-                  <h3 className="text-sm font-medium text-gray-900">
+                  <h3 className="text-sm font-medium tracking-tight text-[#111827]">
                     {isUploadingScreenshot ? "Analyzing screenshot" : "Detected"}
                   </h3>
 
                   {/* Status pill */}
-                  {isUploadingScreenshot ? (
-                    <span className="border border-gray-300 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
-                      Using AI
-                    </span>
-                  ) : screenshotPreview?.low_confidence ? (
-                    <span className="border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                  {!isUploadingScreenshot && screenshotPreview?.low_confidence && (
+                    <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
                       Review
-                    </span>
-                  ) : (
-                    <span className="border border-gray-300 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
-                      Ready
                     </span>
                   )}
                 </div>
 
                 {/* filename */}
-                <p className="mt-1 truncate text-xs text-gray-500">
+                <p className="mt-1 truncate text-xs text-[#6B7280]">
                   {uploadedFileName ?? "Screenshot"}
                 </p>
               </div>
@@ -1028,68 +1080,81 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               <button
                 type="button"
                 onClick={handleCancelScreenshot}
-                className="p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-400 hover:bg-black/[0.04] hover:text-gray-700"
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* BODY - Fixed height to keep both states same size */}
-            <div className="px-5 py-4 min-h-[220px]">
+            {/* BODY */}
+            <div className="px-4 py-4">
               {/* Loading state */}
               {isUploadingScreenshot && (
-                <div className="space-y-4 pt-6">
-                  {/* Value placeholder */}
-                  <div className="border border-gray-200 bg-gray-50 px-4 py-4">
-                    <div className="flex items-end justify-center gap-2">
-                      <div className="h-10 w-20 bg-gray-200 animate-pulse" />
-                      <div className="h-4 w-12 bg-gray-200 animate-pulse mb-1" />
+                <div className="flex min-h-[168px] items-center justify-center">
+                  <div className="w-full px-3 py-6 text-center">
+                    <p className="text-lg font-medium tracking-tight text-[#111827]">
+                      Matching to your habits
+                    </p>
+                    <div className="mt-3 flex justify-center">
+                      <BrailleSpinner name="braille" className="text-[30px]" />
                     </div>
-                    <p className="mt-3 text-center text-xs text-gray-500">
-                      Extracting values and matching a habit…
+                    <p className="mt-3 text-xs text-[#6B7280]">
+                      Extracting values from your image.
+                    </p>
+                    <p className="mt-1 text-xs text-[#9CA3AF]">
+                      Usually done in a few seconds.
                     </p>
                   </div>
-
-                  {/* Progress bar */}
-                  <div className="h-1.5 w-full overflow-hidden bg-gray-200">
-                    <div className="h-full w-1/2 animate-progress bg-gray-900" />
-                  </div>
-
-                  <p className="text-xs text-gray-500 text-center">
-                    This usually takes a few seconds.
-                  </p>
                 </div>
               )}
 
               {/* Confirmation state */}
               {screenshotPreview && !isUploadingScreenshot && (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {/* HERO VALUE */}
-                  <div className="border border-gray-200 bg-gray-50 px-4 py-4">
-                    <div className="flex items-end justify-center gap-2">
+                  <div className="px-2 py-2">
+                    <div className="flex items-center justify-center gap-2">
                       <input
                         type="number"
                         value={editedValue}
                         onChange={(e) => setEditedValue(e.target.value)}
-                        className="w-28 bg-transparent text-center text-4xl font-semibold tracking-tight text-gray-900 outline-none"
+                        className="w-24 bg-transparent text-center text-[32px] font-medium tracking-tight text-[#111827] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         step="0.1"
                         min="0"
                       />
-                      <span className="pb-1 text-sm text-gray-600">
-                        {screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.unit_type || screenshotPreview.unit}
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => adjustEditedValue(0.1)}
+                          className="inline-flex h-5 w-5 items-center justify-center border border-[#D1D5DB] text-[#4B5563] hover:bg-[#F3F4F6]"
+                          aria-label="Increase value"
+                        >
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => adjustEditedValue(-0.1)}
+                          className="inline-flex h-5 w-5 items-center justify-center border border-[#D1D5DB] text-[#4B5563] hover:bg-[#F3F4F6]"
+                          aria-label="Decrease value"
+                        >
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <span className="text-sm text-[#4B5563]">
+                        {selectedScreenshotHabit?.unit_type || screenshotPreview.unit}
                       </span>
                     </div>
 
                     {screenshotPreview.description && (
-                      <p className="mt-2 text-center text-xs text-gray-500">
+                      <p className="mt-2 text-center text-xs text-[#6B7280]">
                         {screenshotPreview.description}
                       </p>
                     )}
 
                     {/* Validation warning */}
                     {!screenshotPreview.validation.is_valid && (
-                      <div className="mt-3 flex items-start gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
                         <div className="min-w-0">
                           <div className="font-medium">Check this value</div>
@@ -1102,23 +1167,22 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   </div>
 
                   {/* HABIT SELECTOR */}
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-gray-700">Log to</div>
+                  <div className="space-y-1.5">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#6B7280]">Log to</div>
 
-                    <div className="relative" data-habit-dropdown>
+                    <div className="border border-[#C8CDD5] bg-white">
                       <button
                         type="button"
-                        onClick={() => setShowHabitDropdown(!showHabitDropdown)}
-                        className="flex w-full items-center justify-between border border-gray-300 bg-white px-3 py-2.5 text-left text-sm text-gray-900 hover:bg-[#F3F3F3]"
+                        onClick={() => setShowHabitPicker((current) => !current)}
+                        className="flex w-full items-center justify-between px-2.5 py-1.5 text-left hover:bg-[#F9FAFB]"
                       >
                         <div className="min-w-0">
-                          <div className="truncate font-medium">
+                          <div className="truncate text-sm font-medium text-[#111827]">
                             {selectedHabitId
-                              ? screenshotPreview.available_habits.find(h => h.id === selectedHabitId)?.name
+                              ? selectedScreenshotHabit?.name
                               : screenshotPreview.habit_name}
                           </div>
-
-                          <div className="mt-0.5 text-xs text-gray-500">
+                          <div className="text-xs text-[#6B7280]">
                             {selectedHabitId
                               ? "Existing habit"
                               : screenshotPreview.is_new_habit
@@ -1126,26 +1190,30 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                                 : "Detected habit"}
                           </div>
                         </div>
-
-                        <ChevronDown
-                          className={cn(
-                            "h-4 w-4 flex-shrink-0 text-gray-400 transition-transform",
-                            showHabitDropdown && "rotate-180"
-                          )}
-                        />
+                        <div className="ml-3 flex items-center gap-2">
+                          <span className="text-xs text-[#9CA3AF]">
+                            {selectedScreenshotHabit?.unit_type || screenshotPreview.unit}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              "h-4 w-4 text-[#9CA3AF] transition-transform",
+                              showHabitPicker && "rotate-180"
+                            )}
+                          />
+                        </div>
                       </button>
 
-                      {showHabitDropdown && (
-                        <div className="absolute z-50 mt-1 w-full overflow-hidden border border-gray-300 bg-white shadow-lg">
+                      {showHabitPicker && (
+                        <div className="border-t border-[#E5E7EB]">
                           {screenshotPreview.is_new_habit && (
                             <button
                               type="button"
                               onClick={() => {
                                 setSelectedHabitId(null);
-                                setShowHabitDropdown(false);
+                                setShowHabitPicker(false);
                               }}
                               className={cn(
-                                "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[#F3F3F3] border-b border-gray-200",
+                                "flex w-full items-center gap-2 border-b border-gray-200 px-2.5 py-1.5 text-left text-sm hover:bg-[#F3F3F3]",
                                 !selectedHabitId && "bg-[#F3F3F3]"
                               )}
                             >
@@ -1154,26 +1222,31 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                             </button>
                           )}
 
-                          <div className="max-h-56 overflow-y-auto">
-                            {screenshotPreview.available_habits.map((habit) => (
+                          <div className="max-h-28 overflow-y-auto">
+                            {screenshotHabitOptions.map((habit) => (
                               <button
                                 key={habit.id}
                                 type="button"
                                 onClick={() => {
                                   setSelectedHabitId(habit.id);
-                                  setShowHabitDropdown(false);
+                                  setShowHabitPicker(false);
                                 }}
                                 className={cn(
-                                  "flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-[#F3F3F3]",
+                                  "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-sm hover:bg-[#F3F3F3]",
                                   selectedHabitId === habit.id && "bg-[#F3F3F3]"
                                 )}
                               >
                                 <span className="truncate">{habit.name}</span>
-                                <span className="ml-3 text-xs text-gray-400">
+                                <span className="ml-3 text-xs text-[#9CA3AF]">
                                   {habit.unit_type}
                                 </span>
                               </button>
                             ))}
+                            {screenshotHabitOptions.length === 0 && (
+                              <div className="px-2.5 py-1.5 text-xs text-[#6B7280]">
+                                No habits available
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -1184,29 +1257,31 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
             </div>
 
             {/* FOOTER */}
-            <div className="flex items-center justify-end gap-2 border-t border-gray-200 bg-[#F8F8F8] px-5 py-3">
+            <div className="flex items-center justify-end gap-2 border-t border-gray-200/80 bg-[#F7F7F8] px-4 py-3">
               <button
                 type="button"
                 onClick={handleCancelScreenshot}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-[#F3F3F3]"
+                className="border border-[#C8CDD5] px-3 py-1.5 text-sm text-[#4B5563] hover:bg-[#EBEDF0] hover:text-[#111827]"
                 disabled={isConfirming}
               >
                 Cancel
               </button>
 
-              <button
-                type="button"
-                onClick={handleConfirmScreenshot}
-                disabled={isConfirming || !editedValue || isUploadingScreenshot}
-                className="inline-flex items-center gap-2 bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isConfirming ? (
-                  <Loader className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4" />
-                )}
-                Log
-              </button>
+              {!isUploadingScreenshot && (
+                <button
+                  type="button"
+                  onClick={handleConfirmScreenshot}
+                  disabled={isConfirming || !editedValue}
+                  className="inline-flex items-center gap-2 border border-[#111827] bg-[#111827] px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isConfirming ? (
+                    <BrailleSpinner className="text-sm text-white" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  Log
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1326,7 +1401,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     {isListening ? (
                       <VoiceWaveformMini isActive={true} />
                     ) : isProcessingVoice ? (
-                      <Loader className="w-4 h-4 animate-spin" />
+                      <BrailleSpinner className="text-sm text-gray-900" />
                     ) : (
                       <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                     )}
@@ -1354,7 +1429,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     aria-label="Upload Screen Time screenshot"
                   >
                     {isUploadingScreenshot ? (
-                      <Loader className="w-4 h-4 animate-spin" />
+                      <BrailleSpinner className="text-sm text-gray-900" />
                     ) : (
                       <Paperclip className="w-4 h-4 stroke-[1.5]" />
                     )}
@@ -1383,7 +1458,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                 className="px-3 py-2 min-w-[40px] flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all duration-200 disabled:cursor-not-allowed"
               >
                 {isLoading ? (
-                  <Loader className="w-4 h-4 animate-spin" />
+                  <BrailleSpinner className="text-sm text-white" />
                 ) : (
                   <ArrowUp className="w-4 h-4" />
                 )}

@@ -57,6 +57,56 @@ function getTimeRangeMs(preset: TimeRangePreset): { start: number; end: number }
   }
 }
 
+function toLocalDateString(ts: number): string {
+  const date = new Date(ts)
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+interface AggregatedComputerStats {
+  summary: any
+  daily: any[]
+  apps: any[]
+  domains: any[]
+}
+
+async function fetchAggregatedStats(startTs: number, endTs: number): Promise<AggregatedComputerStats | null> {
+  try {
+    const startDate = toLocalDateString(startTs)
+    const endDate = toLocalDateString(endTs)
+
+    const [summaryRes, dailyRes, appsRes, domainsRes] = await Promise.all([
+      fetch(`/api/watcher/stats/summary?start_date=${startDate}&end_date=${endDate}`),
+      fetch(`/api/watcher/stats/daily?start_date=${startDate}&end_date=${endDate}`),
+      fetch(`/api/watcher/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`),
+      fetch(`/api/watcher/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`),
+    ])
+
+    if (!summaryRes.ok || !dailyRes.ok || !appsRes.ok || !domainsRes.ok) {
+      return null
+    }
+
+    const [summaryPayload, dailyPayload, appsPayload, domainsPayload] = await Promise.all([
+      summaryRes.json(),
+      dailyRes.json(),
+      appsRes.json(),
+      domainsRes.json(),
+    ])
+
+    return {
+      summary: summaryPayload?.data || {},
+      daily: dailyPayload?.data || [],
+      apps: appsPayload?.data || [],
+      domains: domainsPayload?.data || [],
+    }
+  } catch (error) {
+    console.error('Failed to fetch aggregated computer stats:', error)
+    return null
+  }
+}
+
 // ============================================================
 // Cache for API responses
 // ============================================================
@@ -209,6 +259,7 @@ export function useComputerActivity(
   
   const [range, setRange] = useState<TimeRangePreset>(initialRange)
   const [events, setEvents] = useState<ActivityEvent[]>([])
+  const [aggregatedStats, setAggregatedStats] = useState<AggregatedComputerStats | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
@@ -241,41 +292,38 @@ export function useComputerActivity(
     const eventLimit = eventLimitByRange[range]
     
     try {
-      // Check cache first
       const cached = getCachedEvents(timeRange.start, timeRange.end)
-      if (cached) {
-        if (currentRequestId === requestIdRef.current) {
-          setEvents(cached)
-          setIsLoading(false)
-        }
-        return
+
+      const [rawEvents, aggregated] = await Promise.all([
+        cached
+          ? Promise.resolve(cached)
+          : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit),
+        fetchAggregatedStats(timeRange.start, timeRange.end),
+      ])
+
+      const dedupedEvents = cached ? rawEvents : deduplicateEvents(rawEvents)
+
+      if (!cached && dedupedEvents.length < rawEvents.length) {
+        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
       }
-      
-      const fetchedEvents = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
-      
-      // Apply deduplication to remove redundant overlapping events
-      // This handles cases where multiple watcher instances recorded similar events
-      const dedupedEvents = deduplicateEvents(fetchedEvents)
-      
-      if (dedupedEvents.length < fetchedEvents.length) {
-        console.log(`[useComputerActivity] Deduplicated ${fetchedEvents.length - dedupedEvents.length} redundant events`)
+
+      if (!cached) {
+        setCachedEvents(timeRange.start, timeRange.end, dedupedEvents)
       }
-      
-      // Cache the deduplicated result
-      setCachedEvents(timeRange.start, timeRange.end, dedupedEvents)
-      
-      // Only update if this is still the latest request
+
       if (currentRequestId === requestIdRef.current) {
         setEvents(dedupedEvents)
+        setAggregatedStats(aggregated)
         setIsLoading(false)
       }
     } catch (err) {
       if (currentRequestId === requestIdRef.current) {
         setError(err instanceof Error ? err.message : 'Failed to load data')
+        setAggregatedStats(null)
         setIsLoading(false)
       }
     }
-  }, [timeRange.start, timeRange.end])
+  }, [range, timeRange.start, timeRange.end])
   
   // Initial fetch and range changes
   useEffect(() => {
@@ -333,9 +381,66 @@ export function useComputerActivity(
     
     // Compute metrics
     const micro = computeMicroMetrics(events)
-    const apps = topApps(events, 10)
-    const domains = topDomains(events, 10)
-    const header = buildAttentionHeader(events, timeRange.start, timeRange.end)
+    const fallbackApps = topApps(events, 10)
+    const fallbackDomains = topDomains(events, 10)
+    const fallbackHeader = buildAttentionHeader(events, timeRange.start, timeRange.end)
+
+    const appsFromAggregates = (aggregatedStats?.apps || []).map((row: any) => ({
+      key: (row.app_bundle_id || row.app_name || '').toString(),
+      label: (row.app_name || row.app_bundle_id || 'Unknown App').toString(),
+      valueMs: Number(row.total_active_ms || 0),
+      eventCount: Number(row.total_events || 0),
+      subtitle: Number(row.days_used || 0) > 0 ? `${Number(row.days_used)}d` : undefined,
+    })).filter((item: any) => item.key && item.valueMs > 0)
+
+    const domainsFromAggregates = (aggregatedStats?.domains || []).map((row: any) => {
+      const domain = (row.browser_domain || row.domain || '').toString()
+      return {
+        key: domain,
+        label: domain,
+        valueMs: Number(row.total_active_ms || 0),
+        eventCount: Number(row.total_events || 0),
+        subtitle: Number(row.days_used || 0) > 0 ? `${Number(row.days_used)}d` : undefined,
+      }
+    }).filter((item: any) => item.key && item.valueMs > 0)
+
+    const apps = appsFromAggregates.length > 0 ? appsFromAggregates : fallbackApps
+    const domains = domainsFromAggregates.length > 0 ? domainsFromAggregates : fallbackDomains
+
+    const dailySparkline = (aggregatedStats?.daily || []).map((row: any) => {
+      const dayValue = (row.day || '').toString()
+      const dayMs = dayValue ? new Date(`${dayValue}T00:00:00`).getTime() : 0
+      return {
+        x: dayMs,
+        yMs: Number(row.active_ms ?? row.total_active_ms ?? 0),
+        label: dayValue,
+      }
+    }).filter((point: any) => Number.isFinite(point.x) && point.x > 0)
+
+    let aggregatedDeltaPct: number | null = null
+    let aggregatedDeltaMs: number | null = null
+    if (dailySparkline.length >= 2) {
+      const half = Math.floor(dailySparkline.length / 2)
+      const firstHalf = dailySparkline.slice(0, half)
+      const secondHalf = dailySparkline.slice(half)
+      const firstTotal = firstHalf.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
+      const secondTotal = secondHalf.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
+      if (firstTotal > 0) {
+        aggregatedDeltaPct = ((secondTotal - firstTotal) / firstTotal) * 100
+        aggregatedDeltaMs = secondTotal - firstTotal
+      }
+    }
+
+    const summaryActiveMs = Number(aggregatedStats?.summary?.total_active_ms || 0)
+    const header = summaryActiveMs > 0 || dailySparkline.length > 0
+      ? {
+          primaryLabel: 'Active Time',
+          primaryValueMs: summaryActiveMs > 0 ? summaryActiveMs : dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0),
+          deltaPct: aggregatedDeltaPct,
+          deltaMs: aggregatedDeltaMs,
+          sparkline: dailySparkline.length > 0 ? dailySparkline : fallbackHeader.sparkline,
+        }
+      : fallbackHeader
     
     return {
       header,
@@ -351,7 +456,7 @@ export function useComputerActivity(
       isLoading,
       error,
     }
-  }, [events, timeRange.start, timeRange.end, range, isLoading, error])
+  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, isLoading, error])
   
   return {
     viewModel,
@@ -366,4 +471,3 @@ export function useComputerActivity(
 }
 
 export default useComputerActivity
-

@@ -2,14 +2,13 @@
 
 import { memo, useMemo } from 'react';
 import { format, startOfWeek, endOfWeek, isSameMonth, isSameWeek, startOfToday } from 'date-fns';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 type ViewMode = 'week' | 'month';
 
 type CalendarHeaderProps = {
-  totalDuration: number;
   currentDate: Date;
   viewMode: ViewMode;
   weekStartsOnMonday?: boolean;
@@ -28,6 +27,7 @@ export const CalendarHeader = memo(function CalendarHeader({
   onNavigatePrevious,
   onNavigateNext,
   onNavigateToToday,
+  onSettingsChange,
 }: CalendarHeaderProps) {
   const today = startOfToday();
 
@@ -62,7 +62,7 @@ export const CalendarHeader = memo(function CalendarHeader({
   };
 
   return (
-    <div className="flex items-center justify-end mb-6">
+    <div className="mb-6 flex items-center justify-end">
       {/* Controls */}
       <div className="flex items-center gap-2">
         {/* Today button - only show when not viewing current period */}
@@ -71,44 +71,56 @@ export const CalendarHeader = memo(function CalendarHeader({
             variant="outline"
             size="sm"
             onClick={onNavigateToToday}
-            className="h-9 px-3 text-sm border-gray-300 dark:border-gray-700"
+            className="h-9 rounded-none border-gray-300 px-3 text-sm text-[#4B5563]"
           >
             Today
           </Button>
         )}
 
         {/* Period selector with navigation */}
-        <div className="flex items-center border border-gray-300 dark:border-gray-700 h-9">
+        <div className="inline-flex h-9 items-center border border-gray-300 bg-white">
           <Button
             variant="ghost"
             size="icon"
-            className="p-0 w-5 h-5 hover:bg-transparent ml-2"
+            className="ml-2 h-5 w-5 rounded-none p-0 hover:bg-transparent"
             onClick={onNavigatePrevious}
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <span className="text-center text-sm px-2">
+          <span className="whitespace-nowrap px-2 text-center text-sm">
             {getPeriodLabel()}
           </span>
           <Button
             variant="ghost"
             size="icon"
-            className="p-0 w-5 h-5 hover:bg-transparent mr-2"
+            className="mr-2 h-5 w-5 rounded-none p-0 hover:bg-transparent"
             onClick={onNavigateNext}
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
 
-        {/* View mode toggle - Midday style */}
-        <div className="flex items-stretch bg-[#f7f7f7] dark:bg-[#131313] h-9">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 rounded-none border-gray-300"
+          title={weekStartsOnMonday ? 'Week starts on Monday' : 'Week starts on Sunday'}
+          onClick={() => {
+            onSettingsChange?.({ weekStartsOnMonday: !weekStartsOnMonday });
+          }}
+        >
+          <SlidersHorizontal className="h-4 w-4 text-[#6B7280]" />
+        </Button>
+
+        {/* View mode toggle */}
+        <div className="flex h-9 items-stretch border border-gray-300">
           <button
             onClick={() => onViewChange('week')}
             className={cn(
-              'flex items-center px-3 text-sm transition-all border border-transparent',
-              'text-[#707070] hover:text-foreground dark:text-[#666666] dark:hover:text-white',
-              viewMode === 'week' &&
-                'text-foreground bg-[#e6e6e6] dark:text-white dark:bg-[#1d1d1d]'
+              'flex items-center border-r border-gray-300 px-3 text-sm transition-colors',
+              viewMode === 'week'
+                ? 'bg-[#EDEDED] text-[#111827]'
+                : 'bg-white text-[#707070] hover:text-[#111827]'
             )}
           >
             Week
@@ -116,10 +128,10 @@ export const CalendarHeader = memo(function CalendarHeader({
           <button
             onClick={() => onViewChange('month')}
             className={cn(
-              'flex items-center px-3 text-sm transition-all border border-transparent',
-              'text-[#707070] hover:text-foreground dark:text-[#666666] dark:hover:text-white',
-              viewMode === 'month' &&
-                'text-foreground bg-[#e6e6e6] dark:text-white dark:bg-[#1d1d1d]'
+              'flex items-center px-3 text-sm transition-colors',
+              viewMode === 'month'
+                ? 'bg-[#EDEDED] text-[#111827]'
+                : 'bg-white text-[#707070] hover:text-[#111827]'
             )}
           >
             Month

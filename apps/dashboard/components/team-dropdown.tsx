@@ -12,9 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Bot } from "lucide-react";
 import { useState, useRef } from "react";
 import { useOnClickOutside } from "usehooks-ts";
+import { BrailleSpinner } from "@/components/ui/braille-spinner";
 
 interface TeamDropdownProps {
   isExpanded: boolean;
@@ -110,7 +110,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
             <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] cursor-pointer">
               {isSigningOut ? (
                 <>
-                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />
+                  <BrailleSpinner className="mr-2 text-sm text-gray-600" />
                   <span>Signing out...</span>
                 </>
               ) : (
@@ -149,47 +149,40 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
 
       {/* Dropdown menu — absolute, positioned above the avatar */}
       {isActive && (
-        <div className="absolute bottom-[40px] left-0 w-56 bg-white border border-[#DCDAD2] rounded-md shadow-lg z-50">
-          <div className="p-2 border-b border-[#DCDAD2]">
-            <p className="text-sm font-medium">{getUserName()}</p>
-            <p className="text-xs text-gray-500">{user?.primaryEmailAddress?.emailAddress}</p>
+        <div
+          className={cn(
+            "team-dropdown-menu absolute bottom-[40px] z-50 border border-[#DCDAD2] bg-[#FFFFFF] rounded-none shadow-none",
+            isExpanded ? "left-0 right-0 w-auto" : "left-0 w-56",
+          )}
+        >
+          <div className="p-2 border-b border-[#DCDAD2] team-dropdown-divider">
+            <p className="text-sm font-medium text-black">{getUserName()}</p>
+            <p className="text-xs text-black">{user?.primaryEmailAddress?.emailAddress}</p>
           </div>
 
           <div className="p-1">
             <button
               onClick={handleAccount}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
+              className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
             >
-              <User className="h-4 w-4 mr-2" />
               Profile
             </button>
 
             <button
               onClick={handleSupport}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center cursor-pointer"
+              className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
             >
-              <Bot className="h-4 w-4 mr-2" />
               Support
             </button>
           </div>
 
-          <div className="border-t border-[#DCDAD2] p-1">
+          <div className="border-t border-[#DCDAD2] p-1 team-dropdown-divider">
             <button
               onClick={handleSignOut}
               disabled={isSigningOut}
-              className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded flex items-center text-red-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSigningOut ? (
-                <>
-                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                  Signing out...
-                </>
-              ) : (
-                <>
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Sign out
-                </>
-              )}
+              {isSigningOut ? "Signing out..." : "Sign out"}
             </button>
           </div>
         </div>

@@ -494,18 +494,177 @@ interface ScreenRecordingResult {
   window_title: string | null;
   ocr_text: string;
   relevance_score: number;
-  source?: 'hybrid' | 'text';
+  source?: 'hybrid' | 'text' | 'activity';
   fts_matched?: boolean;
 }
 
 interface ScreenSearchContext {
-  modeUsed: 'hybrid' | 'text' | 'none' | 'unavailable';
-  status: 'hybrid' | 'text-fallback' | 'text-only' | 'unavailable';
+  modeUsed: 'hybrid' | 'text' | 'activity' | 'none' | 'unavailable';
+  status: 'hybrid' | 'text-fallback' | 'text-only' | 'activity-only' | 'unavailable';
   results: ScreenRecordingResult[];
   warning?: string;
   pendingEmbeddings?: number;
   totalEmbeddings?: number;
   workerRunning?: boolean;
+}
+
+interface LocalScreenSearchApiResponse {
+  success: boolean;
+  query: string;
+  days_back: number;
+  result_count: number;
+  results: ScreenRecordingResult[];
+  mode_used: 'hybrid' | 'fts' | 'like-fallback' | 'activity-fallback' | 'none';
+  status: 'hybrid' | 'text-only' | 'activity-only' | 'unavailable';
+  warning?: string;
+  source_db?: string;
+  error?: string;
+}
+
+interface ScreenSearchDebugPayload {
+  enabled: true;
+  mode_used: ScreenSearchContext['modeUsed'];
+  status: ScreenSearchContext['status'];
+  warning?: string;
+  source_counts: {
+    hybrid: number;
+    text: number;
+    activity: number;
+    unknown: number;
+  };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SCREEN_SEARCH_DEBUG_ENABLED = (() => {
+  const raw = (process.env.SCREEN_SEARCH_DEBUG ?? process.env.NEXT_PUBLIC_SCREEN_SEARCH_DEBUG ?? '')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+})();
+const SCREEN_SEARCH_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'did',
+  'do',
+  'for',
+  'from',
+  'had',
+  'have',
+  'how',
+  'i',
+  'in',
+  'is',
+  'it',
+  'my',
+  'of',
+  'on',
+  'show',
+  'that',
+  'the',
+  'to',
+  'was',
+  'were',
+  'what',
+  'when',
+  'where',
+  'which',
+  'with',
+  'yesterday',
+  'today',
+  'week',
+  'month',
+  'ago',
+]);
+
+function clampDaysBack(daysBack?: number): number {
+  if (!Number.isFinite(daysBack) || !daysBack || daysBack <= 0) return 7;
+  return Math.min(Math.max(Math.round(daysBack), 1), 90);
+}
+
+function clampSearchLimit(limit?: number): number {
+  if (!Number.isFinite(limit) || !limit || limit <= 0) return 10;
+  return Math.min(Math.max(Math.round(limit), 1), 50);
+}
+
+function applyDaysBackFilter(results: ScreenRecordingResult[], daysBack?: number): ScreenRecordingResult[] {
+  if (!Number.isFinite(daysBack) || !daysBack || daysBack <= 0) {
+    return results;
+  }
+
+  const cutoff = Date.now() - daysBack * DAY_MS;
+  return results.filter((result) => result.timestamp >= cutoff);
+}
+
+function extractScreenSearchTokens(query: string): string[] {
+  const normalized = query
+    .toLowerCase()
+    .replace(/https?:\/\//g, ' ')
+    .replace(/www\./g, ' ')
+    .replace(/[^a-z0-9.]+/g, ' ');
+
+  return Array.from(
+    new Set(
+      normalized
+        .split(/\s+/)
+        .filter((token) => token.length >= 3 && !SCREEN_SEARCH_STOP_WORDS.has(token)),
+    ),
+  );
+}
+
+function rerankScreenResultsByQuery(results: ScreenRecordingResult[], query: string): ScreenRecordingResult[] {
+  const tokens = extractScreenSearchTokens(query);
+  if (tokens.length === 0 || results.length <= 1) {
+    return results;
+  }
+
+  const scored = results.map((result, index) => {
+    const haystack = `${result.app_name} ${result.window_title || ''} ${result.ocr_text}`.toLowerCase();
+    const lexicalHits = tokens.reduce((hits, token) => (haystack.includes(token) ? hits + 1 : hits), 0);
+    const lexicalScore = lexicalHits / tokens.length;
+    const combinedScore = result.relevance_score + lexicalScore * 0.35;
+
+    return { result, index, lexicalScore, combinedScore };
+  });
+
+  const hasTokenMatches = scored.some((entry) => entry.lexicalScore > 0);
+  if (!hasTokenMatches) {
+    return results;
+  }
+
+  scored.sort((a, b) => {
+    if (b.combinedScore !== a.combinedScore) return b.combinedScore - a.combinedScore;
+    if (b.result.relevance_score !== a.result.relevance_score) return b.result.relevance_score - a.result.relevance_score;
+    return a.index - b.index;
+  });
+
+  return scored.map((entry) => entry.result);
+}
+
+function mergeScreenResults(
+  localResults: ScreenRecordingResult[],
+  prefetchedResults: ScreenRecordingResult[],
+): ScreenRecordingResult[] {
+  const merged = [...localResults, ...prefetchedResults];
+  if (merged.length <= 1) return merged;
+
+  // Keep strongest candidate per frame (or timestamp/app key for synthetic activity rows).
+  const deduped = new Map<string, ScreenRecordingResult>();
+  for (const result of merged) {
+    const key = result.frame_id > 0
+      ? `f:${result.frame_id}`
+      : `t:${result.timestamp}:${result.app_name}:${result.window_title || ''}`;
+    const existing = deduped.get(key);
+    if (!existing || result.relevance_score > existing.relevance_score) {
+      deduped.set(key, result);
+    }
+  }
+
+  return Array.from(deduped.values()).sort((a, b) => {
+    if (b.relevance_score !== a.relevance_score) return b.relevance_score - a.relevance_score;
+    return b.timestamp - a.timestamp;
+  });
 }
 
 function normalizeScreenSearchContext(
@@ -527,13 +686,115 @@ function normalizeScreenSearchContext(
   return null;
 }
 
-function executeSearchScreenRecordings(
+function buildScreenSearchDebug(
+  context: ScreenSearchContext,
+  results: ScreenRecordingResult[],
+): ScreenSearchDebugPayload | undefined {
+  if (!SCREEN_SEARCH_DEBUG_ENABLED) {
+    return undefined;
+  }
+
+  const sourceCounts = {
+    hybrid: 0,
+    text: 0,
+    activity: 0,
+    unknown: 0,
+  };
+
+  for (const result of results) {
+    if (result.source === 'hybrid') {
+      sourceCounts.hybrid += 1;
+    } else if (result.source === 'text') {
+      sourceCounts.text += 1;
+    } else if (result.source === 'activity') {
+      sourceCounts.activity += 1;
+    } else {
+      sourceCounts.unknown += 1;
+    }
+  }
+
+  return {
+    enabled: true,
+    mode_used: context.modeUsed,
+    status: context.status,
+    warning: context.warning,
+    source_counts: sourceCounts,
+  };
+}
+
+async function fetchOnDemandScreenSearchContext(
+  token: string,
   params: { query: string; daysBack?: number; limit?: number },
-  screenSearchContext: ScreenSearchContext | null
-): string {
+): Promise<ScreenSearchContext | null> {
+  try {
+    const response = await fetchPythonApi('/api/watcher/search-screen', token, {
+      query: params.query,
+      days_back: clampDaysBack(params.daysBack),
+      limit: clampSearchLimit(params.limit ?? 20),
+    }) as LocalScreenSearchApiResponse;
+
+    if (!response?.success || !Array.isArray(response.results)) {
+      return null;
+    }
+
+    let modeUsed: ScreenSearchContext['modeUsed'] = 'text';
+    if (response.mode_used === 'hybrid') {
+      modeUsed = 'hybrid';
+    } else if (response.mode_used === 'activity-fallback') {
+      modeUsed = 'activity';
+    } else if (response.mode_used === 'none') {
+      modeUsed = 'none';
+    }
+
+    return {
+      modeUsed,
+      status: response.status,
+      results: response.results,
+      warning: response.warning,
+    };
+  } catch (error) {
+    console.warn('On-demand screen search failed:', error);
+    return null;
+  }
+}
+
+async function executeSearchScreenRecordings(
+  token: string,
+  params: { query: string; daysBack?: number; limit?: number },
+  prefetchedScreenSearchContext: ScreenSearchContext | null
+): Promise<string> {
   console.log('🖥️ searchScreenRecordings called:', params);
-  console.log('🖥️ screenRecordingResults count:', screenSearchContext?.results?.length ?? 0);
-  
+  console.log('🖥️ prefetched screenRecordingResults count:', prefetchedScreenSearchContext?.results?.length ?? 0);
+
+  const safeDaysBack = clampDaysBack(params.daysBack);
+  const safeLimit = clampSearchLimit(params.limit);
+
+  const onDemandContext = await fetchOnDemandScreenSearchContext(token, {
+    query: params.query,
+    daysBack: safeDaysBack,
+    limit: Math.max(safeLimit * 2, 20),
+  });
+
+  let screenSearchContext: ScreenSearchContext | null = onDemandContext ?? prefetchedScreenSearchContext;
+  if (onDemandContext && prefetchedScreenSearchContext) {
+    const mergedResults = mergeScreenResults(onDemandContext.results ?? [], prefetchedScreenSearchContext.results ?? []);
+    const hasHybridResult = mergedResults.some((result) => result.source === 'hybrid');
+    const warnings = [onDemandContext.warning, prefetchedScreenSearchContext.warning].filter(Boolean);
+    screenSearchContext = {
+      modeUsed: hasHybridResult
+        ? 'hybrid'
+        : (onDemandContext.modeUsed !== 'none' ? onDemandContext.modeUsed : prefetchedScreenSearchContext.modeUsed),
+      status: hasHybridResult
+        ? 'hybrid'
+        : (onDemandContext.status !== 'unavailable' ? onDemandContext.status : prefetchedScreenSearchContext.status),
+      results: mergedResults,
+      warning: warnings.length > 0 ? warnings.join(' ') : undefined,
+      pendingEmbeddings: prefetchedScreenSearchContext.pendingEmbeddings,
+      totalEmbeddings: prefetchedScreenSearchContext.totalEmbeddings,
+      workerRunning: prefetchedScreenSearchContext.workerRunning,
+    };
+  }
+
   // Distinguish between "service not available" (null/undefined) and "no results" (empty array)
   if (screenSearchContext === null || screenSearchContext === undefined) {
     return JSON.stringify({
@@ -544,26 +805,50 @@ function executeSearchScreenRecordings(
   }
 
   const screenRecordingResults = screenSearchContext.results ?? [];
+  if (screenRecordingResults.length === 0 && screenSearchContext.status === 'unavailable') {
+    return JSON.stringify({
+      success: false,
+      error: 'Screen history search is currently unavailable.',
+      hint: 'Make sure computer tracking is enabled and local screen indexing has produced data.',
+      warning: screenSearchContext.warning,
+      debug: buildScreenSearchDebug(screenSearchContext, screenRecordingResults),
+    });
+  }
   
   // Service is available but no results found
   if (screenRecordingResults.length === 0) {
     return JSON.stringify({
       success: true,
       query: params.query,
-      days_searched: params.daysBack ?? 7,
+      days_searched: safeDaysBack,
       result_count: 0,
       results: [],
       status: screenSearchContext.status,
       mode_used: screenSearchContext.modeUsed,
       warning: screenSearchContext.warning,
+      debug: buildScreenSearchDebug(screenSearchContext, screenRecordingResults),
       message: `No screen recordings found matching "${params.query}". Try different keywords or check if screen recording is enabled.`,
     });
   }
   
-  // Don't apply additional time filter here - the frontend already handled time filtering
-  // and fell back to all results if needed. Just use what we received.
-  const limit = params.limit ?? 10;
-  const filteredResults = screenRecordingResults.slice(0, limit);
+  let rankedResults = applyDaysBackFilter(screenRecordingResults, safeDaysBack);
+  rankedResults = rerankScreenResultsByQuery(rankedResults, params.query);
+
+  const filteredResults = rankedResults.slice(0, safeLimit);
+  if (filteredResults.length === 0) {
+    return JSON.stringify({
+      success: true,
+      query: params.query,
+      days_searched: safeDaysBack,
+      result_count: 0,
+      results: [],
+      status: screenSearchContext.status,
+      mode_used: screenSearchContext.modeUsed,
+      warning: screenSearchContext.warning,
+      debug: buildScreenSearchDebug(screenSearchContext, filteredResults),
+      message: `No screen recordings found matching "${params.query}" in the requested time range.`,
+    });
+  }
   
   // Calculate the time range from the actual results
   const timestamps = filteredResults.map(r => r.timestamp);
@@ -578,7 +863,7 @@ function executeSearchScreenRecordings(
     window: r.window_title || 'Unknown',
     content_preview: r.ocr_text.substring(0, 300) + (r.ocr_text.length > 300 ? '...' : ''),
     relevance: Math.round(r.relevance_score * 100) + '%',
-    source: r.source || 'hybrid',
+    source: r.source || 'text',
     fts_matched: r.fts_matched || false,
   }));
   
@@ -592,6 +877,7 @@ function executeSearchScreenRecordings(
     status: screenSearchContext.status,
     mode_used: screenSearchContext.modeUsed,
     warning: screenSearchContext.warning,
+    debug: buildScreenSearchDebug(screenSearchContext, filteredResults),
     results: formattedResults,
   });
 }
@@ -890,7 +1176,7 @@ Keep total response under 500 characters when possible.`;
               } catch {}
               break;
             case 'searchScreenRecordings':
-              result = executeSearchScreenRecordings(args, normalizedScreenSearchContext);
+              result = await executeSearchScreenRecordings(token, args, normalizedScreenSearchContext);
               // Store screen recording results for canvas
               try {
                 const parsed = JSON.parse(result);

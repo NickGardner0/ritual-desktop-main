@@ -4,6 +4,8 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Ritual uses the microphone so you can log habits with your voice</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Ritual uses your location only when you connect Weather to fetch local weather context.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Ritual uses speech recognition to convert your voice to text for habit logging</string>
 	<key>NSQuitAlwaysKeepsWindows</key>

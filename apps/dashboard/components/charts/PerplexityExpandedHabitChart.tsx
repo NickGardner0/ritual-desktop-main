@@ -13,347 +13,272 @@ import {
   Tooltip,
   ReferenceLine,
 } from "recharts";
+import { ExpandedChartTooltip } from "./ChartTooltip";
 
-export type RangeKey = "1D" | "1W" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "ALL";
+export type RangeKey =
+  | "1D"
+  | "5D"
+  | "1W"
+  | "1M"
+  | "3M"
+  | "6M"
+  | "YTD"
+  | "1Y"
+  | "5Y"
+  | "ALL"
+  | "MAX";
 
-/**
- * Simple data point for spark-style charts
- */
 export type FinancePoint = {
-  t: number; // unix ms
+  t: number;
   open: number;
   high: number;
   low: number;
   close: number;
   volume: number;
-  // Optional metadata from habit logs
   sleepOnset?: string;
   sleepEnd?: string;
   time?: string;
   unit?: string;
 };
 
-// Perplexity-style colors
 const COLORS = {
-  tealGreen: "#1A7F37",
-  negativeColor: "#8a1a25",
+  up: "#15803D",
+  down: "#B42318",
   neutral: "#6B7280",
-  muted: "#94A3B8",
-  baseline: "#E2E8F0",
-  grid: "#E5E7EB",
 };
 
-function formatCompact(n: number) {
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: n < 10 ? 2 : 0,
-  }).format(n);
-}
+const GRID_COLOR = "hsl(var(--border))";
+const MUTED_TICK = "hsl(var(--muted-foreground))";
+const BASELINE_COLOR = "hsl(var(--muted-foreground))";
+const GRID_OPACITY = 0.28;
 
 function formatDateLabel(ms: number, range: RangeKey) {
-  const d = new Date(ms);
+  const date = new Date(ms);
+
   if (range === "1D") {
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+
+  if (range === "5D" || range === "1W") {
+    return date.toLocaleDateString([], { weekday: "short" });
+  }
+
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function formatAxisValue(n: number) {
-  if (!Number.isFinite(n)) return "";
-  if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString();
-  if (Math.abs(n) >= 100) return n.toFixed(0);
-  if (Math.abs(n) >= 10) return n.toFixed(1);
-  return n.toFixed(2);
-}
-
-// Clean spark-style tooltip matching Perplexity
-function SparkTooltip({
-  active,
-  payload,
-  unit,
-}: {
-  active?: boolean;
-  payload?: any[];
-  unit?: string;
-}) {
-  if (!active || !payload?.length) return null;
-
-  const p = payload[0]?.payload;
-  if (!p) return null;
-
-  const value = p.close;
-  const date = new Date(p.t);
-  const formattedDate = date.toLocaleDateString([], { 
-    month: "short", 
-    day: "numeric",
-    year: date.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined 
-  });
-
-  return (
-    <div 
-      className="border border-gray-200/80 px-2.5 py-1.5 shadow-md rounded-none"
-      style={{
-        background: 'rgba(255, 255, 255, 0.92)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-      }}
-    >
-      <div className="text-[11px] text-gray-500 mb-0.5">{formattedDate}</div>
-      <div className="text-sm font-normal text-gray-900 tabular-nums">
-        {formatCompact(value)} {unit && <span className="text-gray-400 font-normal text-xs">{unit}</span>}
-      </div>
-    </div>
-  );
+function formatAxisValue(value: number) {
+  if (!Number.isFinite(value)) return "";
+  if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString();
+  if (Math.abs(value) >= 100) return value.toFixed(0);
+  if (Math.abs(value) >= 10) return value.toFixed(1);
+  return value.toFixed(2);
 }
 
 interface PerplexityExpandedHabitChartProps {
-  title: string;
-  subtitle?: string;
   points: FinancePoint[];
   range: RangeKey;
-  onRangeChange: (r: RangeKey) => void;
-  ranges?: RangeKey[];
   unit?: string;
-  showRangePills?: boolean;
-  comparisonPoints?: FinancePoint[];
-  comparisonTitle?: string;
-  comparisonUnit?: string;
-  toolbar?: React.ReactNode;
-  trendPercent?: number;
-  trendDelta?: number;
-  /** "bar" = bar chart, "spark" = area/line chart. Matches the Spark/Bar view toggle. */
   chartType?: "spark" | "bar";
+  showReferenceLine?: boolean;
+  showGrid?: boolean;
 }
 
-/**
- * Perplexity-style expanded chart - compact spark design
- */
 export function PerplexityExpandedHabitChart({
-  title,
-  subtitle,
   points,
   range,
-  onRangeChange,
-  ranges = ["1D", "1W", "1M", "3M", "6M", "YTD", "1Y", "ALL"],
   unit,
-  showRangePills = false,
-  comparisonPoints,
-  comparisonTitle,
-  comparisonUnit,
-  toolbar,
-  trendPercent,
-  trendDelta,
   chartType = "spark",
+  showReferenceLine = true,
+  showGrid = true,
 }: PerplexityExpandedHabitChartProps) {
-  const first = points[0];
-  const last = points[points.length - 1];
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
 
-  const baseline = first?.close ?? 0;
-  const current = last?.close ?? 0;
+  const baseline = firstPoint?.close ?? 0;
+  const current = lastPoint?.close ?? 0;
+  const changePct = baseline ? ((current - baseline) / baseline) * 100 : 0;
 
-  const rawDelta = current - baseline;
-  const rawPct = baseline ? (rawDelta / baseline) * 100 : 0;
-  const resolvedDelta = typeof trendDelta === "number" && Number.isFinite(trendDelta) ? trendDelta : rawDelta;
-  const resolvedPct = typeof trendPercent === "number" && Number.isFinite(trendPercent) ? trendPercent : rawPct;
-  const isUp = resolvedPct >= 0;
-  const isNeutral = Math.abs(resolvedPct) < 0.5;
+  const trendColor = Number.isFinite(changePct)
+    ? (Math.abs(changePct) < 0.5 ? COLORS.neutral : (changePct >= 0 ? COLORS.up : COLORS.down))
+    : COLORS.neutral;
 
-  // Determine chart color based on trend
-  const chartColor = isNeutral 
-    ? COLORS.neutral 
-    : (isUp ? COLORS.tealGreen : COLORS.negativeColor);
+  const data = React.useMemo(
+    () =>
+      points.map((point) => ({
+        ...point,
+        value: point.close,
+      })),
+    [points]
+  );
 
-  // Prepare data
-  const data = React.useMemo(() => {
-    return points.map((p) => ({
-      ...p,
-      value: p.close,
-    }));
-  }, [points]);
+  const allValues = React.useMemo(
+    () =>
+      points
+        .map((point) => point.close)
+        .filter((value): value is number => Number.isFinite(value)),
+    [points]
+  );
 
-  // Calculate Y domain with padding
-  const allValues = points
-    .map((p) => p.close)
-    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
   const hasData = allValues.length > 0;
   const minY = hasData ? Math.min(...allValues) : 0;
   const maxY = hasData ? Math.max(...allValues) : 1;
   const span = Math.max(maxY - minY, 1);
-  const domainMin = minY - (span * 0.04);
-  const domainMax = maxY + (span * 0.2);
+  const domainMin = minY - span * 0.05;
+  const domainMax = maxY + span * 0.1;
   const yTicks = React.useMemo(() => {
     if (!hasData) return [0];
-    const step = (domainMax - domainMin) / 3;
-    return [domainMin, domainMin + step, domainMin + step * 2, domainMax];
-  }, [domainMin, domainMax, hasData]);
+    const step = (domainMax - domainMin) / 2;
+    return [domainMin, domainMin + step, domainMax];
+  }, [domainMax, domainMin, hasData]);
 
-  // Stable gradient ID without render-time randomness
   const reactId = React.useId().replace(/:/g, "");
-  const gradientId = React.useMemo(
-    () => `gradient-${title.replace(/[^a-zA-Z0-9]/g, "")}-${reactId}`,
-    [title, reactId]
-  );
-
-  // Format the close date
-  const closeDate = last?.t 
-    ? new Date(last.t).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
-    : '';
+  const gradientId = `expanded-chart-gradient-${reactId}`;
 
   return (
-    <div className="w-full">
-      {/* Value header - Perplexity style */}
-      <div className="mb-1 flex items-baseline gap-2">
-        <span className="text-[clamp(2rem,2.7vw,2.9rem)] font-normal leading-none tracking-[-0.01em] tabular-nums text-gray-900">
-          {formatCompact(current)}
-        </span>
-        {unit && <span className="text-[clamp(1rem,1.3vw,1.3rem)] font-normal text-gray-400">{unit}</span>}
-        <span
-          className={`text-[clamp(1rem,1.35vw,1.35rem)] tabular-nums font-normal ${isNeutral ? "text-gray-500" : ""}`}
-          style={!isNeutral ? { color: isUp ? COLORS.tealGreen : COLORS.negativeColor } : undefined}
-        >
-          {resolvedDelta >= 0 ? "+" : ""}{formatCompact(resolvedDelta)} ({resolvedPct >= 0 ? "+" : ""}{resolvedPct.toFixed(2)}%)
-        </span>
-      </div>
-      <div className="mb-1.5 text-[13px] text-gray-500">{subtitle || `At close: ${closeDate}`}</div>
+    <div className="h-[200px] w-full sm:h-[220px]">
+      {hasData ? (
+        <ResponsiveContainer width="100%" height="100%">
+          {chartType === "bar" ? (
+            <BarChart
+              data={data}
+              margin={{ top: 2, right: 4, bottom: 0, left: 0 }}
+              barCategoryGap="22%"
+            >
+              <CartesianGrid
+                vertical
+                stroke={GRID_COLOR}
+                strokeOpacity={showGrid ? GRID_OPACITY : 0}
+              />
 
-      {toolbar && (
-        <div className="mb-1.5 border-t border-[#D5D9DF] pt-1.5">
-          {toolbar}
+              <XAxis
+                dataKey="t"
+                type="number"
+                domain={["dataMin", "dataMax"]}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={6}
+                tickFormatter={(value) => formatDateLabel(value, range)}
+                minTickGap={42}
+                tickCount={4}
+                tick={{ fill: MUTED_TICK, fontSize: 9 }}
+              />
+
+              <YAxis
+                domain={[domainMin, domainMax]}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => formatAxisValue(value)}
+                ticks={yTicks}
+                tick={{ fill: MUTED_TICK, fontSize: 9 }}
+                width={34}
+              />
+
+              {showReferenceLine && (
+                <ReferenceLine
+                  y={baseline}
+                  stroke={BASELINE_COLOR}
+                  strokeDasharray="5 5"
+                  strokeOpacity={0.45}
+                  strokeWidth={1}
+                />
+              )}
+
+              <Tooltip
+                content={<ExpandedChartTooltip unit={unit} valueKey="value" dateKey="t" />}
+                cursor={{ fill: "rgba(15,23,42,0.03)" }}
+              />
+
+              <Bar
+                dataKey="value"
+                fill="hsl(var(--foreground))"
+                radius={[0, 0, 0, 0]}
+                isAnimationActive={false}
+                maxBarSize={14}
+                minPointSize={2}
+              />
+            </BarChart>
+          ) : (
+            <AreaChart data={data} margin={{ top: 2, right: 4, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={trendColor} stopOpacity={0.16} />
+                  <stop offset="100%" stopColor={trendColor} stopOpacity={0.03} />
+                </linearGradient>
+              </defs>
+
+              <CartesianGrid
+                vertical
+                stroke={GRID_COLOR}
+                strokeOpacity={showGrid ? GRID_OPACITY : 0}
+              />
+
+              <XAxis
+                dataKey="t"
+                type="number"
+                domain={["dataMin", "dataMax"]}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={6}
+                tickFormatter={(value) => formatDateLabel(value, range)}
+                minTickGap={42}
+                tickCount={4}
+                tick={{ fill: MUTED_TICK, fontSize: 9 }}
+              />
+
+              <YAxis
+                domain={[domainMin, domainMax]}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => formatAxisValue(value)}
+                ticks={yTicks}
+                tick={{ fill: MUTED_TICK, fontSize: 9 }}
+                width={34}
+              />
+
+              {showReferenceLine && (
+                <ReferenceLine
+                  y={baseline}
+                  stroke={BASELINE_COLOR}
+                  strokeDasharray="5 5"
+                  strokeOpacity={0.45}
+                  strokeWidth={1}
+                />
+              )}
+
+              <Tooltip
+                content={<ExpandedChartTooltip unit={unit} valueKey="value" dateKey="t" />}
+                cursor={{
+                  stroke: trendColor,
+                  strokeWidth: 1,
+                  strokeDasharray: "3 3",
+                }}
+              />
+
+              <Area
+                type="monotone"
+                dataKey="value"
+                baseValue="dataMin"
+                stroke={trendColor}
+                strokeWidth={1.6}
+                fill={`url(#${gradientId})`}
+                isAnimationActive={false}
+                dot={false}
+                activeDot={{
+                  r: 2.5,
+                  fill: trendColor,
+                  stroke: "hsl(var(--background))",
+                  strokeWidth: 1,
+                }}
+                connectNulls
+              />
+            </AreaChart>
+          )}
+        </ResponsiveContainer>
+      ) : (
+        <div className="flex h-full items-center justify-center border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
+          No data for selected range
         </div>
       )}
-
-      {/* Chart */}
-      <div className="h-[214px] w-full">
-        {hasData ? (
-          <ResponsiveContainer width="100%" height="100%">
-            {chartType === "bar" ? (
-              <BarChart
-                data={data}
-                margin={{ top: 6, right: 6, bottom: 2, left: 2 }}
-              >
-                <CartesianGrid vertical={false} stroke={COLORS.grid} strokeOpacity={0.4} />
-
-                <XAxis
-                  dataKey="t"
-                  type="number"
-                  domain={["dataMin", "dataMax"]}
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={10}
-                  tickFormatter={(v) => formatDateLabel(v, range)}
-                  minTickGap={58}
-                  tick={{ fill: COLORS.muted, fontSize: 11 }}
-                />
-
-                <YAxis
-                  domain={[domainMin, domainMax]}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => formatAxisValue(v)}
-                  ticks={yTicks}
-                  tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                  width={46}
-                />
-
-                <ReferenceLine
-                  y={baseline}
-                  stroke={COLORS.baseline}
-                  strokeDasharray="4 4"
-                  strokeWidth={1}
-                />
-
-                <Tooltip
-                  content={<SparkTooltip unit={unit} />}
-                  cursor={{ fill: "rgba(0,0,0,0.04)" }}
-                />
-
-                <Bar
-                  dataKey="value"
-                  fill="#4A4A4C"
-                  radius={[1, 1, 0, 0]}
-                  isAnimationActive={false}
-                  maxBarSize={24}
-                  minPointSize={2}
-                />
-              </BarChart>
-            ) : (
-              <AreaChart
-                data={data}
-                margin={{ top: 6, right: 6, bottom: 2, left: 2 }}
-              >
-                <defs>
-                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={chartColor} stopOpacity={0.42} />
-                    <stop offset="100%" stopColor={chartColor} stopOpacity={0.26} />
-                  </linearGradient>
-                </defs>
-
-                <CartesianGrid vertical={false} stroke={COLORS.grid} strokeOpacity={0.4} />
-
-                <XAxis
-                  dataKey="t"
-                  type="number"
-                  domain={["dataMin", "dataMax"]}
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={10}
-                  tickFormatter={(v) => formatDateLabel(v, range)}
-                  minTickGap={58}
-                  tick={{ fill: COLORS.muted, fontSize: 11 }}
-                />
-
-                <YAxis
-                  domain={[domainMin, domainMax]}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => formatAxisValue(v)}
-                  ticks={yTicks}
-                  tick={{ fill: "#9CA3AF", fontSize: 11 }}
-                  width={46}
-                />
-
-                <ReferenceLine
-                  y={baseline}
-                  stroke={COLORS.baseline}
-                  strokeDasharray="4 4"
-                  strokeWidth={1}
-                />
-
-                <Tooltip
-                  content={<SparkTooltip unit={unit} />}
-                  cursor={{
-                    stroke: chartColor,
-                    strokeWidth: 1,
-                    strokeDasharray: "3 3",
-                  }}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="value"
-                  baseValue="dataMin"
-                  stroke={chartColor}
-                  strokeWidth={2}
-                  fill={`url(#${gradientId})`}
-                  isAnimationActive={false}
-                  dot={false}
-                  activeDot={{
-                    r: 3.5,
-                    fill: chartColor,
-                    stroke: "#fff",
-                    strokeWidth: 2,
-                  }}
-                  connectNulls
-                />
-              </AreaChart>
-            )}
-          </ResponsiveContainer>
-        ) : (
-          <div className="flex h-full items-center justify-center rounded-none border border-dashed border-gray-200 text-sm text-gray-400">
-            No data for selected range
-          </div>
-        )}
-      </div>
     </div>
   );
 }

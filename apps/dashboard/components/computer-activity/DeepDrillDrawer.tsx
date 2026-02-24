@@ -11,6 +11,7 @@ import React from 'react'
 import { X, Clock, AppWindow, Globe, Eye, EyeOff } from 'lucide-react'
 import { SessionSegment, DrillDownData, ActivityEvent, KIND_COLORS } from '@ritual/shared-contracts/computer-activity'
 import { msToHuman, formatTime, formatDate, isAfk } from '@/lib/computerActivity/derive'
+import { BrailleSpinner } from '@/components/ui/braille-spinner'
 
 interface DeepDrillDrawerProps {
   data: DrillDownData | null
@@ -62,7 +63,7 @@ export function DeepDrillDrawer({
           )}
           {isLoading && (
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+              <BrailleSpinner className="text-sm text-gray-600" />
               <span className="text-sm text-gray-500">Loading details...</span>
             </div>
           )}

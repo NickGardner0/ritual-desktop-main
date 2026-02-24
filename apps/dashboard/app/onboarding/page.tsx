@@ -1,12 +1,18 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { useUser, useAuth } from "@clerk/nextjs"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { setOnboardingWindowSize } from "@/lib/tauri-utils"
+import {
+  FROM_WELCOME_KEY,
+  ONBOARDING_BACKEND_COMPLETED_KEY,
+  ONBOARDING_COMPLETED_KEY,
+  getPostOnboardingRoute,
+  markPermissionsOnboardingRequired,
+} from "@/lib/onboarding-flow"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -27,6 +33,7 @@ import {
 } from "@/components/ui/select"
 import { CountrySelector } from "@/components/onboarding/country-selector"
 import { MultiSelect } from "@/components/onboarding/multi-select"
+import { BrailleSpinner } from "@/components/ui/braille-spinner"
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000'
 
@@ -57,7 +64,6 @@ const trackingInterests = ['Productivity', 'Education', 'Fitness & Health', 'Exp
 const wearableDevices = ['Screen Time (phone/computer)', 'Apple Watch', 'Oura Ring', 'Whoop', 'Garmin', 'Fitbit', 'None']
 
 export default function OnboardingPage() {
-  const router = useRouter()
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -67,10 +73,10 @@ export default function OnboardingPage() {
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       // Check localStorage first (fastest check)
-      const hasCompletedLocally = localStorage.getItem('ritual-onboarding-completed') === 'true'
+      const hasCompletedLocally = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true'
       if (hasCompletedLocally) {
         console.log('🔄 User already completed onboarding (localStorage), redirecting to dashboard')
-        window.location.href = '/dashboard'
+        window.location.href = getPostOnboardingRoute('/dashboard')
         return
       }
 
@@ -87,8 +93,8 @@ export default function OnboardingPage() {
               const habits = await habitsResponse.json()
               if (habits && habits.length > 0) {
                 console.log('🔄 User has existing habits, redirecting to dashboard')
-                localStorage.setItem('ritual-onboarding-completed', 'true')
-                window.location.href = '/dashboard'
+                localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+                window.location.href = getPostOnboardingRoute('/dashboard')
                 return
               }
             }
@@ -101,8 +107,8 @@ export default function OnboardingPage() {
               const profile = await response.json()
               if (profile.onboarding_completed) {
                 console.log('🔄 User already completed onboarding (backend), redirecting to dashboard')
-                localStorage.setItem('ritual-onboarding-completed', 'true')
-                window.location.href = '/dashboard'
+                localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+                window.location.href = getPostOnboardingRoute('/dashboard')
                 return
               }
             }
@@ -162,15 +168,15 @@ export default function OnboardingPage() {
       console.log('✅ Onboarding completed successfully:', userData)
 
       // Always set the local onboarding completed flag
-      localStorage.setItem('ritual-onboarding-completed', 'true')
+      localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+      markPermissionsOnboardingRequired()
 
-      const isFromWelcome = localStorage.getItem('ritual-from-welcome')
+      const isFromWelcome = localStorage.getItem(FROM_WELCOME_KEY)
       if (isFromWelcome === 'true') {
-        localStorage.setItem('ritual-onboarding-backend-completed', 'true')
-        window.location.href = '/?page=4'
-      } else {
-        window.location.href = '/dashboard'
+        localStorage.setItem(ONBOARDING_BACKEND_COMPLETED_KEY, 'true')
       }
+
+      window.location.href = getPostOnboardingRoute('/dashboard')
     } catch (error) {
       console.error('❌ Error submitting onboarding:', error)
       alert(`Error saving onboarding data: ${error instanceof Error ? error.message : String(error)}`)
@@ -183,7 +189,7 @@ export default function OnboardingPage() {
     return (
       <div className="flex min-h-screen justify-center items-center overflow-hidden p-6 md:p-0 bg-white">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin mx-auto" />
+          <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
         </div>
       </div>
     )

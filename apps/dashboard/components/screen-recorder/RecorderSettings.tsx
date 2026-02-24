@@ -17,12 +17,12 @@ import {
   EyeOff,
   AlertCircle,
   Check,
-  Loader2,
   Trash2,
   RefreshCw,
   Lock,
   Settings2
 } from 'lucide-react';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
   useRecorder,
   useScreenRecordingPermission,
@@ -150,7 +150,7 @@ export function RecorderSettings({
           <span className="text-sm text-gray-900">Screen Permission</span>
         </div>
         {hasPermission === null ? (
-          <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+          <BrailleSpinner className="text-sm text-gray-400" />
         ) : hasPermission ? (
           <span className="text-sm text-gray-500">Granted</span>
         ) : (
@@ -171,11 +171,11 @@ export function RecorderSettings({
         </div>
         {ffmpegInstalling ? (
           <div className="flex items-center gap-1.5">
-            <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />
+            <BrailleSpinner className="text-xs text-gray-400" />
             <span className="text-sm text-gray-500">Downloading...</span>
           </div>
         ) : ffmpegStatus === null ? (
-          <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+          <BrailleSpinner className="text-sm text-gray-400" />
         ) : ffmpegStatus.is_installed ? (
           <span className="text-sm text-gray-500">
             FFmpeg {ffmpegStatus.version || 'Ready'}
@@ -200,7 +200,7 @@ export function RecorderSettings({
         </div>
         {isLoading ? (
           <div className="h-5 w-9 flex items-center justify-center">
-            <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+            <BrailleSpinner className="text-sm text-gray-400" />
           </div>
         ) : (
           <button
@@ -382,7 +382,7 @@ export function RecorderSettings({
           className="px-2.5 py-1 text-xs text-gray-700 border border-gray-300 hover:bg-gray-100 transition-colors disabled:opacity-50 flex items-center gap-1.5"
         >
           {isCleaning ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <BrailleSpinner className="text-xs" />
           ) : (
             <Trash2 className="w-3 h-3" />
           )}

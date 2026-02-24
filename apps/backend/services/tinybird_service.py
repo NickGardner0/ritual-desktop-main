@@ -5,7 +5,10 @@ Integrates with the existing Tinybird setup
 
 import os
 import json
+import asyncio
+import time
 import httpx
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 class TinybirdService:
@@ -29,6 +32,67 @@ class TinybirdService:
             'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json'
         }
+
+    async def _wait_for_job(
+        self,
+        job_id: str,
+        timeout_seconds: float = 60.0,
+        poll_interval_seconds: float = 0.5,
+    ) -> Dict[str, Any]:
+        """
+        Poll Tinybird job endpoint until completion (or timeout).
+        """
+        deadline = time.monotonic() + timeout_seconds
+        url = f"{self.base_url}/v0/jobs/{job_id}"
+        last_status = "unknown"
+        last_payload: Dict[str, Any] = {}
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            while True:
+                response = await client.get(url, headers=self.headers)
+                if response.status_code != 200:
+                    return {
+                        "success": False,
+                        "error": response.text,
+                        "status_code": response.status_code,
+                        "job_id": job_id,
+                    }
+
+                try:
+                    payload = response.json()
+                except Exception:
+                    payload = {}
+
+                last_payload = payload
+                last_status = str(payload.get("status", "")).lower()
+
+                if last_status in {"done", "success", "completed", "finished"}:
+                    return {
+                        "success": True,
+                        "job_id": job_id,
+                        "status": last_status,
+                        "result": payload,
+                    }
+
+                if last_status in {"error", "failed", "cancelled", "canceled"}:
+                    return {
+                        "success": False,
+                        "error": f"Tinybird job failed with status={last_status}",
+                        "job_id": job_id,
+                        "status": last_status,
+                        "result": payload,
+                    }
+
+                if time.monotonic() >= deadline:
+                    return {
+                        "success": False,
+                        "error": f"Timed out waiting for Tinybird job {job_id} (last_status={last_status})",
+                        "job_id": job_id,
+                        "status": last_status,
+                        "result": last_payload,
+                    }
+
+                await asyncio.sleep(max(0.1, poll_interval_seconds))
     
     async def ingest_events(self, datasource: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -39,15 +103,17 @@ class TinybirdService:
             ndjson = '\n'.join([json.dumps(event) for event in events])
             
             url = f"{self.base_url}/v0/events?name={datasource}"
+            event_headers = dict(self.headers)
+            event_headers['Content-Type'] = 'application/x-ndjson'
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
-                    headers=self.headers,
+                    headers=event_headers,
                     content=ndjson
                 )
                 
-                if response.status_code == 202:
+                if response.status_code in (200, 202):
                     return {
                         'success': True,
                         'count': len(events),
@@ -96,28 +162,76 @@ class TinybirdService:
         - `date` field: User's intended local date (for grouping/filtering)
         - `timestamp` field: Full UTC timestamp (for accurate time display)
         """
-        from datetime import datetime
-        
-        # Helper to format ISO datetime for Tinybird (convert to space-separated UTC format)
-        def format_utc_datetime(dt_string: str) -> str:
-            if not dt_string:
-                return datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-            # Convert ISO format to Tinybird format: "2025-12-07T00:02:08.352Z" -> "2025-12-07 00:02:08"
-            # Keep the FULL UTC timestamp, don't mix with local date!
-            result = dt_string.replace('T', ' ')
-            # Remove 'Z' suffix and milliseconds
-            if 'Z' in result:
-                result = result.replace('Z', '')
-            if '.' in result:
-                result = result.split('.')[0]
-            return result
+        # Helper to normalize timestamps to Tinybird's expected UTC DateTime format.
+        def format_utc_datetime(dt_value: Optional[Any], fallback_date: Optional[str] = None) -> str:
+            if dt_value is None or str(dt_value).strip() == "":
+                if fallback_date:
+                    try:
+                        # Use noon UTC for date-only fallback so ordering is stable and explicit.
+                        fallback = datetime.strptime(fallback_date, "%Y-%m-%d").replace(
+                            hour=12, minute=0, second=0, tzinfo=timezone.utc
+                        )
+                        return fallback.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        pass
+                return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+            # Accept datetime objects directly.
+            if isinstance(dt_value, datetime):
+                parsed = dt_value
+            else:
+                raw = str(dt_value).strip()
+                parsed = None
+
+                # Accept both Z and +/-offset forms.
+                try:
+                    iso_candidate = raw.replace('Z', '+00:00')
+                    parsed = datetime.fromisoformat(iso_candidate)
+                except Exception:
+                    parsed = None
+
+                # Date-only strings: normalize to noon UTC.
+                if parsed is None:
+                    try:
+                        parsed = datetime.strptime(raw, "%Y-%m-%d").replace(
+                            hour=12, minute=0, second=0, tzinfo=timezone.utc
+                        )
+                    except Exception:
+                        parsed = None
+
+                # Last-resort fallback for legacy "YYYY-MM-DD HH:MM:SS" strings.
+                if parsed is None:
+                    try:
+                        parsed = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        parsed = datetime.now(timezone.utc)
+
+            # Normalize to UTC and strip timezone for Tinybird DateTime.
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+            return parsed.strftime('%Y-%m-%d %H:%M:%S')
         
         completed_at = log_data.get('completed_at')
         log_date = log_data.get('date')  # User's intended local date
         
         # Use full UTC timestamp from completed_at (matches Turso storage)
         # This ensures timestamp accuracy for time display in tooltips
-        timestamp_str = format_utc_datetime(completed_at) if completed_at else datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp_str = format_utc_datetime(completed_at, fallback_date=log_date)
+
+        # Accept both `unit` and legacy `unit_type` from callers.
+        unit_value = log_data.get('unit')
+        if unit_value in (None, ""):
+            unit_value = log_data.get('unit_type')
+
+        metadata_value = log_data.get('metadata')
+        if metadata_value in (None, ""):
+            metadata_serialized = '{}'
+        elif isinstance(metadata_value, str):
+            metadata_serialized = metadata_value
+        else:
+            metadata_serialized = json.dumps(metadata_value)
         
         # Transform data for Tinybird schema
         # CRITICAL: Tinybird converts empty strings to null and rejects them!
@@ -132,12 +246,12 @@ class TinybirdService:
             'status': log_data.get('status') or 'completed',
             'duration': int(log_data.get('duration') or 0),  # Ensure Int32, default 0
             'amount': float(log_data.get('amount') or 0.0),  # Ensure Float64, default 0.0
-            'unit': log_data.get('unit') or 'none',  # Use 'none' instead of empty string
+            'unit': unit_value or 'none',  # Use 'none' instead of empty string
             'notes': log_data.get('notes') or 'none',  # Use 'none' instead of empty string
             'source': log_data.get('source') or 'manual',
             'integration_id': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
             'whoop_metric_type': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
-            'metadata': log_data.get('metadata') or '{}',
+            'metadata': metadata_serialized,
             'created_at': timestamp_str  # Full UTC timestamp
         }
         
@@ -201,7 +315,14 @@ class TinybirdService:
         
         return await self.query_pipe('recent_habit_logs', params)
     
-    async def delete_by_condition(self, datasource: str, delete_condition: str) -> Dict[str, Any]:
+    async def delete_by_condition(
+        self,
+        datasource: str,
+        delete_condition: str,
+        wait_for_completion: bool = False,
+        timeout_seconds: float = 60.0,
+        poll_interval_seconds: float = 0.5,
+    ) -> Dict[str, Any]:
         """
         Delete rows from a datasource by condition using Tinybird's Delete API
         
@@ -227,12 +348,53 @@ class TinybirdService:
                     params={'delete_condition': delete_condition}
                 )
                 
-                if response.status_code in [200, 202]:
-                    result = response.json()
+                if response.status_code in [200, 201, 202]:
+                    result: Dict[str, Any] = {}
+                    try:
+                        result = response.json()
+                    except Exception:
+                        result = {}
+
+                    job_id = (
+                        result.get("job_id")
+                        or result.get("id")
+                        or (result.get("job", {}) or {}).get("job_id")
+                    )
+                    job_status = str(
+                        result.get("status") or (result.get("job", {}) or {}).get("status") or ""
+                    ).lower()
+
+                    if wait_for_completion and job_id:
+                        wait_result = await self._wait_for_job(
+                            job_id=job_id,
+                            timeout_seconds=timeout_seconds,
+                            poll_interval_seconds=poll_interval_seconds,
+                        )
+                        if not wait_result.get("success"):
+                            return {
+                                "success": False,
+                                "error": wait_result.get("error", "Tinybird delete job failed"),
+                                "status_code": response.status_code,
+                                "job_id": job_id,
+                                "result": result,
+                                "wait_result": wait_result,
+                            }
+                        return {
+                            "success": True,
+                            "message": f"Delete operation completed on {datasource}",
+                            "status_code": response.status_code,
+                            "job_id": job_id,
+                            "job_status": wait_result.get("status", job_status or "done"),
+                            "result": wait_result.get("result", result),
+                        }
+
                     return {
-                        'success': True,
-                        'message': f'Delete operation initiated on {datasource}',
-                        'result': result
+                        "success": True,
+                        "message": f"Delete operation initiated on {datasource}",
+                        "status_code": response.status_code,
+                        "job_id": job_id,
+                        "job_status": job_status or "unknown",
+                        "result": result,
                     }
                 else:
                     return {

@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState } from "react";
 import {
   Timer,
   Settings,
@@ -14,17 +14,20 @@ import {
 } from "lucide-react";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { useAuth } from "@clerk/nextjs";
+import dynamic from 'next/dynamic';
 
-// Lazy load SettingsModal since it's only shown when clicked
-const SettingsModal = lazy(() => import("./settings-modal").then(m => ({ default: m.SettingsModal })));
+const SettingsModal = dynamic(
+  () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
+  { ssr: false }
+);
 
 // Custom "I" letter icon component for Index
-const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
+const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
   <svg
     viewBox="0 0 24 24"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    strokeWidth="2.1"
+    strokeWidth={strokeWidth}
     stroke="currentColor"
     strokeLinecap="round"
     strokeLinejoin="round"
@@ -33,7 +36,7 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <path
       d="M9 6h6M12 6v12M9 18h6"
       stroke="currentColor"
-      strokeWidth="2.1"
+      strokeWidth={strokeWidth}
       strokeLinecap="round"
       fill="none"
     />
@@ -41,12 +44,12 @@ const ILetterIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 const icons = {
-  "/dashboard": () => <ILetterIcon className="w-5 h-5" />,
-  "/activity": () => <TableProperties className="w-5 h-5" strokeWidth={2.1} />,
-  "/calendar": () => <CalendarDays className="w-5 h-5" strokeWidth={2.1} />,
-  "/timer": () => <Timer className="w-5 h-5" strokeWidth={2.1} />,
-  "/integrations": () => <Plug2 className="w-5 h-5" strokeWidth={2.1} />,
-  "/settings": () => <Settings className="w-5 h-5" strokeWidth={2.1} />,
+  "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
+  "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
+  "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
+  "/timer": (props: React.SVGProps<SVGSVGElement>) => <Timer {...props} />,
+  "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
+  "/settings": (props: React.SVGProps<SVGSVGElement>) => <Settings {...props} />,
 } as const;
 
 const items = [
@@ -142,7 +145,7 @@ const ChildItem = ({
           <span
             className={cn(
               "text-xs font-[450] transition-colors duration-200",
-              "text-gray-500 group-hover/child:text-gray-900",
+              "text-gray-600 group-hover/child:text-gray-900",
               "whitespace-nowrap overflow-hidden",
               isActive && "text-gray-900",
             )}
@@ -168,6 +171,7 @@ const Item = ({
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
+  const isCollapsedActive = isActive && !isExpanded;
   
   // Prefetch data on hover (Midday-style optimization)
   const prefetchDashboard = usePrefetchDashboard();
@@ -215,38 +219,33 @@ const Item = ({
         {...getPrefetchProps()}
       >
         <div className="relative">
-          {/* Background that expands - only for active state */}
+          {/* Keep a stable click target in both modes without active borders */}
           <div
             className={cn(
-              "border border-transparent h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
-              isActive && "border-gray-200",
+              "h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
               isExpanded 
                 ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
                 : "ml-[15px] w-[40px] rounded-none",
             )}
-            style={{
-              backgroundColor: isActive ? '#F3F3F3' : 'transparent'
-            }}
           />
 
           {/* Icon - always in same position from sidebar edge */}
           <div className={cn(
-            "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-colors pointer-events-none",
-            "text-black"
+            "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
+            "text-gray-600 group-hover:text-gray-800",
+            isCollapsedActive && "text-gray-900 scale-[1.04]"
           )}>
-            <div className={cn(isActive && "text-black")}>
-              <Icon />
-            </div>
+            <Icon className="w-5 h-5" strokeWidth={isCollapsedActive ? 2.45 : 2.1} />
           </div>
 
           {isExpanded && (
             <div className="absolute top-0 left-[55px] right-[4px] h-[40px] flex items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] transition-colors duration-200 text-gray-600 group-hover:text-gray-900",
+                  "text-sm font-[450] transition-colors duration-200 text-gray-700 group-hover:text-gray-900",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-gray-900",
+                  isActive && "text-gray-900 font-[600]",
                 )}
               >
                 {item.name}
@@ -257,7 +256,7 @@ const Item = ({
                   onClick={handleChevronClick}
                   className={cn(
                     "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto mr-3",
-                    "text-gray-500 hover:text-gray-900 pointer-events-auto",
+                    "text-gray-600 hover:text-gray-900 pointer-events-auto",
                     isActive && "text-gray-900",
                     shouldShowChildren && "rotate-180",
                   )}
@@ -397,17 +396,14 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
       
       {/* Settings Modal */}
       {showSettingsModal && (
-        <Suspense fallback={null}>
-          <SettingsModal 
-            isOpen={showSettingsModal} 
-            onClose={() => {
-              setShowSettingsModal(false);
-              // Also collapse the sidebar when modal closes
-              onCloseSidebar?.();
-            }}
-            onOpen={onCloseSidebar}
-          />
-        </Suspense>
+        <SettingsModal 
+          isOpen={showSettingsModal} 
+          onClose={() => {
+            setShowSettingsModal(false);
+            onCloseSidebar?.();
+          }}
+          onOpen={onCloseSidebar}
+        />
       )}
     </div>
   );

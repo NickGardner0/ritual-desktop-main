@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, Loader, ArrowLeft, AudioLines, Plus, PanelLeft, PanelRight, MessageSquare, Volume2, LayoutList } from 'lucide-react';
+import { ArrowUp, ArrowLeft, AudioLines, Plus, PanelLeft, PanelRight, MessageSquare, LayoutList } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -11,8 +11,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Streamdown } from 'streamdown';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useAI } from '@/contexts/AIContext';
-import { RitualLogo } from '@/components/ritual-logo';
 import { isScreenRecordingQuery, prefetchScreenResults, type ScreenSearchPrefetchResult } from '@/lib/screen-search';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
@@ -563,6 +563,11 @@ export function ChatClient() {
     setIsFullScreenChat(true);
     return () => setIsFullScreenChat(false);
   }, [setIsFullScreenChat]);
+
+  // Warm dashboard route so header controls don't pop in late on return.
+  useEffect(() => {
+    router.prefetch('/dashboard');
+  }, [router]);
   
   // Initialize chat - always start with empty state for cleaner UX
   // Users can access previous conversations from the sidebar
@@ -803,31 +808,6 @@ export function ChatClient() {
       console.error('Failed to show context menu:', error);
     }
   }, [deleteConversation]);
-
-  // Toggle voice style mode and persist to conversation (Phase 4A)
-  const toggleVoiceStyle = useCallback(async (enabled: boolean) => {
-    setVoiceStyleEnabled(enabled);
-    
-    // Persist to conversation if we have one
-    if (conversationId) {
-      try {
-        const token = await getToken();
-        if (!token) return;
-        
-        await fetch(`${PYTHON_API_BASE}/api/conversations/${conversationId}/response-mode`, {
-          method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ response_mode: enabled ? 'voice' : 'text' }),
-        });
-        console.log('💬 Updated conversation response mode:', enabled ? 'voice' : 'text');
-      } catch (error) {
-        console.error('Failed to persist voice style:', error);
-      }
-    }
-  }, [conversationId, getToken]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (isLoading || !text.trim()) return;
@@ -1135,7 +1115,7 @@ export function ChatClient() {
       <div className="h-full flex flex-col bg-white relative">
         <div className="flex-1 flex items-center justify-center">
           <div className="flex items-center gap-2">
-            <Loader className="w-5 h-5 animate-spin text-gray-400" />
+            <BrailleSpinner className="text-base text-gray-400" />
             <span className="text-gray-500 text-sm">Loading conversation...</span>
           </div>
         </div>
@@ -1164,7 +1144,7 @@ export function ChatClient() {
                   className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
                   title="Go to Dashboard"
                 >
-                  <RitualLogo className="w-6 h-6" />
+                  <img src="/images/eclipse.svg" alt="Ritual" className="w-6 h-6" />
                 </button>
                 <button
                   onClick={() => setIsSidebarCollapsed(true)}
@@ -1191,7 +1171,7 @@ export function ChatClient() {
                 <div className="flex flex-col gap-0.5 px-2">
                   {isLoadingConversations ? (
                     <div className="flex items-center justify-center py-4">
-                      <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                      <BrailleSpinner className="text-sm text-gray-400" />
                     </div>
                   ) : conversations.length === 0 ? (
                     <div className="px-3 py-4 text-xs text-gray-400 text-center">
@@ -1265,7 +1245,7 @@ export function ChatClient() {
                     rows={1}
                   />
                   <div className="flex justify-between items-center px-3 pb-3">
-                    {/* Voice Input + Voice Style Toggle */}
+                    {/* Voice Input */}
                     <div className="flex items-center gap-3">
                       {/* Voice Recording Button */}
                       <div className="flex items-center gap-2 group">
@@ -1283,28 +1263,12 @@ export function ChatClient() {
                           {isListening ? (
                             <VoiceWaveformMini isActive={true} />
                           ) : isProcessingVoice ? (
-                            <Loader className="w-4 h-4 animate-spin" />
+                            <BrailleSpinner className="text-sm text-gray-900" />
                           ) : (
                             <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                           )}
                         </button>
                       </div>
-                      
-                      {/* Voice Style Toggle (Phase 4A) */}
-                      <button
-                        type="button"
-                        onClick={() => toggleVoiceStyle(!voiceStyleEnabled)}
-                        className={cn(
-                          "flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all",
-                          voiceStyleEnabled
-                            ? "bg-gray-900 text-white"
-                            : "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700"
-                        )}
-                        title={voiceStyleEnabled ? 'Voice style: ON - Conversational responses' : 'Voice style: OFF - Detailed responses'}
-                      >
-                        <Volume2 className="w-3 h-3" />
-                        <span>{voiceStyleEnabled ? 'Voice' : 'Text'}</span>
-                      </button>
                     </div>
                     
                     {/* Submit Button */}
@@ -1364,7 +1328,7 @@ export function ChatClient() {
                 className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
                 title="Go to Dashboard"
               >
-                <RitualLogo className="w-4 h-4" />
+                <img src="/images/eclipse.svg" alt="Ritual" className="w-4 h-4" />
                 <span className="text-lg font-normal text-gray-900">Ritual</span>
               </button>
               <button
@@ -1392,7 +1356,7 @@ export function ChatClient() {
               <div className="flex flex-col gap-0.5 px-2">
                 {isLoadingConversations ? (
                   <div className="flex items-center justify-center py-4">
-                    <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                    <BrailleSpinner className="text-sm text-gray-400" />
                   </div>
                 ) : conversations.length === 0 ? (
                   <div className="px-3 py-4 text-xs text-gray-400 text-center">
@@ -1533,7 +1497,7 @@ export function ChatClient() {
                   />
                 </div>
                 <div className="flex justify-between items-center px-3 pb-3">
-                  {/* Voice Input + Voice Style Toggle */}
+                  {/* Voice Input */}
                   <div className="flex items-center gap-3">
                     {/* Voice Recording Button */}
                     <div className="flex items-center gap-2 group">
@@ -1553,30 +1517,12 @@ export function ChatClient() {
                         {isListening ? (
                           <VoiceWaveformMini isActive={true} />
                         ) : isProcessingVoice ? (
-                          <Loader className="w-4 h-4 animate-spin" />
+                          <BrailleSpinner className="text-sm text-gray-900" />
                         ) : (
                           <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                         )}
                       </button>
                     </div>
-                    
-                    {/* Voice Style Toggle (Phase 4A) */}
-                    <button
-                      type="button"
-                      onClick={() => toggleVoiceStyle(!voiceStyleEnabled)}
-                      disabled={isLoading}
-                      className={cn(
-                        "flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all",
-                        voiceStyleEnabled
-                          ? "bg-gray-900 text-white"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700",
-                        "disabled:opacity-50"
-                      )}
-                      title={voiceStyleEnabled ? 'Voice style: ON - Conversational responses' : 'Voice style: OFF - Detailed responses'}
-                    >
-                      <Volume2 className="w-3 h-3" />
-                      <span>{voiceStyleEnabled ? 'Voice' : 'Text'}</span>
-                    </button>
                   </div>
                   
                   {/* Submit Button */}
@@ -1586,7 +1532,7 @@ export function ChatClient() {
                     className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
                   >
                     {isLoading ? (
-                      <Loader className="w-4 h-4 animate-spin" />
+                      <BrailleSpinner className="text-sm text-white" />
                     ) : (
                       <ArrowUp className="w-4 h-4" />
                     )}

@@ -2,7 +2,7 @@
 SQLAlchemy database models
 """
 
-from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, Text, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -78,6 +78,23 @@ class HabitLogDB(Base):
     # Relationships
     habit = relationship("HabitDB", back_populates="logs")
     import_run = relationship("ImportRunDB", back_populates="logs")
+
+
+class ScheduledBlockDB(Base):
+    """Calendar scheduled block model for week-view task planning."""
+    __tablename__ = "scheduled_blocks"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    title = Column(String, nullable=False)
+    notes = Column(Text)
+    day = Column(String, nullable=False)  # YYYY-MM-DD (user local date)
+    start_minutes = Column(Integer, nullable=False)  # Minutes from midnight (0..1439)
+    end_minutes = Column(Integer, nullable=False)  # Minutes from midnight (1..1440)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB", backref="scheduled_blocks")
 
 
 # ================================
@@ -223,6 +240,78 @@ class WhoopIntegrationDB(Base):
     
     # Relationships
     user = relationship("UserDB", backref="whoop_integration")
+
+
+class IntegrationDB(Base):
+    """Generic integration status row (provider-scoped per user)."""
+    __tablename__ = "integrations"
+
+    user_id = Column(String, ForeignKey("users.id"), primary_key=True)
+    provider = Column(String, primary_key=True)  # e.g. "weather"
+    enabled = Column(Boolean, nullable=False, default=False)
+    connected_at = Column(DateTime, nullable=True)
+    disabled_at = Column(DateTime, nullable=True)
+    metadata_json = Column("metadata", Text, nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    user = relationship("UserDB")
+
+
+class WeatherObservationDB(Base):
+    """Normalized current weather snapshots for dashboard + history."""
+    __tablename__ = "weather_observations"
+    __table_args__ = (
+        Index("idx_weather_observations_user_observed", "user_id", "observed_at"),
+    )
+
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    observed_at = Column(DateTime, nullable=False)
+    tz = Column(String, nullable=False)
+    location_label = Column(String, nullable=False)
+    condition_code = Column(String, nullable=False)
+
+    temperature_c = Column(Float, nullable=False)
+    feels_like_c = Column(Float, nullable=False)
+    humidity = Column(Float, nullable=False)
+    wind_speed_mps = Column(Float, nullable=False)
+    wind_gust_mps = Column(Float, nullable=True)
+    wind_direction_deg = Column(Float, nullable=False)
+    precip_probability = Column(Float, nullable=False)
+    precip_intensity = Column(Float, nullable=True)
+    cloud_cover = Column(Float, nullable=True)
+    pressure_hpa = Column(Float, nullable=True)
+    visibility_m = Column(Float, nullable=True)
+    source = Column(String, nullable=False, default="weatherkit")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("UserDB")
+
+
+class WeatherDailyDB(Base):
+    """Daily summary values used by lightweight dashboard context card."""
+    __tablename__ = "weather_daily"
+    __table_args__ = (
+        Index("idx_weather_daily_user_date", "user_id", "date_local"),
+    )
+
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    date_local = Column(String, nullable=False)  # YYYY-MM-DD
+    tz = Column(String, nullable=False)
+    location_label = Column(String, nullable=False)
+    condition_code = Column(String, nullable=True)
+    high_c = Column(Float, nullable=False)
+    low_c = Column(Float, nullable=False)
+    sunrise = Column(DateTime, nullable=True)
+    sunset = Column(DateTime, nullable=True)
+    uv_index_max = Column(Float, nullable=True)
+    source = Column(String, nullable=False, default="weatherkit")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
 
 
 class AIConversationDB(Base):
@@ -517,5 +606,3 @@ class WatcherAppExclusionDB(Base):
     app_name = Column(String, nullable=True)
     reason = Column(String, nullable=True)  # 'privacy', 'sensitive', 'user_preference'
     created_at = Column(Integer, nullable=False)
-
-

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 // Force dynamic rendering since this page uses useSearchParams
 export const dynamic = 'force-dynamic';
@@ -103,7 +104,7 @@ function IntegrationSuccessContent() {
           <div className="bg-white rounded-lg shadow-xl p-8 text-center">
             <div className="flex justify-center mb-6">
               <div className="rounded-full bg-blue-100 p-4">
-                <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+                <BrailleSpinner className="text-5xl text-blue-600" />
               </div>
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-3">
@@ -219,7 +220,7 @@ export default function IntegrationSuccessPage() {
             <div className="bg-white rounded-lg shadow-xl p-8 text-center">
               <div className="flex justify-center mb-6">
                 <div className="rounded-full bg-blue-100 p-4">
-                  <Loader2 className="w-16 h-16 text-blue-600 animate-spin" />
+                  <BrailleSpinner className="text-5xl text-blue-600" />
                 </div>
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-3">

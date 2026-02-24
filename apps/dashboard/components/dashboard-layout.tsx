@@ -1,20 +1,29 @@
 "use client";
 
-import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
-// TeamDropdown moved to sidebar
-import { FeedbackModal } from '@/components/feedback-modal';
-import { useState, useEffect, lazy, Suspense } from 'react';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useState, useEffect, Suspense } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 
-// Lazy load heavy components that are only used when opened
-const TimeTrackerWidget = lazy(() => import('@/components/timer/TimeTrackerWidget').then(m => ({ default: m.TimeTrackerWidget })));
-const CommandPalette = lazy(() => import('@/components/habit-selector'));
+const Sidebar = dynamic(
+  () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
+  { ssr: false }
+);
+
+const TimeTrackerWidget = dynamic(
+  () => import('@/components/timer/TimeTrackerWidget').then(m => ({ default: m.TimeTrackerWidget })),
+  { ssr: false }
+);
+
+const CommandPalette = dynamic(
+  () => import('@/components/habit-selector'),
+  { ssr: false }
+);
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -22,12 +31,10 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(70);
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
   const { fontClass } = useFont();
-  const { user } = useUser();
   const { getToken } = useAuth();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -81,12 +88,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   };
 
-  const getUserInitials = () => {
-    const email = user?.primaryEmailAddress?.emailAddress;
-    if (!email) return 'N';
-    return email.charAt(0).toUpperCase();
-  };
-
   // Monitor for token refresh requests from Swift widget
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -130,6 +131,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       window.sessionStorage.removeItem('ritual_detached_sidebar');
       setDetachedSidebarMode(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (process.env.NODE_ENV !== 'development') return;
+
+    // Hide Next.js dev indicator launcher (floating "N") in local dev.
+    void fetch('/__nextjs_disable_dev_indicator', { method: 'POST' }).catch(() => {
+      // Ignore when endpoint is unavailable (older/newer Next internals).
+    });
   }, []);
 
   useEffect(() => {
@@ -195,7 +206,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
       {!isFullScreenChat && !detachedSidebarMode && (
-        <Sidebar onFeedbackClick={() => setShowFeedback(true)} />
+        <Sidebar />
       )}
 
       {/* Main Content Area */}
@@ -203,17 +214,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Top Header - Midday Style - Hidden in Full-Screen Chat */}
         {!isFullScreenChat && (
         <header className="content-opaque px-5 h-[56px] flex items-center bg-white">
-          <div className="flex items-center justify-between w-full">
+          <div className="flex items-center justify-between w-full translate-y-[6px]">
             {/* Left side - Quick Actions buttons */}
             <div className="flex items-center space-x-2.5">
               {/* Quick Actions Button - Command Palette with Search */}
               <div>
-                <Suspense fallback={<div className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 border border-gray-300 shadow-sm rounded-none">Loading...</div>}>
-                  <CommandPalette 
-                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] rounded-none"
-                    initialOpen={shouldOpenWhoopModal}
-                  />
-                </Suspense>
+                <CommandPalette 
+                  className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] rounded-none"
+                  initialOpen={shouldOpenWhoopModal}
+                />
               </div>
 
               {/* Tracker Button */}
@@ -247,17 +256,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
 
       {/* Time Tracker Widget */}
-      <Suspense fallback={null}>
-        <TimeTrackerWidget 
-          open={false} 
-          onClose={() => {}} 
-        />
-      </Suspense>
-
-      {/* Feedback Modal */}
-      <FeedbackModal 
-        isOpen={showFeedback} 
-        onClose={() => setShowFeedback(false)} 
+      <TimeTrackerWidget 
+        open={false} 
+        onClose={() => {}} 
       />
     </div>
   );

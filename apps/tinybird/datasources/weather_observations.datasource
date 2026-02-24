@@ -1,0 +1,31 @@
+DESCRIPTION >
+    Normalized WeatherKit snapshots synced from Ritual weather integration.
+    Used for weather trend charts and behavior correlation analysis.
+
+SCHEMA >
+    `id` String `json:$.id`,
+    `user_id` String `json:$.user_id`,
+    `observed_at` DateTime `json:$.observed_at`,
+    `tz` String `json:$.tz`,
+    `location_label` String `json:$.location_label`,
+    `condition_code` String `json:$.condition_code`,
+    `temperature_c` Float64 `json:$.temperature_c`,
+    `feels_like_c` Float64 `json:$.feels_like_c`,
+    `humidity` Float64 `json:$.humidity`,
+    `wind_speed_mps` Float64 `json:$.wind_speed_mps`,
+    `wind_gust_mps` Float64 `json:$.wind_gust_mps`,
+    `wind_direction_deg` Float64 `json:$.wind_direction_deg`,
+    `precip_probability` Float64 `json:$.precip_probability`,
+    `precip_intensity` Float64 `json:$.precip_intensity`,
+    `cloud_cover` Float64 `json:$.cloud_cover`,
+    `pressure_hpa` Float64 `json:$.pressure_hpa`,
+    `visibility_m` Float64 `json:$.visibility_m`,
+    `today_high_c` Nullable(Float64) `json:$.today_high_c`,
+    `today_low_c` Nullable(Float64) `json:$.today_low_c`,
+    `uv_index_max` Nullable(Float64) `json:$.uv_index_max`,
+    `source` String `json:$.source`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(observed_at)"
+ENGINE_SORTING_KEY "user_id, observed_at"
+ENGINE_TTL "observed_at + INTERVAL 2 YEAR"

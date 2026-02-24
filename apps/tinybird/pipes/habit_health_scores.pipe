@@ -1,0 +1,191 @@
+DESCRIPTION >
+    Precomputed habit health and risk scores.
+    Uses consistency, momentum, stability, and recency so clients do not need N+1 scoring logic.
+
+TOKEN "habit_health_scores_read" READ
+
+NODE period_window
+SQL >
+    %
+    SELECT
+        {% if defined(start_date) %}
+        toDate({{ String(start_date) }})
+        {% else %}
+        today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+        {% end %} AS current_start,
+        {% if defined(end_date) %}
+        toDate({{ String(end_date) }})
+        {% else %}
+        today()
+        {% end %} AS current_end,
+        dateDiff(
+            'day',
+            {% if defined(start_date) %}
+            toDate({{ String(start_date) }})
+            {% else %}
+            today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+            {% end %},
+            {% if defined(end_date) %}
+            toDate({{ String(end_date) }})
+            {% else %}
+            today()
+            {% end %}
+        ) + 1 AS period_days
+
+NODE deduplicated_logs
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        status,
+        amount,
+        duration,
+        unit,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= (SELECT addDays(current_start, -period_days) FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE daily_values
+SQL >
+    %
+    SELECT
+        habit_id,
+        any(habit_name) AS habit_name,
+        any(unit) AS unit_sample,
+        date,
+        SUM(
+            multiIf(
+                lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(amount > 0, amount, 1.0)),
+                lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(amount > 0, amount, 1.0)),
+                lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(amount > 0, amount, 1.0)),
+                amount > 0, amount,
+                duration > 0, duration * 1.0,
+                1.0
+            )
+        ) AS daily_value
+    FROM deduplicated_logs
+    WHERE status = 'completed'
+    GROUP BY habit_id, date
+
+NODE current_period_stats
+SQL >
+    %
+    SELECT
+        habit_id,
+        any(habit_name) AS habit_name,
+        any(unit_sample) AS unit,
+        SUM(daily_value) AS current_total_value,
+        AVG(daily_value) AS current_avg_value,
+        stddevPop(daily_value) AS current_stddev,
+        COUNT(DISTINCT date) AS days_with_data,
+        MAX(date) AS last_log_date
+    FROM daily_values
+    WHERE date >= (SELECT current_start FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+    GROUP BY habit_id
+
+NODE previous_period_stats
+SQL >
+    %
+    SELECT
+        habit_id,
+        AVG(daily_value) AS previous_avg_value
+    FROM daily_values
+    WHERE date >= (SELECT addDays(current_start, -period_days) FROM period_window)
+      AND date < (SELECT current_start FROM period_window)
+    GROUP BY habit_id
+
+NODE score_output
+TYPE ENDPOINT
+SQL >
+    %
+    SELECT
+        c.habit_id,
+        c.habit_name,
+        c.unit,
+        c.current_total_value,
+        c.current_avg_value,
+        coalesce(p.previous_avg_value, 0) AS previous_avg_value,
+        c.days_with_data,
+        c.last_log_date,
+        dateDiff('day', c.last_log_date, (SELECT current_end FROM period_window)) AS days_since_last_log,
+
+        -- Raw component scores (0-100)
+        round((c.days_with_data / nullIf((SELECT period_days FROM period_window), 0)) * 100, 1) AS consistency_score,
+        round(greatest(0.0, least(100.0, 100.0 - (if(c.current_avg_value > 0, c.current_stddev / c.current_avg_value, 0) * 100.0))), 1) AS stability_score,
+        round(
+            greatest(
+                0.0,
+                least(
+                    100.0,
+                    50.0 + (
+                        CASE
+                            WHEN coalesce(p.previous_avg_value, 0) > 0
+                            THEN ((c.current_avg_value - p.previous_avg_value) / p.previous_avg_value) * 100
+                            WHEN c.current_avg_value > 0
+                            THEN 50.0
+                            ELSE 0.0
+                        END
+                    )
+                )
+            ),
+            1
+        ) AS momentum_score,
+        round(greatest(0.0, least(100.0, 100.0 - (dateDiff('day', c.last_log_date, (SELECT current_end FROM period_window)) * 8.0))), 1) AS recency_score,
+
+        -- Composite health score (higher is better)
+        round(
+            (0.35 * ((c.days_with_data / nullIf((SELECT period_days FROM period_window), 0)) * 100)) +
+            (0.25 * greatest(0.0, least(100.0, 100.0 - (if(c.current_avg_value > 0, c.current_stddev / c.current_avg_value, 0) * 100.0)))) +
+            (0.20 * greatest(0.0, least(100.0, 50.0 + (
+                CASE
+                    WHEN coalesce(p.previous_avg_value, 0) > 0
+                    THEN ((c.current_avg_value - p.previous_avg_value) / p.previous_avg_value) * 100
+                    WHEN c.current_avg_value > 0
+                    THEN 50.0
+                    ELSE 0.0
+                END
+            )))) +
+            (0.20 * greatest(0.0, least(100.0, 100.0 - (dateDiff('day', c.last_log_date, (SELECT current_end FROM period_window)) * 8.0)))),
+            1
+        ) AS health_score,
+
+        -- Composite risk score (higher is riskier)
+        round(
+            greatest(
+                0.0,
+                least(
+                    100.0,
+                    100.0 - (
+                        (0.35 * ((c.days_with_data / nullIf((SELECT period_days FROM period_window), 0)) * 100)) +
+                        (0.25 * greatest(0.0, least(100.0, 100.0 - (if(c.current_avg_value > 0, c.current_stddev / c.current_avg_value, 0) * 100.0)))) +
+                        (0.20 * greatest(0.0, least(100.0, 50.0 + (
+                            CASE
+                                WHEN coalesce(p.previous_avg_value, 0) > 0
+                                THEN ((c.current_avg_value - p.previous_avg_value) / p.previous_avg_value) * 100
+                                WHEN c.current_avg_value > 0
+                                THEN 50.0
+                                ELSE 0.0
+                            END
+                        )))) +
+                        (0.20 * greatest(0.0, least(100.0, 100.0 - (dateDiff('day', c.last_log_date, (SELECT current_end FROM period_window)) * 8.0))))
+                    )
+                    + greatest(0.0, least(35.0, (dateDiff('day', c.last_log_date, (SELECT current_end FROM period_window)) - 1) * 5.0))
+                )
+            ),
+            1
+        ) AS risk_score
+
+    FROM current_period_stats c
+    LEFT JOIN previous_period_stats p ON c.habit_id = p.habit_id
+    ORDER BY risk_score DESC, health_score ASC

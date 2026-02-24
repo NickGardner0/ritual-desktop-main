@@ -1,6 +1,7 @@
 "use client";
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 interface Props {
   children: ReactNode;
@@ -52,7 +53,7 @@ class ChunkErrorBoundary extends Component<Props, State> {
             <p className="text-gray-500 mb-4">
               The app is being updated. Reloading automatically...
             </p>
-            <div className="w-6 h-6 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin mx-auto"></div>
+            <BrailleSpinner className="mx-auto text-lg text-gray-600" />
           </div>
         </div>
       );

@@ -7,6 +7,14 @@ import Link from 'next/link';
 import { setStandardWindowSize, setOnboardingWindowSize } from '@/lib/tauri-utils';
 import { ArrowRight } from 'lucide-react';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import {
+  FROM_WELCOME_KEY,
+  ONBOARDING_BACKEND_COMPLETED_KEY,
+  ONBOARDING_COMPLETED_KEY,
+  getPostOnboardingRoute,
+  markPermissionsOnboardingRequired,
+} from '@/lib/onboarding-flow';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const TOTAL_PAGES = 4;
@@ -61,7 +69,7 @@ export function HomeClient() {
   useEffect(() => {
     if (!isLoaded) return;
 
-    const hasSeenWelcome = localStorage.getItem('ritual-onboarding-completed');
+    const hasSeenWelcome = localStorage.getItem(ONBOARDING_COMPLETED_KEY);
     
     // Not signed in
     if (!isSignedIn) {
@@ -113,10 +121,10 @@ export function HomeClient() {
 
         if (response && response.ok) {
           const profile = await response.json();
-          const localOnboardingCompleted = localStorage.getItem('ritual-onboarding-backend-completed') === 'true';
+          const localOnboardingCompleted = localStorage.getItem(ONBOARDING_BACKEND_COMPLETED_KEY) === 'true';
 
           if (profile.onboarding_completed || localOnboardingCompleted) {
-            router.replace('/dashboard');
+            router.replace(getPostOnboardingRoute('/dashboard'));
           } else {
             try {
               const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
@@ -125,7 +133,7 @@ export function HomeClient() {
               if (habitsResponse.ok) {
                 const habits = await habitsResponse.json();
                 if (habits && habits.length > 0) {
-                  router.replace('/dashboard');
+                  router.replace(getPostOnboardingRoute('/dashboard'));
                   return;
                 }
               }
@@ -135,11 +143,11 @@ export function HomeClient() {
             router.replace('/onboarding');
           }
         } else {
-          router.replace('/dashboard');
+          router.replace(getPostOnboardingRoute('/dashboard'));
         }
       } catch (error) {
         console.error('Error checking profile:', error);
-        router.replace('/dashboard');
+        router.replace(getPostOnboardingRoute('/dashboard'));
       }
     };
 
@@ -149,8 +157,8 @@ export function HomeClient() {
   // Handle signed in users during welcome flow
   useEffect(() => {
     if (isLoaded && isSignedIn && isNewUser) {
-      const hasCompletedWelcomeFlow = localStorage.getItem('ritual-onboarding-completed');
-      const hasCompletedBackendOnboarding = localStorage.getItem('ritual-onboarding-backend-completed');
+      const hasCompletedWelcomeFlow = localStorage.getItem(ONBOARDING_COMPLETED_KEY);
+      const hasCompletedBackendOnboarding = localStorage.getItem(ONBOARDING_BACKEND_COMPLETED_KEY);
 
       // If returning from backend onboarding, continue to page 4
       if (hasCompletedBackendOnboarding === 'true' && pageParam === '4') {
@@ -159,7 +167,7 @@ export function HomeClient() {
 
       // If fully completed, go to dashboard
       if (hasCompletedWelcomeFlow === 'true') {
-        router.replace('/dashboard');
+        router.replace(getPostOnboardingRoute('/dashboard'));
       }
     }
   }, [isSignedIn, isLoaded, isNewUser, router, pageParam]);
@@ -167,16 +175,17 @@ export function HomeClient() {
   // Set flag when user reaches page 3 (auth page)
   useEffect(() => {
     if (currentPage === 3) {
-      localStorage.setItem('ritual-from-welcome', 'true');
+      localStorage.setItem(FROM_WELCOME_KEY, 'true');
     }
   }, [currentPage]);
 
   const handleNext = () => {
     if (currentPage === TOTAL_PAGES) {
-      localStorage.setItem('ritual-onboarding-completed', 'true');
-      localStorage.removeItem('ritual-from-welcome');
-      localStorage.removeItem('ritual-onboarding-backend-completed');
-      router.push('/dashboard');
+      localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
+      localStorage.removeItem(FROM_WELCOME_KEY);
+      localStorage.removeItem(ONBOARDING_BACKEND_COMPLETED_KEY);
+      markPermissionsOnboardingRequired();
+      router.push(getPostOnboardingRoute('/dashboard'));
       return;
     }
     setCurrentPage(prev => Math.min(prev + 1, TOTAL_PAGES));
@@ -190,9 +199,7 @@ export function HomeClient() {
   if (isSignedIn && isChecking) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
-          <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
-        </div>
+        <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     );
   }
@@ -201,9 +208,7 @@ export function HomeClient() {
   if (isNewUser === null) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-200">
-          <div className="rounded-full h-8 w-8 border-2 border-transparent border-t-gray-900"></div>
-        </div>
+        <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     );
   }
@@ -237,10 +242,10 @@ export function HomeClient() {
                 <div className="mb-6">
                   <img
                     ref={logoRef}
-                    src="/images/new_logo4.svg"
+                    src="/images/eclipse.svg"
                     alt="Ritual Logo"
-                    width={55}
-                    height={55}
+                    width={46}
+                    height={46}
                     className="cursor-pointer"
                     style={{
                       transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
@@ -340,10 +345,10 @@ export function HomeClient() {
               <div className="animate-in fade-in duration-500">
                 <div className="flex justify-center mb-8">
                   <img
-                    src="/images/new_logo4.svg"
+                    src="/images/eclipse.svg"
                     alt="Ritual Logo"
-                    width={60}
-                    height={60}
+                    width={50}
+                    height={50}
                   />
                 </div>
                 <h1 className="text-4xl font-medium text-gray-900 mb-4">
@@ -405,10 +410,10 @@ export function HomeClient() {
           <div className="mb-6">
             <img
               ref={logoRef}
-              src="/images/new_logo4.svg"
+              src="/images/eclipse.svg"
               alt="Ritual Logo"
-              width={55}
-              height={55}
+              width={46}
+              height={46}
               className="cursor-pointer"
               style={{
                 transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
@@ -432,14 +437,7 @@ export function HomeClient() {
             className="inline-flex items-center justify-center bg-black text-white px-12 py-2.5 rounded-none font-medium text-sm"
             style={{
               userSelect: 'none',
-              transition: 'all 0.2s ease-out',
               fontWeight: 500
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#1f2937';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#000000';
             }}
           >
             Sign In

@@ -17,7 +17,6 @@ import {
   FileText,
   Filter,
   ChevronDown,
-  Loader2,
   AlertCircle,
   CheckCircle,
   Database,
@@ -62,6 +61,7 @@ import {
   type TextSearchResult,
 } from '@/hooks/use-semantic-search';
 import { formatTimestamp, type OcrFrame } from '@/hooks/use-recorder';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 // ============================================================
 // TYPES
@@ -87,7 +87,7 @@ function DatabaseStatus() {
   if (isLoading || !stats) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="w-3 h-3 animate-spin" />
+        <BrailleSpinner className="text-xs text-muted-foreground" />
         <span>Loading database status...</span>
       </div>
     );
@@ -149,7 +149,7 @@ function EmbeddingStatus() {
         <Button size="sm" onClick={initialize} disabled={isInitializing}>
           {isInitializing ? (
             <>
-              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              <BrailleSpinner className="mr-1 text-xs" />
               Initializing...
             </>
           ) : (
@@ -166,7 +166,7 @@ function EmbeddingStatus() {
   if (isInitializing) {
     return (
       <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-        <Loader2 className="w-4 h-4 animate-spin" />
+        <BrailleSpinner className="text-sm" />
         <div className="flex-1">
           <p className="text-sm">Initializing AI model...</p>
           <p className="text-xs text-muted-foreground">
@@ -249,7 +249,7 @@ function EmbeddingStatus() {
             >
               {isProcessing ? (
                 <>
-                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  <BrailleSpinner className="mr-1 text-xs" />
                   Processing...
                 </>
               ) : (
@@ -577,7 +577,7 @@ export function SemanticSearch({
             disabled={isSearching || !searchQuery.trim() || ((searchMode === 'semantic' || searchMode === 'hybrid') && !embeddingInitialized)}
           >
             {isSearching ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <BrailleSpinner className="text-sm" />
             ) : (
               'Search'
             )}

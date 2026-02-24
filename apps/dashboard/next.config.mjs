@@ -14,11 +14,10 @@ const corsAllowOrigin =
 const nextConfig = {
   // Enable strict mode for better development experience and catching potential issues
   reactStrictMode: true,
+  // Hide Next.js floating dev indicator launcher in development.
+  devIndicators: false,
   
-  // Enable experimental features for better performance
   experimental: {
-    // Optimize package imports for tree-shaking
-    // This helps Turbopack/Webpack only bundle what's actually used
     optimizePackageImports: [
       'recharts', 
       '@radix-ui/react-icons',
@@ -33,18 +32,15 @@ const nextConfig = {
       'ai',
       '@ai-sdk/react',
       '@clerk/nextjs',
+      '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-popover',
+      '@radix-ui/react-select',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-slot',
     ],
   },
-  
-  // Speed up development builds with filesystem caching
-  webpack: (config, { dev, isServer }) => {
-    if (dev) {
-      config.cache = {
-        type: 'filesystem',
-      };
-    }
-    return config;
-  },
+
+  serverExternalPackages: ['pino'],
   
   // Add headers for Tauri webview compatibility
   async headers() {
@@ -87,9 +83,8 @@ const sentryWebpackPluginOptions = {
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
 
-  // Automatically annotate React components to show their full name in breadcrumbs and session replay
   reactComponentAnnotation: {
-    enabled: true,
+    enabled: process.env.NODE_ENV === 'production',
   },
 
   // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
@@ -111,5 +106,10 @@ const sentryWebpackPluginOptions = {
   automaticVercelMonitors: true,
 };
 
-// Make sure adding Sentry options is the last code to run before exporting
-export default withBundleAnalyzer(withSentryConfig(nextConfig, sentryWebpackPluginOptions));
+// Skip Sentry build plugin in development — it adds compilation overhead
+// without providing meaningful value during local dev
+const finalConfig = process.env.NODE_ENV === 'production'
+  ? withSentryConfig(nextConfig, sentryWebpackPluginOptions)
+  : nextConfig;
+
+export default withBundleAnalyzer(finalConfig);

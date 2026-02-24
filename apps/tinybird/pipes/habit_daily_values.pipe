@@ -1,0 +1,171 @@
+DESCRIPTION >
+    Canonical daily habit values with period summary.
+    Single source of truth for metrics cards and charts.
+    - `output=daily`: one normalized row per habit/day
+    - `output=summary`: per-habit precomputed period metrics and change vs previous equal period
+
+TOKEN "habit_daily_values_read" READ
+
+NODE period_window
+SQL >
+    %
+    SELECT
+        {% if defined(start_date) %}
+        toDate({{ String(start_date) }})
+        {% else %}
+        today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+        {% end %} AS current_start,
+        {% if defined(end_date) %}
+        toDate({{ String(end_date) }})
+        {% else %}
+        today()
+        {% end %} AS current_end,
+        dateDiff(
+            'day',
+            {% if defined(start_date) %}
+            toDate({{ String(start_date) }})
+            {% else %}
+            today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+            {% end %},
+            {% if defined(end_date) %}
+            toDate({{ String(end_date) }})
+            {% else %}
+            today()
+            {% end %}
+        ) + 1 AS period_days
+
+NODE deduplicated_logs
+DESCRIPTION >
+    Deduplicate by log id to avoid double-counting re-synced records.
+
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        status,
+        amount,
+        duration,
+        unit,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= (SELECT addDays(current_start, -period_days) FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE daily_values
+DESCRIPTION >
+    Normalize each completed log into one canonical numeric value, then aggregate by day.
+
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        date,
+        any(unit) AS unit_sample,
+        SUM(
+            multiIf(
+                lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(amount > 0, amount, 1.0)),
+                lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(amount > 0, amount, 1.0)),
+                lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(amount > 0, amount, 1.0)),
+                amount > 0, amount,
+                duration > 0, duration * 1.0,
+                1.0
+            )
+        ) AS daily_value,
+        SUM(amount) AS total_amount,
+        SUM(duration) AS total_duration_seconds,
+        COUNT(*) AS completed_count
+    FROM deduplicated_logs
+    WHERE status = 'completed'
+    GROUP BY habit_id, habit_name, date
+
+NODE current_period_summary
+SQL >
+    %
+    SELECT
+        habit_id,
+        any(habit_name) AS habit_name,
+        any(unit_sample) AS unit,
+        SUM(daily_value) AS current_total_value,
+        AVG(daily_value) AS current_avg_value,
+        COUNT(DISTINCT date) AS days_with_data,
+        MIN(date) AS first_date,
+        MAX(date) AS last_date,
+        stddevPop(daily_value) AS current_stddev,
+        varPop(daily_value) AS current_variance
+    FROM daily_values
+    WHERE date >= (SELECT current_start FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+    GROUP BY habit_id
+
+NODE previous_period_summary
+SQL >
+    %
+    SELECT
+        habit_id,
+        SUM(daily_value) AS previous_total_value,
+        AVG(daily_value) AS previous_avg_value,
+        COUNT(DISTINCT date) AS previous_days_with_data
+    FROM daily_values
+    WHERE date >= (SELECT addDays(current_start, -period_days) FROM period_window)
+      AND date < (SELECT current_start FROM period_window)
+    GROUP BY habit_id
+
+NODE summary_output
+SQL >
+    %
+    SELECT
+        c.habit_id,
+        c.habit_name,
+        c.unit,
+        c.current_total_value AS total_value,
+        c.current_avg_value AS current_value,
+        coalesce(p.previous_avg_value, 0) AS previous_value,
+        c.days_with_data,
+        coalesce(p.previous_days_with_data, 0) AS previous_days_with_data,
+        c.first_date,
+        c.last_date,
+        c.current_stddev,
+        c.current_variance,
+        CASE
+            WHEN coalesce(p.previous_avg_value, 0) > 0
+            THEN ((c.current_avg_value - p.previous_avg_value) / p.previous_avg_value) * 100
+            WHEN c.current_avg_value > 0
+            THEN 100.0
+            ELSE 0.0
+        END AS change_pct,
+        c.current_avg_value - coalesce(p.previous_avg_value, 0) AS absolute_change
+    FROM current_period_summary c
+    LEFT JOIN previous_period_summary p ON c.habit_id = p.habit_id
+    ORDER BY c.last_date DESC
+
+NODE endpoint
+TYPE ENDPOINT
+SQL >
+    %
+    {% if String(output, 'summary') == 'daily' %}
+        SELECT
+            d.habit_id,
+            d.habit_name,
+            d.unit_sample AS unit,
+            d.date,
+            d.daily_value,
+            d.total_amount,
+            d.total_duration_seconds,
+            d.completed_count
+        FROM daily_values d
+        WHERE d.date >= (SELECT current_start FROM period_window)
+          AND d.date <= (SELECT current_end FROM period_window)
+        ORDER BY d.date ASC
+    {% else %}
+        SELECT * FROM summary_output
+    {% end %}

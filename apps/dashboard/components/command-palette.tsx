@@ -24,7 +24,6 @@ import {
   MessageSquare,
   Activity,
   Clock,
-  Loader2,
   Hash,
   LayoutDashboard
 } from "lucide-react";
@@ -60,6 +59,7 @@ import { useAnalytics } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/use-debounce";
 import { format, parseISO } from "date-fns";
+import { BrailleSpinner } from "@/components/ui/braille-spinner";
 
 // ================================
 // TYPES
@@ -376,7 +376,7 @@ export default function CommandPalette({
                 className="flex-1 text-base border-0 focus:outline-none bg-transparent placeholder:text-gray-400"
                 autoFocus
               />
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+              {isLoading && <BrailleSpinner className="text-sm text-gray-400" />}
             </div>
 
           {/* Results */}

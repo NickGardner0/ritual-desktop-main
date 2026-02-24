@@ -2,15 +2,21 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Search, Target, icons as lucideIconsMap } from 'lucide-react';
-import type { LucideProps } from 'lucide-react';
+import { ChevronDown, Search, Target } from 'lucide-react';
+import lucideIconNames from '@/data/lucide-icon-names.json';
 import materialIconNames from '@/data/material-icon-names.json';
+import LucideSpriteIcon from '@/components/ui/lucide-sprite-icon';
+import MaterialSymbolIcon from '@/components/ui/material-symbol-icon';
 import {
-  getCachedMaterialIconComponent,
-  loadMaterialIconComponent,
-  type MaterialIconComponent,
+  flattenIconSearch,
+  isUnsupportedMaterialComponentName,
+  kebabToPascal,
+  normalizeIconSearch,
+  parseStoredIcon,
+  pascalToWords,
   stripMaterialVariant,
-} from '@/lib/material-icons';
+  toLucideKebab,
+} from '@/lib/icon-utils';
 
 type IconPickerProps = {
   value: string;
@@ -35,127 +41,86 @@ type IconOption = {
 
 const MUI_PREFIX = 'mui:';
 const LUCIDE_PREFIX = 'lucide:';
-
-const normalize = (value: string) =>
-  value
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const toFlat = (value: string) => normalize(value).replace(/\s+/g, '');
-
-const pascalToWords = (value: string) =>
-  value
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
-    .trim();
-
-const kebabToPascal = (value: string) =>
-  value
-    .split('-')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
-
-const materialNameSet = new Set<string>(materialIconNames.map((name) => stripMaterialVariant(name)));
-
-type ParsedIcon = {
-  provider: IconProvider;
-  name: string;
-};
-
-const parseStoredIcon = (raw: string): ParsedIcon | null => {
-  if (!raw) return null;
-
-  if (raw.startsWith(MUI_PREFIX)) {
-    const name = stripMaterialVariant(raw.slice(MUI_PREFIX.length));
-    return { provider: 'mui', name };
-  }
-
-  if (raw.startsWith(LUCIDE_PREFIX)) {
-    const name = raw.slice(LUCIDE_PREFIX.length);
-    return { provider: 'lucide', name: name.includes('-') ? kebabToPascal(name) : name };
-  }
-
-  if (raw.includes('-')) {
-    return { provider: 'lucide', name: kebabToPascal(raw) };
-  }
-
-  if (raw in lucideIconsMap) {
-    return { provider: 'lucide', name: raw };
-  }
-
-  const materialBase = stripMaterialVariant(raw);
-  if (materialNameSet.has(materialBase)) {
-    return { provider: 'mui', name: materialBase };
-  }
-
-  return { provider: 'lucide', name: raw };
-};
-
-const lucideIconEntries: IconOption[] = Object.keys(lucideIconsMap)
-  .sort((a, b) => a.localeCompare(b))
-  .map((name) => {
-    const label = pascalToWords(name);
-    return {
-      id: `lucide:${name}`,
-      provider: 'lucide',
-      name,
-      label,
-      searchText: normalize(`${name} ${label} lucide`),
-      searchFlat: toFlat(`${name} ${label} lucide`),
-    };
-  });
+const ROW_HEIGHT = 42;
+const OVERSCAN = 8;
 
 const materialIconEntries: IconOption[] = materialIconNames
   .map((name) => stripMaterialVariant(name))
+  .filter((name) => !isUnsupportedMaterialComponentName(name))
   .filter((name, idx, list) => list.indexOf(name) === idx)
   .sort((a, b) => a.localeCompare(b))
   .map((name) => {
     const label = pascalToWords(name);
     return {
-      id: `mui:${name}`,
+      id: `${MUI_PREFIX}${name}`,
       provider: 'mui',
       name,
       label,
-      searchText: normalize(`${name} ${label} material mui`),
-      searchFlat: toFlat(`${name} ${label} material mui`),
+      searchText: normalizeIconSearch(`${name} ${label} material mui symbol`),
+      searchFlat: flattenIconSearch(`${name} ${label} material mui symbol`),
+    };
+  });
+
+const lucideIconEntries: IconOption[] = [...lucideIconNames]
+  .sort((a, b) => a.localeCompare(b))
+  .map((name) => {
+    const label = pascalToWords(kebabToPascal(name));
+    return {
+      id: `${LUCIDE_PREFIX}${name}`,
+      provider: 'lucide',
+      name,
+      label,
+      searchText: normalizeIconSearch(`${name} ${label} lucide`),
+      searchFlat: flattenIconSearch(`${name} ${label} lucide`),
     };
   });
 
 const ALL_ICON_OPTIONS: IconOption[] = [...lucideIconEntries, ...materialIconEntries];
 
-const lucideIconComponents = lucideIconsMap as Record<string, React.ComponentType<LucideProps>>;
+function useFloatingWithinCard(
+  isOpen: boolean,
+  buttonRef: React.RefObject<HTMLElement | null>,
+  cardRef: React.RefObject<HTMLElement | null> | undefined,
+  desiredWidth = 320,
+  minHeight = 200,
+) {
+  const [style, setStyle] = React.useState<React.CSSProperties>({});
 
-function MaterialSvgIcon({ name, className }: { name: string; className: string }) {
-  const normalized = React.useMemo(() => stripMaterialVariant(name), [name]);
-  const [IconComponent, setIconComponent] = React.useState<MaterialIconComponent | null>(() =>
-    getCachedMaterialIconComponent(normalized),
-  );
+  React.useLayoutEffect(() => {
+    if (!isOpen || !buttonRef.current) return;
 
-  React.useEffect(() => {
-    if (IconComponent) return;
+    const anchorRect = buttonRef.current.getBoundingClientRect();
+    const cardRect = cardRef?.current?.getBoundingClientRect();
 
-    let mounted = true;
-    void loadMaterialIconComponent(normalized).then((loaded) => {
-      if (mounted) {
-        setIconComponent(() => loaded);
-      }
+    if (!cardRect) return;
+
+    const margin = 8;
+    const width = Math.max(desiredWidth, anchorRect.width);
+    const spaceBelow = cardRect.bottom - anchorRect.bottom - margin;
+    const spaceAbove = anchorRect.top - cardRect.top - margin;
+    const openUp = spaceBelow < minHeight && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(minHeight, Math.floor(openUp ? spaceAbove : spaceBelow));
+
+    const left = Math.min(
+      Math.max(anchorRect.left - cardRect.left, margin),
+      cardRect.width - width - margin,
+    );
+
+    const top = openUp
+      ? anchorRect.top - cardRect.top - Math.min(maxHeight, 420)
+      : anchorRect.bottom - cardRect.top + 4;
+
+    setStyle({
+      position: 'absolute',
+      left,
+      top,
+      width,
+      maxHeight: Math.min(maxHeight, 320),
+      pointerEvents: 'auto',
     });
+  }, [isOpen, buttonRef, cardRef, desiredWidth, minHeight]);
 
-    return () => {
-      mounted = false;
-    };
-  }, [IconComponent, normalized]);
-
-  if (!IconComponent) {
-    return <Target className={className} />;
-  }
-
-  return <IconComponent className={className} fontSize="inherit" />;
+  return style;
 }
 
 export default function IconPicker({
@@ -165,60 +130,15 @@ export default function IconPicker({
   portalRef,
   withinCardRef,
   minMenuHeight = 260,
-  desiredMenuWidth = 384,
+  desiredMenuWidth = 420,
 }: IconPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
+  const [debounced, setDebounced] = React.useState('');
+  const [scrollTop, setScrollTop] = React.useState(0);
   const anchorRef = React.useRef<HTMLButtonElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = React.useState({ left: 0, top: 0, width: 420, maxH: 400 });
-
-  function useFloatingWithinCard(
-    isOpen: boolean,
-    buttonRef: React.RefObject<HTMLElement | null>,
-    cardRef: React.RefObject<HTMLElement | null> | undefined,
-    desiredWidth = 320,
-    minHeight = 200,
-  ) {
-    const [style, setStyle] = React.useState<React.CSSProperties>({});
-
-    React.useLayoutEffect(() => {
-      if (!isOpen || !buttonRef.current) return;
-
-      const anchorRect = buttonRef.current.getBoundingClientRect();
-      const cardRect = cardRef?.current?.getBoundingClientRect();
-
-      if (cardRect) {
-        const margin = 8;
-        const width = Math.max(desiredWidth, anchorRect.width);
-        const spaceBelow = cardRect.bottom - anchorRect.bottom - margin;
-        const spaceAbove = anchorRect.top - cardRect.top - margin;
-        const openUp = spaceBelow < minHeight && spaceAbove > spaceBelow;
-
-        const maxHeight = Math.max(minHeight, Math.floor(openUp ? spaceAbove : spaceBelow));
-
-        const left = Math.min(
-          Math.max(anchorRect.left - cardRect.left, margin),
-          cardRect.width - width - margin,
-        );
-
-        const top = openUp
-          ? anchorRect.top - cardRect.top - Math.min(maxHeight, 420)
-          : anchorRect.bottom - cardRect.top + 4;
-
-        setStyle({
-          position: 'absolute',
-          left,
-          top,
-          width,
-          maxHeight: Math.min(maxHeight, 320),
-          pointerEvents: 'auto',
-        });
-      }
-    }, [isOpen, buttonRef, cardRef, desiredWidth, minHeight]);
-
-    return style;
-  }
 
   const floatingStyle = useFloatingWithinCard(
     open,
@@ -227,6 +147,11 @@ export default function IconPicker({
     desiredMenuWidth,
     minMenuHeight,
   );
+
+  React.useEffect(() => {
+    const id = setTimeout(() => setDebounced(search), 120);
+    return () => clearTimeout(id);
+  }, [search]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -254,14 +179,8 @@ export default function IconPicker({
     };
   }, [open]);
 
-  const [debounced, setDebounced] = React.useState('');
-  React.useEffect(() => {
-    const id = setTimeout(() => setDebounced(search), 120);
-    return () => clearTimeout(id);
-  }, [search]);
-
-  const normalizedQuery = React.useMemo(() => normalize(debounced), [debounced]);
-  const flatQuery = React.useMemo(() => toFlat(debounced), [debounced]);
+  const normalizedQuery = React.useMemo(() => normalizeIconSearch(debounced), [debounced]);
+  const flatQuery = React.useMemo(() => flattenIconSearch(debounced), [debounced]);
 
   const list = React.useMemo(() => {
     if (!normalizedQuery) return ALL_ICON_OPTIONS;
@@ -269,7 +188,6 @@ export default function IconPicker({
     const startsWithMatches = ALL_ICON_OPTIONS.filter(
       (icon) => icon.searchText.startsWith(normalizedQuery) || icon.searchFlat.startsWith(flatQuery),
     );
-
     if (startsWithMatches.length > 0) return startsWithMatches;
 
     return ALL_ICON_OPTIONS.filter(
@@ -277,27 +195,39 @@ export default function IconPicker({
     );
   }, [flatQuery, normalizedQuery]);
 
-  const selectedParsed = React.useMemo(() => parseStoredIcon(value), [value]);
+  React.useEffect(() => {
+    setScrollTop(0);
+  }, [normalizedQuery, open]);
 
+  const selectedParsed = React.useMemo(() => parseStoredIcon(value), [value]);
   const selectedOption = React.useMemo(() => {
     if (!selectedParsed) return null;
-    const selectedId = `${selectedParsed.provider}:${selectedParsed.name}`;
-    return ALL_ICON_OPTIONS.find((icon) => icon.id === selectedId) ?? null;
+
+    if (selectedParsed.provider === 'mui') {
+      const selectedId = `${MUI_PREFIX}${selectedParsed.name}`;
+      return ALL_ICON_OPTIONS.find((icon) => icon.id === selectedId) ?? null;
+    }
+
+    if (selectedParsed.provider === 'lucide') {
+      const selectedId = `${LUCIDE_PREFIX}${toLucideKebab(selectedParsed.name)}`;
+      return ALL_ICON_OPTIONS.find((icon) => icon.id === selectedId) ?? null;
+    }
+
+    return null;
   }, [selectedParsed]);
 
-  const renderIcon = (icon: IconOption | ParsedIcon | null) => {
+  const renderIcon = (icon: IconOption | ReturnType<typeof parseStoredIcon> | null) => {
     if (!icon) return <Target className="h-4 w-4 text-gray-600" />;
 
     if (icon.provider === 'mui') {
-      return <MaterialSvgIcon name={icon.name} className="h-4 w-4 text-gray-600" />;
+      return <MaterialSymbolIcon name={icon.name} className="h-4 w-4 text-gray-600" />;
     }
 
-    const IconComponent = lucideIconComponents[icon.name];
-    if (IconComponent) {
-      return <IconComponent className="h-4 w-4 text-gray-600" />;
+    if (icon.provider === 'lucide') {
+      return <LucideSpriteIcon name={icon.name} className="h-4 w-4 text-gray-600" />;
     }
 
-    return <Target className="h-4 w-4 text-gray-600" />;
+    return <span className="text-base leading-none">{icon.name}</span>;
   };
 
   const getDisplayLabel = () => {
@@ -306,10 +236,8 @@ export default function IconPicker({
     return 'Select';
   };
 
-  const getStoredValue = (icon: IconOption) => {
-    if (icon.provider === 'mui') return `${MUI_PREFIX}${icon.name}`;
-    return icon.name;
-  };
+  const getStoredValue = (icon: IconOption) =>
+    icon.provider === 'mui' ? `${MUI_PREFIX}${icon.name}` : `${LUCIDE_PREFIX}${icon.name}`;
 
   const openMenu = () => {
     const button = anchorRef.current;
@@ -322,7 +250,6 @@ export default function IconPicker({
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const gap = 8;
-
     const modal = document.querySelector('[class*="max-w-"][class*="max-h-"]');
     const modalRect = modal?.getBoundingClientRect();
 
@@ -332,9 +259,7 @@ export default function IconPicker({
 
     if (modalRect) {
       const availableSpace = modalRect.bottom - top - 40;
-      if (availableSpace > 250) {
-        maxH = Math.min(320, availableSpace);
-      }
+      if (availableSpace > 250) maxH = Math.min(320, availableSpace);
     } else {
       const availableSpace = viewportHeight - top - 40;
       maxH = Math.min(320, availableSpace);
@@ -351,6 +276,12 @@ export default function IconPicker({
     setMenuPos({ left, top, width, maxH });
     setOpen(true);
   };
+
+  const viewportHeight = portalRef?.current ? 260 : Math.max(200, menuPos.maxH - 80);
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
+  const endIndex = Math.min(list.length, startIndex + visibleCount);
+  const visibleItems = list.slice(startIndex, endIndex);
 
   const menu = (
     <div
@@ -385,19 +316,27 @@ export default function IconPicker({
 
       <div
         className="flex-1 overflow-y-auto bg-white"
-        style={{
-          maxHeight: portalRef?.current ? '260px' : Math.max(200, menuPos.maxH - 80),
-        }}
+        style={{ maxHeight: viewportHeight }}
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
       >
         {list.length ? (
-          <div className="py-2">
-            {list.map((icon) => {
+          <div style={{ height: list.length * ROW_HEIGHT, position: 'relative' }}>
+            {visibleItems.map((icon, i) => {
+              const listIndex = startIndex + i;
+              const top = listIndex * ROW_HEIGHT;
               const storedValue = getStoredValue(icon);
               const isSelected = selectedOption ? selectedOption.id === icon.id : value === storedValue;
 
               return (
                 <button
                   key={icon.id}
+                  style={{
+                    position: 'absolute',
+                    top,
+                    left: 0,
+                    right: 0,
+                    height: ROW_HEIGHT,
+                  }}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -405,15 +344,17 @@ export default function IconPicker({
                     setOpen(false);
                     setSearch('');
                   }}
-                  className={`w-full px-3 py-2 text-left transition-colors hover:bg-gray-50 ${
+                  className={`w-full px-3 text-left transition-colors hover:bg-gray-50 ${
                     isSelected ? 'bg-gray-100' : ''
                   }`}
                 >
                   <span className="flex items-center gap-3">
-                    <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-gray-600">{renderIcon(icon)}</span>
+                    <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center text-gray-600">
+                      {renderIcon(icon)}
+                    </span>
                     <span className="text-sm text-gray-900">{icon.label}</span>
                     <span className="ml-auto text-[11px] uppercase tracking-wide text-gray-400">
-                      {icon.provider === 'mui' ? 'Material' : 'Lucide'}
+                      {icon.provider}
                     </span>
                   </span>
                 </button>

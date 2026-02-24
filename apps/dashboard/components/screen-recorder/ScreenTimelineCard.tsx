@@ -22,6 +22,7 @@ import {
   type OcrFrame,
 } from '@/hooks/use-recorder';
 import { cn } from '@/lib/utils';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 // ============================================================
 // TYPES
@@ -491,13 +492,13 @@ export function ScreenTimelineCard({ startDate, endDate, className }: ScreenTime
                 {/* Small loading indicator overlay when fetching new frame */}
                 {isExtractingFrame && !cachedImageUrl && (
                   <div className="absolute top-3 left-3 bg-black/50 rounded-full p-1.5">
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <BrailleSpinner className="text-sm text-white" />
                   </div>
                 )}
               </>
             ) : showSpinner ? (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />
+                <BrailleSpinner className="text-2xl text-gray-500" />
               </div>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
@@ -544,7 +545,7 @@ export function ScreenTimelineCard({ startDate, endDate, className }: ScreenTime
             {/* Pre-loading indicator */}
             {isPreloading && (
               <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white flex items-center gap-1">
-                <div className="w-2 h-2 border border-white/50 border-t-white rounded-full animate-spin" />
+                <BrailleSpinner className="text-[10px] text-white" />
                 Caching...
               </div>
             )}

@@ -4,47 +4,49 @@ import React, { memo } from 'react';
 import { format, parseISO } from 'date-fns';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { MoreHorizontal, CheckCircle2, SkipForward, XCircle, Brain, BookOpen, Activity, FlaskConical, Heart, Sparkles, Plus } from 'lucide-react';
+import {
+  MoreHorizontal,
+  Copy,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { HabitLog } from '@/app/(dashboard)/activity/activity-client';
 
-// Category config with icons matching your app's design
-const CATEGORY_CONFIG: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
-  productivity: { icon: Brain, color: 'text-gray-900' },
-  fitness: { icon: Activity, color: 'text-gray-900' },
-  'fitness & health': { icon: Activity, color: 'text-gray-900' },
-  education: { icon: BookOpen, color: 'text-gray-900' },
-  learning: { icon: BookOpen, color: 'text-gray-900' },
-  experiments: { icon: FlaskConical, color: 'text-gray-900' },
-  health: { icon: Heart, color: 'text-gray-900' },
-  wellness: { icon: Sparkles, color: 'text-gray-900' },
-  custom: { icon: Plus, color: 'text-gray-900' },
-  manual: { icon: Plus, color: 'text-gray-900' },
-  default: { icon: Plus, color: 'text-gray-900' },
+const CATEGORY_CONFIG: Record<string, { swatchClass: string }> = {
+  productivity: { swatchClass: 'bg-sky-400' },
+  fitness: { swatchClass: 'bg-emerald-400' },
+  'fitness & health': { swatchClass: 'bg-emerald-400' },
+  education: { swatchClass: 'bg-indigo-400' },
+  learning: { swatchClass: 'bg-indigo-400' },
+  experiments: { swatchClass: 'bg-violet-400' },
+  health: { swatchClass: 'bg-rose-400' },
+  wellness: { swatchClass: 'bg-teal-400' },
+  custom: { swatchClass: 'bg-amber-400' },
+  manual: { swatchClass: 'bg-amber-400' },
+  default: { swatchClass: 'bg-gray-400' },
 };
 
 const STATUS_CONFIG = {
   completed: {
-    icon: CheckCircle2,
-    color: 'text-emerald-600',
-    bg: 'bg-emerald-50',
     label: 'Completed',
+    dotClass: 'bg-emerald-500',
   },
   skipped: {
-    icon: SkipForward,
-    color: 'text-amber-600',
-    bg: 'bg-amber-50',
     label: 'Skipped',
+    dotClass: 'bg-amber-500',
   },
   missed: {
-    icon: XCircle,
-    color: 'text-red-600',
-    bg: 'bg-red-50',
     label: 'Missed',
+    dotClass: 'bg-rose-500',
   },
 };
 
@@ -91,7 +93,7 @@ export const DateCell = memo(({ date }: { date: string }) => {
   }
 
   return (
-    <span className={isValidDate ? 'text-sm text-gray-900 font-normal tabular-nums' : 'text-sm text-gray-400'}>
+    <span className={isValidDate ? 'text-sm text-gray-900 font-normal tabular-nums whitespace-nowrap' : 'text-sm text-gray-400 whitespace-nowrap'}>
       {displayDate}
     </span>
   );
@@ -126,7 +128,7 @@ export const TimeCell = memo(({ completedAt }: { completedAt?: string }) => {
   }
 
   return (
-    <span className={isFormattedTime ? 'text-sm text-gray-900 font-normal tabular-nums' : 'text-sm text-gray-400'}>
+    <span className={isFormattedTime ? 'text-sm text-gray-900 font-normal tabular-nums whitespace-nowrap' : 'text-sm text-gray-400 whitespace-nowrap'}>
       {displayTime}
     </span>
   );
@@ -139,7 +141,7 @@ export const HabitCell = memo(({
   habitName: string; 
   icon?: string;
 }) => (
-  <span className="text-sm text-gray-900 truncate">
+  <span className="text-sm text-gray-900 truncate block">
     {habitName}
   </span>
 ));
@@ -187,9 +189,23 @@ export const ValueCell = memo(({
 });
 ValueCell.displayName = 'ValueCell';
 
+function formatLogValue(log: HabitLog): string {
+  if (log.duration && log.duration > 0) {
+    const hours = log.duration / 3600;
+    if (hours >= 1) return `${hours.toFixed(1)} Hours`;
+    return `${Math.round(log.duration / 60)} Minutes`;
+  }
+
+  if (log.amount !== undefined && log.amount > 0) {
+    const amountString = log.amount.toFixed(log.amount < 10 ? 1 : 0);
+    return `${amountString} ${log.unit_type || ''}`.trim();
+  }
+
+  return '—';
+}
+
 export const CategoryCell = memo(({ category }: { category: string }) => {
   const config = CATEGORY_CONFIG[category.toLowerCase()] || CATEGORY_CONFIG.default;
-  const Icon = config.icon;
   
   // Normalize category text: "PRODUCTIVITY" or "productivity" -> "Productivity"
   const normalizedCategory = category
@@ -199,9 +215,9 @@ export const CategoryCell = memo(({ category }: { category: string }) => {
     .join(' ');
   
   return (
-    <div className="flex items-center gap-2.5 whitespace-nowrap">
-      <Icon className={cn('w-4 h-4 shrink-0', config.color)} />
-      <span className="text-sm font-normal text-gray-900">
+    <div className="flex items-center gap-2 whitespace-nowrap min-w-0">
+      <span className={cn('w-2.5 h-2.5 shrink-0', config.swatchClass)} />
+      <span className="text-sm font-normal text-gray-900 truncate block">
         {normalizedCategory}
       </span>
     </div>
@@ -211,12 +227,11 @@ CategoryCell.displayName = 'CategoryCell';
 
 export const StatusCell = memo(({ status }: { status: 'completed' | 'skipped' | 'missed' }) => {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.completed;
-  const Icon = config.icon;
   
   return (
-    <div className="flex items-center gap-1.5">
-      <Icon className={cn('w-4 h-4', config.color)} />
-      <span className="text-xs font-normal text-gray-900">
+    <div className="flex items-center gap-2 min-w-0">
+      <span className={cn('w-2 h-2 shrink-0', config.dotClass)} />
+      <span className="text-sm font-normal text-gray-900 truncate">
         {config.label}
       </span>
     </div>
@@ -228,7 +243,7 @@ export const SourceCell = memo(({ source }: { source?: string }) => {
   const displaySource = source || 'manual';
   
   return (
-    <span className="text-sm text-gray-900 font-normal capitalize">
+    <span className="text-sm text-gray-900 font-normal capitalize truncate block min-w-0">
       {displaySource}
     </span>
   );
@@ -259,10 +274,51 @@ export const NotesCell = memo(({ notes }: { notes?: string }) => {
 NotesCell.displayName = 'NotesCell';
 
 export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
+  const copyToClipboard = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (error) {
+      console.error('Failed to copy log value:', error);
+    }
+  };
+
   return (
-    <div className="flex items-center justify-center">
-      <MoreHorizontal className="h-4 w-4 text-gray-400" />
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 border border-transparent hover:border-gray-300 text-gray-400 hover:text-gray-700 transition-opacity flex items-center justify-center"
+          aria-label="Log actions"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[200px] rounded-none border-gray-300">
+        <DropdownMenuItem
+          className="rounded-none"
+          onClick={() => copyToClipboard(log.habit_name)}
+        >
+          <Copy className="w-3.5 h-3.5 mr-2" />
+          Copy habit name
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="rounded-none"
+          onClick={() => copyToClipboard(formatLogValue(log))}
+        >
+          <Copy className="w-3.5 h-3.5 mr-2" />
+          Copy value
+        </DropdownMenuItem>
+        {log.notes && log.notes !== 'none' && (
+          <DropdownMenuItem
+            className="rounded-none"
+            onClick={() => copyToClipboard(log.notes || '')}
+          >
+            <Copy className="w-3.5 h-3.5 mr-2" />
+            Copy notes
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 });
 ActionsCell.displayName = 'ActionsCell';

@@ -12,6 +12,8 @@ export type HabitLog = {
   duration?: number;
   amount?: number;
   unit_type?: string;
+  metric_type?: string;
+  integration_source?: string;
   icon?: string;
   category?: string;
 };

@@ -1,4 +1,4 @@
-import { FinancePoint } from "@/components/charts/PerplexityExpandedHabitChart";
+import type { FinancePoint } from "@/components/charts/PerplexityExpandedHabitChart";
 import { parse, parseISO } from "date-fns";
 
 /**

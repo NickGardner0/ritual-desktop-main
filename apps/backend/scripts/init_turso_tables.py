@@ -75,6 +75,7 @@ async def create_tables():
     
     expected_tables = [
         'users', 'habits', 'habit_logs', 'habit_aliases', 'whoop_integrations', 
+        'integrations', 'weather_observations', 'weather_daily',
         'ai_conversations', 'ai_messages',
         'wearable_devices', 'wearable_metrics', 'wearable_ingest_events'
     ]
@@ -117,4 +118,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

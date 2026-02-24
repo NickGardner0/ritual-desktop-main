@@ -6,7 +6,7 @@ Handles computer activity tracking for macOS.
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 from services.watcher_service import watcher_service
@@ -96,6 +96,19 @@ class AppExclusionRequest(BaseModel):
     bundle_id: str
     app_name: Optional[str] = None
     reason: str = "user_preference"
+
+
+class ScreenSearchResponse(BaseModel):
+    success: bool
+    query: str
+    days_back: int
+    result_count: int
+    results: List[Dict]
+    mode_used: str
+    status: str
+    warning: Optional[str] = None
+    source_db: Optional[str] = None
+    error: Optional[str] = None
 
 
 # ============================================================
@@ -541,6 +554,37 @@ async def remove_app_exclusion(
 # ============================================================
 # COMPUTER ACTIVITY STATS (for Dashboard/Analytics)
 # ============================================================
+
+@router.get("/search-screen", response_model=ScreenSearchResponse)
+async def search_screen_recordings(
+    query: str,
+    days_back: Optional[int] = 7,
+    limit: Optional[int] = 20,
+    current_user = Depends(get_current_user),
+):
+    """
+    Search local screen history (OCR frames + activity fallback) by natural language query.
+
+    Query params:
+    - query: natural language text to search for
+    - days_back: lookback window in days (default: 7, max: 90)
+    - limit: max results to return (default: 20, max: 50)
+    """
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="query is required")
+
+    try:
+        result = await watcher_service.search_screen_recordings(
+            user_id=current_user["id"],
+            query=query,
+            days_back=days_back or 7,
+            limit=limit or 20,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/stats/summary")
 async def get_computer_time_summary(

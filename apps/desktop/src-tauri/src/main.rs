@@ -6,6 +6,7 @@ mod native_widget;
 mod recorder;
 mod watcher;
 mod ritual_database;
+mod local_search_bridge;
 
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager};
 use std::path::PathBuf;
@@ -740,7 +741,7 @@ fn main() {
       
       // Configure window and navigate to the correct URL
       if let Some(window) = app.get_window("main") {
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1100.0, height: 800.0 }));
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1150.0, height: 800.0 }));
         let _ = window.center();
         let mut main_url = app_url.clone();
 
@@ -823,6 +824,9 @@ fn main() {
       match ritual_database::initialize_database() {
         Ok(()) => {
           println!("✅ Ritual unified database ready");
+          if let Err(e) = local_search_bridge::start_local_search_bridge() {
+            eprintln!("⚠️ Failed to start local search bridge: {}", e);
+          }
           // Auto-start embedding worker if there are frames without embeddings
           ritual_database::auto_start_embedding_worker();
         },

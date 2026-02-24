@@ -135,6 +135,8 @@ function normalizeTextResults(results: TextSearchResult[]): ScreenSearchResultIt
   }));
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{ value: T | null; timedOut: boolean }> {
   const timeoutToken = Symbol('timeout');
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -158,6 +160,25 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{
 
 function getTimeRangeFromQuery(query: string): number {
   const lowerQuery = query.toLowerCase();
+  const relativeWindowMatch = lowerQuery.match(/\b(?:last|past)\s+(\d{1,3})\s*(hour|hours|day|days|week|weeks|month|months)\b/);
+  if (relativeWindowMatch) {
+    const amount = Number(relativeWindowMatch[1]);
+    const unit = relativeWindowMatch[2];
+    if (Number.isFinite(amount) && amount > 0) {
+      if (unit.startsWith('hour')) return Math.max(1, Math.ceil(amount / 24));
+      if (unit.startsWith('day')) return amount;
+      if (unit.startsWith('week')) return amount * 7;
+      if (unit.startsWith('month')) return amount * 30;
+    }
+  }
+
+  const daysAgoMatch = lowerQuery.match(/\b(\d{1,3})\s+days?\s+ago\b/);
+  if (daysAgoMatch) {
+    const days = Number(daysAgoMatch[1]);
+    if (Number.isFinite(days) && days > 0) {
+      return days + 1;
+    }
+  }
 
   if (lowerQuery.includes('this morning') || lowerQuery.includes('earlier today')) return 1;
   if (lowerQuery.includes('today')) return 1;
@@ -198,6 +219,14 @@ export function isScreenRecordingQuery(query: string): boolean {
     'what project was i',
     'last time i had',
     'last time i was on',
+    'did i use',
+    'was i on',
+    'did i open',
+    'did i visit',
+    'did i spend time',
+    'where was i working',
+    'which app was i',
+    'which tab was i',
   ];
 
   for (const pattern of strongPatterns) {
@@ -225,6 +254,22 @@ export function isScreenRecordingQuery(query: string): boolean {
   const hasTimeRef = /(yesterday|this morning|this afternoon|last night|earlier today|this week|last week|today|ago)/.test(
     lowerQuery,
   );
+
+  const hasComputerEntity =
+    /(screen|computer|desktop|laptop|window|tab|browser|website|site|url|app|apps|cursor|figma|github|notion|slack|chrome|safari|firefox|terminal|vscode|xcode|repo|localhost|\.(com|io|dev|app|org|net)\b)/.test(
+      lowerQuery,
+    );
+  const hasQuestionIntent = /(what|when|where|which|did i|was i|have i|show me|find|last time|history|timeline)/.test(
+    lowerQuery,
+  );
+  const hasActivityVerb =
+    /(working|coding|debugging|browsing|reading|watching|editing|designing|searching|opened|open|using|use|visited|visit|spent|spend|doing|did|looked|looking)/.test(
+      lowerQuery,
+    );
+
+  if (hasComputerEntity && (hasQuestionIntent || (hasActivityVerb && hasTimeRef))) {
+    return true;
+  }
 
   return hasWeakIntent && hasTimeRef;
 }
@@ -327,7 +372,7 @@ export async function prefetchScreenResults(
   const minRelevance = opts.minRelevance ?? 0.3;
   const now = Date.now();
   const daysBack = opts.daysBack ?? getTimeRangeFromQuery(query);
-  const cutoffTime = now - daysBack * 24 * 60 * 60 * 1000;
+  const cutoffTime = now - daysBack * DAY_MS;
 
   const pipelineResult = await withTimeout(ensureEmbeddingPipelineReady(), opts.pipelineWaitMs ?? 1400);
   const pipeline = pipelineResult.value;
@@ -400,13 +445,16 @@ export async function prefetchScreenResults(
   try {
     const textResults = await invokeCommand<TextSearchResult[]>('text_search', {
       query,
-      limit: Math.max(30, limit),
+      limit: Math.max(40, limit * 3),
     });
+    const normalizedTextResults = normalizeTextResults(textResults);
+    const inRangeTextResults = normalizedTextResults.filter((item) => item.timestamp >= cutoffTime && item.timestamp <= now);
+    const boundedTextResults = (inRangeTextResults.length > 0 ? inRangeTextResults : normalizedTextResults).slice(0, limit);
 
     return {
       modeUsed: 'text',
       status: forceTextMode ? 'text-only' : 'text-fallback',
-      results: normalizeTextResults(textResults),
+      results: boundedTextResults,
       warning,
       pendingEmbeddings,
       totalEmbeddings,

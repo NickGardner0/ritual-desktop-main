@@ -17,6 +17,7 @@ import {
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAuth } from '@clerk/nextjs';
 import MiniSearch from 'minisearch';
+import dynamic from 'next/dynamic';
 import {
   productivityHabits,
   fitnessHealthHabits,
@@ -24,9 +25,17 @@ import {
   experimentsHabits,
   type Habit
 } from '../data/habits-data';
-import IconPicker from './IconPicker';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { isTauri } from '@/lib/tauri-utils';
+
+const IconPicker = dynamic(() => import('./IconPicker'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-10 w-full border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400">
+      Loading icons...
+    </div>
+  ),
+});
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
@@ -459,7 +468,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setSearchQuery(''); // Clear search when going back
     }
   };
-  // Emoji functionality removed - now using enhanced IconPicker with Material UI icons
+  // Emoji functionality removed - now using enhanced IconPicker with Material Symbols
 
   // Metric type options
   const metricOptions = [
@@ -517,7 +526,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                    : selectedCategory === 'fitbit' ? 'Fitbit'
                    : selectedCategory === 'garmin' ? 'Garmin'
                    : 'Manual',
-        icon: selectedIcon || 'DashboardSharp',
+        icon: selectedIcon || 'lucide:layout-dashboard',
         unit_type: habitUnit,
         integration_source: selectedCategory === 'whoop' ? 'whoop' 
                           : selectedCategory === 'applewatch' ? 'apple_health'

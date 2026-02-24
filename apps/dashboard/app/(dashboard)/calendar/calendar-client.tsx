@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   format,
   startOfMonth,
@@ -26,6 +26,11 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { CalendarHeader } from './calendar-header';
 import { CalendarMonthView } from './calendar-month-view';
 import { CalendarWeekView } from './calendar-week-view';
+import type {
+  WeekScheduledItem,
+  WeekSelectionPayload,
+  WeekScheduledItemUpdate,
+} from './calendar-week-view';
 import type { HabitLog } from './tracker-events';
 
 type ViewMode = 'week' | 'month';
@@ -36,12 +41,379 @@ type Habit = {
   icon?: string;
   category?: string;
   unit_type?: string;
+  integration_source?: string;
+  metric_type?: string;
 };
+
+type TaskComposerState = {
+  id: string | null;
+  dayKey: string;
+  startMinutes: number;
+  endMinutes: number;
+  title: string;
+  notes: string;
+};
+
+type ScheduledBlockApi = {
+  id: string;
+  title: string;
+  notes?: string | null;
+  day: string;
+  start_minutes: number;
+  end_minutes: number;
+};
+
+type ScheduledBlockPayload = {
+  title: string;
+  notes: string | null;
+  day: string;
+  start_minutes: number;
+  end_minutes: number;
+};
+
+const LEGACY_SCHEDULED_BLOCK_KEYS = [
+  'calendar-scheduled-blocks',
+  'calendar-week-scheduled-blocks',
+  'ritual-calendar-scheduled-blocks',
+  'scheduled-blocks',
+  'week-scheduled-items',
+] as const;
+
+const LEGACY_SCHEDULED_BLOCK_KEY_PATTERN = /(calendar|week).*(scheduled|block)|scheduled.*block/i;
+const LEGACY_SCHEDULED_BLOCK_MIGRATION_VERSION = 'v1';
+
+type TooltipMetricSummary = {
+  key: string;
+  habitName: string;
+  metricType?: string;
+  unitType?: string;
+  totalDuration: number;
+  totalAmount: number;
+};
+
+const METRIC_TYPE_LABELS: Record<string, string> = {
+  active_energy: 'Active Calories',
+  basal_energy: 'Resting Calories',
+  exercise_time: 'Exercise Minutes',
+  flights_climbed: 'Flights Climbed',
+  hr: 'Heart Rate',
+  hrv: 'HRV',
+  mindful_minutes: 'Mindful Minutes',
+  oxygen_saturation: 'Blood Oxygen',
+  respiratory_rate: 'Respiratory Rate',
+  resting_hr: 'Resting Heart Rate',
+  sleep_core: 'Core Sleep',
+  sleep_deep: 'Deep Sleep',
+  sleep_rem: 'REM Sleep',
+  sleep_session: 'Sleep Session',
+  stand_time: 'Stand Time',
+  walking_hr: 'Walking Heart Rate',
+};
+
+function formatMetricTypeLabel(metricType?: string): string | null {
+  if (!metricType) return null;
+  const normalized = metricType.trim().toLowerCase();
+  if (!normalized || normalized === 'none') return null;
+
+  if (METRIC_TYPE_LABELS[normalized]) {
+    return METRIC_TYPE_LABELS[normalized];
+  }
+
+  return normalized
+    .split('_')
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ');
+}
+
+function formatDurationDisplay(durationSeconds: number): string {
+  const hours = Math.floor(durationSeconds / 3600);
+  const minutes = Math.floor((durationSeconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
+}
+
+function formatAmountDisplay(amount: number): string {
+  if (Number.isInteger(amount)) {
+    return amount.toString();
+  }
+
+  const rounded = Math.round(amount * 100) / 100;
+  if (Number.isInteger(rounded)) {
+    return rounded.toString();
+  }
+
+  return rounded.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function formatTooltipMetricName(item: TooltipMetricSummary): string {
+  const metricLabel = formatMetricTypeLabel(item.metricType);
+  if (!metricLabel) return item.habitName;
+
+  const habitNameLower = item.habitName.trim().toLowerCase();
+  if (habitNameLower.includes(metricLabel.toLowerCase())) {
+    return item.habitName;
+  }
+
+  return `${item.habitName} (${metricLabel})`;
+}
+
+function formatTooltipMetricValue(item: TooltipMetricSummary): string {
+  if (item.totalDuration > 0) {
+    return formatDurationDisplay(item.totalDuration);
+  }
+
+  if (item.totalAmount !== 0) {
+    const formattedAmount = formatAmountDisplay(item.totalAmount);
+    return item.unitType ? `${formattedAmount} ${item.unitType}` : formattedAmount;
+  }
+
+  const normalizedUnit = item.unitType?.trim().toLowerCase() ?? '';
+  if (normalizedUnit) {
+    if (['hour', 'hours', 'hr', 'hrs'].includes(normalizedUnit)) {
+      return '0h 0m';
+    }
+    if (['minute', 'minutes', 'min', 'mins'].includes(normalizedUnit)) {
+      return '0m';
+    }
+    if (['second', 'seconds', 'sec', 'secs'].includes(normalizedUnit)) {
+      return '0s';
+    }
+    if (!['count', 'counts', 'times'].includes(normalizedUnit)) {
+      return `0 ${item.unitType}`;
+    }
+  }
+
+  return 'Completed';
+}
+
+function aggregateTooltipMetrics(dayLogs: HabitLog[]): TooltipMetricSummary[] {
+  const grouped = new Map<string, TooltipMetricSummary>();
+
+  dayLogs.forEach((log) => {
+    const habitName = (log.habit_name || 'Unknown').trim() || 'Unknown';
+    const metricType = log.metric_type?.trim() || undefined;
+    const unitType = log.unit_type?.trim() || undefined;
+    const key = `${habitName.toLowerCase()}|${metricType || ''}|${unitType || ''}`;
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing.totalDuration += log.duration || 0;
+      existing.totalAmount += log.amount || 0;
+      return;
+    }
+
+    grouped.set(key, {
+      key,
+      habitName,
+      metricType,
+      unitType,
+      totalDuration: log.duration || 0,
+      totalAmount: log.amount || 0,
+    });
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const labelCompare = formatTooltipMetricName(a).localeCompare(
+      formatTooltipMetricName(b),
+      undefined,
+      { sensitivity: 'base' }
+    );
+    if (labelCompare !== 0) return labelCompare;
+
+    if (a.totalDuration !== b.totalDuration) {
+      return b.totalDuration - a.totalDuration;
+    }
+
+    return b.totalAmount - a.totalAmount;
+  });
+}
+
+function clampMinutes(minutes: number): number {
+  return Math.max(0, Math.min(minutes, 24 * 60));
+}
+
+function parseMinutesLoose(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.round(value);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (/^\d+$/.test(trimmed)) {
+      const numericValue = Number(trimmed);
+      return Number.isFinite(numericValue) ? Math.round(numericValue) : null;
+    }
+
+    const parts = trimmed.split(':');
+    if (parts.length === 2) {
+      const hours = Number(parts[0]);
+      const minutes = Number(parts[1]);
+      if (
+        Number.isFinite(hours) &&
+        Number.isFinite(minutes) &&
+        hours >= 0 &&
+        hours <= 23 &&
+        minutes >= 0 &&
+        minutes <= 59
+      ) {
+        return (hours * 60) + minutes;
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeDayKey(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  if (!value) return null;
+
+  const plainDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (plainDateMatch) return value;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return format(parsed, 'yyyy-MM-dd');
+}
+
+function extractLegacyArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (!raw || typeof raw !== 'object') return [];
+
+  const container = raw as Record<string, unknown>;
+  const candidateKeys = [
+    'scheduledBlocks',
+    'blocks',
+    'items',
+    'events',
+    'value',
+    'data',
+  ];
+
+  for (const key of candidateKeys) {
+    const candidate = container[key];
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+
+  return [];
+}
+
+function readLegacyMinutes(
+  item: Record<string, unknown>,
+  minuteKeys: string[],
+  hourKeys: string[]
+): number | null {
+  for (const key of minuteKeys) {
+    const parsed = parseMinutesLoose(item[key]);
+    if (parsed !== null) return parsed;
+  }
+
+  for (const key of hourKeys) {
+    const rawValue = item[key];
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+      return Math.round(rawValue * 60);
+    }
+    if (typeof rawValue === 'string' && rawValue.trim()) {
+      const parsed = Number(rawValue);
+      if (Number.isFinite(parsed)) {
+        return Math.round(parsed * 60);
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeLegacyBlock(raw: unknown): ScheduledBlockPayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+
+  const day = normalizeDayKey(item.day ?? item.dayKey ?? item.date ?? item.dayISO);
+  const start = readLegacyMinutes(
+    item,
+    ['startMinutes', 'start_minutes', 'startMinute', 'start'],
+    ['startHour', 'start_hour']
+  );
+  const end = readLegacyMinutes(
+    item,
+    ['endMinutes', 'end_minutes', 'endMinute', 'end'],
+    ['endHour', 'end_hour']
+  );
+
+  if (!day || start === null || end === null) return null;
+  if (start < 0 || start > 1439 || end < 1 || end > 1440 || end <= start) {
+    return null;
+  }
+
+  const rawTitle = item.title ?? item.name ?? item.label;
+  const title = typeof rawTitle === 'string' && rawTitle.trim()
+    ? rawTitle.trim()
+    : 'Untitled block';
+
+  const rawNotes = item.notes ?? item.note ?? item.description;
+  const notes = typeof rawNotes === 'string' && rawNotes.trim()
+    ? rawNotes.trim()
+    : null;
+
+  return {
+    title,
+    notes,
+    day,
+    start_minutes: clampMinutes(start),
+    end_minutes: Math.max(clampMinutes(end), clampMinutes(start + 30)),
+  };
+}
+
+function signatureFromPayload(item: ScheduledBlockPayload): string {
+  return `${item.day}|${item.start_minutes}|${item.end_minutes}|${item.title.toLowerCase()}|${(item.notes ?? '').toLowerCase()}`;
+}
+
+function signatureFromApi(item: ScheduledBlockApi): string {
+  return `${item.day}|${item.start_minutes}|${item.end_minutes}|${item.title.toLowerCase()}|${(item.notes ?? '').toLowerCase()}`;
+}
+
+function formatMinutesDisplay(minutes: number): string {
+  const clamped = Math.max(0, Math.min(minutes, 24 * 60));
+  const hours = Math.floor(clamped / 60);
+  const mins = clamped % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function formatMinutesInput(minutes: number): string {
+  const clamped = Math.max(0, Math.min(minutes, (23 * 60) + 45));
+  const hours = Math.floor(clamped / 60);
+  const mins = clamped % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function parseMinutes(value: string): number | null {
+  const [hours, minutes] = value.split(':').map((token) => Number(token));
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function mapScheduledBlockFromApi(item: ScheduledBlockApi): WeekScheduledItem {
+  return {
+    id: item.id,
+    title: item.title,
+    notes: item.notes ?? undefined,
+    day: item.day,
+    startMinutes: item.start_minutes,
+    endMinutes: item.end_minutes,
+  };
+}
 
 export function CalendarClient() {
   const ref = useRef<HTMLDivElement>(null);
+  const selectedDayPanelRef = useRef<HTMLDivElement>(null);
   const { getToken } = useAuth();
   const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // State
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -60,6 +432,172 @@ export function CalendarClient() {
   // Hover state for the bottom panel (like Lumen)
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [hoveredData, setHoveredData] = useState<HabitLog[]>([]);
+  const [taskComposer, setTaskComposer] = useState<TaskComposerState | null>(null);
+  const [isSavingTaskComposer, setIsSavingTaskComposer] = useState(false);
+  const [taskComposerError, setTaskComposerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (viewMode !== 'month' || !selectedDate || typeof document === 'undefined') return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (selectedDayPanelRef.current?.contains(target)) return;
+      setSelectedDate(null);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [viewMode, selectedDate]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (typeof window === 'undefined') return;
+
+    const migrationMarkerKey = `calendar-scheduled-blocks-migrated:${LEGACY_SCHEDULED_BLOCK_MIGRATION_VERSION}:${user.id}`;
+
+    if (window.localStorage.getItem(migrationMarkerKey)) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const migrateLegacyScheduledBlocks = async () => {
+      const legacyCandidates = new Set<string>(LEGACY_SCHEDULED_BLOCK_KEYS);
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (!key) continue;
+        if (legacyCandidates.has(key) || LEGACY_SCHEDULED_BLOCK_KEY_PATTERN.test(key)) {
+          legacyCandidates.add(key);
+        }
+      }
+
+      const parsedBlocks: ScheduledBlockPayload[] = [];
+      const consumedKeys: string[] = [];
+
+      for (const key of legacyCandidates) {
+        const rawValue = window.localStorage.getItem(key);
+        if (!rawValue) continue;
+
+        try {
+          const parsedJson = JSON.parse(rawValue) as unknown;
+          const legacyItems = extractLegacyArray(parsedJson);
+          if (legacyItems.length === 0) continue;
+
+          let foundAny = false;
+          for (const legacyItem of legacyItems) {
+            const normalized = normalizeLegacyBlock(legacyItem);
+            if (!normalized) continue;
+            parsedBlocks.push(normalized);
+            foundAny = true;
+          }
+
+          if (foundAny) {
+            consumedKeys.push(key);
+          }
+        } catch {
+          // Ignore malformed legacy values and continue.
+        }
+      }
+
+      if (parsedBlocks.length === 0) {
+        window.localStorage.setItem(
+          migrationMarkerKey,
+          JSON.stringify({
+            migratedAt: new Date().toISOString(),
+            created: 0,
+            skipped: 0,
+            reason: 'no_legacy_blocks',
+          })
+        );
+        return;
+      }
+
+      const token = await getToken();
+      if (!token) return;
+
+      const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+      const existingRes = await fetch(`${backendUrl}/api/calendar/scheduled-blocks`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!existingRes.ok) {
+        throw new Error('Failed to fetch existing scheduled blocks before migration');
+      }
+
+      const existingBlocks = (await existingRes.json()) as ScheduledBlockApi[];
+      const existingSignatures = new Set(existingBlocks.map(signatureFromApi));
+
+      const dedupedLegacyBlocks = new Map<string, ScheduledBlockPayload>();
+      for (const block of parsedBlocks) {
+        const signature = signatureFromPayload(block);
+        if (!dedupedLegacyBlocks.has(signature)) {
+          dedupedLegacyBlocks.set(signature, block);
+        }
+      }
+
+      let created = 0;
+      let skipped = 0;
+      let hasCreateFailure = false;
+
+      for (const [signature, block] of dedupedLegacyBlocks) {
+        if (existingSignatures.has(signature)) {
+          skipped += 1;
+          continue;
+        }
+
+        const createRes = await fetch(`${backendUrl}/api/calendar/scheduled-blocks`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(block),
+        });
+
+        if (createRes.ok) {
+          created += 1;
+          existingSignatures.add(signature);
+        } else {
+          skipped += 1;
+          hasCreateFailure = true;
+        }
+      }
+
+      if (hasCreateFailure) {
+        throw new Error('Some legacy scheduled blocks failed to migrate');
+      }
+
+      for (const key of consumedKeys) {
+        window.localStorage.removeItem(key);
+      }
+
+      window.localStorage.setItem(
+        migrationMarkerKey,
+        JSON.stringify({
+          migratedAt: new Date().toISOString(),
+          created,
+          skipped,
+          sourceKeys: consumedKeys,
+        })
+      );
+
+      if (!isCancelled) {
+        await queryClient.invalidateQueries({
+          queryKey: ['calendar-scheduled-blocks', user.id],
+        });
+      }
+    };
+
+    migrateLegacyScheduledBlocks().catch((error) => {
+      console.warn('Scheduled block migration skipped:', error);
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [getToken, queryClient, user?.id]);
 
   // Fetch habits
   const { data: habits = [] } = useQuery<Habit[]>({
@@ -145,6 +683,9 @@ export function CalendarClient() {
       existing.push({
         ...log,
         habit_name: log.habit_name || habit?.name || 'Unknown',
+        unit_type: log.unit_type || habit?.unit_type,
+        metric_type: log.metric_type || habit?.metric_type,
+        integration_source: log.integration_source || habit?.integration_source,
         icon: log.icon || habit?.icon,
         category: log.category || habit?.category,
       });
@@ -152,11 +693,6 @@ export function CalendarClient() {
     });
     return grouped;
   }, [logs, habitMap]);
-
-  // Calculate total duration for display
-  const totalDuration = useMemo(() => {
-    return logs.reduce((total, log) => total + (log.duration || 0), 0);
-  }, [logs]);
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
@@ -178,6 +714,39 @@ export function CalendarClient() {
     });
     return eachDayOfInterval({ start: weekStart, end: weekEnd });
   }, [currentDate, weekStartsOnMonday]);
+
+  const scheduledBlockRange = useMemo(() => {
+    return {
+      start: format(dateRange.start, 'yyyy-MM-dd'),
+      end: format(dateRange.end, 'yyyy-MM-dd'),
+    };
+  }, [dateRange.end, dateRange.start]);
+
+  const { data: scheduledBlocks = [] } = useQuery<WeekScheduledItem[]>({
+    queryKey: [
+      'calendar-scheduled-blocks',
+      user?.id,
+      scheduledBlockRange.start,
+      scheduledBlockRange.end,
+    ],
+    queryFn: async () => {
+      const token = await getToken();
+      const backendUrl =
+        process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+      const params = new URLSearchParams({
+        start_date: scheduledBlockRange.start,
+        end_date: scheduledBlockRange.end,
+      });
+      const res = await fetch(`${backendUrl}/api/calendar/scheduled-blocks?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to fetch scheduled blocks');
+      const data = (await res.json()) as ScheduledBlockApi[];
+      return data.map(mapScheduledBlockFromApi);
+    },
+    enabled: !!user?.id,
+    staleTime: 30 * 1000,
+  });
 
   // Navigation
   const navigatePrevious = useCallback(() => {
@@ -272,16 +841,415 @@ export function CalendarClient() {
     setHoveredData(data);
   }, []);
 
+  const openTaskComposer = useCallback((selection: WeekSelectionPayload) => {
+    setTaskComposerError(null);
+    setTaskComposer({
+      id: null,
+      dayKey: selection.dayKey,
+      startMinutes: selection.startMinutes,
+      endMinutes: selection.endMinutes,
+      title: '',
+      notes: '',
+    });
+  }, []);
+
+  const handleScheduledItemClick = useCallback((item: WeekScheduledItem) => {
+    setTaskComposerError(null);
+    setTaskComposer({
+      id: item.id,
+      dayKey: item.day,
+      startMinutes: item.startMinutes,
+      endMinutes: item.endMinutes,
+      title: item.title,
+      notes: item.notes ?? '',
+    });
+  }, []);
+
+  const scheduledBlocksByDay = useMemo(() => {
+    const grouped = new Map<string, WeekScheduledItem[]>();
+    for (const item of scheduledBlocks) {
+      const existing = grouped.get(item.day) ?? [];
+      existing.push(item);
+      grouped.set(item.day, existing);
+    }
+    for (const [day, items] of grouped.entries()) {
+      items.sort((a, b) => a.startMinutes - b.startMinutes);
+      grouped.set(day, items);
+    }
+    return grouped;
+  }, [scheduledBlocks]);
+
+  const openMonthDayBlockEditor = useCallback(
+    (day: Date) => {
+      const dayKey = format(day, 'yyyy-MM-dd');
+      const dayBlocks = scheduledBlocksByDay.get(dayKey) ?? [];
+
+      let startMinutes = 9 * 60;
+      let endMinutes = 10 * 60;
+
+      if (dayBlocks.length > 0) {
+        const latestEnd = dayBlocks.reduce(
+          (latest, block) => Math.max(latest, block.endMinutes),
+          0
+        );
+        const roundedStart = Math.ceil(latestEnd / 15) * 15;
+        startMinutes = Math.max(0, Math.min(roundedStart, (24 * 60) - 30));
+        endMinutes = Math.min(startMinutes + 60, 24 * 60);
+        if (endMinutes <= startMinutes) {
+          startMinutes = Math.max(0, (24 * 60) - 60);
+          endMinutes = 24 * 60;
+        }
+      }
+
+      setTaskComposerError(null);
+      setTaskComposer({
+        id: null,
+        dayKey,
+        startMinutes,
+        endMinutes,
+        title: '',
+        notes: '',
+      });
+    },
+    [scheduledBlocksByDay]
+  );
+
+  const handleScheduledItemUpdate = useCallback(
+    async (item: WeekScheduledItem, update: WeekScheduledItemUpdate) => {
+      const hasChanged =
+        item.day !== update.day ||
+        item.startMinutes !== update.startMinutes ||
+        item.endMinutes !== update.endMinutes;
+
+      if (!hasChanged) return;
+
+      queryClient.setQueriesData<WeekScheduledItem[]>(
+        { queryKey: ['calendar-scheduled-blocks', user?.id] },
+        (previous) => {
+          if (!previous) return previous;
+          return previous.map((block) =>
+            block.id === item.id
+              ? {
+                  ...block,
+                  day: update.day,
+                  startMinutes: update.startMinutes,
+                  endMinutes: update.endMinutes,
+                }
+              : block
+          );
+        }
+      );
+
+      try {
+        const token = await getToken();
+        if (!token) throw new Error('Authentication token missing');
+
+        const backendUrl =
+          process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+        const response = await fetch(
+          `${backendUrl}/api/calendar/scheduled-blocks/${item.id}`,
+          {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              day: update.day,
+              start_minutes: update.startMinutes,
+              end_minutes: update.endMinutes,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const detail = typeof errorData?.detail === 'string'
+            ? errorData.detail
+            : 'Failed to update block';
+          throw new Error(detail);
+        }
+
+        setTaskComposer((prev) => {
+          if (!prev || prev.id !== item.id) return prev;
+          return {
+            ...prev,
+            dayKey: update.day,
+            startMinutes: update.startMinutes,
+            endMinutes: update.endMinutes,
+          };
+        });
+
+        await queryClient.invalidateQueries({
+          queryKey: ['calendar-scheduled-blocks', user?.id],
+        });
+      } catch (error) {
+        setTaskComposerError(error instanceof Error ? error.message : 'Failed to update block');
+        await queryClient.invalidateQueries({
+          queryKey: ['calendar-scheduled-blocks', user?.id],
+        });
+      }
+    },
+    [getToken, queryClient, user?.id]
+  );
+
+  const closeTaskComposer = useCallback(() => {
+    setTaskComposerError(null);
+    setTaskComposer(null);
+  }, []);
+
+  const saveTaskComposer = useCallback(async () => {
+    if (!taskComposer) return;
+
+    const normalizedTitle = taskComposer.title.trim() || 'Untitled block';
+    const payload = {
+      title: normalizedTitle,
+      notes: taskComposer.notes.trim() || null,
+      day: taskComposer.dayKey,
+      start_minutes: Math.max(0, Math.min(taskComposer.startMinutes, 24 * 60)),
+      end_minutes: Math.max(taskComposer.startMinutes + 30, Math.min(taskComposer.endMinutes, 24 * 60)),
+    };
+
+    setIsSavingTaskComposer(true);
+    setTaskComposerError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Authentication token missing');
+
+      const backendUrl =
+        process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+      const isEditing = Boolean(taskComposer.id);
+      const endpoint = isEditing
+        ? `/api/calendar/scheduled-blocks/${taskComposer.id}`
+        : '/api/calendar/scheduled-blocks';
+
+      const response = await fetch(`${backendUrl}${endpoint}`, {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const detail = typeof errorData?.detail === 'string'
+          ? errorData.detail
+          : 'Failed to save block';
+        throw new Error(detail);
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ['calendar-scheduled-blocks', user?.id],
+      });
+      setTaskComposer(null);
+    } catch (error) {
+      setTaskComposerError(error instanceof Error ? error.message : 'Failed to save block');
+    } finally {
+      setIsSavingTaskComposer(false);
+    }
+  }, [getToken, queryClient, taskComposer, user?.id]);
+
+  const deleteTaskComposer = useCallback(async () => {
+    if (!taskComposer?.id) return;
+
+    setIsSavingTaskComposer(true);
+    setTaskComposerError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Authentication token missing');
+
+      const backendUrl =
+        process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+      const response = await fetch(
+        `${backendUrl}/api/calendar/scheduled-blocks/${taskComposer.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const detail = typeof errorData?.detail === 'string'
+          ? errorData.detail
+          : 'Failed to delete block';
+        throw new Error(detail);
+      }
+
+      await queryClient.invalidateQueries({
+        queryKey: ['calendar-scheduled-blocks', user?.id],
+      });
+      setTaskComposer(null);
+    } catch (error) {
+      setTaskComposerError(error instanceof Error ? error.message : 'Failed to delete block');
+    } finally {
+      setIsSavingTaskComposer(false);
+    }
+  }, [getToken, queryClient, taskComposer, user?.id]);
+
   // Valid range for components
   const validRange: [string, string] | null =
     range && range.length === 2 ? [range[0], range[1]] : null;
 
+  const taskComposerModal = taskComposer ? (
+    <div className="absolute inset-0 z-40 flex items-center justify-center px-4 py-6">
+      <button
+        type="button"
+        aria-label="Close block editor"
+        onClick={closeTaskComposer}
+        className="absolute inset-0"
+      />
+
+      <div className="relative w-full max-w-[500px] border border-gray-300 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.14)] selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]">
+        <div className="border-b border-gray-200 px-3 py-2.5">
+          <p className="text-sm font-medium text-gray-900">
+            {taskComposer.id ? 'Edit block' : 'New block'}
+          </p>
+          <p className="mt-0.5 text-xs text-gray-500">
+            {format(new Date(taskComposer.dayKey), 'EEE, MMM d')} · {formatMinutesDisplay(taskComposer.startMinutes)} - {formatMinutesDisplay(taskComposer.endMinutes)}
+          </p>
+        </div>
+
+        <div className="space-y-2.5 px-3 py-2.5">
+          <div className="space-y-0.5">
+            <label className="text-xs uppercase tracking-[0.04em] text-gray-500">
+              Title
+            </label>
+            <input
+              value={taskComposer.title}
+              onChange={(event) => {
+                const value = event.target.value;
+                setTaskComposer((prev) => (prev ? { ...prev, title: value } : prev));
+              }}
+              placeholder="What do you want to do?"
+              className="h-8 w-full border border-gray-300 px-2.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-gray-500 selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-0.5">
+              <label className="text-xs uppercase tracking-[0.04em] text-gray-500">
+                Start
+              </label>
+              <input
+                type="time"
+                step={900}
+                value={formatMinutesInput(taskComposer.startMinutes)}
+                onChange={(event) => {
+                  const nextMinutes = parseMinutes(event.target.value);
+                  if (nextMinutes === null) return;
+
+                  setTaskComposer((prev) => {
+                    if (!prev) return prev;
+                    const nextEnd = Math.max(prev.endMinutes, nextMinutes + 30);
+                    return {
+                      ...prev,
+                      startMinutes: nextMinutes,
+                      endMinutes: Math.min(nextEnd, 24 * 60),
+                    };
+                  });
+                }}
+                className="minimal-time-input h-8 w-full border border-gray-300 px-2 text-sm text-gray-900 outline-none focus:border-gray-500 selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]"
+              />
+            </div>
+            <div className="space-y-0.5">
+              <label className="text-xs uppercase tracking-[0.04em] text-gray-500">
+                End
+              </label>
+              <input
+                type="time"
+                step={900}
+                value={formatMinutesInput(taskComposer.endMinutes)}
+                onChange={(event) => {
+                  const nextMinutes = parseMinutes(event.target.value);
+                  if (nextMinutes === null) return;
+
+                  setTaskComposer((prev) => {
+                    if (!prev) return prev;
+                    return {
+                      ...prev,
+                      endMinutes: Math.max(nextMinutes, prev.startMinutes + 30),
+                    };
+                  });
+                }}
+                className="minimal-time-input h-8 w-full border border-gray-300 px-2 text-sm text-gray-900 outline-none focus:border-gray-500 selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-0.5">
+            <label className="text-xs uppercase tracking-[0.04em] text-gray-500">
+              Notes
+            </label>
+            <textarea
+              value={taskComposer.notes}
+              onChange={(event) => {
+                const value = event.target.value;
+                setTaskComposer((prev) => (prev ? { ...prev, notes: value } : prev));
+              }}
+              rows={2}
+              placeholder="Optional details..."
+              className="w-full resize-none border border-gray-300 px-2.5 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-gray-500 selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]"
+            />
+          </div>
+
+          {taskComposerError && (
+            <p className="text-xs text-red-600">{taskComposerError}</p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2.5">
+          {taskComposer.id ? (
+            <button
+              type="button"
+              onClick={deleteTaskComposer}
+              disabled={isSavingTaskComposer}
+              className="h-8 border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Delete
+            </button>
+          ) : (
+            <span />
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={closeTaskComposer}
+              disabled={isSavingTaskComposer}
+              className="h-8 border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveTaskComposer}
+              disabled={isSavingTaskComposer}
+              className="h-8 border border-black bg-black px-3 text-sm text-white hover:bg-[#111827] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingTaskComposer
+                ? 'Saving...'
+                : taskComposer.id
+                  ? 'Update block'
+                  : 'Save block'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div ref={ref} className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="px-8 pt-6">
+      <div className="px-6 pt-6">
         <CalendarHeader
-          totalDuration={totalDuration}
           currentDate={currentDate}
           viewMode={viewMode}
           weekStartsOnMonday={weekStartsOnMonday}
@@ -294,53 +1262,57 @@ export function CalendarClient() {
       </div>
 
       {/* Calendar Grid */}
-      <div className="px-8 overflow-auto">
+      <div className="px-6 overflow-auto">
         {viewMode === 'month' ? (
-          <CalendarMonthView
-            firstWeek={firstWeek}
-            calendarDays={calendarDays}
-            currentDate={currentDate}
-            selectedDate={selectedDate}
-            logsByDate={logsByDate}
-            range={validRange}
-            localRange={localRange}
-            isDragging={isDragging}
-            weekStartsOnMonday={weekStartsOnMonday}
-            handleMouseDown={handleMouseDown}
-            handleMouseEnter={handleMouseEnter}
-            handleMouseUp={handleMouseUp}
-            onEventClick={handleEventClick}
-            onDayHover={handleDayHover}
-            onWeekClick={(weekNumber, weekStart) => {
-              // Select the entire week when clicking week number
-              const weekEnd = endOfWeek(weekStart, { weekStartsOn: weekStartsOnMonday ? 1 : 0 });
-              setRange([
-                formatISO(weekStart, { representation: 'date' }),
-                formatISO(weekEnd, { representation: 'date' }),
-              ]);
-              setSelectedDate(null);
-            }}
-          />
+          <div className="relative">
+            <CalendarMonthView
+              firstWeek={firstWeek}
+              calendarDays={calendarDays}
+              currentDate={currentDate}
+              selectedDate={selectedDate}
+              logsByDate={logsByDate}
+              scheduledItems={scheduledBlocks}
+              range={validRange}
+              localRange={localRange}
+              isDragging={isDragging}
+              weekStartsOnMonday={weekStartsOnMonday}
+              handleMouseDown={handleMouseDown}
+              handleMouseEnter={handleMouseEnter}
+              handleMouseUp={handleMouseUp}
+              onEventClick={handleEventClick}
+              onScheduledItemClick={handleScheduledItemClick}
+              onDayBlockEditorOpen={openMonthDayBlockEditor}
+              onDayHover={handleDayHover}
+              onWeekClick={(_weekNumber, weekStart) => {
+                // Select the entire week when clicking week number
+                const weekEnd = endOfWeek(weekStart, { weekStartsOn: weekStartsOnMonday ? 1 : 0 });
+                setRange([
+                  formatISO(weekStart, { representation: 'date' }),
+                  formatISO(weekEnd, { representation: 'date' }),
+                ]);
+                setSelectedDate(null);
+              }}
+            />
+            {taskComposerModal}
+          </div>
         ) : (
-          <CalendarWeekView
-            weekDays={weekDays}
-            currentDate={currentDate}
-            selectedDate={selectedDate}
-            logsByDate={logsByDate}
-            range={validRange}
-            localRange={localRange}
-            isDragging={isDragging}
-            handleMouseDown={handleMouseDown}
-            handleMouseEnter={handleMouseEnter}
-            handleMouseUp={handleMouseUp}
-            onEventClick={handleEventClick}
-          />
+          <div className="relative">
+            <CalendarWeekView
+              weekDays={weekDays}
+              currentDate={currentDate}
+              scheduledItems={scheduledBlocks}
+              onCreateSelection={openTaskComposer}
+              onItemClick={handleScheduledItemClick}
+              onItemUpdate={handleScheduledItemUpdate}
+            />
+            {taskComposerModal}
+          </div>
         )}
       </div>
 
       {/* Hover panel - like Lumen (shows below calendar on left) */}
-      {hoveredDate && !selectedDate && !validRange && (
-        <div className="px-8 mt-4">
+      {viewMode === 'month' && hoveredDate && !selectedDate && !validRange && (
+        <div className="px-6 mt-4">
           <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
             <p className="font-medium text-foreground font-mono text-lg">
               {format(hoveredDate, 'EEE, MMM d')}
@@ -378,18 +1350,22 @@ export function CalendarClient() {
       )}
 
       {/* Selected day panel */}
-      {selectedDate && (
-        <div className="px-8 mt-4">
-          <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
+      {viewMode === 'month' && selectedDate && (
+        <div className="px-6 mt-4">
+          <div
+            ref={selectedDayPanelRef}
+            className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]"
+          >
             <div className="flex items-center justify-between mb-1">
               <p className="font-medium text-foreground font-mono text-lg">
                 {format(new Date(selectedDate), 'EEE, MMM d')}
               </p>
               <button
                 onClick={() => setSelectedDate(null)}
-                className="text-xs text-[#878787] hover:text-foreground transition-colors"
+                aria-label="Close tooltip"
+                className="text-lg leading-none text-[#878787] hover:text-foreground transition-colors"
               >
-                Close
+                ×
               </button>
             </div>
             <p className="text-sm text-[#878787]">
@@ -407,8 +1383,9 @@ export function CalendarClient() {
 
             {(() => {
               const dayLogs = logsByDate.get(selectedDate) || [];
+              const dayMetrics = aggregateTooltipMetrics(dayLogs);
 
-              if (dayLogs.length === 0) {
+              if (dayMetrics.length === 0) {
                 return (
                   <p className="text-sm text-[#878787] mt-4 font-mono">
                     Empty note
@@ -418,18 +1395,14 @@ export function CalendarClient() {
 
               return (
                 <div className="mt-4 space-y-2 max-h-32 overflow-y-auto">
-                  {dayLogs.map((log, index) => (
+                  {dayMetrics.map((metric) => (
                     <div
-                      key={log.id || index}
+                      key={metric.key}
                       className="flex items-center justify-between text-sm"
                     >
-                      <span className="font-medium">{log.habit_name}</span>
+                      <span className="font-medium">{formatTooltipMetricName(metric)}</span>
                       <span className="text-[#878787]">
-                        {log.duration
-                          ? `${Math.floor(log.duration / 3600)}h ${Math.floor((log.duration % 3600) / 60)}m`
-                          : log.amount
-                            ? `${log.amount} ${log.unit_type || ''}`
-                            : 'Completed'}
+                        {formatTooltipMetricValue(metric)}
                       </span>
                     </div>
                   ))}
@@ -441,8 +1414,8 @@ export function CalendarClient() {
       )}
 
       {/* Range selection panel */}
-      {validRange && (
-        <div className="px-8 mt-4">
+      {viewMode === 'month' && validRange && (
+        <div className="px-6 mt-4">
           <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
             <div className="flex items-center justify-between mb-1">
               <p className="font-medium text-foreground font-mono text-lg">

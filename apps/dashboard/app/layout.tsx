@@ -33,6 +33,13 @@ export default function RootLayout({
           type="font/otf"
           crossOrigin="anonymous"
         />
+        <link
+          rel="preload"
+          href="/fonts/material-symbols/MaterialSymbolsRounded-400.ttf"
+          as="font"
+          type="font/ttf"
+          crossOrigin="anonymous"
+        />
       </head>
       <body>
         <ChunkErrorBoundary>

@@ -34,59 +34,39 @@ interface HabitTickerCardProps {
   habitName: string;
   category?: string;
   unit: string;
-  currentValue: number;
-  previousValue: number;
   percentChange: number;
   absoluteChange: number;
   chartData: { value: number }[];
   onClick?: () => void;
   onRemove?: () => void;
   darkMode?: boolean;
-  stabilityClass?: 'stable' | 'moderate' | 'variable';
-  consistencyScore?: number;
 }
 
 export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
   habitName,
   category,
   unit,
-  currentValue,
-  previousValue,
   percentChange,
   absoluteChange,
   chartData,
   onClick,
   onRemove,
   darkMode = false,
-  stabilityClass,
-  consistencyScore,
 }) => {
   const isPositive = percentChange >= 0;
   const isNeutral = Math.abs(percentChange) < 0.5; // Consider < 0.5% as neutral
   
-  // Perplexity-style colors
-  const tealGreen = '#1A7F37';    // Perplexity-style green for positive
-  const negativeColor = '#8a1a25';  // Red for negative/downward trends
-  const chartColor = isNeutral ? '#6B7280' : (isPositive ? tealGreen : negativeColor);
+  // Match Codex/git-style line change colors (+added / -removed)
+  const positiveColor = '#0E7A3A';
+  const negativeColor = '#B42318';
+  const chartColor = isNeutral ? '#6B7280' : (isPositive ? positiveColor : negativeColor);
   const bgColor = isNeutral 
     ? 'rgba(107, 114, 128, 0.08)' 
-    : (isPositive ? 'rgba(26, 127, 55, 0.12)' : 'rgba(138, 26, 37, 0.08)');
-
-  // Stability indicator styling
-  const getStabilityIndicator = () => {
-    if (!stabilityClass) return null;
-    const indicators = {
-      stable: { color: 'text-[#1A7F37]', bg: 'bg-[#DCEEDC]', label: '●' },
-      moderate: { color: 'text-amber-600', bg: 'bg-amber-100', label: '◐' },
-      variable: { color: 'text-gray-500', bg: 'bg-gray-100', label: '○' },
-    };
-    return indicators[stabilityClass];
-  };
-  const stabilityIndicator = getStabilityIndicator();
+    : (isPositive ? 'rgba(14, 122, 58, 0.16)' : 'rgba(180, 35, 24, 0.14)');
 
   return (
     <div
-      className="group relative cursor-pointer bg-white border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors duration-150 overflow-hidden min-w-0"
+      className="group relative w-full cursor-pointer bg-white border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors duration-150 overflow-hidden min-w-0"
       onClick={onClick}
     >
       {/* Close Button - Top right corner in padding area, appears on hover */}
@@ -96,29 +76,19 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
             e.stopPropagation();
             onRemove();
           }}
-          className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20 rounded-sm bg-white/80 p-0.5 hover:bg-white"
           aria-label="Remove habit"
         >
-          <X className="w-3 h-3 text-gray-400 hover:text-gray-600" />
+          <X className="w-2.5 h-2.5 text-gray-400 hover:text-gray-600" />
         </button>
       )}
 
       {/* Header Row: Name + Badge + Change */}
       <div className="flex items-start justify-between gap-1 mb-1">
         <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="flex items-center gap-1">
-            <h3 className="font-medium text-[12px] text-gray-900 truncate leading-tight">
-              {habitName}
-            </h3>
-            {stabilityIndicator && (
-              <span 
-                className={`text-[9px] ${stabilityIndicator.color}`} 
-                title={`${stabilityClass} consistency${consistencyScore ? ` (${consistencyScore}%)` : ''}`}
-              >
-                {stabilityIndicator.label}
-              </span>
-            )}
-          </div>
+          <h3 className="font-medium text-[12px] text-gray-900 truncate leading-tight">
+            {habitName}
+          </h3>
           <p className="text-[9px] text-gray-500 uppercase tracking-wider truncate">
             {unit}
           </p>
@@ -154,7 +124,7 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
       </div>
 
       {/* Sparkline */}
-      <div className="h-[40px] my-1 overflow-hidden w-full min-w-0">
+      <div className="h-[46px] my-1 overflow-hidden w-full min-w-0">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <AreaChart 
@@ -196,12 +166,6 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
         )}
       </div>
 
-      {/* Bottom: Current Value */}
-      <p className="text-base font-semibold text-gray-900 tabular-nums leading-tight">
-        {currentValue < 10 
-          ? currentValue.toFixed(2) 
-          : currentValue.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-      </p>
     </div>
   );
 };
@@ -216,8 +180,6 @@ interface HabitTickerGridProps {
     prev_7_days_avg: number;
     weekly_amount_change_pct: number;
     chartData: { value: number }[];
-    stability_class?: 'stable' | 'moderate' | 'variable';
-    consistency_score?: number;
   }>;
   onHabitClick?: (habitId: string) => void;
   onHabitRemove?: (habitId: string) => void;
@@ -243,7 +205,7 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
 
   return (
     <div 
-      className="grid grid-cols-2 sm:grid-cols-4 gap-2"
+      className="mx-auto w-full max-w-[1460px] grid grid-cols-2 sm:grid-cols-4 gap-2"
       style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
     >
       {validHabits.map((habit, index) => {
@@ -258,16 +220,12 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
               habitName={habit.habit_name}
               category={habit.category}
               unit={habit.unit || 'count'}
-              currentValue={currentValue}
-              previousValue={previousValue}
               percentChange={percentChange}
               absoluteChange={absoluteChange}
               chartData={habit.chartData || []}
               onClick={() => onHabitClick?.(habit.habit_id)}
               onRemove={onHabitRemove ? () => onHabitRemove(habit.habit_id) : undefined}
               darkMode={darkMode}
-              stabilityClass={habit.stability_class}
-              consistencyScore={habit.consistency_score}
             />
           </div>
         );

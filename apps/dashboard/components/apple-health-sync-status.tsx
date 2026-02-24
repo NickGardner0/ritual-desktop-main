@@ -6,7 +6,7 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Clock, 
-  RefreshCw, 
+  RefreshCw,
   Smartphone,
   Activity,
   Wifi,
@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 interface DeviceSyncStatus {
   device_id: string;
@@ -137,7 +138,7 @@ export function AppleHealthSyncStatus({
       case 'not_connected':
         return <WifiOff className="w-4 h-4 text-gray-400" />;
       default:
-        return <RefreshCw className="w-4 h-4 text-gray-400 animate-spin" />;
+        return <BrailleSpinner className="text-sm text-gray-400" />;
     }
   };
 
@@ -198,7 +199,11 @@ export function AppleHealthSyncStatus({
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             disabled={refreshing}
           >
-            <RefreshCw className={`w-4 h-4 text-gray-500 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? (
+              <BrailleSpinner className="text-sm text-gray-500" />
+            ) : (
+              <RefreshCw className="w-4 h-4 text-gray-500" />
+            )}
           </button>
           {showDevices && (
             expanded ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />
