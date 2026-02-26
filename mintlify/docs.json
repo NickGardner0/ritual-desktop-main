@@ -1,0 +1,63 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Ritual",
+  "logo": {
+    "light": "/images/logo-light.svg",
+    "dark": "/images/logo-dark.svg"
+  },
+  "favicon": "/images/favicon.svg",
+  "colors": {
+    "primary": "#1A1A1A",
+    "light": "#555555",
+    "dark": "#1A1A1A",
+    "background": {
+      "light": "#FFFFFF",
+      "dark": "#111111"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Website",
+      "url": "https://ritual.app"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Download",
+    "url": "https://ritual.app/download"
+  },
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        "introduction",
+        "what-ritual-is",
+        "how-it-works"
+      ]
+    },
+    {
+      "group": "Product",
+      "pages": [
+        "core-features",
+        "integrations",
+        "daily-routine"
+      ]
+    },
+    {
+      "group": "Roadmap",
+      "pages": [
+        "future-updates"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/NickGardner0/ritual-desktop-main"
+  },
+  "font": {
+    "headings": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}
