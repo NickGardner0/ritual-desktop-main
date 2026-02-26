@@ -236,23 +236,26 @@ class TinybirdService:
         # Transform data for Tinybird schema
         # CRITICAL: Tinybird converts empty strings to null and rejects them!
         # Use 'none' instead of '' for LowCardinality fields
+        integration_id = log_data.get('integration_id') or log_data.get('integration_source') or 'none'
+        whoop_metric = log_data.get('whoop_metric_type') or log_data.get('metric_type') or 'none'
+
         event = {
             'id': log_data.get('id') or 'unknown',
             'habit_id': log_data.get('habit_id') or 'unknown',
             'habit_name': log_data.get('habit_name') or 'Unknown Habit',
             'user_id': log_data.get('user_id') or 'unknown',
-            'date': log_date or datetime.utcnow().strftime('%Y-%m-%d'),  # User's local date for grouping
-            'timestamp': timestamp_str,  # Full UTC timestamp (matches Turso)
+            'date': log_date or datetime.utcnow().strftime('%Y-%m-%d'),
+            'timestamp': timestamp_str,
             'status': log_data.get('status') or 'completed',
-            'duration': int(log_data.get('duration') or 0),  # Ensure Int32, default 0
-            'amount': float(log_data.get('amount') or 0.0),  # Ensure Float64, default 0.0
-            'unit': unit_value or 'none',  # Use 'none' instead of empty string
-            'notes': log_data.get('notes') or 'none',  # Use 'none' instead of empty string
+            'duration': int(log_data.get('duration') or 0),
+            'amount': float(log_data.get('amount') or 0.0),
+            'unit': unit_value or 'none',
+            'notes': log_data.get('notes') or 'none',
             'source': log_data.get('source') or 'manual',
-            'integration_id': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
-            'whoop_metric_type': 'none',  # Use 'none' instead of empty string - Tinybird rejects ''
+            'integration_id': integration_id if integration_id else 'none',
+            'whoop_metric_type': whoop_metric if whoop_metric else 'none',
             'metadata': metadata_serialized,
-            'created_at': timestamp_str  # Full UTC timestamp
+            'created_at': timestamp_str,
         }
         
         print(f"🔍 Tinybird event data (formatted): {event}")
@@ -260,6 +263,105 @@ class TinybirdService:
         print(f"🔍 Tinybird ingest result: {result}")
         return result
     
+    async def ingest_habit_logs_batch(self, logs: List[Dict[str, Any]], batch_size: int = 500) -> Dict[str, Any]:
+        """
+        Ingest a batch of habit logs to Tinybird, processing in chunks.
+        Reuses the same field-formatting logic as ingest_habit_log.
+        """
+        from datetime import datetime, timezone
+
+        def format_utc_datetime(dt_value, fallback_date=None) -> str:
+            if dt_value is None or str(dt_value).strip() == "":
+                if fallback_date:
+                    try:
+                        fallback = datetime.strptime(fallback_date, "%Y-%m-%d").replace(
+                            hour=12, minute=0, second=0, tzinfo=timezone.utc
+                        )
+                        return fallback.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        pass
+                return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            if isinstance(dt_value, datetime):
+                parsed = dt_value
+            else:
+                raw = str(dt_value).strip()
+                parsed = None
+                try:
+                    parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+                except Exception:
+                    pass
+                if parsed is None:
+                    try:
+                        parsed = datetime.strptime(raw, "%Y-%m-%d").replace(
+                            hour=12, minute=0, second=0, tzinfo=timezone.utc
+                        )
+                    except Exception:
+                        pass
+                if parsed is None:
+                    try:
+                        parsed = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        parsed = datetime.now(timezone.utc)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+            return parsed.strftime('%Y-%m-%d %H:%M:%S')
+
+        events = []
+        for log in logs:
+            completed_at = log.get('completed_at')
+            log_date = log.get('date')
+            timestamp_str = format_utc_datetime(completed_at, fallback_date=log_date)
+
+            unit_value = log.get('unit') or log.get('unit_type') or 'none'
+            metadata_value = log.get('metadata') or log.get('log_metadata')
+            if metadata_value in (None, ""):
+                metadata_serialized = '{}'
+            elif isinstance(metadata_value, str):
+                metadata_serialized = metadata_value
+            else:
+                metadata_serialized = json.dumps(metadata_value)
+
+            integration_id = log.get('integration_id') or log.get('integration_source') or 'none'
+            whoop_metric = log.get('whoop_metric_type') or log.get('metric_type') or 'none'
+
+            events.append({
+                'id': log.get('id') or 'unknown',
+                'habit_id': log.get('habit_id') or 'unknown',
+                'habit_name': log.get('habit_name') or 'Unknown Habit',
+                'user_id': log.get('user_id') or 'unknown',
+                'date': log_date or datetime.utcnow().strftime('%Y-%m-%d'),
+                'timestamp': timestamp_str,
+                'status': log.get('status') or 'completed',
+                'duration': int(log.get('duration') or 0),
+                'amount': float(log.get('amount') or 0.0),
+                'unit': unit_value if unit_value else 'none',
+                'notes': log.get('notes') or 'none',
+                'source': log.get('source') or 'manual',
+                'integration_id': integration_id if integration_id else 'none',
+                'whoop_metric_type': whoop_metric if whoop_metric else 'none',
+                'metadata': metadata_serialized,
+                'created_at': timestamp_str,
+            })
+
+        total_ingested = 0
+        errors = []
+        for i in range(0, len(events), batch_size):
+            chunk = events[i:i + batch_size]
+            result = await self.ingest_events('habit_logs', chunk)
+            if result.get('success'):
+                total_ingested += len(chunk)
+            else:
+                errors.append(f"Batch {i // batch_size}: {result.get('error', 'unknown')}")
+
+        return {
+            'success': len(errors) == 0,
+            'total_ingested': total_ingested,
+            'total_logs': len(events),
+            'errors': errors,
+        }
+
     async def ingest_habit_definition(self, habit: Dict[str, Any]) -> Dict[str, Any]:
         """
         Ingest habit definition for analytics (optional - for enrichment)

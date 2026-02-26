@@ -66,6 +66,9 @@ class HabitLog(HabitLogBase):
     """Full habit log model"""
     id: str
     habit_id: str
+    habit_name: Optional[str] = None
+    source: Optional[str] = None
+    log_metadata: Optional[str] = None
     
     class Config:
         from_attributes = True

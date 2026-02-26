@@ -1,11 +1,13 @@
 "use client";
 
 import { Button } from '@/components/ui/button';
-import { useState, useEffect, Suspense } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useAuth, useUser } from '@clerk/nextjs';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
+import { habitLogKeys } from '@/hooks/use-habits-query';
 import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -36,9 +38,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
   const { fontClass } = useFont();
   const { getToken } = useAuth();
+  const { user } = useUser();
+  const queryClient = useQueryClient();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
+  const lastDashboardRefreshRef = useRef(0);
 
   const openTimeTrackerWindow = async () => {
     console.log('🖱️ Tracker button clicked - creating native Swift timer widget');
@@ -88,6 +93,34 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   };
 
+  // Keep native notch auth token available even when tracker button isn't clicked.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isTauri()) return;
+
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const writeToken = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        const token = await getToken();
+        if (!cancelled && token) {
+          await invoke('write_auth_token_to_file', { token });
+        }
+      } catch {
+        // Ignore when not available yet.
+      }
+    };
+
+    void writeToken();
+    interval = setInterval(writeToken, 25_000);
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [getToken]);
+
   // Monitor for token refresh requests from Swift widget
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -117,6 +150,35 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     const interval = setInterval(checkForTokenRefreshRequests, 500);
     return () => clearInterval(interval);
   }, [getToken, lastTokenRefreshCheck]);
+
+  // Poll for dashboard refresh triggers from the native Swift timer widget
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const checkForDashboardRefresh = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        const timestamp = await invoke('check_dashboard_refresh_trigger') as number;
+
+        if (timestamp > 0 && timestamp !== lastDashboardRefreshRef.current) {
+          lastDashboardRefreshRef.current = timestamp;
+          console.log('🔄 Dashboard refresh triggered by native timer widget, invalidating caches...');
+
+          const userId = user?.id || 'anonymous';
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: habitLogKeys.list(userId) }),
+            queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
+          ]);
+          console.log('✅ Dashboard caches invalidated — data will refetch immediately');
+        }
+      } catch {
+        // Not in Tauri environment, ignore
+      }
+    };
+
+    const interval = setInterval(checkForDashboardRefresh, 500);
+    return () => clearInterval(interval);
+  }, [user?.id, queryClient]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

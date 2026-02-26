@@ -463,8 +463,8 @@ class HabitsService:
     
     async def _sync_habit_log_to_tinybird(self, habit_log: HabitLog, habit: Habit, user_id: str) -> Dict[str, Any]:
         """
-        Sync habit log to Tinybird for analytics
-        Returns the result dict from Tinybird API
+        Sync habit log to Tinybird for analytics.
+        Maps all Turso fields to their Tinybird equivalents.
         """
         if not self.tinybird_enabled:
             return {'success': False, 'error': 'Tinybird not enabled'}
@@ -472,7 +472,7 @@ class HabitsService:
         log_data = {
             'id': habit_log.id,
             'habit_id': habit_log.habit_id,
-            'habit_name': habit.name,
+            'habit_name': habit_log.habit_name or habit.name,
             'user_id': user_id,
             'date': habit_log.date,
             'duration': habit_log.duration,
@@ -480,7 +480,11 @@ class HabitsService:
             'unit': habit.unit_type,
             'status': habit_log.status,
             'notes': habit_log.notes,
-            'completed_at': habit_log.completed_at if habit_log.completed_at else habit_log.date  # completed_at is already a string
+            'source': habit_log.source or 'manual',
+            'completed_at': habit_log.completed_at or habit_log.date,
+            'metadata': habit_log.log_metadata,
+            'integration_source': habit.integration_source,
+            'metric_type': habit.metric_type,
         }
         
         result = await self.tinybird.ingest_habit_log(log_data)

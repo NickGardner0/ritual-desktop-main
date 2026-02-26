@@ -229,6 +229,7 @@ export function MetricsView({
   const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
+  const backfillAttempted = useRef(false);
 
   // Use transformed habits from shared context
   const availableHabits = transformedHabits;
@@ -282,9 +283,14 @@ export function MetricsView({
       }
 
       const params = new URLSearchParams();
-      if (dateRange?.from && dateRange?.to) {
-        params.set('start_date', format(dateRange.from, 'yyyy-MM-dd'));
-        params.set('end_date', format(dateRange.to, 'yyyy-MM-dd'));
+      const rangeSpanDays = dateRange?.from && dateRange?.to
+        ? differenceInDays(dateRange.to, dateRange.from) + 1
+        : 0;
+      const useWideRange = !dateRange?.from || !dateRange?.to || rangeSpanDays < 7;
+
+      if (!useWideRange) {
+        params.set('start_date', format(dateRange!.from!, 'yyyy-MM-dd'));
+        params.set('end_date', format(dateRange!.to!, 'yyyy-MM-dd'));
       } else {
         params.set('days_back', '1095');
       }
@@ -320,6 +326,19 @@ export function MetricsView({
           summaryMap[row.habit_id] = row;
         });
 
+        const totalDailyRows = Object.values(dataByHabit).reduce((sum, rows) => sum + rows.length, 0);
+        const habitsWithData = Object.values(dataByHabit).filter(rows => rows.length > 0).length;
+        const coverageRatio = habitsToFetch.length > 0 ? habitsWithData / habitsToFetch.length : 0;
+
+        if (totalDailyRows === 0) {
+          throw new Error('Tinybird returned no daily data, falling back to Python backend');
+        }
+
+        if (habitsToFetch.length > 1 && coverageRatio < 0.5) {
+          console.warn(`⚠️ Tinybird only has data for ${habitsWithData}/${habitsToFetch.length} habits (${(coverageRatio * 100).toFixed(0)}%), falling back to Python`);
+          throw new Error('Tinybird data too sparse, falling back to Python backend');
+        }
+
         setAnalyticsData(dataByHabit);
         setSummaryMetrics(summaryMap);
       } catch (error) {
@@ -329,8 +348,8 @@ export function MetricsView({
         if (!token) return;
 
         const now = new Date();
-        const to = dateRange?.to || now;
-        const from = dateRange?.from || subDays(now, 30);
+        const to = useWideRange ? now : (dateRange?.to || now);
+        const from = useWideRange ? subDays(now, 1095) : (dateRange?.from || subDays(now, 1095));
         const fallbackDays = Math.max(1, differenceInDays(to, from) + 1);
 
         const [statsResult, dailyResults] = await Promise.all([
@@ -366,20 +385,30 @@ export function MetricsView({
         const fallbackDailyByHabit: Record<string, any[]> = {};
         habitsToFetch.forEach((habitId: string, index: number) => {
           const response = dailyResults[index];
-          const rows = response?.daily_data || [];
+          const rows = response?.data || response?.daily_data || [];
           fallbackDailyByHabit[habitId] = rows.map((point: any) => ({
             habit_id: habitId,
             date: point.date,
-            daily_value: Number(point.value || 0),
+            daily_value: Number(point.value ?? point.total_amount ?? 0),
             unit: point.unit,
-            total_amount: Number(point.value || 0),
-            total_duration_seconds: 0,
-            completed_count: Number(point.value || 0) > 0 ? 1 : 0,
+            total_amount: Number(point.total_amount ?? point.value ?? 0),
+            total_duration_seconds: Number(point.total_duration_seconds ?? 0),
+            completed_count: Number(point.value || point.total_amount || 0) > 0 ? 1 : 0,
           }));
         });
 
         setSummaryMetrics(fallbackSummaryMap);
         setAnalyticsData(fallbackDailyByHabit);
+
+        if (!backfillAttempted.current) {
+          backfillAttempted.current = true;
+          fetch(`${process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000'}/api/analytics/tinybird-backfill`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          }).then(r => r.json())
+            .then(res => console.log('📊 Tinybird backfill result:', res))
+            .catch(err => console.warn('⚠️ Tinybird backfill failed (non-critical):', err));
+        }
       } finally {
         setLoading(false);
       }
@@ -462,10 +491,28 @@ export function MetricsView({
         );
 
         const result = await response.json();
-        if (result.success) {
+        if (result.success && result.data?.length > 0) {
           setExpandedLogs(result.data);
         } else {
-          setExpandedLogs([]);
+          const token = await getToken();
+          if (token) {
+            const daysBack = Math.max(1, differenceInDays(to, from) + 1);
+            const fallback = await analyticsApi.getDailyBreakdown(token, {
+              habitId: expandedHabit,
+              daysBack,
+            }).catch(() => null);
+            const rows = (fallback?.data || fallback?.daily_data || []).map((point: any) => ({
+              habit_id: expandedHabit,
+              date: point.date,
+              daily_value: Number(point.value ?? point.total_amount ?? 0),
+              unit: point.unit,
+              total_amount: Number(point.total_amount ?? point.value ?? 0),
+              total_duration_seconds: Number(point.total_duration_seconds ?? 0),
+            }));
+            setExpandedLogs(rows);
+          } else {
+            setExpandedLogs([]);
+          }
         }
       } catch (error) {
         console.error('❌ Error fetching expanded logs:', error);
@@ -505,10 +552,28 @@ export function MetricsView({
         );
 
         const result = await response.json();
-        if (result.success) {
+        if (result.success && result.data?.length > 0) {
           setComparisonLogs(result.data);
         } else {
-          setComparisonLogs([]);
+          const token = await getToken();
+          if (token) {
+            const daysBack = Math.max(1, differenceInDays(to, from) + 1);
+            const fallback = await analyticsApi.getDailyBreakdown(token, {
+              habitId: compareHabitId,
+              daysBack,
+            }).catch(() => null);
+            const rows = (fallback?.data || fallback?.daily_data || []).map((point: any) => ({
+              habit_id: compareHabitId,
+              date: point.date,
+              daily_value: Number(point.value ?? point.total_amount ?? 0),
+              unit: point.unit,
+              total_amount: Number(point.total_amount ?? point.value ?? 0),
+              total_duration_seconds: Number(point.total_duration_seconds ?? 0),
+            }));
+            setComparisonLogs(rows);
+          } else {
+            setComparisonLogs([]);
+          }
         }
       } catch (error) {
         console.error('❌ Error fetching comparison logs:', error);

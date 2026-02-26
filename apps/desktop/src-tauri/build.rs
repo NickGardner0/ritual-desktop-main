@@ -12,6 +12,8 @@ fn main() {
         "target/SpeechRecognition.o"
     ];
     let static_lib = "target/libspeech_native.a";
+    let module_cache_dir = "target/swift-module-cache";
+    let _ = std::fs::create_dir_all(module_cache_dir);
     
     // Step 1: Compile Swift files to object files
     let mut all_success = true;
@@ -21,14 +23,22 @@ fn main() {
         
         let swift_output = std::process::Command::new("swiftc")
             .args(&[
-                "-c", 
-                "-framework", "Cocoa",
-                "-framework", "Foundation", 
-                "-framework", "AVFoundation",
-                "-framework", "Speech",
-                "-o", object_file,
-                swift_file
+                "-c",
+                "-module-cache-path",
+                module_cache_dir,
+                "-framework",
+                "Cocoa",
+                "-framework",
+                "Foundation",
+                "-framework",
+                "AVFoundation",
+                "-framework",
+                "Speech",
+                "-o",
+                object_file,
+                swift_file,
             ])
+            .env("CLANG_MODULE_CACHE_PATH", module_cache_dir)
             .output();
             
         match swift_output {

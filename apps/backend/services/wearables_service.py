@@ -858,12 +858,13 @@ class WearablesService:
             'unit': unit,
             'status': log.status,
             'notes': log.notes,
-            'source': 'apple_health',
-            'integration_id': habit.id,
-            'completed_at': log.completed_at or log.date
+            'source': log.source or 'apple_health',
+            'integration_source': habit.integration_source or 'apple_health',
+            'metric_type': habit.metric_type,
+            'metadata': log.log_metadata,
+            'completed_at': log.completed_at or log.date,
         }
         
-        # Queue for async batch processing instead of blocking
         self.queue_tinybird_sync(log_data)
     
     async def _sync_log_to_tinybird_immediate(
@@ -887,9 +888,11 @@ class WearablesService:
                 'unit': unit,
                 'status': log.status,
                 'notes': log.notes,
-                'source': 'apple_health',
-                'integration_id': habit.id,
-                'completed_at': log.completed_at or log.date
+                'source': log.source or 'apple_health',
+                'integration_source': habit.integration_source or 'apple_health',
+                'metric_type': habit.metric_type,
+                'metadata': log.log_metadata,
+                'completed_at': log.completed_at or log.date,
             }
             result = await tinybird.ingest_habit_log(log_data)
             if result.get('success'):

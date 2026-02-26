@@ -63,6 +63,7 @@ export interface DailyBreakdownResponse {
   days_with_data?: number;
   total?: number;
   average_per_day?: number;
+  data?: DailyDataPoint[];
   daily_data?: DailyDataPoint[];
 }
 

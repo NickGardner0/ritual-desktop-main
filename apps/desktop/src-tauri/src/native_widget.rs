@@ -7,88 +7,266 @@ extern "C" {
     fn stop_speech_recognition() -> bool;
 }
 
-#[tauri::command]
-pub fn create_native_timer_widget() {
+fn native_widget_process_running() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        match Command::new("pgrep")
+            .args(["-x", "NativeTimerWidget"])
+            .output()
+        {
+            Ok(output) => output.status.success() && !output.stdout.is_empty(),
+            Err(e) => {
+                eprintln!("⚠️ Could not check NativeTimerWidget process state via pgrep: {}", e);
+                false
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+fn terminate_native_widget_processes() {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        use std::time::Duration;
+
+        match Command::new("pkill").args(["-x", "NativeTimerWidget"]).status() {
+            Ok(status) => {
+                if status.success() {
+                    println!("🛑 Terminated existing NativeTimerWidget process");
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️ Could not terminate NativeTimerWidget via pkill: {}", e);
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(140));
+    }
+}
+
+fn build_native_timer_widget_if_possible() {
+    use std::path::Path;
+    use std::process::Command;
+
+    // Locate build script for both possible CWDs.
+    let script_candidates = [
+        Path::new("native-timer/build_widget.sh").to_path_buf(),
+        Path::new("src-tauri/native-timer/build_widget.sh").to_path_buf(),
+    ];
+    let script_path = script_candidates.iter().find(|p| p.exists()).cloned();
+
+    if let Some(script) = script_path {
+        let _ = Command::new("bash")
+            .arg("-c")
+            .arg(format!(
+                "chmod +x '{}' && '{}'",
+                script.display(),
+                script.display()
+            ))
+            .status();
+    } else {
+        println!("❌ Could not find build script 'native-timer/build_widget.sh'.");
+    }
+}
+
+fn native_widget_needs_rebuild(exec_path: &std::path::Path) -> bool {
+    use std::fs;
+    use std::path::Path;
+
+    let binary_metadata = match fs::metadata(exec_path) {
+        Ok(metadata) => metadata,
+        Err(_) => return true,
+    };
+
+    let binary_modified = match binary_metadata.modified() {
+        Ok(mtime) => mtime,
+        Err(_) => return true,
+    };
+
+    // Candidate Swift source paths depending on current working directory.
+    let source_candidates = [
+        Path::new("native-timer/Package.swift"),
+        Path::new("native-timer/TimerWidgetApp.swift"),
+        Path::new("native-timer/MicrophonePermission.swift"),
+        Path::new("native-timer/SpeechRecognition.swift"),
+        Path::new("native-timer/Notch/NotchController.swift"),
+        Path::new("native-timer/Notch/NotchTimerView.swift"),
+        Path::new("native-timer/Notch/NotchHabitPicker.swift"),
+        Path::new("native-timer/Notch/NotchVoiceViews.swift"),
+        Path::new("native-timer/Stores/TimerSessionStore.swift"),
+        Path::new("native-timer/Hotkeys/ModifierEventTap.swift"),
+        Path::new("native-timer/Hotkeys/GlobalHotkey.swift"),
+        Path::new("native-timer/Permissions/AccessibilityPermission.swift"),
+        Path::new("native-timer/Speech/SpeechEngine.swift"),
+        Path::new("native-timer/Speech/VoicePermissions.swift"),
+        Path::new("src-tauri/native-timer/Package.swift"),
+        Path::new("src-tauri/native-timer/TimerWidgetApp.swift"),
+        Path::new("src-tauri/native-timer/MicrophonePermission.swift"),
+        Path::new("src-tauri/native-timer/SpeechRecognition.swift"),
+        Path::new("src-tauri/native-timer/Notch/NotchController.swift"),
+        Path::new("src-tauri/native-timer/Notch/NotchTimerView.swift"),
+        Path::new("src-tauri/native-timer/Notch/NotchHabitPicker.swift"),
+        Path::new("src-tauri/native-timer/Notch/NotchVoiceViews.swift"),
+        Path::new("src-tauri/native-timer/Stores/TimerSessionStore.swift"),
+        Path::new("src-tauri/native-timer/Hotkeys/ModifierEventTap.swift"),
+        Path::new("src-tauri/native-timer/Hotkeys/GlobalHotkey.swift"),
+        Path::new("src-tauri/native-timer/Permissions/AccessibilityPermission.swift"),
+        Path::new("src-tauri/native-timer/Speech/SpeechEngine.swift"),
+        Path::new("src-tauri/native-timer/Speech/VoicePermissions.swift"),
+    ];
+
+    for source in source_candidates {
+        if !source.exists() {
+            continue;
+        }
+
+        match fs::metadata(source).and_then(|metadata| metadata.modified()) {
+            Ok(source_modified) => {
+                if source_modified > binary_modified {
+                    println!(
+                        "🔨 Native widget rebuild required: {:?} is newer than binary",
+                        source
+                    );
+                    return true;
+                }
+            }
+            Err(_) => return true,
+        }
+    }
+
+    false
+}
+
+fn launch_native_timer_widget(force_restart: bool) {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
     println!("🚀 Creating native Swift timer widget...");
 
-    // Candidate executable paths (depending on current working directory)
-    let candidates: [PathBuf; 2] = [
+    if force_restart {
+        terminate_native_widget_processes();
+    } else if native_widget_process_running() {
+        println!("ℹ️ Native Swift timer widget already running; skipping duplicate launch");
+        return;
+    }
+
+    // Prefer the .app bundle launched via `open` so macOS Launch Services
+    // registers the bundle identity (required for permission dialogs to
+    // list the app in System Settings).  Fall back to the bare binary.
+    let app_bundle_candidates: [PathBuf; 2] = [
+        Path::new("src-tauri/target/release/NativeTimerWidget.app").to_path_buf(),
+        Path::new("target/release/NativeTimerWidget.app").to_path_buf(),
+    ];
+    let bare_candidates: [PathBuf; 2] = [
         Path::new("src-tauri/target/release/NativeTimerWidget").to_path_buf(),
         Path::new("target/release/NativeTimerWidget").to_path_buf(),
     ];
 
-    let mut exec_path: Option<PathBuf> = candidates.iter().find(|p| p.exists()).cloned();
+    let parent_pid = std::process::id().to_string();
 
-    println!("🔍 Current working directory: {:?}", std::env::current_dir().unwrap_or_default());
-    if exec_path.is_none() {
-        println!("⚠️  Native widget executable not found. Attempting to build via build_widget.sh...");
-
-        // Locate build script for both possible CWDs
-        let script_candidates = [
-            Path::new("native-timer/build_widget.sh").to_path_buf(),
-            Path::new("src-tauri/native-timer/build_widget.sh").to_path_buf(),
-        ];
-        let script_path = script_candidates
+    let find_app_bundle = || -> Option<PathBuf> {
+        app_bundle_candidates.iter().find(|p| p.exists()).cloned()
+    };
+    let find_bare = || -> Option<PathBuf> {
+        bare_candidates.iter().find(|p| p.exists()).cloned()
+    };
+    let find_any_binary = || -> Option<PathBuf> {
+        // For rebuild-check we need the actual binary, not the .app dir
+        let bin_inside_app: Vec<PathBuf> = app_bundle_candidates
+            .iter()
+            .map(|p| p.join("Contents/MacOS/NativeTimerWidget"))
+            .collect();
+        bin_inside_app
             .iter()
             .find(|p| p.exists())
-            .cloned();
+            .cloned()
+            .or_else(|| bare_candidates.iter().find(|p| p.exists()).cloned())
+    };
 
-        if let Some(script) = script_path {
-            // Ensure executable permission and run
-            let _ = Command::new("bash")
-                .arg("-c")
-                .arg(format!("chmod +x '{}' && '{}'", script.display(), script.display()))
-                .status();
+    println!("🔍 Current working directory: {:?}", std::env::current_dir().unwrap_or_default());
 
-            // Re-check for executable after build
-            exec_path = candidates.iter().find(|p| p.exists()).cloned();
-        } else {
-            println!("❌ Could not find build script 'native-timer/build_widget.sh'.");
+    // Check if a build exists; if not, or if stale, rebuild.
+    match find_any_binary() {
+        None => {
+            println!("⚠️ Native widget executable not found. Attempting to build via build_widget.sh...");
+            build_native_timer_widget_if_possible();
+        }
+        Some(bin) => {
+            if native_widget_needs_rebuild(&bin) {
+                println!("🔄 Rebuilding native widget to pick up latest Swift changes...");
+                build_native_timer_widget_if_possible();
+            }
         }
     }
 
-    match exec_path {
-        Some(path) => {
-            println!("🔍 Using widget executable at: {:?}", path);
-            match Command::new(&path).spawn() {
-                Ok(_) => println!("✅ Native Swift timer widget launched successfully!"),
+    // Launch: prefer .app bundle via `open` (absolute path required), fall back to bare binary.
+    if let Some(bundle_path) = find_app_bundle() {
+        let abs_bundle = std::fs::canonicalize(&bundle_path).unwrap_or(bundle_path);
+        let bundle_str = abs_bundle.to_string_lossy().to_string();
+        println!("🔍 Launching widget via `open -n -a {}`", bundle_str);
+        match Command::new("open")
+            .args([
+                "-n",
+                "-a",
+                &bundle_str,
+                "--args",
+                &format!("--parent-pid={}", parent_pid),
+            ])
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                println!("✅ Native Swift timer widget launched successfully!");
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                println!("⚠️ `open` exited with {}: {}", output.status, stderr.trim());
+                println!("⚠️ Falling back to direct binary exec");
+                launch_bare_binary(find_bare(), &parent_pid);
+            }
+            Err(e) => {
+                println!("⚠️ `open` failed ({}), falling back to direct exec", e);
+                launch_bare_binary(find_bare(), &parent_pid);
+            }
+        }
+    } else if let Some(bare_path) = find_bare() {
+        println!("🔍 No .app bundle found, using bare binary: {:?}", bare_path);
+        launch_bare_binary(Some(bare_path), &parent_pid);
+    } else {
+        println!("❌ No widget executable found. Trying build + retry...");
+        build_native_timer_widget_if_possible();
+        if let Some(bundle_path) = find_app_bundle() {
+            let abs_bundle = std::fs::canonicalize(&bundle_path).unwrap_or(bundle_path);
+            let bundle_str = abs_bundle.to_string_lossy().to_string();
+            let _ = Command::new("open")
+                .args(["-n", "-a", &bundle_str, "--args", &format!("--parent-pid={}", parent_pid)])
+                .output();
+        } else {
+            launch_bare_binary(find_bare(), &parent_pid);
+        }
+    }
+}
+
+fn launch_bare_binary(path: Option<std::path::PathBuf>, parent_pid: &str) {
+    use std::process::Command;
+
+    match path {
+        Some(p) => {
+            println!("🔍 Using bare widget binary at: {:?}", p);
+            match Command::new(&p)
+                .env("RITUAL_PARENT_PID", parent_pid)
+                .spawn()
+            {
+                Ok(_) => println!("✅ Native Swift timer widget launched (bare binary)!"),
                 Err(e) => {
                     println!("❌ Failed to launch native Swift widget: {}", e);
-                    println!("🔧 Attempting to build widget and retry launch...");
-
-                    // Try to build, then retry once
-                    let script_candidates = [
-                        Path::new("native-timer/build_widget.sh").to_path_buf(),
-                        Path::new("src-tauri/native-timer/build_widget.sh").to_path_buf(),
-                    ];
-                    if let Some(script) = script_candidates.iter().find(|p| p.exists()).cloned() {
-                        let _ = Command::new("bash")
-                            .arg("-c")
-                            .arg(format!("chmod +x '{}' && '{}'", script.display(), script.display()))
-                            .status();
-
-                        let retry_candidates = [
-                            Path::new("src-tauri/target/release/NativeTimerWidget").to_path_buf(),
-                            Path::new("target/release/NativeTimerWidget").to_path_buf(),
-                        ];
-                        if let Some(retry_path) = retry_candidates.iter().find(|p| p.exists()).cloned() {
-                            println!("🔁 Retrying launch using: {:?}", retry_path);
-                            match Command::new(&retry_path).spawn() {
-                                Ok(_) => println!("✅ Native Swift timer widget launched successfully after build!"),
-                                Err(e2) => {
-                                    println!("❌ Retry launch failed: {}", e2);
-                                    println!("🔄 If the problem persists, try running the build script manually: 'bash native-timer/build_widget.sh' (from src-tauri)");
-                                }
-                            }
-                        } else {
-                            println!("❌ Build step did not produce the expected executable.");
-                        }
-                    } else {
-                        println!("❌ Could not find build script to attempt auto-build on failure.");
-                    }
+                    println!("🔄 If the problem persists, try: 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
                 }
             }
         }
@@ -97,6 +275,15 @@ pub fn create_native_timer_widget() {
             println!("🔄 Ensure Xcode Command Line Tools are installed and run 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
         }
     }
+}
+
+#[tauri::command]
+pub fn create_native_timer_widget() {
+    launch_native_timer_widget(false);
+}
+
+pub fn restart_native_timer_widget() {
+    launch_native_timer_widget(true);
 }
 
 #[tauri::command] 

@@ -67,11 +67,14 @@ def habit_log_db_to_pydantic(log: HabitLogDB) -> HabitLog:
     return HabitLog(
         id=log.id,
         habit_id=log.habit_id,
+        habit_name=log.habit_name,
         duration=log.duration,
         amount=log.amount,
         date=log.date,
         completed_at=log.completed_at,
         status=log.status,
-        notes=log.notes
+        notes=log.notes,
+        source=log.source,
+        log_metadata=log.log_metadata,
     )
 

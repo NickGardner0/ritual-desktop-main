@@ -770,6 +770,79 @@ async def get_daily_breakdown(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.post("/api/analytics/tinybird-backfill")
+@limiter.limit("5/minute")
+async def tinybird_backfill(
+    request: Request,
+    current_user = Depends(get_current_user)
+):
+    """
+    Backfill all historical habit logs from the local database to Tinybird.
+    This should be called once to populate Tinybird with existing data.
+    """
+    if not tinybird_service:
+        raise HTTPException(status_code=503, detail="Tinybird service not available")
+
+    try:
+        from database.connection import get_db_session
+        from database.models import HabitDB, HabitLogDB
+        from sqlalchemy import select
+
+        user_id = current_user["id"]
+
+        async with get_db_session() as session:
+            habits_result = await session.execute(
+                select(HabitDB).where(HabitDB.user_id == user_id)
+            )
+            habits = habits_result.scalars().all()
+            habit_map = {h.id: h for h in habits}
+
+            if not habits:
+                return {"success": True, "message": "No habits found", "total_synced": 0}
+
+            logs_result = await session.execute(
+                select(HabitLogDB).join(HabitDB).where(HabitDB.user_id == user_id)
+            )
+            logs_db = logs_result.scalars().all()
+
+        all_logs = []
+        for log in logs_db:
+            habit = habit_map.get(log.habit_id)
+            all_logs.append({
+                "id": log.id,
+                "habit_id": log.habit_id,
+                "habit_name": log.habit_name or (habit.name if habit else "Unknown"),
+                "user_id": user_id,
+                "date": log.date,
+                "completed_at": log.completed_at,
+                "status": log.status,
+                "duration": log.duration,
+                "amount": log.amount,
+                "unit": habit.unit_type if habit else "none",
+                "notes": log.notes,
+                "source": log.source or "manual",
+                "metadata": log.log_metadata,
+                "integration_source": habit.integration_source if habit else None,
+                "metric_type": habit.metric_type if habit else None,
+            })
+
+        if not all_logs:
+            return {"success": True, "message": "No logs to backfill", "total_synced": 0}
+
+        print(f"📊 Starting Tinybird backfill: {len(all_logs)} logs for {len(habits)} habits")
+        result = await tinybird_service.ingest_habit_logs_batch(all_logs)
+        print(f"📊 Tinybird backfill complete: {result}")
+
+        return {
+            "success": result.get("success", False),
+            "total_logs": result.get("total_logs", 0),
+            "total_synced": result.get("total_ingested", 0),
+            "errors": result.get("errors", []),
+        }
+    except Exception as e:
+        print(f"❌ Tinybird backfill error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/analytics/correlation")
 @limiter.limit("20/minute")
 async def get_correlation(
