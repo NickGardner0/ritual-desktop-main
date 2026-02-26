@@ -1,0 +1,57 @@
+---
+title: "Desktop App"
+description: "How the Tauri + Rust macOS app is structured."
+---
+
+Ritual is distributed as a native macOS desktop app built with [Tauri](https://tauri.app/). Tauri wraps the Next.js dashboard in a native WebView and manages system-level capabilities that a browser tab can't access.
+
+## What Tauri handles
+
+<CardGroup cols={2}>
+  <Card title="Local database" icon="database">
+    A SQLite database (`ritual_database.rs`) runs locally on your machine. All habit logs and watcher events are written here first, making the app work fully offline.
+  </Card>
+  <Card title="Background watcher" icon="eye">
+    The Rust watcher process (`watcher.rs`) starts with the app and runs in the background. It captures computer activity without any user interaction.
+  </Card>
+  <Card title="Screen recorder" icon="video">
+    A native recorder (`recorder.rs`) captures screen activity that can be searched and used for screenshot-based habit import.
+  </Card>
+  <Card title="Native widget" icon="square-dashed">
+    A native macOS overlay widget (`native_widget.rs`) for quick logging and status checks without opening the full dashboard.
+  </Card>
+</CardGroup>
+
+## Local-first data model
+
+Ritual writes to local SQLite before syncing anywhere. This means:
+
+- **No internet required** to log habits or view history
+- **No data loss** if the backend is unreachable
+- **Fast reads** — the dashboard queries local SQLite for most views, with Tinybird used for heavy analytics
+
+Cloud sync to Tinybird happens asynchronously in the background. If sync fails, it retries automatically.
+
+## The Rust watcher
+
+The watcher is a Rust process that runs continuously while Ritual is open. It:
+
+1. Registers your device with the backend on first launch
+2. Polls for the active application and window title every few seconds
+3. Detects AFK periods and excludes them from active time calculations
+4. Computes daily rollups (total time per app, browser domain breakdown, etc.)
+5. Projects computer time into a `Computer Use` habit log automatically
+
+The watcher stores events in the local SQLite database, then syncs to Tinybird and the backend API in the background.
+
+### App exclusions
+
+You can exclude apps from tracking (e.g. system utilities, menu bar apps). Suggested exclusions are generated automatically based on usage patterns. Manage them from:
+
+```
+Dashboard → Settings → Computer Tracking → Exclusions
+```
+
+## Local search bridge
+
+`local_search_bridge.rs` connects the local SQLite database to Typesense for full-text search over your screen recordings and activity history. This lets you search for *"when was I working on the login feature?"* and get results from your local recording history.

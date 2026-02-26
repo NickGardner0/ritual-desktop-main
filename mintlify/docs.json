@@ -7,23 +7,23 @@
   },
   "favicon": "/images/favicon.svg",
   "colors": {
-    "primary": "#1A1A1A",
+    "primary": "#000000",
     "light": "#555555",
-    "dark": "#1A1A1A",
+    "dark": "#000000",
     "background": {
       "light": "#FFFFFF",
-      "dark": "#111111"
+      "dark": "#0A0A0A"
     }
   },
   "topbarLinks": [
     {
       "name": "Website",
-      "url": "https://ritual.app"
+      "url": "https://ritual.nickgardner.co"
     }
   ],
   "topbarCtaButton": {
     "name": "Download",
-    "url": "https://ritual.app/download"
+    "url": "https://ritual.nickgardner.co/download"
   },
   "navigation": [
     {
@@ -43,6 +43,14 @@
       ]
     },
     {
+      "group": "Under the Hood",
+      "pages": [
+        "desktop-app",
+        "computer-tracking",
+        "ai-assistant"
+      ]
+    },
+    {
       "group": "Roadmap",
       "pages": [
         "future-updates"
@@ -51,13 +59,5 @@
   ],
   "footerSocials": {
     "github": "https://github.com/NickGardner0/ritual-desktop-main"
-  },
-  "font": {
-    "headings": {
-      "family": "Inter"
-    },
-    "body": {
-      "family": "Inter"
-    }
   }
 }

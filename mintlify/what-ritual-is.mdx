@@ -1,31 +1,51 @@
 ---
 title: "What Ritual Is"
-description: "A personal tracking app built to help you see what is actually happening in your life."
+description: "A personal data operating system — not another habit streaks app."
 ---
 
-Ritual is a personal tracking app built to help you see what is actually happening in your life.
+Ritual is a personal tracking app built to help you see what is actually happening in your life. It brings habits, passive sensor data, and context together into one place so your daily review becomes simple.
 
-It brings habits, context, and trends into one place so your daily review becomes simple.
+## The problem with existing tools
 
-## The Problem
+Most tracking apps are built around one of two flawed models:
 
-Most people track things — steps, sleep, screen time — but never actually use that data. It sits in separate apps, in disconnected silos, and never adds up to anything meaningful.
+- **Streaks apps** — gamify logging but don't help you understand patterns
+- **Quantified self dashboards** — show you data but don't connect it to behavior
 
-Ritual is different. It treats your data as a unified picture of your day, not a collection of isolated metrics.
+Ritual takes a different approach. It treats your data as a unified picture of your day — integrating wearable signals, computer activity, and manual logs — so that when you sit down to review your day, the context is already there.
 
-## Who It's For
+## What it captures
+
+Ritual collects data across four categories:
+
+<CardGroup cols={2}>
+  <Card title="Wearable signals" icon="heart-pulse">
+    Sleep duration, recovery score, and daily strain from Whoop. Activity and heart rate from Apple Watch via the iOS companion app.
+  </Card>
+  <Card title="Computer activity" icon="desktop">
+    App usage, window titles, browser domains, and AFK time — tracked passively by the Rust watcher process running in the background.
+  </Card>
+  <Card title="Manual habits" icon="pen">
+    Any habit you define: workouts, reading, meditation, caffeine, water intake. Logged with a single tap. Smart synonym matching means natural language works.
+  </Card>
+  <Card title="Context" icon="cloud-sun">
+    Daily weather is automatically added to every log entry, giving you environmental context without any extra work.
+  </Card>
+</CardGroup>
+
+## The philosophy
+
+<Info>
+  One day I'm sure everyone will routinely collect all sorts of data about themselves and their behavior. But because I've been interested in personal science for a long time, I started extensively self-tracking — and found that the tooling to make that data actually useful didn't exist. Ritual is the attempt to build it.
+</Info>
+
+The goal isn't to optimize a single metric. It's to build a personal model of your life — one where habits, learning, time, and trade-offs are treated as native primitives, not afterthoughts bolted onto a general-purpose productivity tool.
+
+## Who it's for
 
 Ritual is built for people who:
 
-- Already self-track but feel overwhelmed by scattered data
-- Want to build better habits without obsessing over them
-- Care more about reflection and patterns than real-time dashboards
-- Want a calm, daily review that fits into a routine
-
-## The Philosophy
-
-<Info>
-  Ritual collects data to serve reflection — not the other way around. Every feature is designed to make your daily review faster and more useful, not to maximize engagement.
-</Info>
-
-One day everyone will routinely collect data about themselves and their behavior. Ritual is built to be the layer that makes that data actually useful — treating habits, learning, time, and trade-offs as native primitives, not afterthoughts.
+- Already self-track but feel overwhelmed by scattered apps and disconnected data
+- Want to understand the *interplay* between sleep, focus, habits, and time — not just individual metrics
+- Care more about long-term patterns than real-time dashboards
+- Want a calm, 5-minute daily review rather than a constant stream of notifications

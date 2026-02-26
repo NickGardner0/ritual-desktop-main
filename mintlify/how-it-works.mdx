@@ -1,33 +1,77 @@
 ---
 title: "How It Works"
-description: "From signal capture to daily review — the core flow inside Ritual."
+description: "The full data flow — from passive capture to daily review."
 ---
 
-Ritual follows a simple four-step loop that runs every day.
+Ritual is a monorepo with several apps working in concert. Here's how data flows from your devices to your dashboard.
 
-## The Loop
+## Architecture overview
+
+```
+Apple Watch ──► iOS Companion App ──► Backend API ──► SQLite / Tinybird
+Whoop ────────────────────────────► OAuth Sync ──► Backend API
+Computer ────► Rust Watcher (Tauri) ──────────────► Local DB + Sync
+Manual Logs ─► Next.js Dashboard ───────────────► Backend API
+Weather ─────────────────────────────────────────► Auto-attached to logs
+                                                       │
+                                              Gemini Flash 2.0
+                                              (AI chat + analysis)
+                                                       │
+                                          Next.js Dashboard (review)
+```
+
+## The desktop app (Tauri + Rust)
+
+Ritual runs as a native macOS app built with [Tauri](https://tauri.app/). The Tauri shell wraps the Next.js dashboard and manages:
+
+- **Local SQLite database** (`ritual_database.rs`) — all habit logs and watcher events are stored locally first
+- **Background watcher process** (`watcher.rs`) — passively captures app usage, window focus, and browser activity
+- **Native widget** — a menubar or overlay widget for quick logging without opening the full app
+- **Screen recorder** (`recorder.rs`) — captures activity for screenshot-based import
+
+## The backend (FastAPI + Python)
+
+The Python backend handles all business logic, integrations, and AI:
+
+- **Habits service** — CRUD for habits and logs, with synonym resolution (e.g. "went for a run" → logs your `run` habit)
+- **Whoop service** — OAuth token management, API polling, maps Whoop data to habit logs
+- **Watcher service** — ingests computer activity from the Tauri process, computes daily rollups
+- **Screenshot analyzer** — uses Gemini Flash 2.0 to extract habit data from screenshots (Apple Screen Time, workout summaries, etc.)
+- **Conversation service** — persistent AI chat sessions tied to your habit data
+- **Tinybird service** — syncs all habit logs and watcher events to Tinybird for fast analytics queries
+- **Search service** — Typesense-powered search over habits and screen recordings
+
+## The analytics pipeline (Tinybird)
+
+All habit logs and computer activity events sync to [Tinybird](https://tinybird.co/) in real time. This powers:
+
+- Fast aggregation queries for the dashboard's trend views
+- Historical pattern analysis across weeks and months
+- The AI assistant's ability to answer questions about your data over long time windows
+
+## The AI assistant (Gemini Flash 2.0)
+
+The chat assistant uses Gemini Flash 2.0 as its primary model, with OpenAI as a fallback. It has access to:
+
+- Your full habit log history
+- Computer activity summaries
+- Wearable data from Whoop and Apple Watch
+
+Conversations are persisted per-user, so the assistant maintains context across sessions. You can ask plain-language questions like *"how did my sleep affect my workout consistency last month?"* and get answers grounded in your actual data.
+
+## The data loop
 
 <Steps>
-  <Step title="Capture">
-    Ritual pulls in signals from habits, integrations, and your day-to-day routine. Some arrive automatically (sleep from Whoop, activity from Apple Watch), others you log manually in seconds.
+  <Step title="Capture (passive + active)">
+    The Rust watcher runs continuously in the background. Whoop and Apple Watch sync automatically. Manual habits are logged in seconds from the dashboard or native widget.
   </Step>
-  <Step title="Organize">
-    Everything flows into one timeline and review layer. You don't have to go looking for your data — Ritual surfaces it in context.
+  <Step title="Store locally">
+    All events hit the local SQLite database first, so the app works offline. The backend syncs to Tinybird asynchronously.
   </Step>
-  <Step title="Spot Patterns">
-    Use visual views and the built-in chat to identify what's actually going on. Ask plain-language questions and get summaries based on your real data.
+  <Step title="Aggregate and surface">
+    The dashboard queries the backend for daily summaries, trends, and AI-generated reflections. The Index view shows your most important signals for the day.
   </Step>
-  <Step title="Adjust">
-    Make small, measurable changes to your routine. Ritual makes it easy to see what's working and what isn't over time.
+  <Step title="Review and adjust">
+    You spend 5–10 minutes in the morning reviewing yesterday, noting today's intent, and asking the AI assistant any questions about your patterns.
   </Step>
 </Steps>
-
-## The Daily Review
-
-The daily review is the core ritual. It takes 5–10 minutes and gives you:
-
-- A snapshot of yesterday's habits and context
-- Your current trends across key areas
-- A short summary from the AI assistant
-
-The goal isn't to spend more time analyzing — it's to spend less time guessing.

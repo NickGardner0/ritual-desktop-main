@@ -1,39 +1,47 @@
 ---
 title: "Future Updates"
-description: "What's coming next in Ritual."
+description: "What's actively being built and what's next for Ritual."
 ---
 
-Ritual is in active development. Here's what's on the roadmap.
+Ritual is in active development. Here's what's on the roadmap, roughly in priority order.
 
-## Coming Soon
+## In progress
 
 <CardGroup cols={2}>
-  <Card title="Richer Health Signals" icon="heart-pulse">
-    More wearable integrations and deeper daily health context — including Oura Ring, Fitbit, and Garmin.
+  <Card title="Oura Ring integration" icon="ring">
+    Full sleep stage data, HRV, readiness score, and temperature deviation synced automatically.
   </Card>
-  <Card title="Deeper Pattern Summaries" icon="chart-line">
-    Smarter cross-habit analysis across habits, schedule, and activity. Surface connections you'd never notice manually.
+  <Card title="Apple Screen Time API" icon="mobile">
+    Direct integration for weekly app usage and phone pickup data — no screenshot needed.
   </Card>
-  <Card title="Import Workflows" icon="file-import">
-    Faster cleanup and import for existing tracking data from other apps and CSV exports.
+  <Card title="Weekly digest" icon="chart-bar">
+    An auto-generated weekly summary delivered in the app every Monday morning, combining habits, wearable trends, and computer activity.
   </Card>
-  <Card title="Weekly & Monthly Guidance" icon="calendar-days">
-    Clearer weekly and monthly insights delivered directly inside the app — not just raw data.
+  <Card title="Google Calendar context" icon="calendar">
+    Attach calendar events as context to your habit logs — so you can see how busy weeks affect your habits.
   </Card>
 </CardGroup>
 
-## Principles for New Features
+## Planned
 
-Every new feature in Ritual is evaluated against the same criteria:
+| Feature | Description |
+|---|---|
+| Fitbit integration | Steps, active minutes, sleep data |
+| Garmin integration | Workout sessions, VO2 max, training load |
+| Richer pattern summaries | Cross-habit correlation analysis surfaced proactively |
+| Import workflows | Faster bulk import from CSV and other app exports |
+| Habit templates | Curated starting sets for common tracking goals |
 
-1. **Does it make the daily review faster or more useful?**
-2. **Does it reduce friction for logging?**
-3. **Does it help you understand your life better over time?**
+## Design principles for new features
 
-If it doesn't pass all three, it doesn't ship.
+Every new feature in Ritual is evaluated against three questions:
+
+1. **Does it reduce friction for logging or reviewing?** If adding the feature makes the daily review slower or more cluttered, it doesn't ship.
+2. **Does it make patterns more visible over time?** Features that help you understand trends over weeks and months get prioritized over real-time dashboards.
+3. **Does it work passively?** The best data is data you don't have to think about capturing.
 
 ---
 
-<Card title="Download Ritual" icon="download" href="https://ritual.app/download">
-  Ready to start? Download Ritual and begin with a simple daily tracking rhythm.
+<Card title="Download Ritual" icon="download" href="https://ritual.nickgardner.co/download">
+  Ready to start? Download the macOS app and begin tracking.
 </Card>

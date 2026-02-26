@@ -1,37 +1,83 @@
 ---
 title: "Integrations"
-description: "Devices and data sources that connect to Ritual automatically."
+description: "How Ritual connects to wearables, devices, and external data sources."
 ---
 
-Ritual works best when manual tracking and passive sources are combined. Passive integrations reduce friction — you don't have to remember to log what your devices already know.
+Ritual combines passive sensor data with manual logs to give you a complete picture without requiring you to track everything yourself. Here's how each integration works.
 
-## Live Integrations
+## Live integrations
 
-These are available now in the current version of Ritual.
+### Whoop
 
-| Source | Type | Notes |
-|--------|------|-------|
-| Whoop | Wearable | Sleep, recovery, and strain data |
-| Apple Watch | Wearable | Activity, heart rate via iOS companion app |
-| Computer Tracking | Desktop | Active app and focus session tracking |
-| Weather | Context | Daily weather automatically added to your log |
+Ritual connects to Whoop via OAuth 2.0. Once linked, it polls the Whoop API and maps data to three habit types:
 
-## Planned Integrations
+| Whoop metric | Maps to habit | Unit |
+|---|---|---|
+| Sleep duration | `sleep duration` / `sleep` | hours |
+| Recovery score | `recovery score` / `recovery` | % (0–100) |
+| Daily strain | `daily strain` / `strain` | strain score |
 
-These are in development and will be available in future releases.
+Data syncs automatically in the background. The OAuth tokens are encrypted at rest using AES encryption before being stored in the database.
 
-| Source | Type |
+**To connect:** Open the dashboard → Settings → Integrations → Connect Whoop → Authorize.
+
+### Apple Watch (via iOS Companion)
+
+The iOS companion app bridges Apple Watch data to the Ritual backend. It reads from HealthKit and syncs:
+
+- Activity rings (move, exercise, stand)
+- Heart rate data
+- Workout sessions
+
+**To connect:** Install the Ritual iOS companion app, sign in with the same account, and grant HealthKit permissions.
+
+### Computer Tracking (Watcher)
+
+The background Rust process (`watcher.rs`) runs automatically when Ritual is open. It captures:
+
+<CardGroup cols={2}>
+  <Card title="App usage" icon="window">
+    Which apps are active and for how long. Rolls up into a daily `Computer Use` habit log automatically.
+  </Card>
+  <Card title="Window titles" icon="browser">
+    Active window title for context about what you were working on.
+  </Card>
+  <Card title="Browser domains" icon="globe">
+    Domains visited in your browser, aggregated into daily summaries.
+  </Card>
+  <Card title="AFK detection" icon="clock">
+    Detects away-from-keyboard periods so idle time doesn't inflate your active computer time.
+  </Card>
+</CardGroup>
+
+You can manage exclusions — apps or domains you don't want tracked — from Settings → Computer Tracking → Exclusions.
+
+<Warning>
+  Computer tracking data is stored locally in SQLite first. It only syncs to the cloud (Tinybird) if you have cloud sync enabled.
+</Warning>
+
+### Weather
+
+Weather context is automatically attached to every log entry using your location. No setup required — it just works. You'll see temperature and conditions alongside your habit logs, which makes it easy to spot correlations (e.g. lower workout consistency on cold or rainy days).
+
+---
+
+## Planned integrations
+
+These are in active development:
+
+| Source | What it adds |
 |--------|------|
-| Apple Screen Time | Device usage |
-| Oura Ring | Wearable |
-| Fitbit | Wearable |
-| Garmin | Wearable |
-| Google Calendar | Schedule |
+| Apple Screen Time | Weekly app usage and phone pickup data |
+| Oura Ring | Sleep stages, HRV, readiness score |
+| Fitbit | Steps, active minutes, sleep |
+| Garmin | Workout sessions, VO2 max, training load |
+| Google Calendar | Schedule context alongside habit data |
 
-<Info>
-  Passive integrations don't replace manual habits — they add context. Seeing that you slept 5 hours and still hit your workout is more useful than either data point alone.
-</Info>
+---
 
-## Philosophy
+## Screenshot import (any source)
 
-Ritual treats integrations as context layers, not scorecards. The goal is to give you a richer picture of why your habits went the way they did, not to add more things to optimize.
+For data sources that don't have an API, the screenshot analyzer lets you import data from any app visually. Take a screenshot of a fitness summary, a sleep report, or a productivity app — upload it, and Gemini Flash 2.0 extracts the relevant habits and values automatically.
+
+This is especially useful for Apple Screen Time weekly summaries, which aren't available via API.

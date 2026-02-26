@@ -1,0 +1,61 @@
+---
+title: "Computer Tracking"
+description: "How Ritual's background Rust watcher captures your computer activity."
+---
+
+Ritual's computer tracking is powered by a Rust process built into the Tauri desktop app. It runs silently in the background and gives you an automatic record of how you spend your time on your computer — without any manual logging.
+
+## What gets tracked
+
+| Signal | Description |
+|--------|-------------|
+| Active app | The foreground application at each polling interval |
+| Window title | The active window title (useful for identifying tasks within an app) |
+| Browser domains | Domains visited, aggregated into daily summaries |
+| AFK time | Periods of inactivity — excluded from active time calculations |
+| Device info | Machine name and platform, used for multi-device support |
+
+## How it works
+
+<Steps>
+  <Step title="Device registration">
+    On first launch, your machine registers itself with the backend. This supports multiple devices under one account.
+  </Step>
+  <Step title="Event recording">
+    The watcher polls at a configurable interval, records the active app and window title, and writes events to local SQLite.
+  </Step>
+  <Step title="Daily rollups">
+    At the end of each day (and on demand), the watcher computes aggregated summaries: total time per app, top browser domains, AFK percentage.
+  </Step>
+  <Step title="Projection to habit log">
+    The `Computer Use` habit is automatically updated based on your total active computer time for the day. No manual logging needed.
+  </Step>
+  <Step title="Cloud sync">
+    Events sync to Tinybird asynchronously. This powers the analytics views and lets the AI assistant answer questions about your computer usage over long time windows.
+  </Step>
+</Steps>
+
+## Daily summaries
+
+The watcher generates several daily summary types you can query from the dashboard:
+
+- **Top apps** — which apps you used most, ranked by time
+- **Browser summary** — domain breakdown for your browser usage
+- **AFK summary** — how much of your logged time was actually active
+- **Domain breakdown** — daily breakdown per browser domain
+
+## Privacy and exclusions
+
+You have full control over what gets tracked. From **Settings → Computer Tracking → Exclusions**, you can:
+
+- Add specific apps to the exclusion list
+- Remove apps from exclusions
+- See Ritual's suggested exclusions based on your usage patterns
+
+<Info>
+  Computer activity data is stored locally in SQLite on your machine first. Cloud sync to Tinybird is opt-in and happens in the background. You can disable it entirely in settings.
+</Info>
+
+## Screen recording search
+
+If you have screen recording enabled, Ritual indexes your recordings locally. The `local_search_bridge.rs` Rust module connects this local index to Typesense, so you can search your activity history with natural language — useful for reconstructing what you were working on at a specific time.
