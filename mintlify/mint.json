@@ -30,13 +30,6 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "how-it-works"
-      ]
-    },
-    {
-      "group": "Product",
-      "pages": [
-        "core-features",
         "integrations"
       ]
     },

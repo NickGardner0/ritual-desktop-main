@@ -2,51 +2,28 @@
 title: "Introduction"
 ---
 
-Ritual is a collection of self-tracking tools and integrations used to measure and quantify your behavior. You can connect your wearable devices, computer, and phone to generate logs that update automatically, or you can manually submit logs in natural language or voice mode. The end goal of Ritual is to build the most accurate and comprehensive model of your life, focused on your everyday behavior.
+## Introduction
 
-<CardGroup cols={2}>
-  <Card title="How It Works" icon="gear" href="/how-it-works">
-    The architecture: Tauri desktop, FastAPI backend, Tinybird analytics.
-  </Card>
-  <Card title="Core Features" icon="sparkles" href="/core-features">
-    Dashboard views: Index, Logs, Calendar, Timer, and Chat.
-  </Card>
-  <Card title="Integrations" icon="plug" href="/integrations">
-    Whoop, Apple Watch, Computer Tracking, Weather, and more.
-  </Card>
-</CardGroup>
+Ritual is a collection of self-tracking tools and integrations used to measure and quantify your behavior.
 
-## What's in the stack
+## What is Ritual?
 
-Ritual is a full monorepo with several distinct apps working together:
+Ritual connects to the devices you use and wear every day.
+You can connect your wearable devices (Apple Watch, Whoop, Oura Ring) computer, and phone to generate logs that update automatically or you can manually submit logs in natural language or voice mode. AI and vector search can be used to make sense of your behavioral data, parsing it to find new insights and patterns.
 
-| Layer | Tech |
-|-------|------|
-| Desktop shell | Tauri (Rust) — macOS native |
-| Dashboard frontend | Next.js (TypeScript) |
-| Backend API | FastAPI (Python) |
-| Local database | SQLite (via Tauri) |
-| Analytics pipeline | Tinybird |
-| AI assistant | Gemini Flash 2.0 (primary) + OpenAI fallback |
-| Search | Typesense |
-| iOS companion | Swift — Apple Watch data bridge |
-| Browser extension | Web extension for browser activity |
+## Who is Ritual for?
 
-## Quick orientation
+Ritual is built for anyone that wants deeper observability of their life. It is built for anyone that wants to improve, because you will never get better if the progress of what you are working on is impossible to measure.
 
-If you're new to Ritual, start here:
+## Current Features
 
-<Steps>
-  <Step title="Download and install">
-    Download the macOS desktop app. It installs a Tauri wrapper that runs the dashboard and starts the background watcher process.
-  </Step>
-  <Step title="Connect your integrations">
-    Link Whoop via OAuth. The Apple Watch and computer tracking start automatically once the app is running.
-  </Step>
-  <Step title="Add your habits">
-    Set up the habits you want to track. Some are auto-created from your integrations; others you define manually.
-  </Step>
-  <Step title="Start your daily review">
-    Open the Index view each morning. Review yesterday, note today's intent, and let Ritual surface patterns over time.
-  </Step>
-</Steps>
+- **Index:** single source of truth of your behavioral data
+- **Metrics:** charts and analytics to visualize changes over time
+- **Logs:** searchable records and traces of events
+- **Calendar:** Plan tasks and visualize your daily/weekly/monthly schedule
+- **Integrations:** Connect your computer, phone, and wearable devices
+- **Data Import:** Bulk import data in .csv, .xml, .json, .png, or .pdf formats
+- **Ritual Watcher:** Tracks your app and browser usage statistics
+- **Ritual Recorder:** Records your screen and converts frames to OCR text
+- **AI Search:** Ask questions and chat with your behavioral data using specific tool calls.
+- **Vector Search:** Search over screen recording data that's been chunked and converted into embeddings.
