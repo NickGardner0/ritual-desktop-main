@@ -1,83 +1,140 @@
 ---
 title: "Integrations"
-description: "How Ritual connects to wearables, devices, and external data sources."
+description: "API endpoints and automatic tracking for Whoop, Apple Watch, Oura Ring, and Ritual Watcher."
 ---
 
-Ritual combines passive sensor data with manual logs to give you a complete picture without requiring you to track everything yourself. Here's how each integration works.
+Ritual connects to wearables and devices via OAuth and native APIs. Below is a tabular breakdown of each integration’s endpoints and what is tracked automatically.
 
-## Live integrations
+---
 
-### Whoop
+## Whoop
 
-Ritual connects to Whoop via OAuth 2.0. Once linked, it polls the Whoop API and maps data to three habit types:
+Whoop uses OAuth 2.0. Ritual stores tokens encrypted (AES) and polls the Whoop API in the background.
 
-| Whoop metric | Maps to habit | Unit |
-|---|---|---|
-| Sleep duration | `sleep duration` / `sleep` | hours |
-| Recovery score | `recovery score` / `recovery` | % (0–100) |
-| Daily strain | `daily strain` / `strain` | strain score |
+### OAuth 2.0
 
-Data syncs automatically in the background. The OAuth tokens are encrypted at rest using AES encryption before being stored in the database.
+| Step | Endpoint / action |
+|------|-------------------|
+| Authorization | User is sent to `https://api.prod.whoop.com/oauth/oauth2/auth` with `client_id`, `redirect_uri`, `scope`, `state` |
+| Token exchange | `POST https://api.prod.whoop.com/oauth/oauth2/token` with `grant_type=authorization_code`, `code`, `client_id`, `client_secret`, `redirect_uri` |
+| Token refresh | Same token URL with `grant_type=refresh_token` and `refresh_token` |
+| Connect in Ritual | Dashboard → Settings → Integrations → Connect Whoop → Authorize |
 
-**To connect:** Open the dashboard → Settings → Integrations → Connect Whoop → Authorize.
+### Whoop API endpoints (Ritual uses)
 
-### Apple Watch (via iOS Companion)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/developer/v1/user/profile/basic` | User profile (after OAuth) |
+| GET | `/developer/v1/recovery` | Recovery scores (query: `start`, `end`, `limit`, `nextToken`) |
+| GET | `/developer/v1/cycle` | Daily cycles (query: `start`, `end`, `limit`, `nextToken`) |
+| GET | `/developer/v2/cycle/{cycleId}/sleep` | Sleep for a given cycle |
+| GET | `/developer/v1/activity/workout` | Workouts (query: `start`, `end`, `limit`, `nextToken`) |
 
-The iOS companion app bridges Apple Watch data to the Ritual backend. It reads from HealthKit and syncs:
+### Automatically tracked (Whoop → habits)
 
-- Activity rings (move, exercise, stand)
-- Heart rate data
-- Workout sessions
+| Whoop data | Maps to habit | Unit |
+|------------|----------------|------|
+| Sleep (REM + slow wave + light, excl. awake) | Sleep duration / sleep | hours |
+| Recovery score | Recovery score / recovery | % (0–100) |
+| Daily strain (from workouts) | Daily strain / strain | strain score |
 
-**To connect:** Install the Ritual iOS companion app, sign in with the same account, and grant HealthKit permissions.
+---
 
-### Computer Tracking (Watcher)
+## Apple Watch (HealthKit via iOS Companion)
 
-The background Rust process (`watcher.rs`) runs automatically when Ritual is open. It captures:
+The Ritual iOS companion app reads HealthKit and sends normalized metrics to the Ritual backend. Sign in with the same account and grant HealthKit permissions.
 
-<CardGroup cols={2}>
-  <Card title="App usage" icon="window">
-    Which apps are active and for how long. Rolls up into a daily `Computer Use` habit log automatically.
-  </Card>
-  <Card title="Window titles" icon="browser">
-    Active window title for context about what you were working on.
-  </Card>
-  <Card title="Browser domains" icon="globe">
-    Domains visited in your browser, aggregated into daily summaries.
-  </Card>
-  <Card title="AFK detection" icon="clock">
-    Detects away-from-keyboard periods so idle time doesn't inflate your active computer time.
-  </Card>
-</CardGroup>
+### HealthKit metrics Ritual can track
 
-You can manage exclusions — apps or domains you don't want tracked — from Settings → Computer Tracking → Exclusions.
+| Metric type | Description | Unit |
+|-------------|-------------|------|
+| steps | Step count | count |
+| active_energy | Active energy burned | kcal |
+| basal_energy | Basal energy burned | kcal |
+| distance | Walking/running distance | meters / km / miles |
+| flights_climbed | Flights climbed | count |
+| exercise_time | Exercise minutes | minutes |
+| stand_time | Stand hours | hours |
+| hr | Heart rate | bpm |
+| hrv | Heart rate variability | ms |
+| resting_hr | Resting heart rate | bpm |
+| walking_hr | Walking heart rate | bpm |
+| respiratory_rate | Respiratory rate | breaths_per_minute |
+| oxygen_saturation | SpO2 | percent |
+| sleep_session | Sleep session (in bed) | minutes |
+| sleep_asleep | Time asleep | minutes |
+| sleep_awake | Time awake in bed | minutes |
+| sleep_rem | REM sleep | minutes |
+| sleep_deep | Deep sleep | minutes |
+| sleep_core | Core sleep | minutes |
+| workout | Workout sessions | — |
+| mindful_minutes | Mindfulness minutes | minutes |
 
-<Warning>
-  Computer tracking data is stored locally in SQLite first. It only syncs to the cloud (Tinybird) if you have cloud sync enabled.
-</Warning>
+Data is sent to the backend via the ingest API (device registration, HMAC-signed requests, optional incremental sync with HealthKit anchors).
 
-### Weather
+---
 
-Weather context is automatically attached to every log entry using your location. No setup required — it just works. You'll see temperature and conditions alongside your habit logs, which makes it easy to spot correlations (e.g. lower workout consistency on cold or rainy days).
+## Oura Ring
+
+Oura uses OAuth 2.0. The following is the standard API surface; Ritual’s Oura integration may be in development.
+
+### OAuth 2.0
+
+| Step | Endpoint / action |
+|------|-------------------|
+| Authorization | User is sent to `https://cloud.ouraring.com/oauth/authorize` with `client_id`, `redirect_uri`, `scope`, `state` |
+| Token exchange | `POST https://api.ouraring.com/oauth/token` with authorization code |
+| Requests | `Authorization: Bearer <access_token>` on all API calls |
+
+### Oura API v2 endpoints (usercollection)
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v2/usercollection/personal_info` | Demographics, height, weight (scope: `personal`) |
+| `GET /v2/usercollection/daily_sleep` | Sleep scores, stages, duration, quality (scope: `daily` or sleep) |
+| `GET /v2/usercollection/daily_activity` | Steps, calories, activity score (scope: `daily`) |
+| `GET /v2/usercollection/daily_readiness` | Readiness score, HRV, RHR, recovery (scope: `daily`) |
+| `GET /v2/usercollection/heartrate` | Time-series heart rate, e.g. Gen 3 (scope: `heartrate`) |
+| `GET /v2/usercollection/spo2` | Daily SpO2 average during sleep (scope: `spo2`) |
+
+Scopes: `daily` (sleep, activity, readiness), `personal`, `heartrate`, `spo2`. HRV and readiness are available via daily summaries.
+
+---
+
+## Ritual Watcher
+
+The Ritual Watcher is a background process that runs when the desktop app is open. It writes to a local SQLite database; rollups can be synced to the cloud if enabled.
+
+### Automatically tracked (Ritual Watcher)
+
+| Data | Description |
+|------|-------------|
+| App usage | Active app (bundle ID, app name) and duration per segment; rolls up into daily Computer Use habit |
+| Window title | Current window title (optional; privacy modes: off, full, truncate, hash) |
+| Browser domains / URLs | Domains (and optionally URLs) from the active browser tab; from native watcher and/or browser extension heartbeat |
+| Browser tab changes | Tab/URL changes when a supported browser is in focus (polling) |
+| AFK | Away-from-keyboard detection so idle time does not count as active computer time |
+| Screen lock / unlock | Lock and unlock events for session boundaries |
+| Sleep / wake | System sleep and wake for session boundaries |
+| Session timing | Start/end timestamps per activity segment and daily rollups (active_ms, event count) |
+
+Exclusions (apps or domains not tracked) can be set in Settings → Computer Tracking → Exclusions. Computer tracking data is stored locally first and only synced to the cloud (e.g. Tinybird) if cloud sync is enabled.
+
+---
+
+## Weather
+
+Weather context (e.g. temperature and conditions) is attached to log entries by location. No separate setup; it is applied automatically where supported.
 
 ---
 
 ## Planned integrations
 
-These are in active development:
-
-| Source | What it adds |
-|--------|------|
-| Apple Screen Time | Weekly app usage and phone pickup data |
-| Oura Ring | Sleep stages, HRV, readiness score |
+| Source | Planned data |
+|--------|----------------|
+| Apple Screen Time | Weekly app usage, phone pickup (screenshot import supported today) |
 | Fitbit | Steps, active minutes, sleep |
-| Garmin | Workout sessions, VO2 max, training load |
-| Google Calendar | Schedule context alongside habit data |
+| Garmin | Workouts, VO2 max, training load |
+| Google Calendar | Schedule context with habit data |
 
----
-
-## Screenshot import (any source)
-
-For data sources that don't have an API, the screenshot analyzer lets you import data from any app visually. Take a screenshot of a fitness summary, a sleep report, or a productivity app — upload it, and Gemini Flash 2.0 extracts the relevant habits and values automatically.
-
-This is especially useful for Apple Screen Time weekly summaries, which aren't available via API.
+Screenshot import (any source): the screenshot analyzer can extract habits and values from images (e.g. fitness or sleep reports) using the existing pipeline when an API is not available.
