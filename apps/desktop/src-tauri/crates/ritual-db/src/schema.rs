@@ -13,7 +13,7 @@ use tracing::{debug, info};
 use crate::error::{DatabaseError, Result};
 
 /// Current schema version - increment when making breaking changes
-pub const SCHEMA_VERSION: i32 = 3;
+pub const SCHEMA_VERSION: i32 = 4;
 
 /// Initialize the complete database schema
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -25,6 +25,7 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     create_recorder_tables(conn).await?;
     create_sync_tables(conn).await?;
     create_vector_tables(conn).await?;
+    create_memory_pipeline_tables(conn).await?;
     
     // Create indexes
     create_indexes(conn).await?;
@@ -39,6 +40,119 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     record_schema_version(conn, SCHEMA_VERSION).await?;
     
     info!("Schema initialization complete");
+    Ok(())
+}
+
+/// Create recorder memory/query pipeline tables (schema v4)
+async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
+    debug!("Creating memory pipeline tables");
+
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS capture_events_raw (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            device_id TEXT,
+            user_id TEXT,
+            ts_event INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            dedup_key TEXT,
+            ingest_status TEXT NOT NULL DEFAULT 'pending',
+            ingest_error TEXT,
+            created_at INTEGER NOT NULL,
+            ingested_at INTEGER
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_capture_events_raw_dedup
+            ON capture_events_raw(dedup_key)
+            WHERE dedup_key IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS search_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            logical_chunk_id TEXT,
+            chunk_start_ts INTEGER NOT NULL,
+            chunk_end_ts INTEGER NOT NULL,
+            app_bundle_id TEXT,
+            app_name TEXT,
+            window_title_norm TEXT,
+            browser_domain TEXT,
+            text_compact TEXT NOT NULL,
+            content_hash TEXT,
+            keywords_json TEXT,
+            quality_score REAL NOT NULL,
+            frame_count INTEGER NOT NULL,
+            build_version INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS search_chunk_frames (
+            chunk_id INTEGER NOT NULL,
+            frame_id INTEGER NOT NULL,
+            PRIMARY KEY (chunk_id, frame_id),
+            FOREIGN KEY (chunk_id) REFERENCES search_chunks(id) ON DELETE CASCADE,
+            FOREIGN KEY (frame_id) REFERENCES ocr_frames(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS chunk_embeddings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chunk_id INTEGER NOT NULL UNIQUE,
+            embedding F32_BLOB(384),
+            model_version TEXT NOT NULL DEFAULT 'all-MiniLM-L6-v2',
+            status TEXT NOT NULL DEFAULT 'pending',
+            error_message TEXT,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (chunk_id) REFERENCES search_chunks(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS pipeline_watermarks (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            last_capture_ts INTEGER,
+            last_activity_ts INTEGER,
+            last_ocr_frame_ts INTEGER,
+            last_chunk_built_ts INTEGER,
+            last_chunk_embedded_ts INTEGER,
+            pending_chunks INTEGER NOT NULL DEFAULT 0,
+            oldest_pending_chunk_ts INTEGER,
+            source_mismatch INTEGER NOT NULL DEFAULT 0,
+            source_mismatch_note TEXT,
+            updated_at INTEGER NOT NULL
+        );
+
+        INSERT OR IGNORE INTO pipeline_watermarks (id, updated_at)
+        VALUES (1, 0);
+
+        CREATE TABLE IF NOT EXISTS memory_upload_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            chunk_id INTEGER NOT NULL,
+            logical_chunk_id TEXT,
+            content_hash TEXT,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            next_retry_at INTEGER,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_upload_outbox_chunk_lookup
+            ON memory_upload_outbox(user_id, device_id, chunk_id);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_upload_outbox_logical
+            ON memory_upload_outbox(user_id, device_id, logical_chunk_id);
+
+        CREATE INDEX IF NOT EXISTS idx_memory_upload_outbox_status
+            ON memory_upload_outbox(status, next_retry_at, updated_at);
+        "#
+    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
@@ -339,6 +453,24 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
         -- Vector embedding indexes
         CREATE INDEX IF NOT EXISTS idx_ocr_embeddings_frame 
             ON ocr_embeddings(frame_id);
+
+        CREATE INDEX IF NOT EXISTS idx_capture_events_raw_status_ts
+            ON capture_events_raw(ingest_status, ts_event DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_search_chunks_time
+            ON search_chunks(chunk_start_ts, chunk_end_ts);
+
+        CREATE INDEX IF NOT EXISTS idx_search_chunks_app_time
+            ON search_chunks(app_bundle_id, chunk_start_ts);
+
+        CREATE INDEX IF NOT EXISTS idx_search_chunks_logical
+            ON search_chunks(logical_chunk_id, chunk_end_ts);
+
+        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_status_updated
+            ON chunk_embeddings(status, updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_pipeline_watermarks_updated
+            ON pipeline_watermarks(updated_at DESC);
         
         -- Activity segment indexes
         CREATE INDEX IF NOT EXISTS idx_segments_device_ts 
@@ -610,8 +742,221 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_ocr_frames_activity_type ON ocr_frames(activity_type)",
         ()
     ).await;
+
+    // Migration v4: memory query pipeline tables/indexes
+    create_memory_pipeline_tables(conn).await?;
+    let _ = add_column_if_missing(
+        conn,
+        "search_chunks",
+        "logical_chunk_id",
+        "TEXT"
+    ).await;
+    let _ = add_column_if_missing(
+        conn,
+        "search_chunks",
+        "content_hash",
+        "TEXT"
+    ).await;
+    let _ = add_column_if_missing(
+        conn,
+        "memory_upload_outbox",
+        "logical_chunk_id",
+        "TEXT"
+    ).await;
+    let _ = add_column_if_missing(
+        conn,
+        "memory_upload_outbox",
+        "content_hash",
+        "TEXT"
+    ).await;
+    let _ = backfill_search_chunk_identity(conn).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE search_chunks
+        SET logical_chunk_id = printf('local-search-chunk-%d', id)
+        WHERE logical_chunk_id IS NULL OR TRIM(logical_chunk_id) = ''
+        "#,
+        ()
+    ).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE search_chunks
+        SET content_hash = printf('legacy-%d-%d-%d', id, chunk_start_ts, chunk_end_ts)
+        WHERE content_hash IS NULL OR TRIM(content_hash) = ''
+        "#,
+        ()
+    ).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE memory_upload_outbox
+        SET logical_chunk_id = COALESCE(
+            NULLIF(logical_chunk_id, ''),
+            NULLIF(json_extract(payload_json, '$.logical_chunk_id'), ''),
+            printf('local-search-chunk-%d', chunk_id)
+        )
+        WHERE logical_chunk_id IS NULL OR TRIM(logical_chunk_id) = ''
+        "#,
+        ()
+    ).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE memory_upload_outbox
+        SET content_hash = COALESCE(
+            NULLIF(content_hash, ''),
+            NULLIF(json_extract(payload_json, '$.content_hash'), '')
+        )
+        WHERE content_hash IS NULL OR TRIM(content_hash) = ''
+        "#,
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_capture_events_raw_status_ts ON capture_events_raw(ingest_status, ts_event DESC)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_chunks_time ON search_chunks(chunk_start_ts, chunk_end_ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_chunks_app_time ON search_chunks(app_bundle_id, chunk_start_ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_chunks_logical ON search_chunks(logical_chunk_id, chunk_end_ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_status_updated ON chunk_embeddings(status, updated_at DESC)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_upload_outbox_logical ON memory_upload_outbox(user_id, device_id, logical_chunk_id)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "DROP INDEX IF EXISTS idx_memory_upload_outbox_chunk",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memory_upload_outbox_chunk_lookup ON memory_upload_outbox(user_id, device_id, chunk_id)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pipeline_watermarks_updated ON pipeline_watermarks(updated_at DESC)",
+        ()
+    ).await;
     
     debug!("Schema migrations complete");
+    Ok(())
+}
+
+fn normalize_identity_text(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_lowercase()
+}
+
+fn stable_hash64(input: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+async fn backfill_search_chunk_identity(conn: &Connection) -> Result<()> {
+    let mut rows = conn
+        .query(
+            r#"
+            SELECT
+              id,
+              COALESCE(device_id, ''),
+              COALESCE(user_id, ''),
+              COALESCE(chunk_start_ts, 0),
+              COALESCE(chunk_end_ts, 0),
+              COALESCE(app_bundle_id, ''),
+              COALESCE(app_name, ''),
+              COALESCE(window_title_norm, ''),
+              COALESCE(text_compact, ''),
+              COALESCE(logical_chunk_id, ''),
+              COALESCE(content_hash, '')
+            FROM search_chunks
+            WHERE COALESCE(TRIM(logical_chunk_id), '') = ''
+               OR COALESCE(TRIM(content_hash), '') = ''
+            "#,
+            (),
+        )
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    let mut updates: Vec<(i64, String, String)> = Vec::new();
+    while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Schema(e.to_string()))? {
+        let id: i64 = row.get(0).unwrap_or(0);
+        if id <= 0 {
+            continue;
+        }
+        let device_id: String = row.get(1).unwrap_or_else(|_| "local-device".to_string());
+        let user_id: String = row.get(2).unwrap_or_else(|_| "local-user".to_string());
+        let chunk_start_ts: i64 = row.get(3).unwrap_or(0);
+        let chunk_end_ts: i64 = row.get(4).unwrap_or(0);
+        let app_bundle_id: String = row.get(5).unwrap_or_default();
+        let app_name: String = row.get(6).unwrap_or_default();
+        let window_title_norm: String = row.get(7).unwrap_or_default();
+        let text_compact: String = row.get(8).unwrap_or_default();
+        let existing_logical: String = row.get(9).unwrap_or_default();
+        let existing_hash: String = row.get(10).unwrap_or_default();
+
+        let logical_seed = format!(
+            "v1|{}|{}|{}|{}|{}|{}|{}",
+            normalize_identity_text(&device_id),
+            normalize_identity_text(&user_id),
+            chunk_start_ts,
+            chunk_end_ts,
+            normalize_identity_text(&app_bundle_id),
+            normalize_identity_text(&app_name),
+            normalize_identity_text(&window_title_norm),
+        );
+        let logical_chunk_id = if existing_logical.trim().is_empty() {
+            format!("lch_{:016x}", stable_hash64(&logical_seed))
+        } else {
+            existing_logical
+        };
+        let content_hash = if existing_hash.trim().is_empty() {
+            let content_seed = format!("{}|{}", logical_seed, normalize_identity_text(&text_compact));
+            format!("ch_{:016x}", stable_hash64(&content_seed))
+        } else {
+            existing_hash
+        };
+        updates.push((id, logical_chunk_id, content_hash));
+    }
+
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    for (id, logical_chunk_id, content_hash) in updates {
+        conn.execute(
+            r#"
+            UPDATE search_chunks
+            SET logical_chunk_id = ?,
+                content_hash = ?,
+                updated_at = CASE
+                    WHEN COALESCE(updated_at, 0) <= 0 THEN ?
+                    ELSE updated_at
+                END
+            WHERE id = ?
+            "#,
+            libsql::params![logical_chunk_id, content_hash, now, id],
+        )
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+    }
+
     Ok(())
 }
 

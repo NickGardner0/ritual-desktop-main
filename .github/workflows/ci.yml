@@ -21,6 +21,19 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/backend/requirements.txt
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       # Using npm install (not npm ci) during migration while lockfile/workspaces
       # are being normalized in-repo.
       # --legacy-peer-deps: react-day-picker@8 expects React 18; project uses React 19
@@ -38,3 +51,12 @@ jobs:
 
       - name: Lint dashboard
         run: npm run lint
+
+      - name: Python backend compile check
+        run: python -m compileall -q apps/backend
+
+      - name: Python backend memory tests
+        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_memory_golden_gate.py apps/backend/tests/test_watcher_screen_search.py apps/backend/tests/test_memory_turbopuffer_parser.py apps/backend/tests/test_memory_ingest_supersede.py
+
+      - name: Rust desktop check
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked

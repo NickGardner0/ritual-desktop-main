@@ -30,7 +30,6 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "what-ritual-is",
         "how-it-works"
       ]
     },
@@ -38,16 +37,7 @@
       "group": "Product",
       "pages": [
         "core-features",
-        "integrations",
-        "daily-routine"
-      ]
-    },
-    {
-      "group": "Under the Hood",
-      "pages": [
-        "desktop-app",
-        "computer-tracking",
-        "ai-assistant"
+        "integrations"
       ]
     },
     {

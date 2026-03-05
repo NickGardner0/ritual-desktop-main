@@ -95,6 +95,17 @@ apps/backend/.turso_replica.db-shm
 apps/backend/.turso_replica.db-wal
 apps/backend/.turso_replica.db-info
 apps/backend/:memory*
+apps/backend/.turso_replica.db*.corrupt-*
+apps/backend/.turso_replica.db-info.corrupt-*
+apps/backend/.turso_replica.db-shm.corrupt-*
+apps/backend/.turso_replica.db-wal.corrupt-*
+
+# Local memory cloud sqlite state
+apps/backend/.memory_cloud.db
+apps/backend/.memory_cloud.db-shm
+apps/backend/.memory_cloud.db-wal
+apps/backend/.memory_cloud.db-*
+apps/backend/.memory_cloud.db.*
 
 # Backup files
 backups/
