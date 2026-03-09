@@ -184,6 +184,61 @@ class MemoryIngestSupersedeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(superseded_count, 1)
         self.assertEqual(queued_deletes, 1)
 
+    async def test_persists_contextual_and_raw_chunk_fields(self):
+        now_ms = int(time.time() * 1000)
+        chunk = {
+            "chunk_id": "legacy-id-ctx-1",
+            "logical_chunk_id": "logical-ctx-1",
+            "chunk_start_ts": now_ms - 10_000,
+            "chunk_end_ts": now_ms,
+            "app_name": "Things 3",
+            "window_title": "Inbox",
+            "browser_domain": "",
+            "text_compact": "fallback contextual text",
+            "raw_text_compact": "buy groceries\nplan sprint",
+            "contextual_text_compact": (
+                "Session: task planning session in Things 3\n"
+                "Primary app: Things 3\n"
+                "Observed content: buy groceries\nplan sprint"
+            ),
+            "context_version": 3,
+            "session_key": "session-123",
+            "session_position": 2,
+            "session_chunk_count": 5,
+            "quality_score": 0.8,
+            "source_frame_ids": [1, 2, 3],
+            "content_hash": "hash-contextual",
+        }
+
+        result = await ingest_memory_chunks(
+            user_id="user-1",
+            device_id="device-1",
+            chunks=[chunk],
+            process_batch_after_ingest=False,
+        )
+
+        self.assertEqual(int(result.get("accepted") or 0), 1)
+
+        with get_memory_db() as conn:
+            row = conn.execute(
+                """
+                SELECT raw_text_compact, contextual_text_compact, text_compact,
+                       context_version, session_key, session_position, session_chunk_count
+                FROM memory_chunks
+                WHERE user_id = ? AND device_id = ? AND logical_chunk_id = ? AND deleted_at IS NULL
+                """,
+                ("user-1", "device-1", "logical-ctx-1"),
+            ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "buy groceries\nplan sprint")
+        self.assertIn("task planning session", row[1])
+        self.assertEqual(row[2], row[1])
+        self.assertEqual(int(row[3]), 3)
+        self.assertEqual(row[4], "session-123")
+        self.assertEqual(int(row[5]), 2)
+        self.assertEqual(int(row[6]), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

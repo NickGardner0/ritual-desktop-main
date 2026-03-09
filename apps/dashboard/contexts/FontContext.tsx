@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 export type FontOption = 'fk-grotesk' | 'geist-sans';
 
@@ -20,14 +20,14 @@ const fontClasses: Record<FontOption, string> = {
 };
 
 export function FontProvider({ children }: { children: ReactNode }) {
-  const [font, setFontState] = useState<FontOption>(() => {
-    if (typeof window === 'undefined') return 'fk-grotesk';
+  const [font, setFontState] = useState<FontOption>('fk-grotesk');
+
+  useEffect(() => {
     const stored = localStorage.getItem(FONT_STORAGE_KEY);
     if (stored === 'fk-grotesk' || stored === 'geist-sans') {
-      return stored;
+      setFontState(stored);
     }
-    return 'fk-grotesk';
-  });
+  }, []);
 
   // Save font preference to localStorage when it changes
   const setFont = (newFont: FontOption) => {

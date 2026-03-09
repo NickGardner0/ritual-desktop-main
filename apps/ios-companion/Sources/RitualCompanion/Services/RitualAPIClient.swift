@@ -237,8 +237,13 @@ final class RitualAPIClient {
         // Update stored token
         authToken = jwt
         
-        // Clerk tokens typically expire in 1 hour, but let's be conservative
-        tokenExpiry = Date().addingTimeInterval(3300) // 55 minutes
+        // Derive token expiry from JWT exp claim when available.
+        if let jwtExpiry = decodeJWTExpiry(jwt) {
+            tokenExpiry = jwtExpiry
+        } else {
+            // Safe fallback if token payload parsing fails.
+            tokenExpiry = Date().addingTimeInterval(3300)
+        }
     }
     
     /// Check if Clerk session is valid and token can be refreshed
@@ -257,6 +262,37 @@ final class RitualAPIClient {
         deviceId = nil
         deviceSecret = nil
         authToken = nil
+        tokenExpiry = nil
+    }
+
+    // MARK: - JWT Helpers
+
+    /// Decode JWT payload and extract exp as an absolute date.
+    private func decodeJWTExpiry(_ jwt: String) -> Date? {
+        let segments = jwt.split(separator: ".")
+        guard segments.count > 1 else { return nil }
+
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+
+        let remainder = payload.count % 4
+        if remainder > 0 {
+            payload += String(repeating: "=", count: 4 - remainder)
+        }
+
+        guard let data = Data(base64Encoded: payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        if let exp = json["exp"] as? TimeInterval {
+            return Date(timeIntervalSince1970: exp)
+        }
+        if let expInt = json["exp"] as? Int {
+            return Date(timeIntervalSince1970: TimeInterval(expInt))
+        }
+        return nil
     }
     
     // MARK: - Signature Computation
@@ -298,6 +334,31 @@ final class RitualAPIClient {
     }
     
     // MARK: - HTTP Methods
+
+    private func mapTransportError(_ error: Error) -> Error {
+        if let apiError = error as? APIError {
+            return apiError
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet,
+                 .networkConnectionLost,
+                 .cannotFindHost,
+                 .cannotConnectToHost,
+                 .dnsLookupFailed,
+                 .timedOut,
+                 .internationalRoamingOff,
+                 .dataNotAllowed,
+                 .callIsActive:
+                return APIError.networkUnavailable
+            default:
+                break
+            }
+        }
+
+        return error
+    }
     
     private func get<R: Decodable>(path: String) async throws -> R {
         guard let url = URL(string: baseURL + path) else {
@@ -316,7 +377,13 @@ final class RitualAPIClient {
         print("📤 GET \(path)")
         #endif
         
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw mapTransportError(error)
+        }
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
@@ -361,7 +428,13 @@ final class RitualAPIClient {
         }
         #endif
         
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw mapTransportError(error)
+        }
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse

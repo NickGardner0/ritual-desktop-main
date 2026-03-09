@@ -17,10 +17,13 @@ Features:
 import os
 import json
 import hashlib
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Literal
 import typesense
 from typesense.exceptions import ObjectNotFound, TypesenseClientError
+
+logger = logging.getLogger(__name__)
 
 # Collection schemas
 HABITS_SCHEMA = {
@@ -171,7 +174,7 @@ class SearchService:
         protocol = os.getenv("TYPESENSE_PROTOCOL", "http")
         
         if not api_key:
-            print("⚠️ TYPESENSE_API_KEY not set - search features disabled")
+            logger.warning("⚠️ TYPESENSE_API_KEY not set - search features disabled")
             return
         
         try:
@@ -185,9 +188,9 @@ class SearchService:
                 "connection_timeout_seconds": 5,
             })
             self._initialized = True
-            print(f"✅ Typesense client initialized: {protocol}://{host}:{port}")
+            logger.info(f"✅ Typesense client initialized: {protocol}://{host}:{port}")
         except Exception as e:
-            print(f"❌ Failed to initialize Typesense client: {e}")
+            logger.error(f"❌ Failed to initialize Typesense client: {e}")
     
     @property
     def is_available(self) -> bool:
@@ -214,13 +217,13 @@ class SearchService:
         for schema in schemas:
             try:
                 self.client.collections[schema["name"]].retrieve()
-                print(f"✓ Collection '{schema['name']}' exists")
+                logger.info(f"✓ Collection '{schema['name']}' exists")
             except ObjectNotFound:
                 try:
                     self.client.collections.create(schema)
-                    print(f"✓ Created collection '{schema['name']}'")
+                    logger.info(f"✓ Created collection '{schema['name']}'")
                 except TypesenseClientError as e:
-                    print(f"❌ Failed to create collection '{schema['name']}': {e}")
+                    logger.error(f"❌ Failed to create collection '{schema['name']}': {e}")
     
     # ================================
     # INDEXING - HABITS
@@ -252,7 +255,7 @@ class SearchService:
             
             self.client.collections["habits"].documents.upsert(doc)
         except Exception as e:
-            print(f"❌ Failed to index habit {habit.get('id')}: {e}")
+            logger.error(f"❌ Failed to index habit {habit.get('id')}: {e}")
     
     async def delete_habit_index(self, habit_id: str):
         """Remove a habit from the index"""
@@ -264,7 +267,7 @@ class SearchService:
         except ObjectNotFound:
             pass
         except Exception as e:
-            print(f"❌ Failed to delete habit index {habit_id}: {e}")
+            logger.error(f"❌ Failed to delete habit index {habit_id}: {e}")
     
     # ================================
     # INDEXING - HABIT LOGS
@@ -298,7 +301,7 @@ class SearchService:
             
             self.client.collections["habit_logs"].documents.upsert(doc)
         except Exception as e:
-            print(f"❌ Failed to index habit log {log.get('id')}: {e}")
+            logger.error(f"❌ Failed to index habit log {log.get('id')}: {e}")
     
     async def delete_habit_log_index(self, log_id: str):
         """Remove a log from the index"""
@@ -310,7 +313,7 @@ class SearchService:
         except ObjectNotFound:
             pass
         except Exception as e:
-            print(f"❌ Failed to delete log index {log_id}: {e}")
+            logger.error(f"❌ Failed to delete log index {log_id}: {e}")
     
     # ================================
     # INDEXING - AI MESSAGES
@@ -336,7 +339,7 @@ class SearchService:
             
             self.client.collections["ai_messages"].documents.upsert(doc)
         except Exception as e:
-            print(f"❌ Failed to index AI message {message.get('id')}: {e}")
+            logger.error(f"❌ Failed to index AI message {message.get('id')}: {e}")
     
     # ================================
     # INDEXING - COMPUTER ACTIVITY
@@ -365,7 +368,7 @@ class SearchService:
             
             self.client.collections["computer_activity"].documents.upsert(doc)
         except Exception as e:
-            print(f"❌ Failed to index activity: {e}")
+            logger.error(f"❌ Failed to index activity: {e}")
     
     # ================================
     # INDEXING - LOG PHRASES (learned input patterns)
@@ -409,7 +412,7 @@ class SearchService:
             
             self.client.collections["log_phrases"].documents.upsert(doc)
         except Exception as e:
-            print(f"⚠️ Failed to index log phrase: {e}")
+            logger.warning(f"⚠️ Failed to index log phrase: {e}")
     
     # ================================
     # BULK INDEXING
@@ -442,9 +445,9 @@ class SearchService:
         
         try:
             self.client.collections["habits"].documents.import_(docs, {"action": "upsert"})
-            print(f"✓ Indexed {len(docs)} habits")
+            logger.info(f"✓ Indexed {len(docs)} habits")
         except Exception as e:
-            print(f"❌ Bulk habit indexing failed: {e}")
+            logger.error(f"❌ Bulk habit indexing failed: {e}")
     
     async def bulk_index_logs(self, logs: List[Dict], user_id: str):
         """Bulk index multiple habit logs"""
@@ -473,9 +476,9 @@ class SearchService:
         
         try:
             self.client.collections["habit_logs"].documents.import_(docs, {"action": "upsert"})
-            print(f"✓ Indexed {len(docs)} logs")
+            logger.info(f"✓ Indexed {len(docs)} logs")
         except Exception as e:
-            print(f"❌ Bulk log indexing failed: {e}")
+            logger.error(f"❌ Bulk log indexing failed: {e}")
     
     # ================================
     # SEARCH - FEDERATED (GLOBAL)
@@ -569,7 +572,7 @@ class SearchService:
                 "activity": self._format_results(results.get("results", [{}])[3] if len(searches) > 3 else {}),
             }
         except Exception as e:
-            print(f"❌ Search failed: {e}")
+            logger.error(f"❌ Search failed: {e}")
             return self._fallback_search(query)
     
     # ================================
@@ -616,7 +619,7 @@ class SearchService:
                 for hit in result.get("hits", [])
             ]
         except Exception as e:
-            print(f"❌ Habit search failed: {e}")
+            logger.error(f"❌ Habit search failed: {e}")
             return []
     
     # ================================
@@ -666,7 +669,7 @@ class SearchService:
                 "facets": result.get("facet_counts", []),
             }
         except Exception as e:
-            print(f"❌ Log search failed: {e}")
+            logger.error(f"❌ Log search failed: {e}")
             return {"hits": [], "found": 0}
     
     # ================================
@@ -753,7 +756,7 @@ class SearchService:
             result["logs"] = self._format_results(logs_result)
             
         except Exception as e:
-            print(f"❌ Failed to get recent items: {e}")
+            logger.error(f"❌ Failed to get recent items: {e}")
         
         return result
     
@@ -871,7 +874,7 @@ class SearchService:
             return [v for v, _ in counter.most_common(6)]
         
         except Exception as e:
-            print(f"⚠️ Get habit values failed: {e}")
+            logger.warning(f"⚠️ Get habit values failed: {e}")
             return []
 
     async def _get_log_suggestions(
@@ -944,7 +947,7 @@ class SearchService:
             except ObjectNotFound:
                 pass  # log_phrases collection may not exist yet
             except Exception as e:
-                print(f"⚠️ Log phrase search failed: {e}")
+                logger.warning(f"⚠️ Log phrase search failed: {e}")
             
             # Strategy 2: Fallback to habit name prefix search
             if not matched_habit:
@@ -967,7 +970,7 @@ class SearchService:
                             "unit_type": h.get("unit_type", ""),
                         }
                 except Exception as e:
-                    print(f"⚠️ Habit name search failed: {e}")
+                    logger.warning(f"⚠️ Habit name search failed: {e}")
             
             # If we matched a habit, generate value-based suggestions
             if matched_habit:
@@ -1046,7 +1049,7 @@ class SearchService:
                 return suggestions
         
         except Exception as e:
-            print(f"⚠️ Recent habits fetch failed: {e}")
+            logger.warning(f"⚠️ Recent habits fetch failed: {e}")
 
         # Fallback
         if habits_context:
@@ -1085,7 +1088,7 @@ class SearchService:
                     for hit in result.get("hits", [])
                 ]
             except Exception as e:
-                print(f"⚠️ Chat suggestions - habits fetch failed: {e}")
+                logger.warning(f"⚠️ Chat suggestions - habits fetch failed: {e}")
 
         if not habit_names and habits_context:
             habit_names = [h.get("name", "") for h in habits_context if h.get("name")]
@@ -1188,4 +1191,3 @@ class SearchService:
 
 # Global service instance
 search_service = SearchService()
-

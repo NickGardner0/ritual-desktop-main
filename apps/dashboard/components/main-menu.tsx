@@ -12,6 +12,7 @@ import {
   TableProperties,
   CalendarDays,
 } from "lucide-react";
+import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { useAuth } from "@clerk/nextjs";
 import dynamic from 'next/dynamic';
@@ -45,6 +46,7 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
 
 const icons = {
   "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
+  "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
   "/timer": (props: React.SVGProps<SVGSVGElement>) => <Timer {...props} />,
@@ -56,6 +58,10 @@ const items = [
   {
     path: "/dashboard",
     name: "Index",
+  },
+  {
+    path: "/tasks",
+    name: "Tasks",
   },
   {
     path: "/activity",
@@ -232,10 +238,10 @@ const Item = ({
           {/* Icon - always in same position from sidebar edge */}
           <div className={cn(
             "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
-            "text-gray-600 group-hover:text-gray-800",
-            isCollapsedActive && "text-gray-900 scale-[1.04]"
+            "text-gray-900",
+            isCollapsedActive && "scale-[1.04]"
           )}>
-            <Icon className="w-5 h-5" strokeWidth={isCollapsedActive ? 2.45 : 2.1} />
+            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.55 : 2.0} />
           </div>
 
           {isExpanded && (

@@ -345,15 +345,19 @@ impl<'a> RecorderOps<'a> {
             return Ok(Vec::new());
         }
 
-        let frames = match self.execute_fts_search(query, limit).await {
+        let expanded_query = build_expanded_fts_query(query);
+        let primary_query = if expanded_query.is_empty() { query } else { expanded_query.as_str() };
+
+        let frames = match self.execute_fts_search(primary_query, limit).await {
             Ok(frames) => frames,
             Err(err) if is_fts_syntax_error(&err) => {
                 let fallback_query = escape_fts_phrase(query);
-                if fallback_query.is_empty() || fallback_query == query {
+                if fallback_query.is_empty() || fallback_query == primary_query {
                     return Err(err);
                 }
                 tracing::warn!(
                     original_query = query,
+                    expanded_query = primary_query,
                     fallback_query = fallback_query,
                     "FTS query syntax failed, retrying with escaped phrase query"
                 );
@@ -376,18 +380,28 @@ impl<'a> RecorderOps<'a> {
     
     /// Get frames without embeddings (for background processing)
     pub async fn get_frames_without_embeddings(&self, limit: usize) -> Result<Vec<OcrFrame>> {
+        let recent_cutoff = chrono::Utc::now()
+            .timestamp_millis()
+            .saturating_sub(24 * 60 * 60 * 1000);
         let mut rows = self.conn.query(
             r#"
             SELECT f.id, f.timestamp, f.activity_event_id, f.app_bundle_id, f.app_name,
                    f.window_title, f.ocr_text, f.ocr_confidence, f.thumbnail_path,
-                   f.video_chunk_id, f.frame_offset, f.image_hash, f.storage_tier, f.created_at
+                   f.video_chunk_id, f.frame_offset, f.image_hash, f.storage_tier, f.created_at,
+                   f.summary, f.activity_type, f.keywords, f.text_quality
             FROM ocr_frames f
             LEFT JOIN ocr_embeddings e ON f.id = e.frame_id
-            WHERE e.id IS NULL AND f.ocr_text IS NOT NULL AND f.ocr_text != ''
+            WHERE e.id IS NULL
+              AND f.timestamp >= ?
+              AND (
+                COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
+                OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
+                OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
+              )
             ORDER BY f.timestamp DESC
             LIMIT ?
             "#,
-            libsql::params![limit as i64]
+            libsql::params![recent_cutoff, limit as i64]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
         
         self.rows_to_ocr_frames(&mut rows).await
@@ -645,6 +659,127 @@ fn escape_fts_phrase(query: &str) -> String {
         return String::new();
     }
     format!("\"{}\"", phrase.replace('"', "\"\""))
+}
+
+fn extract_base_tokens(query: &str) -> Vec<String> {
+    let mut normalized = String::with_capacity(query.len());
+    for ch in query.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch.is_whitespace() {
+            normalized.push(ch);
+        } else {
+            normalized.push(' ');
+        }
+    }
+
+    let mut tokens = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for token in normalized.split_whitespace() {
+        let lower = token.to_ascii_lowercase();
+        if lower.len() < 3 {
+            continue;
+        }
+        if seen.insert(lower.clone()) {
+            tokens.push(lower);
+        }
+    }
+    tokens
+}
+
+fn split_compound_token(token: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut prev_is_alpha = false;
+    let mut prev_is_lower = false;
+    let mut prev_is_digit = false;
+
+    for ch in token.chars() {
+        let is_alpha = ch.is_ascii_alphabetic();
+        let is_lower = ch.is_ascii_lowercase();
+        let is_digit = ch.is_ascii_digit();
+
+        let boundary = (!current.is_empty())
+            && (
+                (prev_is_lower && ch.is_ascii_uppercase())
+                || (prev_is_digit && is_alpha)
+                || (prev_is_alpha && is_digit)
+            );
+
+        if boundary {
+            out.push(current.to_ascii_lowercase());
+            current.clear();
+        }
+
+        current.push(ch);
+        prev_is_alpha = is_alpha;
+        prev_is_lower = is_lower;
+        prev_is_digit = is_digit;
+    }
+
+    if !current.is_empty() {
+        out.push(current.to_ascii_lowercase());
+    }
+
+    out
+}
+
+fn aliases_for_token(token: &str) -> &'static [&'static str] {
+    match token {
+        "auth" => &["authentication", "login", "signin", "token", "oauth"],
+        "authentication" => &["auth", "login", "signin", "token", "oauth"],
+        "login" => &["signin", "auth", "authentication"],
+        "signin" | "sign-in" => &["login", "auth", "authentication"],
+        "bug" => &["issue", "error", "fix"],
+        "issue" => &["bug", "error", "fix"],
+        "landing" => &["homepage", "home", "marketing"],
+        "homepage" => &["landing", "home", "marketing"],
+        "repo" => &["repository", "github", "git"],
+        "repository" => &["repo", "github", "git"],
+        _ => &[],
+    }
+}
+
+fn build_expanded_fts_query(query: &str) -> String {
+    let base_tokens = extract_base_tokens(query);
+    if base_tokens.is_empty() {
+        return String::new();
+    }
+
+    let mut expanded = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for token in base_tokens {
+        for split in split_compound_token(&token) {
+            if split.len() >= 3 && seen.insert(split.clone()) {
+                expanded.push(split);
+            }
+        }
+
+        for alias in aliases_for_token(&token) {
+            let alias_clean: String = alias
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '.')
+                .collect::<String>()
+                .to_ascii_lowercase();
+            if alias_clean.len() >= 3 && seen.insert(alias_clean.clone()) {
+                expanded.push(alias_clean);
+            }
+        }
+    }
+
+    if expanded.is_empty() {
+        return String::new();
+    }
+
+    let terms: Vec<String> = expanded
+        .into_iter()
+        .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
+        .collect();
+
+    if terms.len() == 1 {
+        terms[0].clone()
+    } else {
+        format!("({})", terms.join(" OR "))
+    }
 }
 
 fn is_fts_syntax_error(err: &DatabaseError) -> bool {

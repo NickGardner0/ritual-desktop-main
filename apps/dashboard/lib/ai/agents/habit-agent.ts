@@ -429,14 +429,14 @@ function createTools(ctx: RitualContext) {
         return {
           available: true,
           searchFeature: 'AI Search',
-          location: 'Computer Activity panel → AI Search tab',
+          location: 'Activity Breakdown panel → AI Search tab',
           capabilities: [
             'Search by natural language (e.g., "React documentation")',
             'Find specific content you were viewing',
             'See thumbnails of matched moments',
             'Filter by time range',
           ],
-          howToUse: `To answer "${params.userQuestion}", use the **AI Search** feature in the Computer Activity panel. Click on Computer Activity (monitor icon) in the sidebar, then select the "AI Search" tab. You can type natural language queries there.`,
+          howToUse: `To answer "${params.userQuestion}", use the **AI Search** feature in the Activity Breakdown panel. Click on Activity Breakdown (monitor icon) in the sidebar, then select the "AI Search" tab. You can type natural language queries there.`,
           examples: [
             '"meeting notes" → finds when you were looking at meeting notes',
             '"API documentation" → finds when you were reading API docs',
@@ -468,7 +468,7 @@ ${COMMON_AGENT_RULES}
 - Use markdown tables for daily breakdowns
 - Provide encouraging insights
 
-Computer Activity Guidelines:
+Computer Time Guidelines:
 - Use getComputerActivity for general screen time questions
 - Use getAppUsage when asked about specific apps (Slack, Chrome, VS Code, etc.)
 - Use getWebsiteUsage when asked about specific websites (GitHub, Twitter, YouTube, etc.)
@@ -483,7 +483,7 @@ Screen Recording Search Guidelines:
   * Any question about finding specific content they were viewing
   * Questions about their screen history that need semantic search
 - The AI Search feature uses OCR text from screen recordings to find moments
-- Guide users to the Computer Activity → AI Search tab for these queries
+- Guide users to the Activity Breakdown → AI Search tab for these queries
 - This is different from aggregate stats (which we can answer directly)
 </agent-specific-rules>`,
   tools: createTools,

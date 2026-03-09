@@ -42,7 +42,7 @@ function getTimeRangeMs(preset: TimeRangePreset): { start: number; end: number }
     case '12H':
       return { start: now - 12 * 60 * 60 * 1000, end: now }
     case '1D':
-      return { start: startOfDayLocal(now), end: endOfToday }
+      return { start: now - 24 * 60 * 60 * 1000, end: now }
     case '7D':
       return { start: startOfDayLocal(now - 6 * 24 * 60 * 60 * 1000), end: endOfToday }
     case '30D':
@@ -113,40 +113,46 @@ async function fetchAggregatedStats(startTs: number, endTs: number): Promise<Agg
 
 interface CacheEntry {
   events: ActivityEvent[]
+  aggregated: AggregatedComputerStats | null
   timestamp: number
   range: { start: number; end: number }
 }
 
 const cache = new Map<string, CacheEntry>()
-const CACHE_TTL_MS = 30 * 1000 // 30 seconds
+const CACHE_TTL_MS = 60 * 1000
+const STALE_TTL_MS = 5 * 60 * 1000
 
 function getCacheKey(start: number, end: number): string {
-  // Round to nearest minute for cache key stability
   const roundedStart = Math.floor(start / 60000) * 60000
   const roundedEnd = Math.floor(end / 60000) * 60000
   return `${roundedStart}-${roundedEnd}`
 }
 
-function getCachedEvents(start: number, end: number): ActivityEvent[] | null {
+function getCached(start: number, end: number): { events: ActivityEvent[] | null; aggregated: AggregatedComputerStats | null; isStale: boolean } {
   const key = getCacheKey(start, end)
   const entry = cache.get(key)
-  
-  if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
-    return entry.events
+
+  if (!entry) return { events: null, aggregated: null, isStale: true }
+
+  const age = Date.now() - entry.timestamp
+  if (age > STALE_TTL_MS) return { events: null, aggregated: null, isStale: true }
+
+  return {
+    events: entry.events,
+    aggregated: entry.aggregated,
+    isStale: age > CACHE_TTL_MS,
   }
-  
-  return null
 }
 
-function setCachedEvents(start: number, end: number, events: ActivityEvent[]): void {
+function setCache(start: number, end: number, events: ActivityEvent[], aggregated: AggregatedComputerStats | null): void {
   const key = getCacheKey(start, end)
   cache.set(key, {
     events,
+    aggregated,
     timestamp: Date.now(),
     range: { start, end },
   })
-  
-  // Clean old entries
+
   if (cache.size > 20) {
     const entries = Array.from(cache.entries())
     entries.sort((a, b) => a[1].timestamp - b[1].timestamp)
@@ -182,11 +188,37 @@ interface TauriDetailedResponse {
   total_afk_ms: number
 }
 
+function isDbNotInitializedError(error: unknown): boolean {
+  const message = String((error as any)?.message ?? error ?? '').toLowerCase()
+  return (
+    message.includes('database not initialized') &&
+    message.includes('initialize_database')
+  )
+}
+
+async function invokeDetailedActivityWithInitRetry(params: {
+  startTs: number
+  endTs: number
+  limit?: number
+}): Promise<TauriDetailedResponse> {
+  try {
+    return await invoke<TauriDetailedResponse>('get_detailed_activity', params)
+  } catch (error) {
+    if (!isDbNotInitializedError(error)) {
+      throw error
+    }
+
+    // First-call race safety: initialize DB then retry once.
+    await invoke<string>('init_ritual_database')
+    return await invoke<TauriDetailedResponse>('get_detailed_activity', params)
+  }
+}
+
 async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
   try {
     // Check if we're in Tauri environment
     if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      const response = await invoke<TauriDetailedResponse>('get_detailed_activity', {
+      const response = await invokeDetailedActivityWithInitRetry({
         startTs,
         endTs,
         limit,
@@ -274,12 +306,22 @@ export function useComputerActivity(
   // Computed time range
   const timeRange = useMemo(() => getTimeRangeMs(range), [range])
   
-  // Fetch data
+  // Fetch data, showing cached results immediately when available
   const fetchData = useCallback(async () => {
     const currentRequestId = ++requestIdRef.current
-    setIsLoading(true)
     setError(null)
-    
+
+    const { events: cachedEvents, aggregated: cachedAgg, isStale } = getCached(timeRange.start, timeRange.end)
+
+    if (cachedEvents && cachedAgg) {
+      setEvents(cachedEvents)
+      setAggregatedStats(cachedAgg)
+      setIsLoading(false)
+      if (!isStale) return
+    } else {
+      setIsLoading(true)
+    }
+
     const eventLimitByRange: Record<TimeRangePreset, number> = {
       '6H': 2000,
       '12H': 4000,
@@ -290,36 +332,48 @@ export function useComputerActivity(
       'ALL': 200000,
     }
     const eventLimit = eventLimitByRange[range]
-    
+
     try {
-      const cached = getCachedEvents(timeRange.start, timeRange.end)
+      const eventsPromise = cachedEvents
+        ? Promise.resolve(cachedEvents)
+        : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
+      const aggregatedPromise = fetchAggregatedStats(timeRange.start, timeRange.end)
 
-      const [rawEvents, aggregated] = await Promise.all([
-        cached
-          ? Promise.resolve(cached)
-          : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit),
-        fetchAggregatedStats(timeRange.start, timeRange.end),
-      ])
-
-      const dedupedEvents = cached ? rawEvents : deduplicateEvents(rawEvents)
-
-      if (!cached && dedupedEvents.length < rawEvents.length) {
-        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
+      const aggregated = await aggregatedPromise
+      let hasAggregatedData = false
+      if (currentRequestId === requestIdRef.current) {
+        setAggregatedStats(aggregated)
+        hasAggregatedData = Boolean(
+          Number(aggregated?.summary?.total_active_ms || 0) > 0
+          || (aggregated?.daily?.length || 0) > 0
+          || (aggregated?.apps?.length || 0) > 0
+          || (aggregated?.domains?.length || 0) > 0
+        )
+        if (hasAggregatedData) {
+          setIsLoading(false)
+        }
       }
 
-      if (!cached) {
-        setCachedEvents(timeRange.start, timeRange.end, dedupedEvents)
+      const rawEvents = await eventsPromise
+      const dedupedEvents = cachedEvents === rawEvents ? rawEvents : deduplicateEvents(rawEvents)
+
+      if (cachedEvents !== rawEvents && dedupedEvents.length < rawEvents.length) {
+        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
       }
 
       if (currentRequestId === requestIdRef.current) {
         setEvents(dedupedEvents)
-        setAggregatedStats(aggregated)
-        setIsLoading(false)
+        setCache(timeRange.start, timeRange.end, dedupedEvents, aggregated)
+        if (!hasAggregatedData) {
+          setIsLoading(false)
+        }
       }
     } catch (err) {
       if (currentRequestId === requestIdRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to load data')
-        setAggregatedStats(null)
+        if (!cachedEvents) {
+          setError(err instanceof Error ? err.message : 'Failed to load data')
+          setAggregatedStats(null)
+        }
         setIsLoading(false)
       }
     }
@@ -375,47 +429,77 @@ export function useComputerActivity(
   
   // Build view model from events
   const viewModel = useMemo<ComputerActivityViewModel>(() => {
-    // Generate segments
     const rawSegments = eventsToSegments(events)
-    const segments = mergeAdjacentSegments(rawSegments, 60000) // 1 min gap threshold
-    
-    // Compute metrics
+    const segments = mergeAdjacentSegments(rawSegments, 60000)
+
     const micro = computeMicroMetrics(events)
     const fallbackApps = topApps(events, 10)
     const fallbackDomains = topDomains(events, 10)
     const fallbackHeader = buildAttentionHeader(events, timeRange.start, timeRange.end)
 
-    const appsFromAggregates = (aggregatedStats?.apps || []).map((row: any) => ({
-      key: (row.app_bundle_id || row.app_name || '').toString(),
-      label: (row.app_name || row.app_bundle_id || 'Unknown App').toString(),
-      valueMs: Number(row.total_active_ms || 0),
-      eventCount: Number(row.total_events || 0),
-      subtitle: Number(row.days_used || 0) > 0 ? `${Number(row.days_used)}d` : undefined,
-    })).filter((item: any) => item.key && item.valueMs > 0)
+    // Aggregated stats are day-level; for sub-day ranges prefer raw
+    // event-derived values. Fall back to aggregated if events are empty.
+    const isSubDayRange = range === '6H' || range === '12H'
+    const hasRawEvents = fallbackApps.length > 0 || fallbackDomains.length > 0
+    const useAggregated = aggregatedStats != null && (!isSubDayRange || !hasRawEvents)
 
-    const domainsFromAggregates = (aggregatedStats?.domains || []).map((row: any) => {
-      const domain = (row.browser_domain || row.domain || '').toString()
-      return {
-        key: domain,
-        label: domain,
-        valueMs: Number(row.total_active_ms || 0),
+    const dailySparkline = useAggregated
+      ? (aggregatedStats?.daily || []).map((row: any) => {
+          const dayValue = (row.day || '').toString()
+          const dayMs = dayValue ? new Date(`${dayValue}T00:00:00`).getTime() : 0
+          const clampedMs = Math.max(
+            0,
+            Math.min(Number(row.active_ms ?? row.total_active_ms ?? 0), 24 * 60 * 60 * 1000),
+          )
+          return { x: dayMs, yMs: clampedMs, label: dayValue }
+        }).filter((point: any) => Number.isFinite(point.x) && point.x > 0)
+      : []
+
+    const rawSummaryActiveMs = useAggregated
+      ? Math.max(0, Number(aggregatedStats?.summary?.total_active_ms || 0))
+      : 0
+    const totalDailyMs = dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
+    const rangeSpanMs = Math.max(0, timeRange.end - timeRange.start)
+    const summaryCapMs = totalDailyMs > 0 ? totalDailyMs : rangeSpanMs
+    const summaryActiveMs = summaryCapMs > 0 ? Math.min(rawSummaryActiveMs, summaryCapMs) : rawSummaryActiveMs
+
+    let apps = fallbackApps
+    let domains = fallbackDomains
+
+    if (useAggregated) {
+      const appsFromAggregatesRaw = (aggregatedStats?.apps || []).map((row: any) => ({
+        key: (row.app_bundle_id || row.app_name || '').toString(),
+        label: (row.app_name || row.app_bundle_id || 'Unknown App').toString(),
+        valueMs: Math.max(0, Number(row.total_active_ms || 0)),
         eventCount: Number(row.total_events || 0),
         subtitle: Number(row.days_used || 0) > 0 ? `${Number(row.days_used)}d` : undefined,
-      }
-    }).filter((item: any) => item.key && item.valueMs > 0)
+      })).filter((item: any) => item.key && item.valueMs > 0)
 
-    const apps = appsFromAggregates.length > 0 ? appsFromAggregates : fallbackApps
-    const domains = domainsFromAggregates.length > 0 ? domainsFromAggregates : fallbackDomains
+      const domainsFromAggregatesRaw = (aggregatedStats?.domains || []).map((row: any) => {
+        const domain = (row.browser_domain || row.domain || '').toString()
+        return {
+          key: domain,
+          label: domain,
+          valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+          eventCount: Number(row.total_events || 0),
+          subtitle: Number(row.days_used || 0) > 0 ? `${Number(row.days_used)}d` : undefined,
+        }
+      }).filter((item: any) => item.key && item.valueMs > 0)
 
-    const dailySparkline = (aggregatedStats?.daily || []).map((row: any) => {
-      const dayValue = (row.day || '').toString()
-      const dayMs = dayValue ? new Date(`${dayValue}T00:00:00`).getTime() : 0
-      return {
-        x: dayMs,
-        yMs: Number(row.active_ms ?? row.total_active_ms ?? 0),
-        label: dayValue,
+      const normalizeAggregateRows = (rows: typeof appsFromAggregatesRaw) => {
+        if (rows.length === 0 || summaryActiveMs <= 0) return rows
+        const totalMs = rows.reduce((sum: number, row: any) => sum + (row.valueMs || 0), 0)
+        if (totalMs <= 0 || totalMs <= summaryActiveMs) return rows
+        const scale = summaryActiveMs / totalMs
+        return rows.map((row: any) => ({ ...row, valueMs: row.valueMs * scale }))
       }
-    }).filter((point: any) => Number.isFinite(point.x) && point.x > 0)
+
+      const appsFromAggregates = normalizeAggregateRows(appsFromAggregatesRaw)
+      const domainsFromAggregates = normalizeAggregateRows(domainsFromAggregatesRaw)
+
+      if (appsFromAggregates.length > 0) apps = appsFromAggregates
+      if (domainsFromAggregates.length > 0) domains = domainsFromAggregates
+    }
 
     let aggregatedDeltaPct: number | null = null
     let aggregatedDeltaMs: number | null = null
@@ -431,8 +515,7 @@ export function useComputerActivity(
       }
     }
 
-    const summaryActiveMs = Number(aggregatedStats?.summary?.total_active_ms || 0)
-    const header = summaryActiveMs > 0 || dailySparkline.length > 0
+    const header = useAggregated && (summaryActiveMs > 0 || dailySparkline.length > 0)
       ? {
           primaryLabel: 'Active Time',
           primaryValueMs: summaryActiveMs > 0 ? summaryActiveMs : dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0),

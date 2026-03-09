@@ -26,15 +26,16 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     create_sync_tables(conn).await?;
     create_vector_tables(conn).await?;
     create_memory_pipeline_tables(conn).await?;
+
+    // Apply migrations before indexes so older DBs get new columns (e.g. logical_chunk_id)
+    // before we create indexes that reference them.
+    apply_migrations(conn).await?;
     
     // Create indexes
     create_indexes(conn).await?;
     
     // Create FTS tables and triggers
     create_fts_tables(conn).await?;
-    
-    // Apply any pending migrations for existing databases
-    apply_migrations(conn).await?;
     
     // Record schema version
     record_schema_version(conn, SCHEMA_VERSION).await?;
@@ -78,12 +79,18 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
             app_name TEXT,
             window_title_norm TEXT,
             browser_domain TEXT,
+            raw_text_compact TEXT NOT NULL DEFAULT '',
+            contextual_text_compact TEXT NOT NULL DEFAULT '',
             text_compact TEXT NOT NULL,
             content_hash TEXT,
             keywords_json TEXT,
             quality_score REAL NOT NULL,
             frame_count INTEGER NOT NULL,
             build_version INTEGER NOT NULL DEFAULT 1,
+            context_version INTEGER NOT NULL DEFAULT 1,
+            session_key TEXT,
+            session_position INTEGER NOT NULL DEFAULT 0,
+            session_chunk_count INTEGER NOT NULL DEFAULT 1,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -145,11 +152,11 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_memory_upload_outbox_chunk_lookup
             ON memory_upload_outbox(user_id, device_id, chunk_id);
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_upload_outbox_logical
-            ON memory_upload_outbox(user_id, device_id, logical_chunk_id);
-
         CREATE INDEX IF NOT EXISTS idx_memory_upload_outbox_status
             ON memory_upload_outbox(status, next_retry_at, updated_at);
+
+        CREATE INDEX IF NOT EXISTS idx_search_chunk_frames_frame
+            ON search_chunk_frames(frame_id);
         "#
     ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
@@ -745,31 +752,91 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
 
     // Migration v4: memory query pipeline tables/indexes
     create_memory_pipeline_tables(conn).await?;
-    let _ = add_column_if_missing(
+    add_column_if_missing(
         conn,
         "search_chunks",
         "logical_chunk_id",
         "TEXT"
-    ).await;
-    let _ = add_column_if_missing(
+    ).await?;
+    add_column_if_missing(
         conn,
         "search_chunks",
         "content_hash",
         "TEXT"
-    ).await;
-    let _ = add_column_if_missing(
+    ).await?;
+    add_column_if_missing(
+        conn,
+        "search_chunks",
+        "raw_text_compact",
+        "TEXT NOT NULL DEFAULT ''"
+    ).await?;
+    add_column_if_missing(
+        conn,
+        "search_chunks",
+        "contextual_text_compact",
+        "TEXT NOT NULL DEFAULT ''"
+    ).await?;
+    add_column_if_missing(
+        conn,
+        "search_chunks",
+        "context_version",
+        "INTEGER NOT NULL DEFAULT 1"
+    ).await?;
+    add_column_if_missing(
+        conn,
+        "search_chunks",
+        "session_key",
+        "TEXT"
+    ).await?;
+    add_column_if_missing(
+        conn,
+        "search_chunks",
+        "session_position",
+        "INTEGER NOT NULL DEFAULT 0"
+    ).await?;
+    add_column_if_missing(
+        conn,
+        "search_chunks",
+        "session_chunk_count",
+        "INTEGER NOT NULL DEFAULT 1"
+    ).await?;
+    add_column_if_missing(
         conn,
         "memory_upload_outbox",
         "logical_chunk_id",
         "TEXT"
-    ).await;
-    let _ = add_column_if_missing(
+    ).await?;
+    add_column_if_missing(
         conn,
         "memory_upload_outbox",
         "content_hash",
         "TEXT"
-    ).await;
+    ).await?;
     let _ = backfill_search_chunk_identity(conn).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE search_chunks
+        SET raw_text_compact = COALESCE(NULLIF(raw_text_compact, ''), COALESCE(text_compact, ''))
+        WHERE COALESCE(NULLIF(raw_text_compact, ''), '') = ''
+        "#,
+        ()
+    ).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE search_chunks
+        SET contextual_text_compact = COALESCE(NULLIF(contextual_text_compact, ''), COALESCE(text_compact, ''))
+        WHERE COALESCE(NULLIF(contextual_text_compact, ''), '') = ''
+        "#,
+        ()
+    ).await;
+    let _ = conn.execute(
+        r#"
+        UPDATE search_chunks
+        SET text_compact = COALESCE(NULLIF(contextual_text_compact, ''), COALESCE(text_compact, ''))
+        WHERE COALESCE(text_compact, '') != COALESCE(NULLIF(contextual_text_compact, ''), COALESCE(text_compact, ''))
+        "#,
+        ()
+    ).await;
     let _ = conn.execute(
         r#"
         UPDATE search_chunks
@@ -823,6 +890,10 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
     ).await;
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_search_chunks_logical ON search_chunks(logical_chunk_id, chunk_end_ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_chunks_session_time ON search_chunks(session_key, chunk_start_ts)",
         ()
     ).await;
     let _ = conn.execute(
@@ -881,7 +952,7 @@ async fn backfill_search_chunk_identity(conn: &Connection) -> Result<()> {
               COALESCE(app_bundle_id, ''),
               COALESCE(app_name, ''),
               COALESCE(window_title_norm, ''),
-              COALESCE(text_compact, ''),
+              COALESCE(NULLIF(contextual_text_compact, ''), COALESCE(text_compact, '')),
               COALESCE(logical_chunk_id, ''),
               COALESCE(content_hash, '')
             FROM search_chunks
@@ -906,7 +977,7 @@ async fn backfill_search_chunk_identity(conn: &Connection) -> Result<()> {
         let app_bundle_id: String = row.get(5).unwrap_or_default();
         let app_name: String = row.get(6).unwrap_or_default();
         let window_title_norm: String = row.get(7).unwrap_or_default();
-        let text_compact: String = row.get(8).unwrap_or_default();
+        let contextual_text_compact: String = row.get(8).unwrap_or_default();
         let existing_logical: String = row.get(9).unwrap_or_default();
         let existing_hash: String = row.get(10).unwrap_or_default();
 
@@ -926,7 +997,11 @@ async fn backfill_search_chunk_identity(conn: &Connection) -> Result<()> {
             existing_logical
         };
         let content_hash = if existing_hash.trim().is_empty() {
-            let content_seed = format!("{}|{}", logical_seed, normalize_identity_text(&text_compact));
+            let content_seed = format!(
+                "{}|{}",
+                logical_seed,
+                normalize_identity_text(&contextual_text_compact)
+            );
             format!("ch_{:016x}", stable_hash64(&content_seed))
         } else {
             existing_hash

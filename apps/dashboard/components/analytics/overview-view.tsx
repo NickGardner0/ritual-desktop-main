@@ -804,10 +804,10 @@ export function OverviewView({
           </div>
           <button
             onClick={() => setShowSelectionModal(true)}
-            className="mt-2 px-3 py-2 bg-black text-white rounded-none text-sm font-normal hover:bg-gray-900 transition-colors shadow"
+            className="mt-2 px-3 py-2 bg-black text-white rounded-sm text-sm font-normal shadow transition-colors duration-200 hover:bg-[#5a5855]"
             style={{ fontWeight: 400 }}
           >
-            Start Tracking
+            Connect Device
           </button>
         </div>
       )}

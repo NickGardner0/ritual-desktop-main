@@ -41,6 +41,42 @@ def _coerce_source_frame_ids(value: Any) -> List[int]:
     return ids[:400]
 
 
+def _validate_chunk_for_turbopuffer(chunk: Dict[str, Any]) -> str | None:
+    """Pre-validate a chunk dict before inserting into memory_chunks.
+
+    Returns None if valid, or an error string describing the first problem.
+    """
+    chunk_id = _safe_text(chunk.get("chunk_id"))
+    if not chunk_id:
+        return "chunk_id is empty"
+
+    try:
+        start_ts = int(chunk.get("chunk_start_ts") or 0)
+        end_ts = int(chunk.get("chunk_end_ts") or 0)
+    except (TypeError, ValueError):
+        return "chunk_start_ts or chunk_end_ts is not a valid integer"
+
+    if start_ts <= 0 or end_ts <= 0:
+        return f"timestamps must be positive (start={start_ts}, end={end_ts})"
+
+    try:
+        qs = float(chunk.get("quality_score") or 0.0)
+    except (TypeError, ValueError):
+        return "quality_score is not a valid number"
+    if not (0.0 <= qs <= 1.0):
+        logger.debug("quality_score %.4f out of [0,1] for chunk_id=%s; will be clamped", qs, chunk_id)
+
+    contextual_text = _safe_text(chunk.get("contextual_text_compact"))
+    raw_text = _safe_text(chunk.get("raw_text_compact"))
+    text = contextual_text or _safe_text(chunk.get("text_compact"))
+    app_name = _safe_text(chunk.get("app_name"))
+    window_title = _safe_text(chunk.get("window_title"))
+    if not text and not raw_text and not app_name and not window_title:
+        return "contextual/raw text, app_name, and window_title are all empty"
+
+    return None
+
+
 async def ingest_memory_chunks(
     *,
     user_id: str,
@@ -58,24 +94,30 @@ async def ingest_memory_chunks(
     with get_memory_db() as conn:
         for chunk in chunks:
             try:
-                chunk_id = _safe_text(chunk.get("chunk_id"))
-                if not chunk_id:
+                validation_error = _validate_chunk_for_turbopuffer(chunk)
+                if validation_error:
+                    logger.debug("Chunk rejected: %s (chunk_id=%s)", validation_error, chunk.get("chunk_id"))
                     failed += 1
                     continue
+
+                chunk_id = _safe_text(chunk.get("chunk_id"))
                 logical_chunk_id = _safe_text(chunk.get("logical_chunk_id")) or chunk_id
 
                 start_ts = int(chunk.get("chunk_start_ts") or 0)
                 end_ts = int(chunk.get("chunk_end_ts") or 0)
-                if start_ts <= 0 or end_ts <= 0:
-                    failed += 1
-                    continue
                 if end_ts < start_ts:
                     start_ts, end_ts = end_ts, start_ts
 
                 app_name = _safe_text(chunk.get("app_name"))
                 window_title = _safe_text(chunk.get("window_title"))
                 browser_domain = _safe_text(chunk.get("browser_domain"))
-                text_compact = _safe_text(chunk.get("text_compact"))
+                raw_text_compact = _safe_text(chunk.get("raw_text_compact"))
+                contextual_text_compact = _safe_text(chunk.get("contextual_text_compact"))
+                text_compact = contextual_text_compact or _safe_text(chunk.get("text_compact"))
+                session_key = _safe_text(chunk.get("session_key"))
+                session_position = int(chunk.get("session_position") or 0)
+                session_chunk_count = max(1, int(chunk.get("session_chunk_count") or 1))
+                context_version = max(1, int(chunk.get("context_version") or 1))
 
                 if not text_compact:
                     # No hard drops: fallback to contextual text.
@@ -85,6 +127,10 @@ async def ingest_memory_chunks(
                     if not text_compact:
                         failed += 1
                         continue
+                if not raw_text_compact:
+                    raw_text_compact = text_compact
+                if not contextual_text_compact:
+                    contextual_text_compact = text_compact
 
                 quality_score = float(chunk.get("quality_score") or 0.0)
                 quality_score = max(0.0, min(1.0, quality_score))
@@ -100,7 +146,13 @@ async def ingest_memory_chunks(
                     "app_name": app_name,
                     "window_title": window_title,
                     "browser_domain": browser_domain,
-                    "text_compact": text_compact,
+                    "raw_text_compact": raw_text_compact,
+                    "contextual_text_compact": contextual_text_compact,
+                    "text_compact": contextual_text_compact,
+                    "context_version": context_version,
+                    "session_key": session_key,
+                    "session_position": session_position,
+                    "session_chunk_count": session_chunk_count,
                     "quality_score": quality_score,
                     "source_frame_ids": source_frame_ids,
                 }
@@ -175,13 +227,19 @@ async def ingest_memory_chunks(
                         window_title,
                         browser_domain,
                         text_compact,
+                        raw_text_compact,
+                        contextual_text_compact,
+                        context_version,
+                        session_key,
+                        session_position,
+                        session_chunk_count,
                         quality_score,
                         source_frame_ids_json,
                         content_hash,
                         embedding_status,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                     """,
                     (
                         user_id,
@@ -193,7 +251,13 @@ async def ingest_memory_chunks(
                         app_name,
                         window_title,
                         browser_domain,
-                        text_compact,
+                        contextual_text_compact,
+                        raw_text_compact,
+                        contextual_text_compact,
+                        context_version,
+                        session_key,
+                        session_position,
+                        session_chunk_count,
                         quality_score,
                         json.dumps(source_frame_ids),
                         content_hash,

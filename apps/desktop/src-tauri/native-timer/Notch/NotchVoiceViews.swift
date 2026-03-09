@@ -11,6 +11,9 @@ enum VoiceMode: Equatable {
     case permissionsRequired
 }
 
+// #71717A — shared accent for voice UI elements.
+private let voiceAccent = Color(red: 113 / 255, green: 113 / 255, blue: 122 / 255)
+
 // MARK: - Braille Spinner
 
 private struct BrailleSpinner: View {
@@ -20,7 +23,7 @@ private struct BrailleSpinner: View {
     var body: some View {
         Text(Self.frames[index])
             .font(.system(size: 12, weight: .medium, design: .monospaced))
-            .foregroundStyle(.green.opacity(0.9))
+            .foregroundStyle(voiceAccent)
             .onAppear {
                 Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { _ in
                     index = (index + 1) % Self.frames.count
@@ -30,13 +33,18 @@ private struct BrailleSpinner: View {
 }
 
 // MARK: - Waveform View (Listening State)
+// Bar style adapted from boring.notch's AudioSpectrum: thin rounded capsules
+// that scale vertically from center with a spring animation.
 
 struct NotchVoiceWaveformView: View {
     let audioLevels: [Float]
     let partialTranscript: String
     var onCancel: () -> Void
 
-    private let maxBarHeight: CGFloat = 40
+    private let barWidth: CGFloat = 3
+    private let barSpacing: CGFloat = 2
+    private let maxBarHeight: CGFloat = 28
+    private let minScale: CGFloat = 0.15
 
     var body: some View {
         VStack(spacing: 8) {
@@ -62,19 +70,18 @@ struct NotchVoiceWaveformView: View {
                 .buttonStyle(.plain)
             }
 
-            HStack(spacing: 3) {
+            HStack(spacing: barSpacing) {
                 ForEach(0..<audioLevels.count, id: \.self) { i in
                     let level = CGFloat(audioLevels[i])
-                    Capsule(style: .continuous)
-                        .fill(Color.green.opacity(0.5 + 0.5 * level))
-                        .frame(
-                            width: 4,
-                            height: max(3, maxBarHeight * level)
-                        )
+                    let scale = max(minScale, level)
+                    RoundedRectangle(cornerRadius: barWidth / 2, style: .continuous)
+                        .fill(voiceAccent.opacity(0.45 + 0.55 * Double(level)))
+                        .frame(width: barWidth, height: maxBarHeight)
+                        .scaleEffect(y: scale, anchor: .center)
                 }
             }
             .frame(height: maxBarHeight)
-            .animation(.linear(duration: 0.04), value: audioLevels)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: audioLevels)
 
             if !partialTranscript.isEmpty {
                 Text(partialTranscript)

@@ -56,6 +56,62 @@ export interface AppleIngestResponse {
 }
 
 /**
+ * V2 request payload for incremental sync
+ */
+export interface AppleIngestRequestV2 {
+  /** Device ID from registration */
+  device_id: string;
+  /** Client-generated UUID for idempotency */
+  client_event_id: string;
+  /** ISO8601 timestamp when data was captured on device */
+  captured_at: string;
+  /** New metrics since last sync */
+  added: NormalizedMetric[];
+  /** Deleted source IDs (e.g. HealthKit UUIDs) */
+  deleted: string[];
+  /** Modified metrics since last sync */
+  modified: NormalizedMetric[];
+  /** Serialized anchors by metric type */
+  anchors?: Record<string, string>;
+  /** Schema version for forward compatibility (v2+) */
+  schema_version: number;
+  /** HMAC-SHA256 signature for request verification */
+  signature: string;
+}
+
+/**
+ * Result of a delete operation in V2 ingest
+ */
+export interface DeleteResult {
+  /** External/source identifier requested for deletion */
+  external_id: string;
+  /** Whether this deletion succeeded */
+  success: boolean;
+  /** Error message if deletion failed */
+  error?: string;
+}
+
+/**
+ * Response from V2 ingest endpoint
+ */
+export interface AppleIngestResponseV2 {
+  /** Overall success (true if at least one operation succeeded) */
+  success: boolean;
+  /** Per-item results for added metrics */
+  added_results: AppleIngestResult[];
+  /** Per-item results for deleted metrics */
+  deleted_results: DeleteResult[];
+  /** Per-item results for modified metrics */
+  modified_results: AppleIngestResult[];
+  /** ISO8601 server time when request was processed */
+  server_time: string;
+  /** Suggested seconds until next poll (for rate limiting) */
+  next_poll_seconds?: number;
+  /** Echo of confirmed anchors; client should persist only on success */
+  confirmed_anchors?: Record<string, string>;
+}
+
+/**
  * Request to register a new device
  */
 export interface DeviceRegisterRequest {

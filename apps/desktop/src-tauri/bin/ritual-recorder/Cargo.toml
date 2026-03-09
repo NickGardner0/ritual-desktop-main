@@ -69,8 +69,3 @@ core-foundation = "0.9"
 core-foundation-sys = "0.8"
 core-graphics = "0.23"
 # Note: Vision framework bindings created manually via objc2 FFI
-
-[profile.release]
-opt-level = 3
-lto = "thin"
-strip = true

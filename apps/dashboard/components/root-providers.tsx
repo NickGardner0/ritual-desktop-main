@@ -8,8 +8,12 @@ import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
 import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
+import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
 import { showMainWindow } from '@/lib/tauri-utils';
-import { ensureEmbeddingPipelineReadyOnLaunch } from '@/lib/screen-search';
+import {
+  ensureAutoSemanticBackfillOnLaunch,
+  ensureEmbeddingPipelineReadyOnLaunch,
+} from '@/lib/screen-search';
 
 /**
  * Root Providers Wrapper
@@ -59,6 +63,10 @@ export function RootProviders({ children }: { children: ReactNode }) {
     ensureEmbeddingPipelineReadyOnLaunch().catch((error) => {
       console.warn('Embedding pipeline bootstrap failed:', error);
     });
+
+    ensureAutoSemanticBackfillOnLaunch().catch((error) => {
+      console.warn('Automatic semantic backfill bootstrap failed:', error);
+    });
   }, []);
 
   return (
@@ -80,6 +88,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
           <OpenPanelProvider>
           <QueryProvider>
             <HabitsProvider>
+              <MemoryCloudUploader />
               {children}
             </HabitsProvider>
           </QueryProvider>

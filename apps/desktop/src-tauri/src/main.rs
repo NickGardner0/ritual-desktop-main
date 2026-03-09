@@ -687,6 +687,7 @@ fn main() {
       watcher::get_focus_metrics,
       // Real-time status
       watcher::get_watcher_extended_status,
+      watcher::get_browser_extension_diagnostics,
       // Watchdog - auto-restart hung watcher
       watcher::check_and_restart_watcher_if_hung,
       // App icon extraction
@@ -722,12 +723,20 @@ fn main() {
       ritual_database::get_ritual_db_stats,
       ritual_database::init_embedding_service,
       ritual_database::get_embedding_stats,
+      ritual_database::get_chunk_embedding_coverage,
       ritual_database::ensure_embedding_pipeline_ready,
       ritual_database::semantic_search,
       ritual_database::text_search,
       ritual_database::hybrid_search,
       ritual_database::process_embeddings,
+      ritual_database::backfill_chunk_embeddings,
+      ritual_database::start_chunk_embedding_backfill,
+      ritual_database::get_chunk_embedding_backfill_status,
       ritual_database::check_migration_status,
+      ritual_database::seed_memory_upload_outbox,
+      ritual_database::get_memory_upload_outbox_stats,
+      ritual_database::claim_memory_upload_outbox_batch,
+      ritual_database::ack_memory_upload_outbox_batch,
       // Embedding worker commands
       ritual_database::start_embedding_worker,
       ritual_database::stop_embedding_worker,
@@ -872,11 +881,41 @@ fn main() {
       match ritual_database::initialize_database() {
         Ok(()) => {
           println!("✅ Ritual unified database ready");
+          if let Err(e) = ritual_database::log_startup_pipeline_snapshot() {
+            eprintln!("⚠️ Failed to log startup pipeline snapshot: {}", e);
+          }
           if let Err(e) = local_search_bridge::start_local_search_bridge() {
             eprintln!("⚠️ Failed to start local search bridge: {}", e);
           }
           // Auto-start embedding worker if there are frames without embeddings
           ritual_database::auto_start_embedding_worker();
+
+          if env_flag_enabled("RITUAL_ENABLE_STARTUP_BACKFILL") {
+            std::thread::spawn(|| {
+              match ritual_database::ensure_embedding_pipeline_ready() {
+                Ok(status) => {
+                  println!(
+                    "[Ritual][startup] ensure_embedding_pipeline_ready initialized={} frame_pending={} chunk_pending={} worker_running={} worker_started={}",
+                    status.initialized,
+                    status.frames_without_embeddings,
+                    status.pending_chunks,
+                    status.worker_running,
+                    status.worker_started
+                  );
+                  if let Some(init_error) = status.init_error {
+                    eprintln!("[Ritual][startup] embedding init warning: {}", init_error);
+                  }
+                }
+                Err(e) => {
+                  eprintln!("[Ritual][startup] ensure_embedding_pipeline_ready failed: {}", e);
+                }
+              }
+            });
+          } else {
+            println!(
+              "[Ritual][startup] startup backfill disabled (set RITUAL_ENABLE_STARTUP_BACKFILL=1 to enable); worker will keep draining incrementally"
+            );
+          }
         },
         Err(e) => println!("⚠️ Ritual database init deferred: {}", e),
       }

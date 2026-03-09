@@ -3,19 +3,32 @@
 //! Orchestrates the ritual-watcher sidecar process for computer activity tracking.
 //! Uses the unified ritual-db (libSQL) database for all queries.
 
-use std::path::PathBuf;
-use std::process::{Child, Command};
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
+use std::sync::Mutex;
+use std::time::Duration;
 
-use crate::ritual_database::{RITUAL_DB, get_db};
+use crate::ritual_database::{get_activity_db, ACTIVITY_DB};
+
+macro_rules! watcher_info {
+    ($($arg:tt)*) => {
+        log::info!("[WATCHER] {}", format!($($arg)*))
+    };
+}
 
 /// Global state for the watcher process
 static WATCHER_PROCESS: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(None));
 
 /// Stored device ID from the most recent watcher start
 static DEVICE_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
+fn require_db<'a, T>(db: Option<&'a T>) -> Result<&'a T, String> {
+    db.ok_or_else(|| "Database not initialized. Call initialize_database() first.".to_string())
+}
 
 /// Get the current device_id (set when watcher starts)
 fn get_device_id() -> Option<String> {
@@ -28,12 +41,13 @@ fn get_device_id_or_config() -> Option<String> {
     if let Some(id) = get_device_id() {
         return Some(id);
     }
-    
+
     // Fallback: read from config file
     let home = dirs::home_dir()?;
     let config_path = home.join(".ritual").join("watcher_config.json");
     if config_path.exists() {
-        std::fs::read_to_string(&config_path).ok()
+        std::fs::read_to_string(&config_path)
+            .ok()
             .and_then(|s| serde_json::from_str::<WatcherConfig>(&s).ok())
             .map(|c| c.device_id)
     } else {
@@ -47,20 +61,31 @@ pub struct WatcherConfig {
     pub device_id: String,
     pub user_id: String,
     pub poll_interval_ms: u64,
-    pub title_mode: String,  // off, full, truncate, hash
+    pub title_mode: String, // off, full, truncate, hash
     pub truncate_length: usize,
     pub excluded_bundle_ids: Vec<String>,
     // V2: New configuration options
     #[serde(default = "default_afk_timeout")]
     pub afk_timeout_seconds: u64,
     #[serde(default = "default_url_mode")]
-    pub url_mode: String,  // off, domain, full
+    pub url_mode: String, // off, domain, full
     #[serde(default)]
     pub track_incognito: bool,
 }
 
-fn default_afk_timeout() -> u64 { 900 } // 15 minutes - better for coding/reading
-fn default_url_mode() -> String { "domain".to_string() }
+fn default_afk_timeout() -> u64 {
+    900
+} // 15 minutes - better for coding/reading
+fn default_url_mode() -> String {
+    "domain".to_string()
+}
+
+const REQUIRED_WATCHER_HELP_FLAGS: [&str; 2] = ["--afk-timeout", "--url-mode"];
+const EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS: i64 = 90;
+const WATCHER_HEARTBEAT_ENDPOINTS: [(&str, &str, u16); 2] = [
+    ("http://127.0.0.1:8766", "127.0.0.1", 8766),
+    ("http://127.0.0.1:8767", "127.0.0.1", 8767),
+];
 
 /// Watcher status response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +93,12 @@ pub struct WatcherStatus {
     pub is_running: bool,
     pub pid: Option<u32>,
     pub device_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedWatcherBinary {
+    path: PathBuf,
+    version: Option<String>,
 }
 
 /// Detailed activity event from local database
@@ -154,10 +185,10 @@ pub fn check_accessibility_permission() -> bool {
 pub fn request_accessibility_permission() -> bool {
     #[cfg(target_os = "macos")]
     {
+        use core_foundation::base::TCFType;
         use core_foundation::boolean::CFBoolean;
         use core_foundation::dictionary::CFDictionary;
         use core_foundation::string::CFString;
-        use core_foundation::base::TCFType;
 
         #[link(name = "ApplicationServices", kind = "framework")]
         extern "C" {
@@ -167,9 +198,9 @@ pub fn request_accessibility_permission() -> bool {
         unsafe {
             let key = CFString::new("AXTrustedCheckOptionPrompt");
             let value = CFBoolean::true_value();
-            
+
             let options = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), value.as_CFType())]);
-            
+
             AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef() as *const _)
         }
     }
@@ -179,71 +210,210 @@ pub fn request_accessibility_permission() -> bool {
     }
 }
 
-/// Find the ritual-watcher executable
-fn find_watcher_executable() -> Option<PathBuf> {
-    // Try to get the executable's directory for relative paths
+fn watcher_candidate_paths() -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // Try to get the executable's directory for relative sidecar paths
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
-    
-    // Get home directory
-    let home_dir = std::env::var("HOME").ok().map(PathBuf::from);
-    
-    // Build list of candidate paths
-    let mut candidates: Vec<PathBuf> = vec![
-        // Development paths (release)
+
+    // Prefer bundled sidecars first.
+    if let Some(exe) = &exe_dir {
+        let target = std::env::var("TARGET").unwrap_or_else(|_| String::new());
+        if !target.is_empty() {
+            candidates.push(exe.join(format!("ritual-watcher-{target}")));
+            candidates.push(exe.join(format!("../Resources/ritual-watcher-{target}")));
+            candidates.push(exe.join(format!("../Resources/binaries/ritual-watcher-{target}")));
+        }
+        candidates.push(exe.join("ritual-watcher"));
+        candidates.push(exe.join("../Resources/ritual-watcher"));
+        candidates.push(exe.join("../Resources/binaries/ritual-watcher"));
+    }
+
+    // Development paths (release/debug) from workspace.
+    candidates.extend([
         PathBuf::from("src-tauri/bin/ritual-watcher/target/release/ritual-watcher"),
         PathBuf::from("bin/ritual-watcher/target/release/ritual-watcher"),
         PathBuf::from("target/release/ritual-watcher"),
-        // Development paths (debug)
         PathBuf::from("src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"),
         PathBuf::from("bin/ritual-watcher/target/debug/ritual-watcher"),
         PathBuf::from("target/debug/ritual-watcher"),
-        // Production paths (relative to app bundle on macOS)
-        PathBuf::from("../Resources/ritual-watcher"),
-        PathBuf::from("ritual-watcher"),
-    ];
-    
-    // Add absolute paths based on project structure
-    if let Some(home) = &home_dir {
-        // Check in ~/.ritual/bin
-        candidates.push(home.join(".ritual/bin/ritual-watcher"));
-        
-        // Common development paths - directly in Desktop project
+    ]);
+
+    // Add absolute fallback paths.
+    if let Ok(home) = std::env::var("HOME") {
+        let home = PathBuf::from(home);
         candidates.push(home.join("Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
-        candidates.push(home.join("Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
+        candidates.push(home.join(
+            "Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher",
+        ));
         candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
         candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
-    }
-    
-    // If we know the exe directory, add relative paths from there
-    if let Some(exe) = &exe_dir {
-        candidates.push(exe.join("ritual-watcher"));
-        candidates.push(exe.join("../Resources/ritual-watcher"));
+        candidates.push(home.join(".ritual/bin/ritual-watcher"));
     }
 
-    for path in &candidates {
-        if path.exists() {
-            println!("📍 Found watcher at: {:?}", path);
-            return Some(path.clone());
+    candidates
+}
+
+fn validate_watcher_binary(path: &Path) -> Result<Option<String>, String> {
+    if !path.exists() {
+        return Err("path does not exist".to_string());
+    }
+
+    let metadata = path
+        .metadata()
+        .map_err(|e| format!("failed to read metadata: {e}"))?;
+    if !metadata.is_file() {
+        return Err("not a regular file".to_string());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return Err("not executable".to_string());
         }
     }
-    
-    // Log what we tried
-    println!("⚠️ Ritual Watcher not found. Tried:");
-    for path in &candidates {
-        println!("   - {:?}", path);
+
+    let help_output = Command::new(path)
+        .arg("--help")
+        .output()
+        .map_err(|e| format!("failed to execute --help: {e}"))?;
+
+    if !help_output.status.success() {
+        return Err(format!("--help exited with status {}", help_output.status));
     }
 
-    None
+    let help_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&help_output.stdout),
+        String::from_utf8_lossy(&help_output.stderr)
+    );
+
+    for required_flag in REQUIRED_WATCHER_HELP_FLAGS {
+        if !help_text.contains(required_flag) {
+            return Err(format!(
+                "incompatible watcher binary: missing {required_flag} support"
+            ));
+        }
+    }
+
+    let version = Command::new(path)
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let line = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if line.is_empty() {
+                    None
+                } else {
+                    Some(line)
+                }
+            } else {
+                None
+            }
+        });
+
+    Ok(version)
+}
+
+/// Find the ritual-watcher executable and validate it's compatible with the
+/// current CLI contract.
+fn find_watcher_executable() -> Result<ResolvedWatcherBinary, String> {
+    let candidates = watcher_candidate_paths();
+    let mut seen = HashSet::new();
+    let mut attempted = Vec::new();
+
+    for path in candidates {
+        let key = path.to_string_lossy().to_string();
+        if !seen.insert(key.clone()) {
+            continue;
+        }
+
+        match validate_watcher_binary(&path) {
+            Ok(version) => {
+                watcher_info!(
+                    "📍 Using compatible watcher binary: {:?}{}",
+                    path,
+                    version
+                        .as_ref()
+                        .map(|v| format!(" ({v})"))
+                        .unwrap_or_default()
+                );
+                return Ok(ResolvedWatcherBinary { path, version });
+            }
+            Err(reason) => {
+                attempted.push(format!("{key} -> {reason}"));
+            }
+        }
+    }
+
+    let mut message = String::from("No compatible ritual-watcher executable found.");
+    if !attempted.is_empty() {
+        message.push_str("\nChecked:");
+        for item in attempted {
+            message.push_str(&format!("\n- {item}"));
+        }
+    }
+    Err(message)
+}
+
+fn get_activity_database_path() -> PathBuf {
+    if let Some(home) = dirs::home_dir() {
+        home.join(".ritual").join("activity.db")
+    } else {
+        PathBuf::from("./activity.db")
+    }
+}
+
+fn build_watcher_args(config: &WatcherConfig) -> Vec<String> {
+    let activity_db_path = get_activity_database_path();
+    let mut args = vec![
+        "--device-id".to_string(),
+        config.device_id.clone(),
+        "--user-id".to_string(),
+        config.user_id.clone(),
+        "--poll-interval".to_string(),
+        config.poll_interval_ms.to_string(),
+        "--title-mode".to_string(),
+        config.title_mode.clone(),
+        "--truncate-length".to_string(),
+        config.truncate_length.to_string(),
+        "--database".to_string(),
+        activity_db_path.to_string_lossy().to_string(),
+        "--foreground".to_string(),
+        "--afk-timeout".to_string(),
+        config.afk_timeout_seconds.to_string(),
+        "--url-mode".to_string(),
+        config.url_mode.clone(),
+    ];
+
+    if !config.excluded_bundle_ids.is_empty() {
+        args.push("--excluded".to_string());
+        args.push(config.excluded_bundle_ids.join(","));
+    }
+
+    if config.track_incognito {
+        args.push("--track-incognito".to_string());
+        args.push("true".to_string());
+    }
+
+    args
 }
 
 /// Start the ritual-watcher sidecar
 #[tauri::command]
 pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, String> {
-    println!("🚀 Starting Ritual Watcher...");
-    println!("   Device ID: {}", config.device_id);
-    println!("   Title Mode: {}", config.title_mode);
+    watcher_info!("🚀 Starting Ritual Watcher...");
+    watcher_info!("   Device ID: {}", config.device_id);
+    watcher_info!("   Title Mode: {}", config.title_mode);
 
     // Store device_id for later query use
     if let Ok(mut guard) = DEVICE_ID.lock() {
@@ -259,57 +429,34 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
             .output();
         // Brief pause to ensure processes are terminated
         std::thread::sleep(std::time::Duration::from_millis(100));
-        println!("🧹 Cleaned up any existing watcher processes");
+        watcher_info!("🧹 Cleaned up any existing watcher processes");
     }
-    
+
     // Clear our stored handle
     {
-        let mut guard = WATCHER_PROCESS.lock().unwrap();
+        let mut guard = WATCHER_PROCESS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *guard = None;
     }
 
     // Find executable
-    let executable = find_watcher_executable().ok_or_else(|| {
-        "Ritual Watcher executable not found. Please build it first.".to_string()
-    })?;
+    let resolved_binary = find_watcher_executable()?;
+    let executable = resolved_binary.path;
+    watcher_info!(
+        "📍 Using executable: {:?}{}",
+        executable,
+        resolved_binary
+            .version
+            .as_ref()
+            .map(|v| format!(" ({v})"))
+            .unwrap_or_default()
+    );
 
-    println!("📍 Using executable: {:?}", executable);
+    // Watcher writes activity/sync data to ~/.ritual/activity.db.
+    let args = build_watcher_args(&config);
 
-    // Build command arguments
-    // Note: --database flag is kept for CLI compatibility but the watcher binary
-    // uses the unified ritual.db via ritual-db regardless
-    let mut args = vec![
-        "--device-id".to_string(),
-        config.device_id.clone(),
-        "--user-id".to_string(),
-        config.user_id.clone(),
-        "--poll-interval".to_string(),
-        config.poll_interval_ms.to_string(),
-        "--title-mode".to_string(),
-        config.title_mode.clone(),
-        "--truncate-length".to_string(),
-        config.truncate_length.to_string(),
-        "--database".to_string(),
-        "~/.ritual/ritual.db".to_string(),
-        "--foreground".to_string(),
-        // V2: New arguments
-        "--afk-timeout".to_string(),
-        config.afk_timeout_seconds.to_string(),
-        "--url-mode".to_string(),
-        config.url_mode.clone(),
-    ];
-
-    if !config.excluded_bundle_ids.is_empty() {
-        args.push("--excluded".to_string());
-        args.push(config.excluded_bundle_ids.join(","));
-    }
-    
-    if config.track_incognito {
-        args.push("--track-incognito".to_string());
-        args.push("true".to_string());
-    }
-
-    println!("📋 Arguments: {:?}", args);
+    watcher_info!("📋 Arguments: {:?}", args);
 
     // Spawn the watcher process
     let child = Command::new(&executable)
@@ -318,11 +465,13 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
         .map_err(|e| format!("Failed to start watcher: {}", e))?;
 
     let pid = child.id();
-    println!("✅ Watcher started with PID: {}", pid);
+    watcher_info!("✅ Watcher started with PID: {}", pid);
 
     // Store the process handle
     {
-        let mut guard = WATCHER_PROCESS.lock().unwrap();
+        let mut guard = WATCHER_PROCESS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *guard = Some(child);
     }
 
@@ -335,9 +484,9 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
 
 /// Start the ritual-watcher sidecar (synchronous version for auto-start)
 pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String> {
-    println!("🚀 Starting Ritual Watcher (sync)...");
-    println!("   Device ID: {}", config.device_id);
-    println!("   Title Mode: {}", config.title_mode);
+    watcher_info!("🚀 Starting Ritual Watcher (sync)...");
+    watcher_info!("   Device ID: {}", config.device_id);
+    watcher_info!("   Title Mode: {}", config.title_mode);
 
     // Store device_id for later query use
     if let Ok(mut guard) = DEVICE_ID.lock() {
@@ -351,54 +500,33 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
             .args(["-f", "ritual-watcher"])
             .output();
         std::thread::sleep(std::time::Duration::from_millis(100));
-        println!("🧹 Cleaned up any existing watcher processes");
+        watcher_info!("🧹 Cleaned up any existing watcher processes");
     }
-    
+
     // Clear our stored handle
     {
-        let mut guard = WATCHER_PROCESS.lock().unwrap();
+        let mut guard = WATCHER_PROCESS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *guard = None;
     }
 
     // Find executable
-    let executable = find_watcher_executable().ok_or_else(|| {
-        "Ritual Watcher executable not found. Please build it first.".to_string()
-    })?;
+    let resolved_binary = find_watcher_executable()?;
+    let executable = resolved_binary.path;
+    watcher_info!(
+        "📍 Using executable: {:?}{}",
+        executable,
+        resolved_binary
+            .version
+            .as_ref()
+            .map(|v| format!(" ({v})"))
+            .unwrap_or_default()
+    );
 
-    println!("📍 Using executable: {:?}", executable);
+    let args = build_watcher_args(&config);
 
-    // Build command arguments
-    let mut args = vec![
-        "--device-id".to_string(),
-        config.device_id.clone(),
-        "--user-id".to_string(),
-        config.user_id.clone(),
-        "--poll-interval".to_string(),
-        config.poll_interval_ms.to_string(),
-        "--title-mode".to_string(),
-        config.title_mode.clone(),
-        "--truncate-length".to_string(),
-        config.truncate_length.to_string(),
-        "--database".to_string(),
-        "~/.ritual/ritual.db".to_string(),
-        "--foreground".to_string(),
-        "--afk-timeout".to_string(),
-        config.afk_timeout_seconds.to_string(),
-        "--url-mode".to_string(),
-        config.url_mode.clone(),
-    ];
-
-    if !config.excluded_bundle_ids.is_empty() {
-        args.push("--excluded".to_string());
-        args.push(config.excluded_bundle_ids.join(","));
-    }
-    
-    if config.track_incognito {
-        args.push("--track-incognito".to_string());
-        args.push("true".to_string());
-    }
-
-    println!("📋 Arguments: {:?}", args);
+    watcher_info!("📋 Arguments: {:?}", args);
 
     // Spawn the watcher process
     let child = Command::new(&executable)
@@ -407,11 +535,13 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
         .map_err(|e| format!("Failed to start watcher: {}", e))?;
 
     let pid = child.id();
-    println!("✅ Watcher started with PID: {}", pid);
+    watcher_info!("✅ Watcher started with PID: {}", pid);
 
     // Store the process handle
     {
-        let mut guard = WATCHER_PROCESS.lock().unwrap();
+        let mut guard = WATCHER_PROCESS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *guard = Some(child);
     }
 
@@ -425,24 +555,26 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
 /// Stop the ritual-watcher sidecar
 #[tauri::command]
 pub async fn stop_watcher() -> Result<WatcherStatus, String> {
-    println!("🛑 Stopping Ritual Watcher...");
+    watcher_info!("🛑 Stopping Ritual Watcher...");
 
-    let mut guard = WATCHER_PROCESS.lock().unwrap();
-    
+    let mut guard = WATCHER_PROCESS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     if let Some(mut child) = guard.take() {
         // Try to kill the process gracefully
         match child.kill() {
             Ok(_) => {
-                println!("✅ Watcher stopped");
+                watcher_info!("✅ Watcher stopped");
                 // Wait for the process to actually terminate
                 let _ = child.wait();
             }
             Err(e) => {
-                println!("⚠️ Failed to kill watcher: {}", e);
+                watcher_info!("⚠️ Failed to kill watcher: {}", e);
             }
         }
     } else {
-        println!("ℹ️ No watcher process to stop");
+        watcher_info!("ℹ️ No watcher process to stop");
     }
 
     Ok(WatcherStatus {
@@ -455,11 +587,13 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
 /// Get the current status of the watcher
 #[tauri::command]
 pub async fn get_watcher_status() -> WatcherStatus {
-    let guard = WATCHER_PROCESS.lock().unwrap();
-    
+    let guard = WATCHER_PROCESS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     if let Some(ref child) = *guard {
         WatcherStatus {
-            is_running: true,  // We assume it's running if we have a handle
+            is_running: true, // We assume it's running if we have a handle
             pid: Some(child.id()),
             device_id: get_device_id(),
         }
@@ -489,7 +623,7 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     }
 }
 
-/// Query detailed activity from the unified ritual.db (libSQL)
+/// Query detailed activity from local activity storage.
 /// Returns events, app/domain summaries, and active/afk totals
 #[tauri::command]
 pub async fn get_detailed_activity(
@@ -498,29 +632,33 @@ pub async fn get_detailed_activity(
     limit: Option<i64>,
 ) -> Result<DetailedActivityResponse, String> {
     let device_id = get_device_id_or_config().unwrap_or_default();
-    
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
+
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
     // Get events in range
-    let all_events = db.get_events_in_range(&device_id, start_ts, end_ts)
+    let all_events = db
+        .get_events_in_range(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to query events: {}", e))?;
-    
+
     // Apply limit (events are already sorted by ts_start ASC, reverse for DESC)
     let limit_val = limit.unwrap_or(500) as usize;
-    let events: Vec<DetailedActivityEvent> = all_events.into_iter()
+    let events: Vec<DetailedActivityEvent> = all_events
+        .into_iter()
         .rev() // DESC order like the original query
         .take(limit_val)
         .map(DetailedActivityEvent::from)
         .collect();
-    
+
     // Get app summaries
-    let app_summaries = db.get_app_summary(&device_id, start_ts, end_ts)
+    let app_summaries = db
+        .get_app_summary(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to query app summaries: {}", e))?;
-    
-    let apps: Vec<AppActivitySummary> = app_summaries.into_iter()
+
+    let apps: Vec<AppActivitySummary> = app_summaries
+        .into_iter()
         .map(|s| AppActivitySummary {
             app_bundle_id: s.bundle_id,
             app_name: s.app_name,
@@ -528,25 +666,28 @@ pub async fn get_detailed_activity(
             event_count: s.event_count,
         })
         .collect();
-    
+
     // Get domain summaries
-    let domain_summaries = db.get_domain_summary(&device_id, start_ts, end_ts)
+    let domain_summaries = db
+        .get_domain_summary(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to query domain summaries: {}", e))?;
-    
-    let domains: Vec<DomainActivitySummary> = domain_summaries.into_iter()
+
+    let domains: Vec<DomainActivitySummary> = domain_summaries
+        .into_iter()
         .map(|s| DomainActivitySummary {
             domain: s.domain,
             total_duration_ms: s.total_ms,
             event_count: s.event_count,
         })
         .collect();
-    
+
     // Get daily summary for active/afk totals
-    let summary = db.get_daily_summary(&device_id, start_ts, end_ts)
+    let summary = db
+        .get_daily_summary(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to query daily summary: {}", e))?;
-    
+
     Ok(DetailedActivityResponse {
         events,
         apps,
@@ -563,15 +704,19 @@ pub async fn get_activity_timeline(
     end_ts: i64,
 ) -> Result<Vec<DetailedActivityEvent>, String> {
     let device_id = get_device_id_or_config().unwrap_or_default();
-    
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let events = db.get_events_in_range(&device_id, start_ts, end_ts)
+
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let events = db
+        .get_events_in_range(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to query timeline: {}", e))?;
-    
-    Ok(events.into_iter().map(DetailedActivityEvent::from).collect())
+
+    Ok(events
+        .into_iter()
+        .map(DetailedActivityEvent::from)
+        .collect())
 }
 
 /// Sync queue item for backend sync
@@ -587,9 +732,9 @@ pub struct SyncQueueItem {
 /// Get pending sync items count
 #[tauri::command]
 pub async fn get_sync_queue_count() -> Result<i64, String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
     db.pending_sync_count()
         .await
         .map_err(|e| format!("Failed to get sync count: {}", e))
@@ -598,28 +743,32 @@ pub async fn get_sync_queue_count() -> Result<i64, String> {
 /// Get pending sync items for processing
 #[tauri::command]
 pub async fn get_pending_sync_items(limit: i64) -> Result<Vec<SyncQueueItem>, String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let items = db.get_pending_sync(limit)
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let items = db
+        .get_pending_sync(limit)
         .await
         .map_err(|e| format!("Failed to query sync queue: {}", e))?;
-    
-    Ok(items.into_iter().map(|item| SyncQueueItem {
-        id: item.id,
-        entry_type: item.entry_type,
-        event_id: item.event_id,
-        ts_end: item.ts_end,
-        retry_count: item.retry_count,
-    }).collect())
+
+    Ok(items
+        .into_iter()
+        .map(|item| SyncQueueItem {
+            id: item.id,
+            entry_type: item.entry_type,
+            event_id: item.event_id,
+            ts_end: item.ts_end,
+            retry_count: item.retry_count,
+        })
+        .collect())
 }
 
 /// Mark a sync item as completed
 #[tauri::command]
 pub async fn mark_sync_item_complete(queue_id: i64) -> Result<(), String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
     db.mark_synced(queue_id)
         .await
         .map_err(|e| format!("Failed to mark item complete: {}", e))
@@ -628,9 +777,9 @@ pub async fn mark_sync_item_complete(queue_id: i64) -> Result<(), String> {
 /// Mark a sync item as failed (will retry)
 #[tauri::command]
 pub async fn mark_sync_item_failed(queue_id: i64) -> Result<(), String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
     db.mark_sync_failed(queue_id)
         .await
         .map_err(|e| format!("Failed to mark item failed: {}", e))
@@ -639,13 +788,14 @@ pub async fn mark_sync_item_failed(queue_id: i64) -> Result<(), String> {
 /// Get full event data for syncing
 #[tauri::command]
 pub async fn get_event_for_sync(event_id: i64) -> Result<Option<DetailedActivityEvent>, String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let event = db.get_activity_event(event_id)
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let event = db
+        .get_activity_event(event_id)
         .await
         .map_err(|e| format!("Failed to get event: {}", e))?;
-    
+
     Ok(event.map(DetailedActivityEvent::from))
 }
 
@@ -665,7 +815,7 @@ pub struct DailySummary {
 #[tauri::command]
 pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
     let device_id = get_device_id_or_config().unwrap_or_default();
-    
+
     // Parse date and calculate timestamps
     let date_parts: Vec<&str> = date.split('-').collect();
     if date_parts.len() != 3 {
@@ -676,24 +826,27 @@ pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
     let month: u32 = date_parts[1].parse().map_err(|_| "Invalid month")?;
     let day: u32 = date_parts[2].parse().map_err(|_| "Invalid day")?;
 
-    use chrono::{TimeZone, Local};
-    let start_of_day = Local.with_ymd_and_hms(year, month, day, 0, 0, 0)
+    use chrono::{Local, TimeZone};
+    let start_of_day = Local
+        .with_ymd_and_hms(year, month, day, 0, 0, 0)
         .single()
         .ok_or("Invalid date")?;
-    let end_of_day = Local.with_ymd_and_hms(year, month, day, 23, 59, 59)
+    let end_of_day = Local
+        .with_ymd_and_hms(year, month, day, 23, 59, 59)
         .single()
         .ok_or("Invalid date")?;
 
     let start_ts = start_of_day.timestamp_millis();
     let end_ts = end_of_day.timestamp_millis();
 
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let summary = db.get_daily_summary(&device_id, start_ts, end_ts)
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let summary = db
+        .get_daily_summary(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to get summary: {}", e))?;
-    
+
     Ok(DailySummary {
         date,
         total_active_ms: summary.active_ms,
@@ -723,44 +876,44 @@ pub struct DbStats {
 /// Get database statistics and diagnostics
 #[tauri::command]
 pub async fn get_watcher_db_stats() -> Result<DbStats, String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let stats = db.get_stats()
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let stats = db
+        .get_stats()
         .await
         .map_err(|e| format!("Failed to get stats: {}", e))?;
-    
+
     // Get date range from the device_id's events
     let device_id = get_device_id_or_config().unwrap_or_default();
-    let db_stats = db.get_db_stats(&device_id)
-        .await
-        .unwrap_or_else(|_| ritual_db::blocking::DbStats {
-            event_count: stats.activity_event_count,
-            afk_count: 0,
-            oldest_event_ts: None,
-            newest_event_ts: None,
-            db_size_bytes: stats.db_size_bytes,
-        });
-    
+    let db_stats =
+        db.get_db_stats(&device_id)
+            .await
+            .unwrap_or_else(|_| ritual_db::blocking::DbStats {
+                event_count: stats.activity_event_count,
+                afk_count: 0,
+                oldest_event_ts: None,
+                newest_event_ts: None,
+                db_size_bytes: stats.db_size_bytes,
+            });
+
     let oldest_event_date = db_stats.oldest_event_ts.map(|ts| {
         chrono::DateTime::from_timestamp_millis(ts)
             .map(|dt| dt.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "Unknown".to_string())
     });
-    
+
     let newest_event_date = db_stats.newest_event_ts.map(|ts| {
         chrono::DateTime::from_timestamp_millis(ts)
             .map(|dt| dt.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "Unknown".to_string())
     });
-    
+
     let days_of_data = match (db_stats.oldest_event_ts, db_stats.newest_event_ts) {
-        (Some(oldest), Some(newest)) => {
-            ((newest - oldest) / (24 * 60 * 60 * 1000)).max(1)
-        }
+        (Some(oldest), Some(newest)) => ((newest - oldest) / (24 * 60 * 60 * 1000)).max(1),
         _ => 0,
     };
-    
+
     Ok(DbStats {
         event_count: db_stats.event_count,
         afk_count: db_stats.afk_count,
@@ -775,9 +928,9 @@ pub async fn get_watcher_db_stats() -> Result<DbStats, String> {
 /// Returns the number of deleted events
 #[tauri::command]
 pub async fn cleanup_old_events(days: i64) -> Result<i64, String> {
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
     db.delete_old_events(days)
         .await
         .map_err(|e| format!("Failed to delete events: {}", e))
@@ -785,33 +938,44 @@ pub async fn cleanup_old_events(days: i64) -> Result<i64, String> {
 
 /// Export events for a date range
 #[tauri::command]
-pub async fn export_events(start_date: String, end_date: String) -> Result<Vec<DetailedActivityEvent>, String> {
+pub async fn export_events(
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<DetailedActivityEvent>, String> {
     let device_id = get_device_id_or_config().unwrap_or_default();
-    
+
     // Parse dates
-    use chrono::{NaiveDate, TimeZone, Local};
+    use chrono::{Local, NaiveDate, TimeZone};
     let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d")
         .map_err(|_| "Invalid start date format (use YYYY-MM-DD)")?;
     let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d")
         .map_err(|_| "Invalid end date format (use YYYY-MM-DD)")?;
-    
-    let start_ts = Local.from_local_datetime(&start.and_hms_opt(0, 0, 0).unwrap())
+
+    let start_dt = start.and_hms_opt(0, 0, 0).ok_or("Invalid start datetime")?;
+    let start_ts = Local
+        .from_local_datetime(&start_dt)
         .single()
         .ok_or("Invalid start date")?
         .timestamp_millis();
-    let end_ts = Local.from_local_datetime(&end.and_hms_opt(23, 59, 59).unwrap())
+    let end_dt = end.and_hms_opt(23, 59, 59).ok_or("Invalid end datetime")?;
+    let end_ts = Local
+        .from_local_datetime(&end_dt)
         .single()
         .ok_or("Invalid end date")?
         .timestamp_millis();
-    
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let events = db.get_events_in_range(&device_id, start_ts, end_ts)
+
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let events = db
+        .get_events_in_range(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to export events: {}", e))?;
-    
-    Ok(events.into_iter().map(DetailedActivityEvent::from).collect())
+
+    Ok(events
+        .into_iter()
+        .map(DetailedActivityEvent::from)
+        .collect())
 }
 
 // ============================================================
@@ -833,7 +997,7 @@ pub struct FocusMetrics {
 #[tauri::command]
 pub async fn get_focus_metrics(date: String) -> Result<FocusMetrics, String> {
     let device_id = get_device_id_or_config().unwrap_or_default();
-    
+
     // Parse date
     let date_parts: Vec<&str> = date.split('-').collect();
     if date_parts.len() != 3 {
@@ -842,36 +1006,45 @@ pub async fn get_focus_metrics(date: String) -> Result<FocusMetrics, String> {
     let year: i32 = date_parts[0].parse().map_err(|_| "Invalid year")?;
     let month: u32 = date_parts[1].parse().map_err(|_| "Invalid month")?;
     let day: u32 = date_parts[2].parse().map_err(|_| "Invalid day")?;
-    
-    use chrono::{TimeZone, Local};
-    let start_ts = Local.with_ymd_and_hms(year, month, day, 0, 0, 0)
+
+    use chrono::{Local, TimeZone};
+    let start_ts = Local
+        .with_ymd_and_hms(year, month, day, 0, 0, 0)
         .single()
         .ok_or("Invalid date")?
         .timestamp_millis();
-    let end_ts = Local.with_ymd_and_hms(year, month, day, 23, 59, 59)
+    let end_ts = Local
+        .with_ymd_and_hms(year, month, day, 23, 59, 59)
         .single()
         .ok_or("Invalid date")?
         .timestamp_millis();
-    
-    let guard = get_db().await?;
-    let db = guard.as_ref().unwrap();
-    
-    let metrics = db.get_focus_metrics(&device_id, start_ts, end_ts)
+
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+
+    let metrics = db
+        .get_focus_metrics(&device_id, start_ts, end_ts)
         .await
         .map_err(|e| format!("Failed to get focus metrics: {}", e))?;
-    
+
     // Compute average session from events
-    let events = db.get_events_in_range(&device_id, start_ts, end_ts)
+    let events = db
+        .get_events_in_range(&device_id, start_ts, end_ts)
         .await
         .unwrap_or_default();
-    
+
     let active_events: Vec<_> = events.iter().filter(|e| !e.is_afk).collect();
-    let total_duration_ms: i64 = active_events.iter()
+    let total_duration_ms: i64 = active_events
+        .iter()
         .map(|e| e.ts_end.saturating_sub(e.ts_start))
         .sum();
     let event_count = active_events.len() as i64;
-    let average_session_ms = if event_count > 0 { total_duration_ms / event_count } else { 0 };
-    
+    let average_session_ms = if event_count > 0 {
+        total_duration_ms / event_count
+    } else {
+        0
+    };
+
     Ok(FocusMetrics {
         context_switches: metrics.context_switches,
         longest_focus_session_minutes: metrics.longest_focus_session_ms as f64 / 60000.0,
@@ -904,11 +1077,12 @@ pub struct WatcherExtendedStatus {
 pub async fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, String> {
     let (is_running, pid) = {
         let mut process_guard = WATCHER_PROCESS.lock().map_err(|e| e.to_string())?;
-        
-        let running = process_guard.as_mut()
+
+        let running = process_guard
+            .as_mut()
             .map(|child| child.try_wait().map(|s| s.is_none()).unwrap_or(false))
             .unwrap_or(false);
-        
+
         let p = if running {
             process_guard.as_ref().map(|c| c.id())
         } else {
@@ -916,49 +1090,46 @@ pub async fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, Stri
         };
         (running, p)
     }; // Drop the MutexGuard before any .await
-    
+
     let device_id = get_device_id_or_config();
-    
+
     // Query real-time info from the unified database
-    let (last_heartbeat_ts, current_app, session_duration_seconds) = if let Some(ref dev_id) = device_id {
-        let guard = RITUAL_DB.read().await;
-        if let Some(ref db) = *guard {
-            // Get last heartbeat
-            let heartbeat = db.get_last_heartbeat(dev_id)
-                .await
-                .unwrap_or(None);
-            
-            // Get most recent event
-            let recent_events = db.get_recent_events(dev_id, 1)
-                .await
-                .unwrap_or_default();
-            
-            let (app, session_dur) = if let Some(event) = recent_events.first() {
-                let now_ms = chrono::Utc::now().timestamp_millis();
-                // If event is recent (within 10 seconds), it's the current session
-                if now_ms - event.ts_end < 10_000 {
-                    (
-                        Some(event.app_name.clone()),
-                        Some((event.ts_end - event.ts_start) / 1000),
-                    )
+    let (last_heartbeat_ts, current_app, session_duration_seconds) =
+        if let Some(ref dev_id) = device_id {
+            let guard = ACTIVITY_DB.read().await;
+            if let Some(ref db) = *guard {
+                // Get last heartbeat
+                let heartbeat = db.get_last_heartbeat(dev_id).await.unwrap_or(None);
+
+                // Get most recent event
+                let recent_events = db.get_recent_events(dev_id, 1).await.unwrap_or_default();
+
+                let (app, session_dur) = if let Some(event) = recent_events.first() {
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    // If event is recent (within 10 seconds), it's the current session
+                    if now_ms - event.ts_end < 10_000 {
+                        (
+                            Some(event.app_name.clone()),
+                            Some((event.ts_end - event.ts_start) / 1000),
+                        )
+                    } else {
+                        (None, None)
+                    }
                 } else {
                     (None, None)
-                }
+                };
+
+                (heartbeat, app, session_dur)
             } else {
-                (None, None)
-            };
-            
-            (heartbeat, app, session_dur)
+                (None, None, None)
+            }
         } else {
             (None, None, None)
-        }
-    } else {
-        (None, None, None)
-    };
-    
+        };
+
     let now_ms = chrono::Utc::now().timestamp_millis();
     let seconds_since_heartbeat = last_heartbeat_ts.map(|ts| (now_ms - ts) / 1000);
-    
+
     Ok(WatcherExtendedStatus {
         is_running,
         pid,
@@ -971,41 +1142,133 @@ pub async fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, Stri
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserExtensionDiagnostics {
+    pub extension_installed: bool,
+    pub watcher_reachable: bool,
+    pub heartbeat_live: bool,
+    pub watcher_server_url: Option<String>,
+    pub last_browser_extension_heartbeat_ts: Option<i64>,
+    pub seconds_since_browser_extension_heartbeat: Option<i64>,
+    pub detection_note: String,
+}
+
+fn watcher_server_reachable() -> Option<String> {
+    for (url, host, port) in WATCHER_HEARTBEAT_ENDPOINTS {
+        let address = format!("{host}:{port}");
+        let socket_addr = match address
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.next())
+        {
+            Some(addr) => addr,
+            None => continue,
+        };
+
+        if can_connect(socket_addr, Duration::from_millis(250)) {
+            return Some(url.to_string());
+        }
+    }
+    None
+}
+
+fn can_connect(addr: SocketAddr, timeout: Duration) -> bool {
+    TcpStream::connect_timeout(&addr, timeout).is_ok()
+}
+
+#[tauri::command]
+pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagnostics, String> {
+    let watcher_server_url = watcher_server_reachable();
+    let watcher_reachable = watcher_server_url.is_some();
+    let device_id = get_device_id_or_config();
+
+    let mut last_browser_extension_heartbeat_ts: Option<i64> = None;
+
+    if let Some(ref dev_id) = device_id {
+        let guard = ACTIVITY_DB.read().await;
+        if let Some(ref db) = *guard {
+            // Pull a bounded set of recent events and derive the latest extension heartbeat.
+            let recent_events = db.get_recent_events(dev_id, 500).await.unwrap_or_default();
+
+            for event in recent_events {
+                if event.source.contains("browser_extension") {
+                    last_browser_extension_heartbeat_ts = Some(
+                        last_browser_extension_heartbeat_ts
+                            .map(|existing| existing.max(event.ts_end))
+                            .unwrap_or(event.ts_end),
+                    );
+                }
+            }
+        }
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let seconds_since_browser_extension_heartbeat =
+        last_browser_extension_heartbeat_ts.map(|ts| (now_ms - ts) / 1000);
+
+    let extension_installed = last_browser_extension_heartbeat_ts.is_some();
+    let heartbeat_live = watcher_reachable
+        && seconds_since_browser_extension_heartbeat
+            .map(|seconds| seconds <= EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS)
+            .unwrap_or(false);
+
+    let detection_note = if extension_installed {
+        "Detected via browser_extension heartbeat events".to_string()
+    } else if watcher_reachable {
+        "Watcher is reachable, but no extension heartbeat has been observed yet".to_string()
+    } else {
+        "Watcher heartbeat server is not reachable".to_string()
+    };
+
+    Ok(BrowserExtensionDiagnostics {
+        extension_installed,
+        watcher_reachable,
+        heartbeat_live,
+        watcher_server_url,
+        last_browser_extension_heartbeat_ts,
+        seconds_since_browser_extension_heartbeat,
+        detection_note,
+    })
+}
+
 /// Check watcher health and auto-restart if hung
 /// Returns true if watcher was restarted, false if it was healthy
 #[tauri::command]
 pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result<bool, String> {
     let status = get_watcher_extended_status().await?;
-    
+
     // Check if watcher is supposedly running but heartbeat is stale
     if status.is_running {
         if let Some(seconds_stale) = status.seconds_since_heartbeat {
             if seconds_stale > max_stale_seconds {
-                println!("⚠️ Watcher hung detected! Heartbeat stale for {} seconds (threshold: {})", 
-                         seconds_stale, max_stale_seconds);
-                
+                watcher_info!(
+                    "⚠️ Watcher hung detected! Heartbeat stale for {} seconds (threshold: {})",
+                    seconds_stale,
+                    max_stale_seconds
+                );
+
                 // Stop the hung watcher
                 if let Err(e) = stop_watcher().await {
-                    println!("   Failed to stop hung watcher: {}", e);
+                    watcher_info!("   Failed to stop hung watcher: {}", e);
                 }
-                
+
                 // Small delay to ensure process is terminated
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                
+
                 // Read existing config
                 let home = dirs::home_dir().ok_or("Could not find home directory")?;
                 let config_path = home.join(".ritual").join("watcher_config.json");
-                
+
                 if config_path.exists() {
                     let config_str = std::fs::read_to_string(&config_path)
                         .map_err(|e| format!("Failed to read config: {}", e))?;
                     let config: WatcherConfig = serde_json::from_str(&config_str)
                         .map_err(|e| format!("Failed to parse config: {}", e))?;
-                    
+
                     // Restart watcher
                     match start_watcher_sync(config) {
                         Ok(_) => {
-                            println!("✅ Watcher auto-restarted after hang detection");
+                            watcher_info!("✅ Watcher auto-restarted after hang detection");
                             return Ok(true);
                         }
                         Err(e) => {
@@ -1018,7 +1281,7 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
             }
         }
     }
-    
+
     Ok(false)
 }
 
@@ -1042,50 +1305,50 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
     {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
         let cache_dir = home.join(".ritual").join("icons");
-        
+
         // Ensure cache directory exists
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("Failed to create icon cache: {}", e))?;
-        
+
         // Create safe filename from bundle ID
         let safe_name = bundle_id.replace('.', "_").replace('/', "_");
         let cache_path = cache_dir.join(format!("{}.png", safe_name));
-        
+
         // Check if already cached
         if cache_path.exists() {
             use base64::Engine;
             let icon_data = std::fs::read(&cache_path)
                 .map_err(|e| format!("Failed to read cached icon: {}", e))?;
             let base64_data = base64::engine::general_purpose::STANDARD.encode(&icon_data);
-            
+
             return Ok(AppIconResponse {
                 bundle_id,
                 icon_path: Some(cache_path.to_string_lossy().to_string()),
                 icon_base64: Some(base64_data),
             });
         }
-        
+
         // Extract icon using macOS tools
         if let Some(icon_path) = extract_app_icon_macos(&bundle_id, &cache_path) {
             use base64::Engine;
-            let icon_data = std::fs::read(&icon_path)
-                .map_err(|e| format!("Failed to read icon: {}", e))?;
+            let icon_data =
+                std::fs::read(&icon_path).map_err(|e| format!("Failed to read icon: {}", e))?;
             let base64_data = base64::engine::general_purpose::STANDARD.encode(&icon_data);
-            
+
             return Ok(AppIconResponse {
                 bundle_id,
                 icon_path: Some(icon_path),
                 icon_base64: Some(base64_data),
             });
         }
-        
+
         Ok(AppIconResponse {
             bundle_id,
             icon_path: None,
             icon_base64: None,
         })
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     {
         Ok(AppIconResponse {
@@ -1100,7 +1363,7 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
 #[tauri::command]
 pub fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconResponse>, String> {
     let mut results = Vec::new();
-    
+
     for bundle_id in bundle_ids {
         match get_app_icon(bundle_id.clone()) {
             Ok(response) => results.push(response),
@@ -1111,7 +1374,7 @@ pub fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconRespons
             }),
         }
     }
-    
+
     Ok(results)
 }
 
@@ -1119,24 +1382,25 @@ pub fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconRespons
 #[cfg(target_os = "macos")]
 fn extract_app_icon_macos(bundle_id: &str, output_path: &std::path::PathBuf) -> Option<String> {
     use std::process::Command;
-    
+
     // Step 1: Find the app path from bundle ID using mdfind
     let app_path = {
         let output = Command::new("mdfind")
             .args([&format!("kMDItemCFBundleIdentifier == '{}'", bundle_id)])
             .output()
             .ok()?;
-        
+
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.lines()
+            stdout
+                .lines()
                 .find(|line| line.ends_with(".app"))
                 .map(|s| s.to_string())
         } else {
             None
         }
     };
-    
+
     let app_path = app_path.or_else(|| {
         // Fallback: check common locations
         let app_name = bundle_id.split('.').last()?;
@@ -1145,7 +1409,7 @@ fn extract_app_icon_macos(bundle_id: &str, output_path: &std::path::PathBuf) -> 
             "/System/Applications",
             "/System/Applications/Utilities",
         ];
-        
+
         for loc in locations {
             let path = format!("{}/{}.app", loc, app_name);
             if std::path::Path::new(&path).exists() {
@@ -1154,21 +1418,26 @@ fn extract_app_icon_macos(bundle_id: &str, output_path: &std::path::PathBuf) -> 
         }
         None
     })?;
-    
+
     // Step 2: Find the .icns file in the app bundle
     let icns_path = find_icns_file(&app_path)?;
-    
+
     // Step 3: Convert .icns to .png using sips
     let output = Command::new("sips")
         .args([
-            "-s", "format", "png",
-            "-z", "64", "64",
+            "-s",
+            "format",
+            "png",
+            "-z",
+            "64",
+            "64",
             &icns_path,
-            "--out", output_path.to_str()?,
+            "--out",
+            output_path.to_str()?,
         ])
         .output()
         .ok()?;
-    
+
     if output.status.success() {
         Some(output_path.to_string_lossy().to_string())
     } else {
@@ -1180,10 +1449,10 @@ fn extract_app_icon_macos(bundle_id: &str, output_path: &std::path::PathBuf) -> 
 #[cfg(target_os = "macos")]
 fn find_icns_file(app_path: &str) -> Option<String> {
     use std::process::Command;
-    
+
     let info_plist = format!("{}/Contents/Info.plist", app_path);
     let resources_path = format!("{}/Contents/Resources", app_path);
-    
+
     // Try to get icon name from Info.plist
     let icon_name = Command::new("/usr/libexec/PlistBuddy")
         .args(["-c", "Print :CFBundleIconFile", &info_plist])
@@ -1192,22 +1461,32 @@ fn find_icns_file(app_path: &str) -> Option<String> {
         .and_then(|output| {
             if output.status.success() {
                 let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                Some(if name.ends_with(".icns") { name } else { format!("{}.icns", name) })
+                Some(if name.ends_with(".icns") {
+                    name
+                } else {
+                    format!("{}.icns", name)
+                })
             } else {
                 None
             }
         })
         .unwrap_or_else(|| "AppIcon.icns".to_string());
-    
+
     let icon_path = format!("{}/{}", resources_path, icon_name);
-    
+
     if std::path::Path::new(&icon_path).exists() {
         return Some(icon_path);
     }
-    
+
     // Fallback: find any .icns file
-    std::fs::read_dir(&resources_path).ok()?
+    std::fs::read_dir(&resources_path)
+        .ok()?
         .filter_map(|e| e.ok())
-        .find(|e| e.path().extension().map(|ext| ext == "icns").unwrap_or(false))
+        .find(|e| {
+            e.path()
+                .extension()
+                .map(|ext| ext == "icns")
+                .unwrap_or(false)
+        })
         .and_then(|e| e.path().to_str().map(|s| s.to_string()))
 }

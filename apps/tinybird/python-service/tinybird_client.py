@@ -6,11 +6,13 @@ Handles all interactions with Tinybird Events API
 import requests
 import json
 import os
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class TinybirdClient:
@@ -61,16 +63,14 @@ class TinybirdClient:
             url,
             params=params,
             headers=self.headers,
-            data=ndjson_data
+            data=ndjson_data,
+            timeout=30,
         )
         
         # Debug: print first event being sent
         if events:
-            print(f"DEBUG - First event being sent to {datasource}:")
-            print(json.dumps(events[0], indent=2))
-        
-        print(f"DEBUG - Response status: {response.status_code}")
-        print(f"DEBUG - Response body: {response.text}")
+            logger.debug("Tinybird ingest first event for %s: %s", datasource, json.dumps(events[0]))
+        logger.debug("Tinybird ingest response status=%s body=%s", response.status_code, response.text)
         
         if response.status_code == 202:
             return {
@@ -101,7 +101,8 @@ class TinybirdClient:
         response = requests.get(
             url,
             headers=self.headers,
-            params=params or {}
+            params=params or {},
+            timeout=30,
         )
         
         if response.status_code == 200:
@@ -227,7 +228,7 @@ class TinybirdClient:
                 total_success += result['count']
             else:
                 total_failed += len(batch)
-                print(f"Batch {i//batch_size + 1} failed: {result.get('error')}")
+                logger.warning("Tinybird batch %s failed: %s", i // batch_size + 1, result.get("error"))
         
         return {
             'total_events': total_events,

@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 logger = logging.getLogger(__name__)
+_LEGACY_INT_QUALITY_SCORE_NAMESPACES: set[str] = set()
 
 
 def _env(name: str, default: str = "") -> str:
@@ -62,7 +63,7 @@ class TurbopufferService:
                         "queries": [
                             {
                                 "top_k": 1,
-                                "rank_by": ["text_compact", "BM25", "healthcheck"],
+                                "rank_by": ["contextual_text_compact", "BM25", "healthcheck"],
                             }
                         ]
                     },
@@ -91,28 +92,74 @@ class TurbopufferService:
             raise RuntimeError("Turbopuffer API key is not configured")
 
         namespace = self.namespace_for_user(user_id)
-        payload = {
-            "distance_metric": self.distance_metric,
-            "schema": {
-                "text_compact": {
+        include_quality_score = namespace not in _LEGACY_INT_QUALITY_SCORE_NAMESPACES
+
+        def _build_payload(include_qs: bool) -> Dict[str, Any]:
+            schema = {
+                "contextual_text_compact": {
                     "type": "string",
                     "full_text_search": True,
                 },
-                "quality_score": {
-                    "type": "float",
-                },
-            },
-            "upsert_rows": [
-                {"id": doc_id, "vector": vector, **attributes}
-            ]
-        }
+                "raw_text_compact": {"type": "string"},
+                "chunk_start_ts": {"type": "int"},
+                "chunk_end_ts": {"type": "int"},
+                "active": {"type": "int"},
+                "user_id": {"type": "string"},
+                "device_id": {"type": "string"},
+                "chunk_id": {"type": "string"},
+                "logical_chunk_id": {"type": "string"},
+                "app_name": {"type": "string"},
+                "window_title": {"type": "string"},
+                "browser_domain": {"type": "string"},
+                "content_hash": {"type": "string"},
+                "session_key": {"type": "string"},
+                "session_position": {"type": "int"},
+                "session_chunk_count": {"type": "int"},
+                "context_version": {"type": "int"},
+            }
+            row_attrs = dict(attributes)
+            if include_qs:
+                schema["quality_score"] = {"type": "float"}
+            else:
+                row_attrs.pop("quality_score", None)
+            return {
+                "distance_metric": self.distance_metric,
+                "schema": schema,
+                "upsert_rows": [
+                    {"id": doc_id, "vector": vector, **row_attrs}
+                ],
+            }
 
+        def _is_quality_score_type_conflict(body: str) -> bool:
+            text = (body or "").lower()
+            return (
+                "quality_score" in text
+                and "as int" in text
+                and "incompatible value" in text
+            )
+
+        payload = _build_payload(include_quality_score)
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.post(
                 f"{self.base_url}/v2/namespaces/{namespace}",
                 headers=self._headers(),
                 json=payload,
             )
+            if (
+                response.status_code == 400
+                and include_quality_score
+                and _is_quality_score_type_conflict(response.text)
+            ):
+                _LEGACY_INT_QUALITY_SCORE_NAMESPACES.add(namespace)
+                logger.warning(
+                    "Turbopuffer namespace %s uses legacy int quality_score; retrying upserts without quality_score attribute.",
+                    namespace,
+                )
+                response = await client.post(
+                    f"{self.base_url}/v2/namespaces/{namespace}",
+                    headers=self._headers(),
+                    json=_build_payload(include_qs=False),
+                )
         if response.status_code >= 400:
             raise RuntimeError(
                 f"Turbopuffer upsert failed: status={response.status_code} body={response.text[:240]}"
@@ -171,9 +218,15 @@ class TurbopufferService:
             "window_title",
             "browser_domain",
             "text_compact",
+            "raw_text_compact",
+            "contextual_text_compact",
             "quality_score",
             "content_hash",
             "active",
+            "session_key",
+            "session_position",
+            "session_chunk_count",
+            "context_version",
         ]
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -183,14 +236,14 @@ class TurbopufferService:
                     "queries": [
                         {
                             "top_k": int(top_k),
-                            "include_attributes": include,
-                            "filters": filters,
-                            "rank_by": [
-                                ["vector", "ANN", query_vector],
-                                ["text_compact", "BM25", query_text],
-                            ],
-                        }
-                    ]
+                                "include_attributes": include,
+                                "filters": filters,
+                                "rank_by": [
+                                    ["vector", "ANN", query_vector],
+                                    ["contextual_text_compact", "BM25", query_text],
+                                ],
+                            }
+                        ]
                 }
                 resp = await client.post(
                     f"{self.base_url}/v2/namespaces/{namespace}/query",
@@ -215,7 +268,7 @@ class TurbopufferService:
                             "top_k": int(top_k),
                             "include_attributes": include,
                             "filters": filters,
-                            "rank_by": ["text_compact", "BM25", query_text],
+                            "rank_by": ["contextual_text_compact", "BM25", query_text],
                         },
                     ]
                 }
@@ -302,9 +355,15 @@ class TurbopufferService:
                         "window_title": attrs.get("window_title"),
                         "browser_domain": attrs.get("browser_domain"),
                         "text_compact": attrs.get("text_compact"),
+                        "raw_text_compact": attrs.get("raw_text_compact"),
+                        "contextual_text_compact": attrs.get("contextual_text_compact"),
                         "quality_score": float(attrs.get("quality_score") or 0.0),
                         "content_hash": attrs.get("content_hash"),
                         "active": attrs.get("active"),
+                        "session_key": attrs.get("session_key"),
+                        "session_position": attrs.get("session_position"),
+                        "session_chunk_count": attrs.get("session_chunk_count"),
+                        "context_version": attrs.get("context_version"),
                     }
                 )
 

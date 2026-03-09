@@ -12,7 +12,10 @@ from datetime import date as dt_date
 from datetime import datetime, time as dt_time, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.watcher_service_local_db import get_local_watcher_db_path_impl
+from services.watcher_service_local_db import (
+    get_local_activity_db_path_impl,
+    get_local_memory_db_path_impl,
+)
 from services.watcher_service_search_utils import (
     SCREEN_SEARCH_STOP_WORDS,
     build_expanded_fts_query_impl,
@@ -328,6 +331,32 @@ def _looks_like_activity_overview_query(query: str, tokens: List[str]) -> bool:
     return False
 
 
+def _attach_activity_view_if_needed(
+    cursor: sqlite3.Cursor,
+    *,
+    memory_db_path: str,
+    activity_db_path: str,
+) -> None:
+    """
+    In split-DB mode, map `activity_events` reads to activity.db while keeping
+    OCR/chunk reads on memory.db.
+    """
+    if not activity_db_path or activity_db_path == memory_db_path:
+        return
+    if not os.path.exists(activity_db_path):
+        return
+    try:
+        cursor.execute("ATTACH DATABASE ? AS activity_db", (activity_db_path,))
+        cursor.execute("DROP VIEW IF EXISTS temp.activity_events")
+        cursor.execute("CREATE TEMP VIEW activity_events AS SELECT * FROM activity_db.activity_events")
+    except Exception as exc:
+        logger.warning(
+            "Failed to attach activity.db (%s) to memory DB query connection: %s",
+            activity_db_path,
+            exc,
+        )
+
+
 async def search_screen_recordings_impl(
     service,
     user_id: str,
@@ -393,11 +422,12 @@ async def search_screen_recordings_impl(
     else:
         bridge_warning = "Hybrid bridge unavailable; using local lexical fallback."
 
-    db_path = get_local_watcher_db_path_impl()
-    if not os.path.exists(db_path):
+    memory_db_path = get_local_memory_db_path_impl()
+    activity_db_path = get_local_activity_db_path_impl()
+    if not os.path.exists(memory_db_path):
         return {
             "success": False,
-            "error": f"local database not found at {db_path}",
+            "error": f"local memory database not found at {memory_db_path}",
             "results": [],
             "mode_used": "none",
             "status": "unavailable",
@@ -406,12 +436,17 @@ async def search_screen_recordings_impl(
     conn = None
     try:
         conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro",
+            f"file:{memory_db_path}?mode=ro",
             uri=True,
             timeout=2.0,
         )
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        _attach_activity_view_if_needed(
+            cursor,
+            memory_db_path=memory_db_path,
+            activity_db_path=activity_db_path,
+        )
         cursor.execute("PRAGMA query_only = ON")
 
         has_ocr_frames = table_exists_impl(cursor, "ocr_frames")
@@ -738,7 +773,7 @@ async def search_screen_recordings_impl(
             "warning": warning,
             "start_date": start_day.isoformat(),
             "end_date": end_day.isoformat(),
-            "source_db": os.path.basename(db_path),
+            "source_db": os.path.basename(memory_db_path),
         }
     except Exception as e:
         logger.error(f"❌ Error searching local screen history: {e}")
@@ -751,7 +786,7 @@ async def search_screen_recordings_impl(
             "results": [],
             "mode_used": "none",
             "status": "unavailable",
-            "source_db": os.path.basename(db_path),
+            "source_db": os.path.basename(memory_db_path),
         }
     finally:
         if conn is not None:
@@ -1603,6 +1638,294 @@ def _build_citations(results: List[Dict[str, Any]], start_ms: int, end_ms: int, 
     return citations
 
 
+def _clip_recap_text(value: str, max_len: int = 180) -> str:
+    compact = " ".join(str(value or "").split())
+    if len(compact) <= max_len:
+        return compact
+    return f"{compact[: max_len - 3].rstrip()}..."
+
+
+def _tokenize_recap_text(value: str) -> List[str]:
+    tokens = re.findall(r"[a-z0-9./:_-]{3,}", str(value or "").lower())
+    return [token for token in tokens if token not in SCREEN_SEARCH_STOP_WORDS]
+
+
+def _infer_recap_workstream(app_name: str, window_title: str, snippets: List[str]) -> str:
+    haystack = f"{app_name} {window_title} {' '.join(snippets)}".lower()
+    if any(token in haystack for token in ("cursor", "vscode", "terminal", "github", "pull request", "typescript", "rust")):
+        return "Implementation and code changes"
+    if any(token in haystack for token in ("things", "todo", "calendar", "notion", "planning", "schedule", "inbox")):
+        return "Planning and task management"
+    if any(token in haystack for token in ("docs", "guide", "reference", "anthropic", "readme", "documentation", "article")):
+        return "Research and documentation review"
+    if any(token in haystack for token in ("figma", "css", "design", "ui", "ux")):
+        return "Design and interface work"
+    if any(token in haystack for token in ("slack", "mail", "message", "meeting", "zoom")):
+        return "Communication and coordination"
+    return f"{(app_name or 'General').strip() or 'General'} work session"
+
+
+def _extract_specific_task_phrases(values: List[str], limit: int) -> List[str]:
+    counts: Dict[str, int] = {}
+
+    def _score_phrase(phrase: str) -> int:
+        score = 0
+        if re.search(r"[./][a-z0-9_-]{2,8}\b", phrase, re.IGNORECASE):
+            score += 3
+        if re.search(r"(src/|app/|api/|target/|crates/|components/)", phrase, re.IGNORECASE):
+            score += 3
+        if re.search(r"[A-Z][a-z]+[A-Z][A-Za-z]+", phrase):
+            score += 2
+        if re.search(r"\b(clerk|vector|embedding|chunk|rerank|hybrid|backfill|dashboard|sidebar|auth|oauth|sqlite|ocr|upload|ingest|query|prompt|cursor|things 3)\b", phrase, re.IGNORECASE):
+            score += 2
+        if len(phrase.split()) >= 3:
+            score += 1
+        return score
+
+    for value in values:
+        normalized = " ".join(str(value or "").split()).strip()
+        if not normalized:
+            continue
+        for raw_part in re.split(r"\s*[|;:\-]\s*|\.\s+|,\s+", normalized):
+            phrase = raw_part.strip()
+            if len(phrase) < 12 or len(phrase) > 140:
+                continue
+            tokens = _tokenize_recap_text(phrase)
+            if len(tokens) < 2:
+                continue
+            if all(
+                token in {"planning", "management", "session", "work", "tasks", "project", "projects", "used", "app", "unknown"}
+                for token in tokens
+            ):
+                continue
+            clipped = _clip_recap_text(phrase, 140)
+            counts[clipped] = counts.get(clipped, 0) + _score_phrase(clipped)
+
+    return [
+        phrase
+        for phrase, _score in sorted(counts.items(), key=lambda row: (-int(row[1]), row[0]))[:limit]
+    ]
+
+
+def _build_recap_outline(
+    citations: List[Dict[str, Any]],
+    highlights: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    workstreams: Dict[str, Dict[str, Any]] = {}
+    app_counts: Dict[str, Dict[str, Any]] = {}
+    time_buckets: Dict[str, int] = {}
+
+    for item in citations:
+        app = str(item.get("app_name") or "Unknown").strip() or "Unknown"
+        window = str(item.get("window_title") or "Unknown").strip() or "Unknown"
+        snippet = _clip_recap_text(str(item.get("snippet") or ""))
+        session_key = item.get("session_key") or f"{app}::{window}"
+        label = _infer_recap_workstream(app, window, [snippet])
+
+        workstream = workstreams.setdefault(
+            label,
+            {
+                "label": label,
+                "evidence_count": 0,
+                "apps": set(),
+                "windows": {},
+                "supporting_snippets": [],
+                "session_keys": set(),
+                "topic_counts": {},
+            },
+        )
+        workstream["evidence_count"] += 1
+        workstream["apps"].add(app)
+        workstream["windows"][window] = int(workstream["windows"].get(window, 0)) + 1
+        workstream["session_keys"].add(session_key)
+        if snippet and len(workstream["supporting_snippets"]) < 3:
+            workstream["supporting_snippets"].append(snippet)
+        for token in _tokenize_recap_text(f"{window} {snippet}"):
+            workstream["topic_counts"][token] = int(workstream["topic_counts"].get(token, 0)) + 1
+
+        app_entry = app_counts.setdefault(app, {"app": app, "evidence_count": 0, "top_windows": {}})
+        app_entry["evidence_count"] += 1
+        app_entry["top_windows"][window] = int(app_entry["top_windows"].get(window, 0)) + 1
+
+        try:
+            timestamp = int(item.get("timestamp") or 0)
+        except Exception:
+            timestamp = 0
+        if timestamp > 0:
+            bucket_dt = datetime.fromtimestamp(timestamp / 1000)
+            bucket_key = f"{bucket_dt:%Y-%m-%d} {((bucket_dt.hour // 2) * 2):02d}:00"
+            time_buckets[bucket_key] = time_buckets.get(bucket_key, 0) + 1
+
+    strongest_evidence = []
+    for item in sorted(highlights, key=lambda row: float(row.get("score") or 0.0), reverse=True)[:8]:
+        app = str(item.get("app_name") or "Unknown").strip() or "Unknown"
+        window = str(item.get("window_title") or "Unknown").strip() or "Unknown"
+        snippet = _clip_recap_text(str(item.get("snippet") or ""))
+        strongest_evidence.append(
+            {
+                "timestamp": item.get("timestamp"),
+                "app": app,
+                "window": window,
+                "session_key": item.get("session_key"),
+                "snippet": snippet,
+                "score": item.get("score"),
+                "reason": _infer_recap_workstream(app, window, [snippet]),
+            }
+        )
+
+    uncertainty: List[str] = []
+    if len(workstreams) <= 1:
+        uncertainty.append("Evidence clusters into one dominant workstream, so secondary tasks may be underrepresented.")
+    if len(time_buckets) < 4:
+        uncertainty.append("Coverage spans relatively few time buckets, so parts of the day may be missing.")
+    if len([item for item in citations if len(str(item.get('snippet') or '').strip()) >= 40]) < 5:
+        uncertainty.append("Several chunks have short OCR snippets, so exact task names may still be incomplete.")
+    if any(app.lower() in {"things 3", "calendar", "notion"} for app in app_counts):
+        uncertainty.append("Planning tools are prominent in the evidence, so some items may reflect planning rather than completed execution.")
+
+    main_workstreams = []
+    for workstream in sorted(workstreams.values(), key=lambda row: int(row["evidence_count"]), reverse=True)[:6]:
+        topic_counts = workstream.pop("topic_counts")
+        main_workstreams.append(
+            {
+                "label": workstream["label"],
+                "evidence_count": workstream["evidence_count"],
+                "apps": sorted(workstream["apps"]),
+                "representative_windows": [
+                    window
+                    for window, _count in sorted(
+                        workstream["windows"].items(), key=lambda row: (-int(row[1]), row[0])
+                    )[:3]
+                ],
+                "supporting_snippets": workstream["supporting_snippets"],
+                "session_keys": list(workstream["session_keys"])[:4],
+                "topic_tokens": [
+                    token
+                    for token, _count in sorted(
+                        topic_counts.items(), key=lambda row: (-int(row[1]), row[0])
+                    )[:6]
+                ],
+                "specific_tasks": _extract_specific_task_phrases(
+                    workstream["supporting_snippets"] + list(workstream["windows"].keys()), 5
+                ),
+            }
+        )
+
+    apps_and_tools_used = [
+        {
+            "app": app_entry["app"],
+            "evidence_count": app_entry["evidence_count"],
+            "top_windows": [
+                {"window": window, "count": count}
+                for window, count in sorted(
+                    app_entry["top_windows"].items(), key=lambda row: (-int(row[1]), row[0])
+                )[:3]
+            ],
+        }
+        for app_entry in sorted(app_counts.values(), key=lambda row: int(row["evidence_count"]), reverse=True)[:6]
+    ]
+
+    specific_tasks = _extract_specific_task_phrases(
+        [
+            str(item.get("snippet") or "")
+            for item in citations
+        ]
+        + [
+            str(item.get("window_title") or "")
+            for item in citations
+        ],
+        12,
+    )
+
+    return {
+        "main_workstreams": main_workstreams,
+        "apps_and_tools_used": apps_and_tools_used,
+        "specific_tasks": specific_tasks,
+        "strongest_evidence": strongest_evidence,
+        "uncertainty_or_conflicts": uncertainty,
+    }
+
+
+def _normalize_fallback_citations(citations: List[Dict[str, Any]], source: str) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    for item in citations:
+        if not isinstance(item, dict):
+            continue
+        timestamp = int(item.get("timestamp") or 0)
+        if timestamp <= 0:
+            continue
+        frame_id = item.get("frame_id")
+        try:
+            frame_id = int(frame_id) if frame_id is not None else None
+        except Exception:
+            frame_id = None
+        chunk_id = item.get("chunk_id")
+        if chunk_id is None:
+            chunk_id = int(timestamp // 90_000)
+        snippet = str(item.get("snippet") or item.get("ocr_text") or "").strip()
+        if len(snippet) > 280:
+            snippet = f"{snippet[:280].rstrip()}..."
+        normalized.append(
+            {
+                "chunk_id": chunk_id,
+                "frame_id": frame_id if frame_id and frame_id > 0 else None,
+                "timestamp": timestamp,
+                "app_name": item.get("app_name"),
+                "window_title": item.get("window_title"),
+                "snippet": snippet,
+                "score": round(float(item.get("score") or item.get("relevance_score") or 0.0), 3),
+                "source": str(item.get("source") or source),
+            }
+        )
+    return normalized
+
+
+def _fuse_citations_rrf(
+    primary: List[Dict[str, Any]],
+    secondary: List[Dict[str, Any]],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    rrf_k = 60.0
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    def _key(item: Dict[str, Any]) -> str:
+        frame_id = item.get("frame_id")
+        if frame_id is not None:
+            return f"f:{frame_id}"
+        chunk_id = item.get("chunk_id")
+        ts = item.get("timestamp")
+        app = str(item.get("app_name") or "")
+        return f"c:{chunk_id}|t:{ts}|a:{app}"
+
+    def _accumulate(items: List[Dict[str, Any]], lane_weight: float) -> None:
+        for rank, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            citation = dict(item)
+            citation_key = _key(citation)
+            raw_score = float(citation.get("score") or 0.0)
+            rrf_score = (lane_weight / (rrf_k + rank + 1.0)) + (0.15 * max(0.0, raw_score))
+            existing = merged.get(citation_key)
+            if existing is None:
+                citation["_fused_score"] = rrf_score
+                merged[citation_key] = citation
+                continue
+            existing["_fused_score"] = float(existing.get("_fused_score") or 0.0) + rrf_score
+            if raw_score > float(existing.get("score") or 0.0):
+                existing["score"] = round(raw_score, 3)
+            if len(str(citation.get("snippet") or "")) > len(str(existing.get("snippet") or "")):
+                existing["snippet"] = citation.get("snippet")
+
+    _accumulate(primary, lane_weight=1.0)
+    _accumulate(secondary, lane_weight=1.0)
+
+    fused = list(merged.values())
+    fused.sort(key=lambda row: float(row.get("_fused_score") or 0.0), reverse=True)
+    for row in fused:
+        row.pop("_fused_score", None)
+    return fused[: max(1, limit)]
+
+
 def _derive_confidence(
     citations: List[Dict[str, Any]],
     topic_metrics: Optional[Dict[str, Any]] = None,
@@ -1721,7 +2044,8 @@ async def _load_semantic_truth(
         query=query,
         intent=intent,
     )
-    highlights = filtered_citations[: min(limit, 8)]
+    highlight_limit = min(limit, 16) if intent == "broad_overview" else min(limit, 8)
+    highlights = filtered_citations[:highlight_limit]
     if highlights:
         highlights = sorted(highlights, key=lambda item: item.get("timestamp") or 0, reverse=True)
 
@@ -1732,6 +2056,10 @@ async def _load_semantic_truth(
     if specificity_warning:
         warning_parts.append(specificity_warning)
 
+    recap_outline = None
+    if intent == "broad_overview":
+        recap_outline = _build_recap_outline(filtered_citations, highlights)
+
     return {
         "query": query,
         "result_count": len(filtered_citations),
@@ -1740,6 +2068,7 @@ async def _load_semantic_truth(
         "highlights": highlights,
         "warning": " ".join(part for part in warning_parts if part).strip() or None,
         "topic_specificity": topic_metrics,
+        "recap_outline": recap_outline,
         "citations": filtered_citations,
     }
 
@@ -1784,8 +2113,9 @@ async def query_memory_impl(
     end_ms = int(datetime.combine(end_day, dt_time.max).timestamp() * 1000)
     resolved_intent = _detect_memory_intent(normalized_query, intent)
 
-    db_path = get_local_watcher_db_path_impl()
-    if not os.path.exists(db_path):
+    memory_db_path = get_local_memory_db_path_impl()
+    activity_db_path = get_local_activity_db_path_impl()
+    if not os.path.exists(memory_db_path):
         return {
             "success": False,
             "intent_resolved": resolved_intent,
@@ -1798,18 +2128,23 @@ async def query_memory_impl(
             "confidence": {"level": "low", "score": 0.0, "corroborating_chunks": 0},
             "provider_path": None,
             "warning": None,
-            "error": f"local database not found at {db_path}",
+            "error": f"local memory database not found at {memory_db_path}",
         }
 
     conn = None
     try:
         conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro",
+            f"file:{memory_db_path}?mode=ro",
             uri=True,
             timeout=2.5,
         )
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        _attach_activity_view_if_needed(
+            cursor,
+            memory_db_path=memory_db_path,
+            activity_db_path=activity_db_path,
+        )
         cursor.execute("PRAGMA query_only = ON")
 
         should_include_time = resolved_intent in {"time_spent", "broad_overview"}
@@ -1819,7 +2154,7 @@ async def query_memory_impl(
         now_ms = int(time.time() * 1000)
         freshness = _compute_freshness(
             cursor,
-            db_path=db_path,
+            db_path=memory_db_path,
             now_ms=now_ms,
             intent=resolved_intent,
             query_end_ms=end_ms,
@@ -1904,6 +2239,7 @@ async def query_memory_impl(
                     cloud_result = await query_semantic_cloud(
                         user_id=user_id,
                         query=normalized_query,
+                        intent=resolved_intent,
                         start_ms=start_ms,
                         end_ms=end_ms,
                         limit=safe_limit,
@@ -1926,7 +2262,55 @@ async def query_memory_impl(
                         if semantic_truth and semantic_truth.get("warning"):
                             warning_parts.append(str(semantic_truth["warning"]))
 
-                        # No synthetic local fallback when fail-closed is enabled.
+                        # When cloud returns zero grounded citations but
+                        # local OCR data exists, try the local hybrid bridge
+                        # as a secondary source (unless fail-closed).
+                        if not citations and not memory_fail_closed():
+                            try:
+                                local_fallback = await _load_semantic_truth(
+                                    service=service,
+                                    user_id=user_id,
+                                    query=normalized_query,
+                                    intent=resolved_intent,
+                                    days_back=resolved_days,
+                                    limit=safe_limit,
+                                    start_ms=start_ms,
+                                    end_ms=end_ms,
+                                    allow_activity_fallback=resolved_intent not in {"semantic_lookup", "evidence_timeline"},
+                                )
+                                local_citations_raw = local_fallback.get("citations") or local_fallback.get("highlights") or []
+                                local_citations = _normalize_fallback_citations(
+                                    local_citations_raw,
+                                    source="local_bridge_fallback",
+                                )
+                                if local_citations:
+                                    citations = _fuse_citations_rrf(
+                                        primary=citations,
+                                        secondary=local_citations,
+                                        limit=safe_limit,
+                                    )
+                                    if not isinstance(semantic_truth, dict):
+                                        semantic_truth = {}
+                                    semantic_truth["highlights"] = citations[: min(safe_limit, 8)]
+                                    semantic_truth["result_count"] = len(citations)
+                                    semantic_truth["mode_used"] = "cloud-hybrid+local-bridge-fallback"
+                                    semantic_truth["status"] = "hybrid"
+
+                                    confidence = _derive_confidence(
+                                        citations,
+                                        topic_metrics=local_fallback.get("topic_specificity"),
+                                        intent=resolved_intent,
+                                    )
+                                    if provider_path is None:
+                                        provider_path = {}
+                                    existing_retrieval = str(provider_path.get("retrieval") or "turbopuffer")
+                                    provider_path["retrieval"] = f"{existing_retrieval}+local_bridge_fallback"
+                                    warning_parts.append(
+                                        "Cloud had no candidates; fused in local hybrid bridge evidence."
+                                    )
+                            except Exception as local_exc:
+                                logger.debug("Local bridge fallback failed: %s", local_exc)
+
                         if not citations and memory_fail_closed():
                             warning_parts.append(
                                 "Cloud semantic retrieval returned no grounded evidence; semantic intent is fail-closed."
@@ -2056,6 +2440,27 @@ async def query_memory_impl(
                 time_truth=time_truth,
             )
 
+        if citations and retrieval_tier == "cloud_hybrid":
+            answer_mode = "full_hybrid"
+        elif citations and retrieval_tier not in {"unavailable", "activity_only"}:
+            answer_mode = "full_hybrid"
+
+        retrieval_debug = (semantic_truth or {}).get("debug") if isinstance(semantic_truth, dict) else None
+        recap_debug = None
+        if resolved_intent == "broad_overview" and isinstance(retrieval_debug, dict):
+            recap_debug = {
+                "final_evidence_count": int(retrieval_debug.get("final_evidence_count") or 0),
+                "distinct_sessions": int(retrieval_debug.get("distinct_sessions") or 0),
+                "distinct_apps": int(retrieval_debug.get("distinct_apps") or 0),
+                "distinct_time_buckets": int(retrieval_debug.get("distinct_time_buckets") or 0),
+                "context_version_mix": retrieval_debug.get("context_version_mix") or {},
+                "raw_vs_contextual_source": retrieval_debug.get("raw_vs_contextual_source"),
+                "rerank_input_count": int(retrieval_debug.get("rerank_input_count") or 0),
+                "rerank_items_count": int(retrieval_debug.get("rerank_items_count") or 0),
+                "candidate_count_raw": int(retrieval_debug.get("candidate_count_raw") or 0),
+                "candidate_count_active": int(retrieval_debug.get("candidate_count_active") or 0),
+            }
+
         return {
             "success": True,
             "query": normalized_query,
@@ -2072,9 +2477,11 @@ async def query_memory_impl(
             "freshness": freshness,
             "confidence": confidence,
             "provider_path": provider_path,
+            "retrieval_debug": retrieval_debug,
+            "recap_debug": recap_debug,
             "warning": " ".join(part for part in warning_parts if part).strip() or None,
             "error": None,
-            "source_db": os.path.basename(db_path),
+            "source_db": os.path.basename(memory_db_path),
         }
     except Exception as exc:
         logger.error("❌ query_memory_impl error: %s", exc)
@@ -2096,7 +2503,7 @@ async def query_memory_impl(
             "provider_path": None,
             "warning": None,
             "error": str(exc),
-            "source_db": os.path.basename(db_path),
+            "source_db": os.path.basename(memory_db_path),
         }
     finally:
         if conn is not None:

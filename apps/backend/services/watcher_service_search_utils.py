@@ -5,12 +5,18 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
+from threading import Lock
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
 logger = logging.getLogger(__name__)
+_BRIDGE_STATE_LOCK = Lock()
+_BRIDGE_DOWN_SINCE_MS: Optional[int] = None
+_BRIDGE_LAST_WARNING_MS: int = 0
 
 SCREEN_SEARCH_STOP_WORDS = {
     "a",
@@ -178,6 +184,56 @@ def get_local_hybrid_bridge_url_impl() -> str:
     )
 
 
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _readiness_url_for_bridge(bridge_url: str) -> str:
+    parsed = urlparse(bridge_url)
+    if not parsed.scheme or not parsed.netloc:
+        return "http://127.0.0.1:3031/readiness"
+    return urlunparse((parsed.scheme, parsed.netloc, "/readiness", "", "", ""))
+
+
+def _mark_bridge_up() -> None:
+    global _BRIDGE_DOWN_SINCE_MS
+    with _BRIDGE_STATE_LOCK:
+        _BRIDGE_DOWN_SINCE_MS = None
+
+
+def _mark_bridge_down(reason: str) -> None:
+    global _BRIDGE_DOWN_SINCE_MS, _BRIDGE_LAST_WARNING_MS
+    now_ms = _now_ms()
+    down_since_ms: int
+    with _BRIDGE_STATE_LOCK:
+        if _BRIDGE_DOWN_SINCE_MS is None:
+            _BRIDGE_DOWN_SINCE_MS = now_ms
+        down_since_ms = int(_BRIDGE_DOWN_SINCE_MS)
+        down_for_ms = now_ms - down_since_ms
+        should_warn = down_for_ms >= (5 * 60 * 1000) and (now_ms - _BRIDGE_LAST_WARNING_MS) >= 60_000
+        if should_warn:
+            _BRIDGE_LAST_WARNING_MS = now_ms
+    if should_warn:
+        logger.warning(
+            "Hybrid bridge has been unavailable for %ds (%s). Verify desktop app/bridge health and token path.",
+            max(0, int((now_ms - down_since_ms) / 1000)),
+            reason,
+        )
+
+
+def get_local_bridge_status_impl() -> Dict[str, Any]:
+    now_ms = _now_ms()
+    with _BRIDGE_STATE_LOCK:
+        down_since_ms = _BRIDGE_DOWN_SINCE_MS
+    if down_since_ms is None:
+        return {"status": "up", "down_since_ms": None, "down_for_seconds": 0}
+    return {
+        "status": "down",
+        "down_since_ms": int(down_since_ms),
+        "down_for_seconds": max(0, int((now_ms - int(down_since_ms)) / 1000)),
+    }
+
+
 def get_local_hybrid_bridge_token_path_impl() -> str:
     configured_path = os.environ.get("RITUAL_LOCAL_SEARCH_BRIDGE_TOKEN_PATH")
     if configured_path and configured_path.strip():
@@ -224,8 +280,19 @@ async def search_screen_via_hybrid_bridge_impl(
 
     try:
         async with httpx.AsyncClient(timeout=4.0) as client:
+            readiness_url = _readiness_url_for_bridge(bridge_url)
+            readiness_resp = await client.get(readiness_url, headers=headers)
+            if readiness_resp.status_code != 200:
+                _mark_bridge_down(f"readiness_http_{readiness_resp.status_code}")
+                logger.info(
+                    "Hybrid bridge readiness failed (%s): %s",
+                    readiness_resp.status_code,
+                    readiness_resp.text[:200],
+                )
+                return None
             response = await client.post(bridge_url, json=payload, headers=headers)
     except Exception as exc:
+        _mark_bridge_down(f"request_exception:{type(exc).__name__}")
         logger.info("Hybrid bridge unavailable (%s): %s", bridge_url, exc)
         return None
 
@@ -234,6 +301,7 @@ async def search_screen_via_hybrid_bridge_impl(
         return None
 
     if response.status_code != 200:
+        _mark_bridge_down(f"search_http_{response.status_code}")
         logger.warning(
             "Hybrid bridge returned %s: %s",
             response.status_code,
@@ -244,17 +312,21 @@ async def search_screen_via_hybrid_bridge_impl(
     try:
         data = response.json()
     except Exception as exc:
+        _mark_bridge_down("invalid_json_response")
         logger.warning("Hybrid bridge invalid JSON: %s", exc)
         return None
 
     if not isinstance(data, dict):
+        _mark_bridge_down("invalid_json_payload")
         return None
     if not data.get("success"):
+        _mark_bridge_down("search_response_failure")
         logger.warning("Hybrid bridge reported failure: %s", data.get("error"))
         return None
 
     raw_results = data.get("results")
     if not isinstance(raw_results, list):
+        _mark_bridge_down("results_not_list")
         return None
 
     normalized_results: List[Dict[str, Any]] = []
@@ -282,6 +354,8 @@ async def search_screen_via_hybrid_bridge_impl(
             )
         except Exception:
             continue
+
+    _mark_bridge_up()
 
     return {
         "success": True,

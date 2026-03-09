@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, ArrowLeft, AudioLines, Plus, PanelLeft, PanelRight, MessageSquare, LayoutList } from 'lucide-react';
+import { ArrowUp, ArrowLeft, AudioLines, Plus, PanelRight } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -68,38 +68,45 @@ const Response = memo(function Response({
   return (
     <Streamdown
       className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 space-y-4",
-        "[&>ul]:!my-0 [&>*+ul]:!mt-2 [&>ol]:!my-0 [&>*+ol]:!mt-2",
+        "w-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words [overflow-wrap:anywhere]",
+        "[&>p]:my-0 [&>p+p]:mt-3",
+        "[&>h2]:mt-5 [&>h3]:mt-4 [&>h4]:mt-4 [&>h2]:mb-2 [&>h3]:mb-2 [&>h4]:mb-2",
+        "[&>ul]:my-3 [&>ol]:my-3 [&>ul+*]:mt-3 [&>ol+*]:mt-3",
         className,
       )}
       components={{
         ul: ({ children, ...props }) => (
-          <ul className="list-disc list-inside m-0 p-0 leading-relaxed space-y-1 ml-1" {...props}>
+          <ul className="list-disc pl-5 m-0 leading-[1.6] text-[#535353]" {...props}>
             {children}
           </ul>
         ),
         ol: ({ children, ...props }) => (
-          <ol className="list-decimal list-inside m-0 p-0 leading-relaxed space-y-1 ml-1" {...props}>
+          <ol className="list-decimal pl-5 m-0 leading-[1.6] text-[#535353]" data-streamdown="ordered-list" {...props}>
             {children}
           </ol>
         ),
         li: ({ children, ...props }) => (
-          <li className="py-0.5 my-0 leading-relaxed text-gray-600" {...props}>
+          <li className="my-1 leading-[1.6] text-[#535353] break-words [overflow-wrap:anywhere]" data-streamdown="list-item" {...props}>
             {children}
           </li>
         ),
         h2: ({ children, ...props }) => (
-          <h2 className="font-medium text-base text-gray-900 mt-6 mb-2" {...props}>
+          <h2 className="font-medium text-[13px] text-gray-900 tracking-wide mt-4 mb-1" {...props}>
             {children}
           </h2>
         ),
         h3: ({ children, ...props }) => (
-          <h3 className="font-medium text-sm text-gray-900 mt-4 mb-2" {...props}>
+          <h3 className="font-medium text-[13px] text-gray-900 tracking-wide mt-3 mb-1" {...props}>
             {children}
           </h3>
         ),
+        h4: ({ children, ...props }) => (
+          <h4 className="font-medium text-[13px] text-gray-900 tracking-wide mt-3 mb-1" {...props}>
+            {children}
+          </h4>
+        ),
         p: ({ children, ...props }) => (
-          <p className="leading-relaxed text-gray-600" {...props}>
+          <p className="leading-[1.55] text-[#535353] break-words [overflow-wrap:anywhere]" {...props}>
             {children}
           </p>
         ),
@@ -287,6 +294,10 @@ function buildCanvasFromToolData(
     trends?: any;
     anomalies?: any;
     screenRecordings?: any;
+    screenTimeSpent?: any;
+    weeklyOverview?: any;
+    dailyOverview?: any;
+    monthlyOverview?: any;
     suggested_followups?: string[];
   } | null,
   question: string
@@ -299,6 +310,61 @@ function buildCanvasFromToolData(
   const habitName = habitMatch 
     ? habitMatch[0].charAt(0).toUpperCase() + habitMatch[0].slice(1).toLowerCase() 
     : 'Activity';
+
+  // Handle comprehensive overview canvases
+  if (toolData.dailyOverview && toolData.dailyOverview.success) {
+    return {
+      type: 'weeklyOverview',
+      title: 'Daily Activity Overview',
+      dateRange: {
+        start: toolData.dailyOverview.date_range?.start || '',
+        end: toolData.dailyOverview.date_range?.end || '',
+      },
+      weeklyOverview: toolData.dailyOverview,
+    };
+  }
+
+  if (toolData.monthlyOverview && toolData.monthlyOverview.success) {
+    return {
+      type: 'weeklyOverview',
+      title: 'Monthly Activity Overview',
+      dateRange: {
+        start: toolData.monthlyOverview.date_range?.start || '',
+        end: toolData.monthlyOverview.date_range?.end || '',
+      },
+      weeklyOverview: toolData.monthlyOverview,
+    };
+  }
+
+  if (toolData.weeklyOverview && toolData.weeklyOverview.success) {
+    return {
+      type: 'weeklyOverview',
+      title: 'Weekly Activity Overview',
+      dateRange: {
+        start: toolData.weeklyOverview.date_range?.start || '',
+        end: toolData.weeklyOverview.date_range?.end || '',
+      },
+      weeklyOverview: toolData.weeklyOverview,
+    };
+  }
+
+  if (toolData.screenTimeSpent && toolData.screenTimeSpent.success) {
+    const groupBy = toolData.screenTimeSpent.group_by || 'app';
+    const title = groupBy === 'domain'
+      ? 'Computer Time by Domain'
+      : groupBy === 'window'
+        ? 'Computer Time by Window'
+        : 'Computer Time by App';
+    return {
+      type: 'screenTimeSpent',
+      title,
+      dateRange: {
+        start: toolData.screenTimeSpent.summary?.range_start || '',
+        end: toolData.screenTimeSpent.summary?.range_end || '',
+      },
+      screenTimeSpent: toolData.screenTimeSpent,
+    };
+  }
   
   // Handle screen recording search results
   if (toolData.screenRecordings && toolData.screenRecordings.success) {
@@ -482,6 +548,10 @@ function cleanContentForDisplay(content: string): string {
   // Also remove standalone date lists (bullet points starting with dates)
   const dateListPattern = /(?:\s*[-•*]\s*\*{0,2}(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}\*{0,2}[:\s]+[\d.]+\s*hours?\s*\n?)+/gi;
   cleaned = cleaned.replace(dateListPattern, '');
+
+  // Remove screen-time specific sections when dedicated canvas is present
+  const screenTimeSectionsPattern = /(?:Top time buckets|Top apps|Top windows|Top domains|Daily breakdown|Sample moments|Estimation method:)[\s\S]*?(?=\n\n[A-Z][^\n]*:|\n\n[A-Z][a-z]+\s|\s*$)/g;
+  cleaned = cleaned.replace(screenTimeSectionsPattern, '');
   
   // Remove multiple consecutive newlines
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
@@ -494,6 +564,9 @@ function cleanContentForDisplay(content: string): string {
 
 // Python API base URL
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const DEFAULT_CANVAS_WIDTH = 560;
+const MIN_CANVAS_WIDTH = 360;
+const MAX_CANVAS_WIDTH = 860;
 
 // Persisted conversation types
 interface PersistedMessage {
@@ -527,6 +600,7 @@ export function ChatClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialQuestion = searchParams.get('q');
+  const initialConversationId = searchParams.get('conversation');
   const { getToken } = useAuth();
   const { setIsFullScreenChat } = useAI();
   
@@ -536,13 +610,13 @@ export function ChatClient() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
-  const [hasSubmittedInitial, setHasSubmittedInitial] = useState(false);
   const [canvasData, setCanvasData] = useState<HabitCanvasData | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState('');
+  const initialQuestionSubmissionRef = useRef<string | null>(null);
   
   // Conversation persistence state
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   
   // Sidebar state
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
@@ -557,6 +631,19 @@ export function ChatClient() {
   
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
+  
+  // Resizable side panel state
+  const [canvasWidth, setCanvasWidth] = useState(DEFAULT_CANVAS_WIDTH);
+  const [isResizingCanvas, setIsResizingCanvas] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState<number>(() => (
+    typeof window !== 'undefined' ? window.innerWidth : 1400
+  ));
+  const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const maxCanvasWidthForViewport = Math.min(
+    MAX_CANVAS_WIDTH,
+    Math.max(MIN_CANVAS_WIDTH, Math.floor(viewportWidth * 0.48)),
+  );
+  const effectiveCanvasWidth = Math.min(canvasWidth, maxCanvasWidthForViewport);
 
   // Set full screen chat mode on mount, reset on unmount
   useEffect(() => {
@@ -564,89 +651,27 @@ export function ChatClient() {
     return () => setIsFullScreenChat(false);
   }, [setIsFullScreenChat]);
 
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    setCanvasWidth((prev) => Math.min(prev, maxCanvasWidthForViewport));
+  }, [maxCanvasWidthForViewport]);
+
   // Warm dashboard route so header controls don't pop in late on return.
   useEffect(() => {
     router.prefetch('/dashboard');
   }, [router]);
   
-  // Initialize chat - always start with empty state for cleaner UX
-  // Users can access previous conversations from the sidebar
+  // Start in a clean empty state unless an explicit saved conversation is requested.
   useEffect(() => {
-    const initializeChat = async () => {
-      // Skip loading if there's an initial question - we'll start fresh
-      if (initialQuestion) {
-        setIsLoadingConversation(false);
-        return;
-      }
-      
-      // Always start with empty/new chat state - don't auto-load last conversation
-      // This provides a cleaner UX; users can select previous chats from sidebar
-      setIsLoadingConversation(false);
-      return;
-      
-      // Previous behavior (kept for reference, but disabled):
-      // Load the latest conversation automatically
-      /*
-      try {
-        const token = await getToken();
-        if (!token) {
-          setIsLoadingConversation(false);
-          return;
-        }
-        
-        const response = await fetch(`${PYTHON_API_BASE}/api/conversations/latest`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const conversation: PersistedConversation | null = await response.json();
-          
-          if (conversation && conversation.messages && conversation.messages.length > 0) {
-            console.log('📥 Loaded conversation:', conversation.id, 'with', conversation.messages.length, 'messages');
-            
-            // Convert persisted messages to our Message format
-            const loadedMessages: Message[] = conversation.messages.map((m) => {
-              // Build canvasData from tool_payload if available
-              let messageCanvasData: HabitCanvasData | undefined;
-              if (m.tool_payload && m.role === 'assistant') {
-                const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown; trends?: unknown; anomalies?: unknown; suggested_followups?: string[] };
-                // Find the original user question (previous message)
-                const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
-                const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
-                const question = previousUserMessage?.role === 'user' ? previousUserMessage.content : '';
-                
-                messageCanvasData = buildCanvasFromToolData(toolData, question);
-              }
-              
-              return {
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                canvasData: messageCanvasData,
-              };
-            });
-            
-            setMessages(loadedMessages);
-            setConversationId(conversation.id);
-            
-            // Initialize voice style from conversation's response_mode
-            setVoiceStyleEnabled(conversation.response_mode === 'voice');
-            
-            // Set canvas data from the last assistant message that has it
-            const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
-            if (lastMessageWithCanvas?.canvasData) {
-              setCanvasData(lastMessageWithCanvas.canvasData);
-            }
-          }
-        }
-      */
-    };
-    
-    initializeChat();
-  }, [getToken, initialQuestion]);
+    if (initialQuestion || initialConversationId) return;
+    setIsLoadingConversation(false);
+  }, [initialConversationId, initialQuestion]);
 
   // Load conversations list for sidebar
   const loadConversationsList = useCallback(async () => {
@@ -707,7 +732,7 @@ export function ChatClient() {
           const loadedMessages: Message[] = conversation.messages.map((m) => {
             let messageCanvasData: HabitCanvasData | undefined;
             if (m.tool_payload && m.role === 'assistant') {
-              const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown };
+              const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown; screenTimeSpent?: unknown; weeklyOverview?: unknown; dailyOverview?: unknown; monthlyOverview?: unknown };
               const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
               const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
               const question = previousUserMessage?.role === 'user' ? previousUserMessage.content : '';
@@ -740,6 +765,13 @@ export function ChatClient() {
       setIsLoadingConversation(false);
     }
   }, [getToken, conversationId]);
+
+  useEffect(() => {
+    if (!initialConversationId || initialQuestion) {
+      return;
+    }
+    void switchConversation(initialConversationId);
+  }, [initialConversationId, initialQuestion, switchConversation]);
 
   // Start a new conversation
   const startNewConversation = useCallback(() => {
@@ -869,74 +901,91 @@ export function ChatClient() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
-      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenRecordings?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
+      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenRecordings?: any; screenTimeSpent?: any; weeklyOverview?: any; dailyOverview?: any; monthlyOverview?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
+      let streamBuffer = '';
+
+      const processStreamLine = (rawLine: string) => {
+        const line = rawLine.replace(/\r$/, '');
+        if (!line.trim()) return;
+
+        // Check for conversation ID (sent first by server)
+        if (line.includes('__CONVERSATION_ID__')) {
+          const match = line.match(/__CONVERSATION_ID__(.+?)__END_CONVERSATION_ID__/);
+          if (match) {
+            const newConversationId = match[1];
+            console.log('💬 Received conversation ID:', newConversationId);
+            setConversationId(newConversationId);
+            // Refresh conversations list to include the new conversation
+            loadConversationsList();
+          }
+          return;
+        }
+
+        // Check for tool data
+        if (line.includes('__TOOL_DATA__')) {
+          const match = line.match(/__TOOL_DATA__(.+?)__END_TOOL_DATA__/);
+          if (match) {
+            try {
+              toolData = JSON.parse(match[1]);
+              console.log('📦 Received tool data:', toolData);
+            } catch (e) {
+              console.error('Failed to parse tool data:', e);
+            }
+          }
+          return;
+        }
+
+        if (line.startsWith('0:')) {
+          try {
+            const data = JSON.parse(line.substring(2).trim());
+            if (typeof data === 'string') {
+              fullResponse += data;
+              setStreamingContent(fullResponse);
+            }
+          } catch {
+            const lineText = line.substring(2).trim();
+            if (lineText && !lineText.startsWith('{')) {
+              fullResponse += lineText;
+              setStreamingContent(fullResponse);
+            }
+          }
+        } else if (line.startsWith('data:')) {
+          try {
+            const data = JSON.parse(line.substring(5).trim());
+            if (data.type === 'text-delta' && data.delta) {
+              fullResponse += data.delta;
+              setStreamingContent(fullResponse);
+            }
+          } catch {}
+        }
+      };
       
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        
+
+        streamBuffer += decoder.decode(value, { stream: true });
+        const lines = streamBuffer.split('\n');
+        streamBuffer = lines.pop() ?? '';
+
         for (const line of lines) {
-          if (!line.trim()) continue;
-          
-          // Check for conversation ID (sent first by server)
-          if (line.includes('__CONVERSATION_ID__')) {
-            const match = line.match(/__CONVERSATION_ID__(.+?)__END_CONVERSATION_ID__/);
-            if (match) {
-              const newConversationId = match[1];
-              console.log('💬 Received conversation ID:', newConversationId);
-              setConversationId(newConversationId);
-              // Refresh conversations list to include the new conversation
-              loadConversationsList();
-            }
-            continue;
-          }
-          
-          // Check for tool data
-          if (line.includes('__TOOL_DATA__')) {
-            const match = line.match(/__TOOL_DATA__(.+?)__END_TOOL_DATA__/);
-            if (match) {
-              try {
-                toolData = JSON.parse(match[1]);
-                console.log('📦 Received tool data:', toolData);
-              } catch (e) {
-                console.error('Failed to parse tool data:', e);
-              }
-            }
-            continue;
-          }
-          
-          if (line.startsWith('0:')) {
-            try {
-              const data = JSON.parse(line.substring(2).trim());
-              if (typeof data === 'string') {
-                fullResponse += data;
-                setStreamingContent(fullResponse);
-              }
-            } catch {
-              const lineText = line.substring(2).trim();
-              if (lineText && !lineText.startsWith('{')) {
-                fullResponse += lineText;
-                setStreamingContent(fullResponse);
-              }
-            }
-          } else if (line.startsWith('data:')) {
-            try {
-              const data = JSON.parse(line.substring(5).trim());
-              if (data.type === 'text-delta' && data.delta) {
-                fullResponse += data.delta;
-                setStreamingContent(fullResponse);
-              }
-            } catch {}
-          }
+          processStreamLine(line);
+        }
+      }
+
+      streamBuffer += decoder.decode();
+      if (streamBuffer) {
+        for (const line of streamBuffer.split('\n')) {
+          processStreamLine(line);
         }
       }
       
-      // Build canvas data - prefer tool data, fall back to text extraction
+      const isScreenQuery = isScreenRecordingQuery(text);
+
+      // Build canvas data - prefer tool data, then optional text extraction fallback.
+      // For screen/vector queries, avoid text-based fallback so we keep a clean prose-only answer.
       let extractedCanvas = buildCanvasFromToolData(toolData, text);
-      if (!extractedCanvas) {
+      if (!extractedCanvas && !isScreenQuery) {
         extractedCanvas = extractCanvasData(fullResponse, text);
       }
       
@@ -974,27 +1023,74 @@ export function ChatClient() {
   }, [messages, isLoading, getToken, conversationId, loadConversationsList, voiceStyleEnabled]);
 
   useEffect(() => {
-    // Wait for conversation loading to complete before processing initial question
-    if (isLoadingConversation) return;
-    
-    if (initialQuestion && !hasSubmittedInitial) {
-      setHasSubmittedInitial(true);
-      // Start a new conversation when coming from ?q= query param
-      setConversationId(null);
-      setMessages([]);
-      sendMessage(initialQuestion);
-      
-      // Clear the ?q= param from URL so refresh doesn't re-ask the question
-      // Use replace to avoid adding to history
-      router.replace('/chat', { scroll: false });
+    if (!initialQuestion) {
+      initialQuestionSubmissionRef.current = null;
+      return;
     }
-  }, [initialQuestion, hasSubmittedInitial, isLoadingConversation, sendMessage, router]);
+
+    // Wait for explicit conversation loading to finish before processing ?q=
+    if (isLoadingConversation) return;
+
+    const normalizedQuestion = initialQuestion.trim();
+    if (!normalizedQuestion) return;
+
+    // StrictMode / Suspense remounts in dev can re-run this effect before
+    // state updates settle. Guard with a ref keyed to the current question.
+    if (initialQuestionSubmissionRef.current === normalizedQuestion) {
+      return;
+    }
+    initialQuestionSubmissionRef.current = normalizedQuestion;
+
+    // Clear the ?q= param first so route transitions and remounts don't
+    // resubmit the same question while the first request is in flight.
+    window.history.replaceState(null, '', '/chat');
+
+    // Start a new conversation when coming from ?q= query param.
+    setConversationId(null);
+    setMessages([]);
+
+    void sendMessage(normalizedQuestion);
+  }, [initialQuestion, isLoadingConversation, sendMessage]);
 
   useEffect(() => {
     if (messages.length > 0 || streamingContent) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, streamingContent]);
+
+  const handleCanvasResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsResizingCanvas(true);
+    resizeStateRef.current = {
+      startX: e.clientX,
+      startWidth: canvasWidth,
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const resizeState = resizeStateRef.current;
+      if (!resizeState) return;
+      const delta = resizeState.startX - moveEvent.clientX;
+      const nextWidth = Math.min(
+        maxCanvasWidthForViewport,
+        Math.max(MIN_CANVAS_WIDTH, resizeState.startWidth + delta),
+      );
+      setCanvasWidth(nextWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsResizingCanvas(false);
+      resizeStateRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [canvasWidth, maxCanvasWidthForViewport]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1123,10 +1219,111 @@ export function ChatClient() {
     );
   }
 
+  // Pending first message state: show the query immediately while the stream boots.
+  if (messages.length === 0 && isLoading && currentQuestion.trim()) {
+    return (
+      <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
+        {isSidebarCollapsed && (
+          <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+              title="Back to dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+              title="Expand sidebar"
+            >
+              <PanelRight className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0 overflow-x-hidden flex flex-col">
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto px-8 pt-20 pb-32">
+              <h1 className="text-2xl font-medium text-gray-900 leading-snug mb-6">
+                {currentQuestion}
+              </h1>
+              <div className="flex items-center gap-2 py-2">
+                <TextShimmer className="text-sm" duration={1.5}>
+                  {'Thinking...'}
+                </TextShimmer>
+              </div>
+            </div>
+          </div>
+
+          <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-[#fafaf8] via-[#fafaf8] to-transparent">
+            <div className="max-w-3xl mx-auto px-8">
+              <form onSubmit={handleSubmit}>
+                <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
+                  <div className="px-4 py-3">
+                    <textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Ask a follow-up question..."
+                      className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[24px] max-h-[120px]"
+                      rows={1}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center px-3 pb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 group">
+                        <button
+                          type="button"
+                          onClick={startVoiceRecognition}
+                          disabled={isLoading}
+                          className={cn(
+                            "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                            isListening || isProcessingVoice
+                              ? "text-gray-900"
+                              : "text-gray-400 hover:text-gray-600",
+                            "disabled:opacity-50"
+                          )}
+                          aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                        >
+                          {isListening ? (
+                            <VoiceWaveformMini isActive={true} />
+                          ) : isProcessingVoice ? (
+                            <BrailleSpinner className="text-sm text-gray-900" />
+                          ) : (
+                            <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || isLoading}
+                      className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? (
+                        <BrailleSpinner className="text-sm text-white" />
+                      ) : (
+                        <ArrowUp className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Empty state
   if (messages.length === 0 && !isLoading) {
     return (
-      <div className="h-full flex bg-white relative">
+      <div className="h-full flex bg-white relative overflow-x-hidden">
         {/* Conversation History Sidebar - Also shown in empty state */}
         <AnimatePresence>
           {!isSidebarCollapsed && (
@@ -1209,17 +1406,26 @@ export function ChatClient() {
         
         {/* Expand sidebar button when collapsed */}
         {isSidebarCollapsed && (
-          <button
-            onClick={() => setIsSidebarCollapsed(false)}
-            className="absolute top-6 left-4 p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors z-10"
-            title="Expand sidebar"
-          >
-            <PanelRight className="w-5 h-5" />
-          </button>
+          <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+              title="Back to dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+              title="Expand sidebar"
+            >
+              <PanelRight className="w-5 h-5" />
+            </button>
+          </div>
         )}
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
             <div className="max-w-xl w-full space-y-6">
@@ -1310,7 +1516,7 @@ export function ChatClient() {
 
   // Chat view
   return (
-    <div className="h-full flex bg-white relative">
+    <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
       {/* Conversation History Sidebar */}
       <AnimatePresence>
         {!isSidebarCollapsed && (
@@ -1322,15 +1528,24 @@ export function ChatClient() {
             className="h-full border-r border-gray-200 bg-gray-50/80 flex flex-col overflow-hidden"
           >
             {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
-            <div className="flex items-center justify-between pl-4 pr-2 pt-6 pb-2">
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
-                title="Go to Dashboard"
-              >
-                <img src="/images/eclipse.svg" alt="Ritual" className="w-4 h-4" />
-                <span className="text-lg font-normal text-gray-900">Ritual</span>
-              </button>
+            <div className="flex items-center justify-between pl-3 pr-2 pt-6 pb-2">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => router.push('/dashboard')}
+                  className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+                  title="Back to dashboard"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => router.push('/dashboard')}
+                  className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
+                  title="Go to Dashboard"
+                >
+                  <img src="/images/eclipse.svg" alt="Ritual" className="w-4 h-4" />
+                  <span className="text-lg font-normal text-gray-900">Ritual</span>
+                </button>
+              </div>
               <button
                 onClick={() => setIsSidebarCollapsed(true)}
                 className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
@@ -1398,26 +1613,35 @@ export function ChatClient() {
 
       {/* Expand sidebar button when collapsed */}
       {isSidebarCollapsed && (
-        <button
-          onClick={() => setIsSidebarCollapsed(false)}
-          className="absolute top-6 left-4 p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors z-10"
-          title="Expand sidebar"
-        >
-          <PanelRight className="w-5 h-5" />
-        </button>
+        <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+            title="Back to dashboard"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setIsSidebarCollapsed(false)}
+            className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+            title="Expand sidebar"
+          >
+            <PanelRight className="w-5 h-5" />
+          </button>
+        </div>
       )}
 
       {/* Chat Area */}
       <div className={cn(
-        "flex-1 flex flex-col transition-all duration-300 ease-out",
+        "flex-1 min-w-0 overflow-x-hidden flex flex-col transition-all duration-300 ease-out",
         canvasData ? "pr-0" : ""
       )}>
         <div className="flex-1 overflow-y-auto">
             
           {/* Chat content - centered in available space */}
           <div className={cn(
-            "pb-32 transition-all duration-300 mx-auto px-8 pt-20",
-            canvasData ? "max-w-2xl" : "max-w-3xl"
+            "pb-32 min-w-0 transition-all duration-300 mx-auto px-8 pt-20",
+            canvasData ? "w-full max-w-none" : "max-w-3xl"
           )}>
             {messages.map((message, messageIndex) => (
               <div key={message.id}>
@@ -1427,7 +1651,7 @@ export function ChatClient() {
                   </h1>
                 ) : (
                   <div className="mb-8">
-                    <Response className="text-[15px] leading-[1.7] text-gray-700">
+                    <Response className="text-[14px] leading-[1.55] text-[#535353]">
                       {message.content}
                     </Response>
                     {/* Reply Chips (Phase 4A) - Only show for last assistant message in voice mode */}
@@ -1458,7 +1682,7 @@ export function ChatClient() {
             
             {streamingContent && (
               <div className="mb-8">
-                <Response className="text-[15px] leading-[1.7] text-gray-700">
+                <Response className="text-[14px] leading-[1.55] text-[#535353]">
                   {canvasData ? cleanContentForDisplay(streamingContent) : streamingContent}
                 </Response>
               </div>
@@ -1480,7 +1704,7 @@ export function ChatClient() {
         <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-[#fafaf8] via-[#fafaf8] to-transparent">
           <div className={cn(
             "mx-auto px-8 transition-all duration-300",
-            canvasData ? "max-w-2xl" : "max-w-3xl"
+            canvasData ? "w-full max-w-none" : "max-w-3xl"
           )}>
             <form onSubmit={handleSubmit}>
               <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
@@ -1549,15 +1773,30 @@ export function ChatClient() {
         {canvasData && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 420, opacity: 1 }}
+            animate={{ width: effectiveCanvasWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-            className="overflow-hidden border-l border-gray-100"
+            className="relative flex shrink-0 overflow-hidden"
           >
-            <HabitCanvas 
-              data={canvasData} 
-              onClose={() => setCanvasData(null)} 
-            />
+            <div
+              onMouseDown={handleCanvasResizeStart}
+              className="absolute left-0 top-0 z-20 h-full w-2 -translate-x-1 cursor-col-resize"
+              aria-label="Resize side panel"
+              role="separator"
+              aria-orientation="vertical"
+            >
+              <div className={cn(
+                "mx-auto h-full w-px transition-colors",
+                isResizingCanvas ? "bg-gray-400" : "bg-gray-200 hover:bg-gray-300",
+              )} />
+            </div>
+
+            <div className="w-full overflow-hidden border-l border-gray-100">
+              <HabitCanvas 
+                data={canvasData} 
+                onClose={() => setCanvasData(null)} 
+              />
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -6,8 +6,14 @@
 #![allow(dead_code)] // Public API - methods used by Tauri commands
 
 use ritual_db::blocking::BlockingDatabase;
-use ritual_db::ActivityEvent;
-use tracing::info;
+use ritual_db::{ActivityEvent, OcrFrame as RitualOcrFrame};
+use std::thread;
+use std::time::Duration;
+use tracing::{info, warn};
+
+/// Retry count for DB writes when the other process (recorder) holds the lock.
+const DB_LOCK_RETRY_ATTEMPTS: usize = 24;
+const DB_LOCK_RETRY_BASE_MS: u64 = 50;
 
 /// Database wrapper for thread-safe access
 pub struct WatcherDatabase {
@@ -15,13 +21,49 @@ pub struct WatcherDatabase {
 }
 
 impl WatcherDatabase {
-    /// Create a new database connection and ensure tables exist
-    pub fn new(_path: &str) -> std::result::Result<Self, String> {
-        // Note: path argument is ignored - we use the unified ritual.db
-        // The path is kept for API compatibility
-        info!("Opening Ritual database (unified libSQL)");
+    fn is_lock_error(message: &str) -> bool {
+        let lower = message.to_lowercase();
+        lower.contains("database is locked")
+            || lower.contains("database busy")
+            || lower.contains("busy timeout")
+            || lower.contains("sql_busy")
+    }
 
-        let db = BlockingDatabase::open_default()
+    fn with_write_retry<T, F>(&self, op_name: &str, mut op: F) -> std::result::Result<T, String>
+    where
+        F: FnMut() -> std::result::Result<T, String>,
+    {
+        for attempt in 0..DB_LOCK_RETRY_ATTEMPTS {
+            match op() {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if !Self::is_lock_error(&err) || attempt + 1 >= DB_LOCK_RETRY_ATTEMPTS {
+                        return Err(err);
+                    }
+                    let sleep_ms = DB_LOCK_RETRY_BASE_MS * (1_u64 << attempt.min(6));
+                    warn!(
+                        "[watcher-db] {} hit lock contention (attempt {}/{}), retrying in {}ms",
+                        op_name,
+                        attempt + 1,
+                        DB_LOCK_RETRY_ATTEMPTS,
+                        sleep_ms
+                    );
+                    thread::sleep(Duration::from_millis(sleep_ms));
+                }
+            }
+        }
+
+        Err(format!(
+            "{} failed after {} retries due to lock contention",
+            op_name, DB_LOCK_RETRY_ATTEMPTS
+        ))
+    }
+
+    /// Create a new database connection and ensure tables exist.
+    pub fn new(path: &str) -> std::result::Result<Self, String> {
+        info!("Opening Ritual database: {}", path);
+
+        let db = BlockingDatabase::open_with_path(path)
             .map_err(|e| format!("Failed to open database: {}", e))?;
 
         Ok(Self { db })
@@ -100,9 +142,11 @@ impl WatcherDatabase {
             event.source = source.to_string();
         }
 
-        self.db
-            .insert_activity_event(&event)
-            .map_err(|e| e.to_string())
+        self.with_write_retry("insert_activity_event", || {
+            self.db
+                .insert_activity_event(&event)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Update the end time of an activity event (heartbeat pattern)
@@ -111,9 +155,11 @@ impl WatcherDatabase {
         event_id: i64,
         ts_end: u64,
     ) -> std::result::Result<(), String> {
-        self.db
-            .update_event_end_time(event_id, ts_end as i64)
-            .map_err(|e| e.to_string())
+        self.with_write_retry("update_event_end_time", || {
+            self.db
+                .update_event_end_time(event_id, ts_end as i64)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Get the last event for a device to check if we should merge
@@ -147,9 +193,11 @@ impl WatcherDatabase {
         ts_end: u64,
         status: &str,
     ) -> std::result::Result<i64, String> {
-        self.db
-            .upsert_afk_event(device_id, user_id, ts_start as i64, ts_end as i64, status)
-            .map_err(|e| e.to_string())
+        self.with_write_retry("upsert_afk_event", || {
+            self.db
+                .upsert_afk_event(device_id, user_id, ts_start as i64, ts_end as i64, status)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Update the heartbeat timestamp
@@ -158,9 +206,18 @@ impl WatcherDatabase {
         device_id: &str,
         timestamp: u64,
     ) -> std::result::Result<(), String> {
-        self.db
-            .update_heartbeat(device_id, timestamp as i64)
-            .map_err(|e| e.to_string())
+        self.with_write_retry("update_heartbeat", || {
+            self.db
+                .update_heartbeat(device_id, timestamp as i64)
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Insert an OCR frame produced by recorder spool ingestion.
+    pub fn insert_ocr_frame(&self, frame: &RitualOcrFrame) -> std::result::Result<i64, String> {
+        self.with_write_retry("insert_ocr_frame", || {
+            self.db.insert_ocr_frame(frame).map_err(|e| e.to_string())
+        })
     }
 
     /// Get the count of events for a device

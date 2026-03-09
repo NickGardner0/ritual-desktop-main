@@ -36,12 +36,57 @@ final class AppState: ObservableObject {
     
     /// V2: Current sync status for UI display
     @Published var syncStatus: BackgroundSyncManagerV2.SyncStatus = .neverSynced
+
+    /// Offline retry queue telemetry for UI
+    @Published var queueTelemetry: OfflineSyncQueue.QueueTelemetry = OfflineSyncQueue.QueueTelemetry(
+        pendingCount: 0,
+        readyForRetryCount: 0,
+        networkAvailable: true,
+        isProcessing: false,
+        oldestPendingDate: nil,
+        totalPendingMetrics: 0
+    )
+
+    /// Recent sync history entries
+    @Published var syncHistory: [BackgroundSyncManagerV2.SyncHistoryEntry] = []
+
+    /// Pending request for future local-device pairing flows.
+    @Published var pendingPairingRequest: PeerPairingRequest?
+
+    /// Trusted peers explicitly approved on this device.
+    @Published var trustedPeers: [TrustedPeer] = []
+
+    /// Local export settings persisted on device.
+    @Published var exportSettings: LocalExportSettings = LocalExportSettings.load()
+
+    /// Local export history entries.
+    @Published var exportHistory: [LocalExportHistoryEntry] = []
+
+    /// Local export destination display name.
+    @Published var exportDestinationName: String = "No folder selected"
+
+    /// Export pipeline running state.
+    @Published var isExporting: Bool = false
+
+    /// Latest export status summary shown in UI.
+    @Published var exportStatusMessage: String?
+
+    /// Summary for most recent date-range retry.
+    @Published var dateRangeRetrySummary: String?
+
+    /// Notification permission status for actionable sync alerts.
+    @Published var notificationsEnabled: Bool = false
     
     // MARK: - Services
     
     let healthKitManager = HealthKitManagerV2()
     let apiClient = RitualAPIClient()
     private let syncManager = BackgroundSyncManagerV2.shared
+    private let notificationManager = NotificationManager.shared
+    private let exportDestinationStore = ExportDestinationStore.shared
+    private let localExportManager = LocalExportManager.shared
+    private let exportHistoryStore = LocalExportHistoryStore.shared
+    private let trustedPeersStorageKey = "PeerPairing.trustedPeers"
     
     // MARK: - Computed Properties
     
@@ -59,6 +104,10 @@ final class AppState: ObservableObject {
     
     var hasTrackedMetrics: Bool {
         !trackedMetricTypes.isEmpty
+    }
+
+    var canExport: Bool {
+        isConnected && hasHealthAccess && hasTrackedMetrics && !isExporting && exportDestinationStore.destinationURL != nil
     }
     
     var trackedMetricsDescription: String {
@@ -82,12 +131,57 @@ final class AppState: ObservableObject {
     var backgroundSyncDebugInfo: String {
         syncManager.debugInfo
     }
+
+    var retryQueueDescription: String {
+        if queueTelemetry.pendingCount == 0 {
+            return "No pending retries"
+        }
+
+        var parts: [String] = [
+            "\(queueTelemetry.pendingCount) pending payload(s)",
+            "\(queueTelemetry.totalPendingMetrics) metric(s)"
+        ]
+
+        if queueTelemetry.readyForRetryCount > 0 {
+            parts.append("\(queueTelemetry.readyForRetryCount) ready now")
+        }
+
+        if let oldest = queueTelemetry.oldestPendingDate {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .abbreviated
+            parts.append("oldest \(formatter.localizedString(for: oldest, relativeTo: Date()))")
+        }
+
+        return parts.joined(separator: " | ")
+    }
+
+    var latestFailedDays: [String] {
+        var orderedUniqueDays: [String] = []
+        var seen = Set<String>()
+
+        for entry in syncHistory {
+            for day in entry.failedDays {
+                if !seen.contains(day) {
+                    orderedUniqueDays.append(day)
+                    seen.insert(day)
+                }
+            }
+            if orderedUniqueDays.count >= 14 {
+                break
+            }
+        }
+
+        return orderedUniqueDays
+    }
     
     // MARK: - Initialization
     
     init() {
         // Load persisted last sync time from background sync manager.
         lastSyncTime = syncManager.lastSyncTime
+        trustedPeers = loadTrustedPeers()
+        exportHistory = exportHistoryStore.load()
+        exportDestinationName = exportDestinationStore.destinationName
         
         Task {
             await checkInitialState()
@@ -128,6 +222,7 @@ final class AppState: ObservableObject {
         
         // Update last sync time from background manager
         lastSyncTime = syncManager.lastSyncTime
+        refreshSyncDiagnostics()
     }
     
     /// Verify that stored credentials are still valid
@@ -177,6 +272,7 @@ final class AppState: ObservableObject {
                 // Schedule background sync if not already scheduled
                 syncManager.scheduleBackgroundSync()
             }
+            refreshSyncDiagnostics()
         } catch let error as APIError {
             // Check for expired token
             if case .httpError(401) = error {
@@ -197,6 +293,8 @@ final class AppState: ObservableObject {
             trackedMetricTypes = []
             trackedHabits = []
         }
+
+        refreshSyncDiagnostics()
     }
     
     func requestHealthAccess() async {
@@ -238,6 +336,8 @@ final class AppState: ObservableObject {
             
             // Schedule background sync now that we're connected
             syncManager.scheduleBackgroundSync()
+            refreshSyncDiagnostics()
+            await requestSyncNotificationPermissions()
             
         } catch let error as APIError {
             connectionStatus = .disconnected
@@ -297,6 +397,7 @@ final class AppState: ObservableObject {
         }
         
         print("📱 Disconnected - user will need to sign in again")
+        refreshSyncDiagnostics()
     }
     
     /// Sync metrics to the backend using V2 incremental sync
@@ -338,6 +439,7 @@ final class AppState: ObservableObject {
         // Update UI state from V2 manager
         lastSyncTime = syncManager.lastSyncTime
         syncStatus = syncManager.syncStatus
+        refreshSyncDiagnostics()
         
         isSyncing = false
         
@@ -354,10 +456,284 @@ final class AppState: ObservableObject {
             print("✅ Manual sync completed successfully")
         }
     }
+
+    func retryFailedDays(_ dayKeys: [String], showErrorsToUser: Bool = true) async {
+        guard isConnected else {
+            if showErrorsToUser {
+                showError(message: "Device is not connected. Please connect first.")
+            }
+            return
+        }
+
+        guard hasHealthAccess else {
+            if showErrorsToUser {
+                showError(message: "Health access is required to sync data")
+            }
+            return
+        }
+
+        guard !dayKeys.isEmpty else {
+            if showErrorsToUser {
+                showError(message: "No failed days available to retry.")
+            }
+            return
+        }
+
+        guard !isSyncing else { return }
+        isSyncing = true
+
+        let retriedCount = await syncManager.retryFailedDays(dayKeys)
+        isSyncing = false
+
+        refreshSyncDiagnostics()
+
+        if retriedCount == 0, showErrorsToUser {
+            if let error = syncManager.lastError {
+                showError(message: "Retry failed: \(error)")
+            } else {
+                showError(message: "No new data was available for the selected failed days.")
+            }
+        }
+    }
+
+    func refreshSyncDiagnostics() {
+        syncStatus = syncManager.syncStatus
+        lastSyncTime = syncManager.lastSyncTime
+        queueTelemetry = syncManager.queueTelemetry
+        syncHistory = syncManager.syncHistory
+        exportDestinationName = exportDestinationStore.destinationName
+    }
+
+    func requestSyncNotificationPermissions() async {
+        notificationsEnabled = await notificationManager.requestPermissionsIfNeeded()
+    }
+
+    func selectExportDestination(_ url: URL) {
+        exportDestinationStore.selectDestination(url)
+        exportDestinationName = exportDestinationStore.destinationName
+    }
+
+    func clearExportDestination() {
+        exportDestinationStore.clearDestination()
+        exportDestinationName = exportDestinationStore.destinationName
+    }
+
+    func updateExportSettings(_ mutate: (inout LocalExportSettings) -> Void) {
+        var updated = exportSettings
+        mutate(&updated)
+        exportSettings = updated
+        updated.save()
+    }
+
+    func retryDateRange(startDate: Date, endDate: Date, showErrorsToUser: Bool = true) async {
+        guard isConnected else {
+            if showErrorsToUser {
+                showError(message: "Device is not connected. Please connect first.")
+            }
+            return
+        }
+
+        guard hasHealthAccess else {
+            if showErrorsToUser {
+                showError(message: "Health access is required to sync data")
+            }
+            return
+        }
+
+        guard !isSyncing else { return }
+        isSyncing = true
+
+        let result = await syncManager.retryDateRange(startDate: startDate, endDate: endDate)
+        isSyncing = false
+
+        refreshSyncDiagnostics()
+
+        if let error = result.errorMessage, result.syncedMetricCount == 0 {
+            if showErrorsToUser {
+                showError(message: "Retry failed: \(error)")
+            }
+            dateRangeRetrySummary = "Retry failed"
+            return
+        }
+
+        dateRangeRetrySummary = "Retried \(result.attemptedDays) day(s): \(result.syncedMetricCount) metrics synced, \(result.failedDays.count) day(s) still failing, \(result.queuedBatchCount) batch(es) queued"
+    }
+
+    func exportDateRange(startDate: Date, endDate: Date, showErrorsToUser: Bool = true) async {
+        guard isConnected else {
+            if showErrorsToUser {
+                showError(message: "Connect your device before exporting.")
+            }
+            return
+        }
+
+        guard hasHealthAccess else {
+            if showErrorsToUser {
+                showError(message: "Health access is required for export.")
+            }
+            return
+        }
+
+        guard hasTrackedMetrics else {
+            if showErrorsToUser {
+                showError(message: "No tracked metrics selected in Ritual desktop.")
+            }
+            return
+        }
+
+        guard exportDestinationStore.destinationURL != nil else {
+            if showErrorsToUser {
+                showError(message: "Select an export folder before exporting.")
+            }
+            return
+        }
+
+        guard !isExporting else { return }
+        isExporting = true
+        defer { isExporting = false }
+
+        let result = await localExportManager.exportDateRange(
+            startDate: startDate,
+            endDate: endDate,
+            metricTypes: trackedMetricTypes,
+            settings: exportSettings,
+            destinationStore: exportDestinationStore,
+            healthKitManager: healthKitManager
+        )
+
+        recordExportResult(
+            result: result,
+            startDate: min(startDate, endDate),
+            endDate: max(startDate, endDate)
+        )
+
+        if result.succeeded {
+            exportStatusMessage = "Exported \(result.successDays) day(s), \(result.exportedMetricCount) metrics"
+        } else if result.partiallySucceeded {
+            exportStatusMessage = "Partial export: \(result.successDays)/\(result.attemptedDays) day(s)"
+        } else {
+            exportStatusMessage = result.failureReason?.description ?? "Export failed"
+            if showErrorsToUser {
+                showError(message: result.failureMessage ?? exportStatusMessage ?? "Export failed")
+            }
+        }
+    }
+
+    func exportFailedDays(_ dayKeys: [String], showErrorsToUser: Bool = true) async {
+        guard !dayKeys.isEmpty else { return }
+        guard isConnected, hasHealthAccess, hasTrackedMetrics, exportDestinationStore.destinationURL != nil else {
+            if showErrorsToUser {
+                showError(message: "Connect, grant Health access, and select an export folder before retrying export.")
+            }
+            return
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+
+        let dates = dayKeys.compactMap { formatter.date(from: String($0.prefix(10))) }.sorted()
+        guard let startDate = dates.first, let endDate = dates.last else { return }
+
+        guard !isExporting else { return }
+        isExporting = true
+        defer { isExporting = false }
+
+        let result = await localExportManager.exportDayKeys(
+            dayKeys,
+            startDate: startDate,
+            endDate: endDate,
+            metricTypes: trackedMetricTypes,
+            settings: exportSettings,
+            destinationStore: exportDestinationStore,
+            healthKitManager: healthKitManager
+        )
+
+        recordExportResult(result: result, startDate: startDate, endDate: endDate)
+
+        if result.succeeded {
+            exportStatusMessage = "Retried failed exports successfully."
+        } else if result.partiallySucceeded {
+            exportStatusMessage = "Retry partial: \(result.successDays)/\(result.attemptedDays) day(s)"
+        } else {
+            exportStatusMessage = "Retry export failed"
+            if showErrorsToUser {
+                showError(message: result.failureMessage ?? "Retry export failed")
+            }
+        }
+    }
+
+    func clearExportHistory() {
+        exportHistoryStore.clear()
+        exportHistory = []
+    }
+
+    func receivePairingRequest(peerName: String, peerFingerprint: String) {
+        pendingPairingRequest = PeerPairingRequest(
+            id: UUID().uuidString,
+            peerName: peerName,
+            peerFingerprint: peerFingerprint,
+            requestedAt: Date()
+        )
+    }
+
+    func confirmPendingPairing() {
+        guard let request = pendingPairingRequest else { return }
+
+        let peer = TrustedPeer(
+            id: request.id,
+            peerName: request.peerName,
+            peerFingerprint: request.peerFingerprint,
+            approvedAt: Date()
+        )
+
+        trustedPeers.append(peer)
+        saveTrustedPeers()
+        pendingPairingRequest = nil
+    }
+
+    func declinePendingPairing() {
+        pendingPairingRequest = nil
+    }
+
+    func isTrustedPeer(peerName: String, peerFingerprint: String) -> Bool {
+        trustedPeers.contains {
+            $0.peerName == peerName && $0.peerFingerprint == peerFingerprint
+        }
+    }
+
+    private func loadTrustedPeers() -> [TrustedPeer] {
+        guard let data = UserDefaults.standard.data(forKey: trustedPeersStorageKey) else {
+            return []
+        }
+
+        return (try? JSONDecoder().decode([TrustedPeer].self, from: data)) ?? []
+    }
+
+    private func saveTrustedPeers() {
+        if let data = try? JSONEncoder().encode(trustedPeers) {
+            UserDefaults.standard.set(data, forKey: trustedPeersStorageKey)
+        }
+    }
     
     private func showError(message: String) {
         errorMessage = message
         showError = true
+    }
+
+    private func recordExportResult(result: LocalExportResult, startDate: Date, endDate: Date) {
+        let entry = LocalExportHistoryEntry(
+            id: UUID().uuidString,
+            timestamp: Date(),
+            startDate: startDate,
+            endDate: endDate,
+            format: exportSettings.format,
+            successDays: result.successDays,
+            attemptedDays: result.attemptedDays,
+            failedDays: result.failedDays,
+            exportedMetricCount: result.exportedMetricCount,
+            failureReason: result.failureReason,
+            failureMessage: result.failureMessage
+        )
+        exportHistory = exportHistoryStore.append(entry)
     }
 }
 
@@ -421,4 +797,18 @@ enum HealthAccessStatus: String {
         case .denied: return .red
         }
     }
+}
+
+struct PeerPairingRequest: Identifiable, Codable {
+    let id: String
+    let peerName: String
+    let peerFingerprint: String
+    let requestedAt: Date
+}
+
+struct TrustedPeer: Identifiable, Codable {
+    let id: String
+    let peerName: String
+    let peerFingerprint: String
+    let approvedAt: Date
 }

@@ -365,7 +365,7 @@ export function HomeClient() {
               <div className="flex items-center justify-center">
                 <button
                   onClick={handleNext}
-                  className="px-12 py-2.5 bg-black text-white rounded-none hover:bg-[#1f2937] transition-colors flex items-center justify-center text-sm font-medium"
+                  className="px-12 py-2.5 bg-black text-white rounded-sm shadow transition-colors duration-200 hover:bg-[#5a5855] flex items-center justify-center text-sm font-medium"
                   style={{ fontWeight: 500 }}
                 >
                   {currentPage === 1 && 'Get Started'}
@@ -407,13 +407,13 @@ export function HomeClient() {
       {/* Main Content - True center */}
       <main className="flex-1 flex flex-col items-center justify-center px-6">
         <div className="flex flex-col items-center">
-          <div className="mb-6">
+          <div className="mb-5">
             <img
               ref={logoRef}
               src="/images/eclipse.svg"
               alt="Ritual Logo"
-              width={46}
-              height={46}
+              width={40}
+              height={40}
               className="cursor-pointer"
               style={{
                 transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
@@ -422,8 +422,8 @@ export function HomeClient() {
             />
           </div>
 
-          <h1 className="text-gray-900 mb-8" style={{
-            fontSize: '32px',
+          <h1 className="text-gray-900 mb-6" style={{
+            fontSize: '26px',
             lineHeight: '1.2',
             WebkitFontSmoothing: 'antialiased',
             letterSpacing: '-0.01em',
@@ -434,7 +434,7 @@ export function HomeClient() {
 
           <Link
             href="/sign-in"
-            className="inline-flex items-center justify-center bg-black text-white px-12 py-2.5 rounded-none font-medium text-sm"
+            className="inline-flex items-center justify-center bg-black text-white px-10 py-2 rounded-sm font-medium text-sm shadow transition-colors duration-200 hover:bg-[#5a5855]"
             style={{
               userSelect: 'none',
               fontWeight: 500

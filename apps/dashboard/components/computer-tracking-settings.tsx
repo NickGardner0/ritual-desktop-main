@@ -38,6 +38,16 @@ interface WatcherStatus {
   device_id: string | null;
 }
 
+interface BrowserExtensionDiagnostics {
+  extension_installed: boolean;
+  watcher_reachable: boolean;
+  heartbeat_live: boolean;
+  watcher_server_url: string | null;
+  last_browser_extension_heartbeat_ts: number | null;
+  seconds_since_browser_extension_heartbeat: number | null;
+  detection_note: string;
+}
+
 interface DeviceState {
   device_id: string;
   is_enabled: boolean;
@@ -133,6 +143,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
   const [afkTimeout, setAfkTimeout] = useState(900); // 15 minutes default
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [browserDiagnostics, setBrowserDiagnostics] = useState<BrowserExtensionDiagnostics | null>(null);
 
   // Sync watcher data to "Computer Use" habit
   const syncToHabit = useCallback(async () => {
@@ -204,6 +215,17 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
     }
   }, []);
 
+  const getBrowserExtensionDiagnostics = useCallback(async () => {
+    try {
+      const diagnostics = await invoke<BrowserExtensionDiagnostics>('get_browser_extension_diagnostics');
+      setBrowserDiagnostics(diagnostics);
+      return diagnostics;
+    } catch (e) {
+      console.error('Failed to get browser extension diagnostics:', e);
+      return null;
+    }
+  }, []);
+
   // OPTIMIZED: Load settings with fast local checks FIRST, then backend
   const loadSettings = useCallback(async () => {
     try {
@@ -212,9 +234,10 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
       
       // STEP 1: Fast local checks (Tauri IPC) - run in parallel
       // These are instant and give us the most important info
-      const [accessGranted, status] = await Promise.all([
+      const [accessGranted, status, diagnostics] = await Promise.all([
         invoke<boolean>('check_accessibility_permission').catch(() => false),
-        invoke<WatcherStatus>('get_watcher_status').catch(() => null)
+        invoke<WatcherStatus>('get_watcher_status').catch(() => null),
+        invoke<BrowserExtensionDiagnostics>('get_browser_extension_diagnostics').catch(() => null)
       ]);
       
       // Update UI immediately with local state
@@ -224,6 +247,9 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
         if (status.is_running) {
           setIsEnabled(true);
         }
+      }
+      if (diagnostics) {
+        setBrowserDiagnostics(diagnostics);
       }
       setIsStatusLoading(false); // Toggle can now show accurate state
       
@@ -284,6 +310,16 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  useEffect(() => {
+    getBrowserExtensionDiagnostics();
+
+    const interval = setInterval(() => {
+      getBrowserExtensionDiagnostics();
+    }, 15_000);
+
+    return () => clearInterval(interval);
+  }, [getBrowserExtensionDiagnostics]);
 
   // Watchdog: Periodically check if watcher is hung and auto-restart
   useEffect(() => {
@@ -368,6 +404,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
         
         setIsRunning(false);
         setIsEnabled(false);
+        await getBrowserExtensionDiagnostics();
         
         // Cache the new state
         setCachedState({
@@ -416,6 +453,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
         
         setIsRunning(true);
         setIsEnabled(true);
+        await getBrowserExtensionDiagnostics();
         
         // Cache the new state
         setCachedState({
@@ -568,6 +606,42 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
       </div>
 
       {/* Sync to Habit - Only show when watcher is enabled */}
+      {isEnabled && (
+        <div className="py-2.5 border-b border-gray-200/50">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Monitor className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-900">Browser Extension Status</span>
+          </div>
+          <div className="space-y-1 text-xs text-gray-600">
+            <div className="flex items-center justify-between">
+              <span>Extension installed</span>
+              <span className={browserDiagnostics?.extension_installed ? 'text-green-700' : 'text-amber-700'}>
+                {browserDiagnostics?.extension_installed ? 'Detected' : 'Unknown'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Watcher reachable</span>
+              <span className={browserDiagnostics?.watcher_reachable ? 'text-green-700' : 'text-red-700'}>
+                {browserDiagnostics?.watcher_reachable
+                  ? `Yes (${browserDiagnostics.watcher_server_url ?? 'localhost'})`
+                  : 'No'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Heartbeat live</span>
+              <span className={browserDiagnostics?.heartbeat_live ? 'text-green-700' : 'text-red-700'}>
+                {browserDiagnostics?.heartbeat_live
+                  ? `Yes (${browserDiagnostics.seconds_since_browser_extension_heartbeat ?? 0}s ago)`
+                  : 'No'}
+              </span>
+            </div>
+            {browserDiagnostics?.detection_note && (
+              <p className="text-[11px] text-gray-500">{browserDiagnostics.detection_note}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {isEnabled && (
         <div className="py-2.5 border-b border-gray-200/50 flex items-center justify-between">
           <div className="flex items-center gap-2">

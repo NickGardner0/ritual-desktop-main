@@ -17,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 
 // Import types
-import type { Habit as ServiceHabit, HabitLog as ServiceHabitLog } from '@/lib/habits-service';
+import type { Habit as ServiceHabit, HabitLog as ServiceHabitLog } from '@/lib/habit-types';
 
 // Import React Query hooks
 import {

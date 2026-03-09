@@ -32,12 +32,14 @@ dirs = "5.0"
 base64 = "0.21"
 tiny_http = "0.12"
 rand = "0.8"
+log = "0.4"
 
 # Legacy database (still used by recorder.rs - watcher.rs has been migrated to ritual-db)
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Unified database layer with vector search (new - for semantic search)
 ritual-db = { path = "crates/ritual-db" }
+libsql = "0.6.0"
 
 # Async runtime for database operations
 tokio = { version = "1.35", features = ["rt", "sync"] }
@@ -92,6 +94,8 @@ core-foundation = "0.9"
 window-vibrancy = "0.4"
 cocoa = "0.25"
 objc = "0.2"
+arboard = "3.6"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # ============================================================================
 # REMOVED OAuth dependencies - Clerk handles all authentication via web UI
@@ -104,3 +108,8 @@ objc = "0.2"
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

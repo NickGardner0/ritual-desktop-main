@@ -8,8 +8,11 @@ import os
 import asyncio
 import httpx
 import requests
+import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
+
+logger = logging.getLogger(__name__)
 
 class AuthService:
     """Service for handling Clerk authentication"""
@@ -24,12 +27,16 @@ class AuthService:
         self._email_cache: Dict[str, Dict[str, Any]] = {}
         self._email_cache_ttl = 3600  # Cache for 1 hour
         
-        # Get Clerk frontend API domain from environment or extract from sign-in URL
-        clerk_sign_in_url = os.getenv("NEXT_PUBLIC_CLERK_SIGN_IN_URL", "")
-        
-        if clerk_sign_in_url:
-            # Extract domain from sign-in URL
-            # Format: https://{domain}/sign-in
+        # Prefer an explicit JWKS endpoint so backend auth is decoupled from
+        # whichever frontend sign-in route the Next app happens to use.
+        self.clerk_jwks_url = (os.getenv("CLERK_JWKS_URL") or "").strip()
+
+        # Backward-compatible fallback for older env files.
+        clerk_sign_in_url = os.getenv("NEXT_PUBLIC_CLERK_SIGN_IN_URL", "").strip()
+
+        if self.clerk_jwks_url:
+            pass
+        elif clerk_sign_in_url:
             frontend_domain = clerk_sign_in_url.replace("https://", "").replace("/sign-in", "").split("/")[0]
             self.clerk_jwks_url = f"https://{frontend_domain}/.well-known/jwks.json"
         else:
@@ -37,14 +44,12 @@ class AuthService:
             # For development instances, it's typically: {instance}.clerk.accounts.dev
             # For production: clerk.{your-domain}.com
             if self.clerk_publishable_key and self.clerk_publishable_key.startswith("pk_test_"):
-                # Development instance - use a common pattern
-                # User should set NEXT_PUBLIC_CLERK_SIGN_IN_URL in .env for accuracy
-                print("⚠️  NEXT_PUBLIC_CLERK_SIGN_IN_URL not set, using fallback JWKS URL")
+                logger.warning("CLERK_JWKS_URL not set, using fallback JWKS URL")
                 self.clerk_jwks_url = "https://api.clerk.com/v1/jwks"
             else:
                 self.clerk_jwks_url = "https://api.clerk.com/v1/jwks"
         
-        print(f"🔑 Clerk JWKS URL: {self.clerk_jwks_url}")
+        logger.info("Clerk JWKS URL: %s", self.clerk_jwks_url)
         
         # Initialize PyJWKClient for automatic JWKS fetching and caching
         self.jwks_client = PyJWKClient(
@@ -85,17 +90,12 @@ class AuthService:
             email = payload.get("email")
             
             if not user_id:
-                print("❌ No user ID found in token")
+                logger.error("No user ID found in token")
                 return None
             
             # If email is not in token, fetch from Clerk API
             if not email:
-                # Only log when actually fetching (not from cache)
-                # print(f"⚠️  Email not in token, fetching from Clerk API for user: {user_id}")
                 email = await self._fetch_email_from_clerk(user_id)
-            
-            # Reduce verbosity - only log failures, not every successful auth
-            # print(f"✅ Verified and extracted user from Clerk token: {user_id} ({email})")
             
             return {
                 "id": user_id,
@@ -105,15 +105,13 @@ class AuthService:
             }
             
         except jwt.ExpiredSignatureError:
-            print("❌ Token has expired")
+            logger.warning("Token has expired")
             return None
         except jwt.InvalidTokenError as e:
-            print(f"❌ Invalid JWT token: {e}")
+            logger.warning("Invalid JWT token: %s", e)
             return None
         except Exception as e:
-            print(f"❌ Error validating token: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Error validating token")
             return None
     
     async def _fetch_email_from_clerk(self, user_id: str) -> Optional[str]:
@@ -130,20 +128,18 @@ class AuthService:
             # Return cached email if still fresh
             if cache_age < self._email_cache_ttl:
                 email = cached.get("email")
-                # Only log cache hits in debug mode (reduce verbosity)
-                # print(f"✅ Email retrieved from cache: {email} (cached {int(cache_age)}s ago)")
                 return email
             else:
                 # Cache expired, remove it
-                print(f"🔄 Email cache expired for user {user_id}, refreshing...")
+                logger.info("Email cache expired for user %s, refreshing", user_id)
                 del self._email_cache[user_id]
         
         if not self.clerk_secret_key:
-            print("⚠️  Clerk secret key not configured, cannot fetch email")
+            logger.warning("Clerk secret key not configured, cannot fetch email")
             return None
         
         try:
-            print(f"🌐 [CLERK API] Fetching email for user: {user_id}")
+            logger.info("[CLERK API] Fetching email for user: %s", user_id)
             retries = 3
             response = None
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -179,17 +175,17 @@ class AuthService:
                             "cached_at": datetime.now(timezone.utc).timestamp()
                         }
                         
-                        print(f"✅ [CLERK API] Email cached: {primary_email} (valid for 1 hour)")
+                        logger.info("[CLERK API] Email cached for user %s (valid for 1 hour)", user_id)
                         return primary_email
                     else:
-                        print(f"⚠️  No email addresses found for user {user_id}")
+                        logger.warning("No email addresses found for user %s", user_id)
                         return None
                 else:
-                    print(f"⚠️  Failed to fetch user from Clerk API: {response.status_code}")
+                    logger.warning("Failed to fetch user from Clerk API: %s", response.status_code)
                     return None
                     
         except Exception as e:
-            print(f"⚠️  Error fetching email from Clerk API: {e}")
+            logger.warning("Error fetching email from Clerk API: %s", e)
             return None
     
     def extract_token_from_header(self, authorization_header: str) -> Optional[str]:

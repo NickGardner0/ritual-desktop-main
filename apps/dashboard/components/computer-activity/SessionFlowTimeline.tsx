@@ -39,23 +39,31 @@ function SegmentTooltip({
       className="fixed z-[9999] pointer-events-none"
       style={{ 
         left: position.x, 
-        top: position.y - 10,
+        top: position.y - 12,
         transform: 'translate(-50%, -100%)'
       }}
     >
-      <div 
-        className="px-2 py-1.5 text-xs border border-gray-200/60 shadow-md whitespace-nowrap"
+      <div
+        className="min-w-[220px] border border-[rgba(39,37,30,0.14)] px-2.5 py-2 text-[11px] shadow-[0_12px_28px_rgba(15,23,42,0.15)]"
         style={{
-          background: 'rgba(255, 255, 255, 0.92)',
-          backdropFilter: 'blur(12px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+          background: 'linear-gradient(150deg, rgba(255,255,255,0.88), rgba(247,248,250,0.72))',
+          backdropFilter: 'blur(14px) saturate(185%)',
+          WebkitBackdropFilter: 'blur(14px) saturate(185%)',
         }}
       >
-        <span className="font-medium text-gray-900">{segment.label}</span>
-        <span className="text-gray-400 mx-1.5">·</span>
-        <span className="text-gray-500 tabular-nums">{formatTime(segment.start)} – {formatTime(segment.end)}</span>
-        <span className="text-gray-400 mx-1.5">·</span>
-        <span className="text-gray-900 font-medium tabular-nums">{msToHuman(segment.durationMs, true)}</span>
+        <div className="mb-1 border-b border-[rgba(39,37,30,0.08)] pb-1 text-[12px] font-medium text-[#1F2937]">
+          {segment.label}
+        </div>
+        <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+          <span className="text-[rgba(39,37,30,0.58)]">Time</span>
+          <span className="justify-self-end tabular-nums text-[rgba(39,37,30,0.82)]">
+            {formatTime(segment.start)} - {formatTime(segment.end)}
+          </span>
+          <span className="text-[rgba(39,37,30,0.58)]">Duration</span>
+          <span className="justify-self-end font-medium tabular-nums text-[#111827]">
+            {msToHuman(segment.durationMs, true)}
+          </span>
+        </div>
       </div>
     </div>,
     document.body
@@ -74,6 +82,7 @@ export function SessionFlowTimeline({
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   
   const totalDuration = range.end - range.start
+  const midpoint = range.start + totalDuration / 2
   
   // Calculate segment positions
   const positionedSegments = useMemo(() => {
@@ -85,18 +94,29 @@ export function SessionFlowTimeline({
         // Clamp to range boundaries
         const clampedStart = Math.max(seg.start, range.start)
         const clampedEnd = Math.min(seg.end, range.end)
+        const clampedDurationMs = Math.max(0, clampedEnd - clampedStart)
         
         const leftPercent = ((clampedStart - range.start) / totalDuration) * 100
-        const widthPercent = ((clampedEnd - clampedStart) / totalDuration) * 100
+        const widthPercent = (clampedDurationMs / totalDuration) * 100
         
         return {
           ...seg,
+          start: clampedStart,
+          end: clampedEnd,
+          durationMs: clampedDurationMs,
           leftPercent,
           widthPercent,
         }
       })
-      .filter(seg => seg.widthPercent > 0.1) // Filter out tiny segments
+      .filter(seg => seg.widthPercent > 0.02) // Keep short sessions visible while ignoring zero-width entries
   }, [segments, range, totalDuration])
+
+  const activeMs = useMemo(
+    () => positionedSegments.reduce((sum, segment) => sum + segment.durationMs, 0),
+    [positionedSegments],
+  )
+  const activePct = totalDuration > 0 ? Math.min(100, (activeMs / totalDuration) * 100) : 0
+  const sessionCount = positionedSegments.length
   
   const handleMouseEnter = (
     segment: SessionSegment, 
@@ -118,9 +138,9 @@ export function SessionFlowTimeline({
   
   if (segments.length === 0) {
     return (
-      <div className={`relative bg-gray-100 ${className}`} style={{ height }}>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xs text-gray-400">No activity data</span>
+      <div className={`w-full border border-[rgba(39,37,30,0.08)] bg-[rgba(39,37,30,0.015)] px-3 py-3 ${className}`}>
+        <div className="relative flex items-center justify-center border border-[rgba(39,37,30,0.07)] bg-[rgba(255,255,255,0.78)]" style={{ height }}>
+          <span className="text-xs text-[rgba(39,37,30,0.45)]">No activity data</span>
         </div>
       </div>
     )
@@ -128,61 +148,79 @@ export function SessionFlowTimeline({
   
   return (
     <div className={`w-full ${className}`}>
-      {/* Timeline bar */}
       <div 
-        className="relative bg-gray-100 overflow-hidden"
-        style={{ height }}
+        className="relative overflow-hidden border border-[rgba(39,37,30,0.08)] bg-[linear-gradient(180deg,rgba(39,37,30,0.015),rgba(39,37,30,0.03))] px-2.5 py-2"
+        style={{ minHeight: height + 36 }}
         onMouseMove={handleMouseMove}
       >
-        {/* Activity segments */}
-        {positionedSegments.map((segment) => {
-          const isSelected = selectedSegmentId === segment.id
-          const isHovered = hoveredSegment?.id === segment.id
-          
-          // Use varying opacity based on segment kind for visual interest
-          const baseOpacity = segment.kind === 'work' ? 0.9 : segment.kind === 'web' ? 0.7 : 0.5
-          const opacity = isHovered ? 0.6 : baseOpacity
-          
-          return (
-            <div
-              key={segment.id}
-              className={`absolute top-0 bottom-0 transition-opacity cursor-pointer bg-gray-900 hover:opacity-60 ${
-                isSelected ? 'ring-2 ring-gray-900 ring-offset-1 z-10' : ''
-              }`}
-              style={{
-                left: `${segment.leftPercent}%`,
-                width: `${segment.widthPercent}%`,
-                opacity,
-                minWidth: 2,
-              }}
-              onClick={() => onSelectSegment?.(segment)}
-              onMouseEnter={(e) => handleMouseEnter(segment, e)}
-              onMouseLeave={handleMouseLeave}
-            />
-          )
-        })}
-        
-        {/* Time marker lines */}
-        <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
-          {[0, 25, 50, 75, 100].map((percent) => (
-            <div
-              key={percent}
-              className="w-px h-full bg-white/50"
-            />
-          ))}
+        <div className="mb-1 flex items-center justify-between text-[11px] leading-none">
+          <span className="text-[rgba(39,37,30,0.56)] tabular-nums">{formatTime(range.start)}</span>
+          <span className="text-[rgba(39,37,30,0.42)] tabular-nums">{formatTime(midpoint)}</span>
+          <span className="text-[rgba(39,37,30,0.56)] tabular-nums">{formatTime(range.end)}</span>
+        </div>
+
+        <div
+          className="relative overflow-hidden border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.84)]"
+          style={{ height }}
+        >
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(39,37,30,0.02)_0%,rgba(39,37,30,0.035)_100%]" />
+
+          <div className="pointer-events-none absolute inset-0">
+            {[25, 50, 75].map((percent) => (
+              <div
+                key={percent}
+                className="absolute top-0 bottom-0 w-px bg-[rgba(39,37,30,0.07)]"
+                style={{ left: `${percent}%` }}
+              />
+            ))}
+          </div>
+
+          {positionedSegments.map((segment) => {
+            const isSelected = selectedSegmentId === segment.id
+            const isHovered = hoveredSegment?.id === segment.id
+
+            const baseColor = KIND_COLORS[segment.kind] || '#6B7280'
+            const accentColor = KIND_COLORS_ACCENT[segment.kind] || baseColor
+            const baseOpacity = segment.kind === 'work' ? 0.88 : segment.kind === 'web' ? 0.76 : 0.62
+            const opacity = isSelected ? 0.96 : isHovered ? 0.9 : baseOpacity
+            const minWidth = segment.widthPercent < 0.15 ? 2 : 0
+
+            return (
+              <div
+                key={segment.id}
+                className={`absolute cursor-pointer transition-[opacity,transform,box-shadow] duration-150 ${
+                  isSelected ? 'z-10' : 'z-[1]'
+                }`}
+                style={{
+                  left: `${segment.leftPercent}%`,
+                  width: `${segment.widthPercent}%`,
+                  top: 2,
+                  bottom: 2,
+                  minWidth,
+                  opacity,
+                  background: `linear-gradient(180deg, ${accentColor}, ${baseColor})`,
+                  boxShadow: isHovered || isSelected ? '0 0 0 1px rgba(39,37,30,0.16) inset' : 'none',
+                  transform: isHovered ? 'translateY(-0.5px)' : 'translateY(0)',
+                }}
+                onClick={() => onSelectSegment?.(segment)}
+                onMouseEnter={(e) => handleMouseEnter(segment, e)}
+                onMouseLeave={handleMouseLeave}
+                title={segment.label}
+              />
+            )
+          })}
+        </div>
+
+        <div className="mt-1.5 flex items-center justify-between">
+          <span className="text-[11px] text-[rgba(39,37,30,0.48)] tabular-nums">
+            {Math.round(activePct)}% active
+          </span>
+          <span className="text-[11px] text-[rgba(39,37,30,0.52)] tabular-nums">
+            {sessionCount} sessions · {msToHuman(activeMs, true)}
+          </span>
         </div>
       </div>
-      
-      {/* Time labels */}
-      <div className="flex justify-between mt-2">
-        <span className="text-xs text-gray-500 tabular-nums">
-          {formatTime(range.start)}
-        </span>
-        <span className="text-xs text-gray-500 tabular-nums">
-          {formatTime(range.end)}
-        </span>
-      </div>
-      
+
       {/* Tooltip */}
       {hoveredSegment && (
         <SegmentTooltip 
@@ -235,14 +273,15 @@ export function DailyStackedTimeline({
   
   if (dailyData.length === 0) {
     return (
-      <div className={`h-20 bg-gray-50 flex items-center justify-center ${className}`}>
-        <span className="text-xs text-gray-400">No activity data</span>
+      <div className={`h-20 border border-[rgba(39,37,30,0.08)] bg-[rgba(39,37,30,0.015)] flex items-center justify-center ${className}`}>
+        <span className="text-xs text-[rgba(39,37,30,0.45)]">No activity data</span>
       </div>
     )
   }
   
   return (
-    <div className={`flex items-end gap-px ${className}`} style={{ height: 60 }}>
+    <div className={`border border-[rgba(39,37,30,0.08)] bg-[linear-gradient(180deg,rgba(39,37,30,0.015),rgba(39,37,30,0.03))] px-2 py-2 ${className}`}>
+      <div className="flex items-end gap-0.5" style={{ height: 60 }}>
       {dailyData.map((day, i) => {
         const heightPercent = (day.totalMs / maxDailyMs) * 100
         const dayLabel = day.date.toLocaleDateString('en-US', { weekday: 'narrow' })
@@ -254,7 +293,7 @@ export function DailyStackedTimeline({
             onClick={() => onSelectDay?.(day.date)}
           >
             <div 
-              className="w-full bg-gray-300 group-hover:bg-gray-400 transition-colors"
+              className="w-full bg-[#5A6474]/65 group-hover:bg-[#4B5563]/85 transition-colors"
               style={{ 
                 height: `${Math.max(heightPercent, 4)}%`,
                 minHeight: 2,
@@ -267,6 +306,7 @@ export function DailyStackedTimeline({
           </div>
         )
       })}
+      </div>
     </div>
   )
 }

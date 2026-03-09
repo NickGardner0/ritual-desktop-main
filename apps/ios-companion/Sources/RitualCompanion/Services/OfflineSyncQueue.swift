@@ -21,6 +21,15 @@ final class OfflineSyncQueue {
         var lastAttemptAt: Date?
         var lastError: String?
     }
+
+    struct QueueTelemetry {
+        let pendingCount: Int
+        let readyForRetryCount: Int
+        let networkAvailable: Bool
+        let isProcessing: Bool
+        let oldestPendingDate: Date?
+        let totalPendingMetrics: Int
+    }
     
     // MARK: - Constants
     
@@ -50,6 +59,23 @@ final class OfflineSyncQueue {
         queueLock.lock()
         defer { queueLock.unlock() }
         return queue.min(by: { $0.createdAt < $1.createdAt })?.createdAt
+    }
+
+    var telemetry: QueueTelemetry {
+        queueLock.lock()
+        defer { queueLock.unlock() }
+
+        let readyForRetry = payloadsReadyForRetryLocked(now: Date())
+        let totalPendingMetrics = queue.reduce(0) { $0 + $1.metricCount }
+
+        return QueueTelemetry(
+            pendingCount: queue.count,
+            readyForRetryCount: readyForRetry.count,
+            networkAvailable: isNetworkAvailable,
+            isProcessing: isProcessing,
+            oldestPendingDate: queue.min(by: { $0.createdAt < $1.createdAt })?.createdAt,
+            totalPendingMetrics: totalPendingMetrics
+        )
     }
     
     // MARK: - Initialization
@@ -121,21 +147,8 @@ final class OfflineSyncQueue {
         
         queueLock.lock()
         defer { queueLock.unlock() }
-        
-        return queue.filter { payload in
-            // First attempt or enough time has passed since last attempt
-            guard let lastAttempt = payload.lastAttemptAt else {
-                return true
-            }
-            
-            // Exponential backoff
-            let backoffInterval = min(
-                baseRetryInterval * pow(2.0, Double(payload.attemptCount - 1)),
-                maxRetryInterval
-            )
-            
-            return now.timeIntervalSince(lastAttempt) >= backoffInterval
-        }
+
+        return payloadsReadyForRetryLocked(now: now)
     }
     
     /// Clean up old payloads
@@ -249,6 +262,23 @@ final class OfflineSyncQueue {
             }
         }
         networkMonitor?.start(queue: DispatchQueue.global(qos: .utility))
+    }
+
+    private func payloadsReadyForRetryLocked(now: Date) -> [QueuedPayload] {
+        queue.filter { payload in
+            // First attempt or enough time has passed since last attempt
+            guard let lastAttempt = payload.lastAttemptAt else {
+                return true
+            }
+
+            // Exponential backoff
+            let backoffInterval = min(
+                baseRetryInterval * pow(2.0, Double(payload.attemptCount - 1)),
+                maxRetryInterval
+            )
+
+            return now.timeIntervalSince(lastAttempt) >= backoffInterval
+        }
     }
     
     // MARK: - Debug

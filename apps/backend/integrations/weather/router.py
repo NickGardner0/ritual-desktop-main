@@ -77,7 +77,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=401, detail=f"Authentication failed: {exc}")
+        raise HTTPException(status_code=401, detail="Authentication failed.")
 
 
 @router.get("/api/integrations/weather/status", response_model=WeatherStatusResponse)
@@ -147,10 +147,10 @@ async def weather_sync(
         )
     except WeatherKitConfigError as exc:
         await weather_storage.mark_last_error(user_id, str(exc))
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=503, detail="Weather integration is not configured.")
     except Exception as exc:
         await weather_storage.mark_last_error(user_id, str(exc))
-        raise HTTPException(status_code=502, detail=f"Weather sync failed: {exc}")
+        raise HTTPException(status_code=502, detail="Weather sync failed. Please try again.")
 
     metadata_updates = {
         "last_lat_bucket": bucket,
@@ -235,4 +235,4 @@ async def weatherkit_health(
             temperature_c=probe.get("temperature_c"),
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"WeatherKit probe failed: {exc}")
+        raise HTTPException(status_code=502, detail="WeatherKit probe failed.")

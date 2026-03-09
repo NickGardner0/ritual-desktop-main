@@ -8,6 +8,7 @@ import uuid
 import json
 import asyncio
 import httpx
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from sqlalchemy import select, update
@@ -18,11 +19,16 @@ from database.connection import get_db_session
 from services.tinybird_service import TinybirdService
 from services.token_crypto import token_crypto
 
+logger = logging.getLogger(__name__)
+
 class WhoopService:
     """Service for Whoop integration"""
     
     WHOOP_API_BASE = "https://api.prod.whoop.com"
     WHOOP_TOKEN_URL = f"{WHOOP_API_BASE}/oauth/oauth2/token"
+    WHOOP_SLEEP_HABIT_NAMES = {"sleep duration", "sleep", "whoop sleep"}
+    WHOOP_RECOVERY_HABIT_NAMES = {"recovery score", "recovery", "whoop recovery"}
+    WHOOP_WORKOUT_HABIT_NAMES = {"daily strain", "strain", "whoop strain"}
     
     def __init__(self):
         self.client_id = os.getenv("WHOOP_CLIENT_ID")
@@ -32,9 +38,9 @@ class WhoopService:
         try:
             self.tinybird = TinybirdService()
             self.tinybird_enabled = True
-            print("✅ Tinybird service initialized for Whoop integration")
+            logger.info("✅ Tinybird service initialized for Whoop integration")
         except Exception as e:
-            print(f"⚠️  Tinybird service not available for Whoop: {e}")
+            logger.warning(f"⚠️  Tinybird service not available for Whoop: {e}")
             self.tinybird = None
             self.tinybird_enabled = False
 
@@ -65,7 +71,7 @@ class WhoopService:
                 response = await client.request(method, url, **kwargs)
                 if response.status_code in retryable_statuses and attempt < max_attempts:
                     delay = base_delay * (2 ** (attempt - 1))
-                    print(
+                    logger.info(
                         f"⚠️ Whoop API transient error {response.status_code} on {url}; "
                         f"retrying in {delay:.1f}s ({attempt}/{max_attempts})"
                     )
@@ -76,7 +82,7 @@ class WhoopService:
                 if attempt >= max_attempts:
                     raise
                 delay = base_delay * (2 ** (attempt - 1))
-                print(
+                logger.info(
                     f"⚠️ Whoop API request error ({exc}); retrying in {delay:.1f}s "
                     f"({attempt}/{max_attempts})"
                 )
@@ -104,7 +110,7 @@ class WhoopService:
             
             if not response.is_success:
                 error_text = await response.aread()
-                print(f"❌ Whoop token exchange failed: {error_text}")
+                logger.error(f"❌ Whoop token exchange failed: {error_text}")
                 raise Exception(f"Failed to exchange authorization code: {response.status_code}")
             
             return response.json()
@@ -152,7 +158,7 @@ class WhoopService:
                     integration.whoop_user_id = whoop_user_id
                     integration.is_active = True
                     integration.connected_at = datetime.utcnow()
-                    print(f"✅ Updated Whoop integration for user {user_id}")
+                    logger.info(f"✅ Updated Whoop integration for user {user_id}")
                 else:
                     # Create new integration
                     integration = WhoopIntegrationDB(
@@ -166,7 +172,7 @@ class WhoopService:
                         is_active=True
                     )
                     session.add(integration)
-                    print(f"✅ Created Whoop integration for user {user_id}")
+                    logger.info(f"✅ Created Whoop integration for user {user_id}")
                 
                 await session.commit()
                 await session.refresh(integration)
@@ -174,7 +180,7 @@ class WhoopService:
                 
             except SQLAlchemyError as e:
                 await session.rollback()
-                print(f"❌ Database error saving Whoop integration: {str(e)}")
+                logger.error(f"❌ Database error saving Whoop integration: {str(e)}")
                 raise Exception(f"Failed to save Whoop integration: {str(e)}")
     
     async def get_integration(self, user_id: str) -> Optional[WhoopIntegrationDB]:
@@ -192,7 +198,7 @@ class WhoopService:
                     integration.refresh_token = self._decrypt_token(integration.refresh_token)
                 return integration
             except SQLAlchemyError as e:
-                print(f"❌ Error fetching Whoop integration: {str(e)}")
+                logger.error(f"❌ Error fetching Whoop integration: {str(e)}")
                 return None
     
     async def disconnect_integration(self, user_id: str) -> bool:
@@ -205,11 +211,11 @@ class WhoopService:
                     .values(is_active=False)
                 )
                 await session.commit()
-                print(f"✅ Disconnected Whoop integration for user {user_id}")
+                logger.info(f"✅ Disconnected Whoop integration for user {user_id}")
                 return True
             except SQLAlchemyError as e:
                 await session.rollback()
-                print(f"❌ Error disconnecting Whoop integration: {str(e)}")
+                logger.error(f"❌ Error disconnecting Whoop integration: {str(e)}")
                 return False
     
     async def refresh_access_token(self, integration: WhoopIntegrationDB) -> Optional[str]:
@@ -234,8 +240,8 @@ class WhoopService:
                 )
                 
                 if not response.is_success:
-                    print(f"❌ Token refresh failed: {response.status_code}")
-                    print(f"❌ Response body: {response.text}")
+                    logger.error(f"❌ Token refresh failed: {response.status_code}")
+                    logger.error(f"❌ Response body: {response.text}")
                     return None
                 
                 token_data = response.json()
@@ -253,7 +259,7 @@ class WhoopService:
                     # Update refresh token if a new one was provided
                     if new_refresh_token:
                         update_values['refresh_token'] = self._encrypt_token(new_refresh_token)
-                        print(f"🔄 New refresh token received from Whoop")
+                        logger.info(f"🔄 New refresh token received from Whoop")
                     
                     await session.execute(
                         update(WhoopIntegrationDB)
@@ -262,11 +268,11 @@ class WhoopService:
                     )
                     await session.commit()
                 
-                print(f"✅ Refreshed Whoop access token for user {integration.user_id}")
+                logger.info(f"✅ Refreshed Whoop access token for user {integration.user_id}")
                 return new_access_token
                 
         except Exception as e:
-            print(f"❌ Error refreshing token: {str(e)}")
+            logger.error(f"❌ Error refreshing token: {str(e)}")
             return None
     
     async def get_valid_access_token(self, user_id: str) -> Optional[str]:
@@ -282,11 +288,35 @@ class WhoopService:
         
         if expires_at < now + timedelta(minutes=5):
             # Token expired or about to expire, refresh it
-            print(f"🔄 Token expired, refreshing for user {user_id}")
+            logger.info(f"🔄 Token expired, refreshing for user {user_id}")
             new_token = await self.refresh_access_token(integration)
             return new_token if new_token else integration.access_token
         
         return integration.access_token
+
+    async def _get_enabled_whoop_sync_metrics(self, user_id: str) -> Dict[str, bool]:
+        """
+        Determine which Whoop metric families are enabled based on the user's
+        selected Whoop-linked habits.
+        """
+        from database.models import HabitDB
+
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(HabitDB.name)
+                .where(HabitDB.user_id == user_id)
+                .where(HabitDB.integration_source == 'whoop')
+            )
+            habit_names = {
+                (name or "").strip().lower()
+                for name in result.scalars().all()
+            }
+
+        return {
+            "sleep": bool(habit_names & self.WHOOP_SLEEP_HABIT_NAMES),
+            "recovery": bool(habit_names & self.WHOOP_RECOVERY_HABIT_NAMES),
+            "workouts": bool(habit_names & self.WHOOP_WORKOUT_HABIT_NAMES),
+        }
     
     async def sync_whoop_data(self, user_id: str, days_back: int = None, force_full_sync: bool = False) -> Dict[str, Any]:
         """
@@ -304,6 +334,8 @@ class WhoopService:
         
         # Get integration to check last sync time
         integration = await self.get_integration(user_id)
+        enabled_metrics = await self._get_enabled_whoop_sync_metrics(user_id)
+        logger.info(f"📋 Whoop metric mappings enabled: {enabled_metrics}")
         
         synced_data = {
             "recovery": 0,
@@ -318,11 +350,11 @@ class WhoopService:
         if days_back is not None:
             # Manual override - use specified days
             start_date = end_date - timedelta(days=days_back)
-            print(f"📅 Manual sync: fetching last {days_back} days")
+            logger.info(f"📅 Manual sync: fetching last {days_back} days")
         elif force_full_sync:
             # Force full sync - fetch 30 days
             start_date = end_date - timedelta(days=30)
-            print(f"📅 Full sync requested: fetching last 30 days")
+            logger.info(f"📅 Full sync requested: fetching last 30 days")
         elif integration and integration.last_sync_at:
             # Incremental sync - fetch since last sync with 2-day overlap for safety
             # The overlap ensures we don't miss any data due to timezone issues or partial syncs
@@ -333,60 +365,70 @@ class WhoopService:
             sync_days = min(max(days_since_sync + 2, 1), 30)
             start_date = end_date - timedelta(days=sync_days)
             
-            print(f"📅 Incremental sync: last sync was {days_since_sync} days ago, fetching last {sync_days} days")
+            logger.info(f"📅 Incremental sync: last sync was {days_since_sync} days ago, fetching last {sync_days} days")
         else:
             # First sync - fetch 30 days of historical data
             start_date = end_date - timedelta(days=30)
-            print(f"📅 First sync: fetching last 30 days of historical data")
+            logger.info(f"📅 First sync: fetching last 30 days of historical data")
         
         # Track whether ANY API call succeeded (to avoid updating last_sync_at on total auth failure)
         any_api_success = False
         
         async with httpx.AsyncClient(timeout=20.0) as client:
             try:
-                # Fetch recovery data (v1 API - v2 not available yet)
-                # Whoop API returns max 25 records per page, so we need pagination
-                all_recovery = []
-                next_token = None
-                
-                while True:
-                    params = {
-                        'start': start_date.isoformat() + 'Z',
-                        'end': end_date.isoformat() + 'Z',
-                        'limit': 25  # Max allowed by Whoop API
-                    }
-                    if next_token:
-                        params['nextToken'] = next_token
-                    
-                    recovery_response = await self._request_with_retry(
-                        client=client,
-                        method="GET",
-                        url=f"{self.WHOOP_API_BASE}/developer/v1/recovery",
-                        headers={'Authorization': f'Bearer {access_token}'},
-                        params=params
-                    )
-                    
-                    if recovery_response.is_success:
-                        any_api_success = True
-                        recovery_page = recovery_response.json()
-                        page_records = recovery_page.get('records', [])
-                        all_recovery.extend(page_records)
-                        
-                        # Check if there are more pages
-                        next_token = recovery_page.get('next_token')
-                        if not next_token:
-                            break  # No more pages
-                    elif recovery_response.status_code == 401:
-                        print(f"❌ Whoop API returned 401 (unauthorized) - token may be expired or invalid")
-                        break
-                    else:
-                        print(f"⚠️  Error fetching recovery: {recovery_response.status_code}")
-                        break
-                
-                recovery_data = {'records': all_recovery} if all_recovery else None
-                if recovery_data:
-                    synced_data["recovery"] = len(recovery_data.get('records', []))
-                    print(f"✅ Synced {synced_data['recovery']} recovery records")
+                recovery_data = None
+                if enabled_metrics["recovery"]:
+                    # Fetch recovery data (v1 API - v2 not available yet)
+                    # Whoop API returns max 25 records per page, so we need pagination
+                    all_recovery = []
+                    next_token = None
+
+                    while True:
+                        params = {
+                            'start': start_date.isoformat() + 'Z',
+                            'end': end_date.isoformat() + 'Z',
+                            'limit': 25  # Max allowed by Whoop API
+                        }
+                        if next_token:
+                            params['nextToken'] = next_token
+
+                        recovery_response = await self._request_with_retry(
+                            client=client,
+                            method="GET",
+                            url=f"{self.WHOOP_API_BASE}/developer/v1/recovery",
+                            headers={'Authorization': f'Bearer {access_token}'},
+                            params=params
+                        )
+
+                        if recovery_response.is_success:
+                            any_api_success = True
+                            recovery_page = recovery_response.json()
+                            page_records = recovery_page.get('records', [])
+                            all_recovery.extend(page_records)
+
+                            # Check if there are more pages
+                            next_token = recovery_page.get('next_token')
+                            if not next_token:
+                                break  # No more pages
+                        elif recovery_response.status_code == 401:
+                            logger.error("❌ Whoop API returned 401 (unauthorized) - token may be expired or invalid")
+                            break
+                        elif recovery_response.status_code in {403, 404}:
+                            logger.info(
+                                "ℹ️ Whoop recovery endpoint unavailable for this account/config "
+                                f"(status {recovery_response.status_code}); skipping recovery sync."
+                            )
+                            break
+                        else:
+                            logger.warning(f"⚠️  Error fetching recovery: {recovery_response.status_code}")
+                            break
+
+                    recovery_data = {'records': all_recovery} if all_recovery else None
+                    if recovery_data:
+                        synced_data["recovery"] = len(recovery_data.get('records', []))
+                        logger.info(f"✅ Synced {synced_data['recovery']} recovery records")
+                else:
+                    logger.info("ℹ️ Skipping Whoop recovery fetch: no recovery habit mapping enabled.")
                 
                 # Fetch cycle data FIRST (v1 API - includes daily metrics)
                 # We need cycle IDs to fetch sleep data in v2 API
@@ -422,20 +464,20 @@ class WhoopService:
                         if not next_token:
                             break  # No more pages
                     elif cycle_response.status_code == 401:
-                        print(f"❌ Whoop API returned 401 (unauthorized) for cycles")
+                        logger.error(f"❌ Whoop API returned 401 (unauthorized) for cycles")
                         break
                     else:
-                        print(f"⚠️  Error fetching cycles: {cycle_response.status_code}")
+                        logger.warning(f"⚠️  Error fetching cycles: {cycle_response.status_code}")
                         break
                 
                 cycle_data = {'records': all_cycles} if all_cycles else None
                 if cycle_data:
                     synced_data["cycles"] = len(cycle_data.get('records', []))
-                    print(f"✅ Synced {synced_data['cycles']} cycle records (daily metrics)")
+                    logger.info(f"✅ Synced {synced_data['cycles']} cycle records (daily metrics)")
                 
                 # Fetch sleep data using v2 API (requires cycle IDs)
                 # v2 endpoint: /developer/v2/cycle/{cycleId}/sleep
-                print(f"🔍 Fetching sleep data using v2 API (cycle-based)")
+                logger.info(f"🔍 Fetching sleep data using v2 API (cycle-based)")
                 sleep_data = {"records": []}
                 
                 if cycle_data and cycle_data.get('records'):
@@ -460,11 +502,11 @@ class WhoopService:
                                     sleep_data['records'].append(sleep_record)
                                     synced_data["sleep"] += 1
                             else:
-                                print(f"⚠️  No sleep data for cycle {cycle_id}: {sleep_response.status_code}")
+                                logger.warning(f"⚠️  No sleep data for cycle {cycle_id}: {sleep_response.status_code}")
                         except Exception as e:
-                            print(f"⚠️  Error fetching sleep for cycle {cycle_id}: {str(e)}")
+                            logger.warning(f"⚠️  Error fetching sleep for cycle {cycle_id}: {str(e)}")
                     
-                    print(f"✅ Fetched {synced_data['sleep']} sleep records from Whoop v2 API")
+                    logger.info(f"✅ Fetched {synced_data['sleep']} sleep records from Whoop v2 API")
                     
                     # Debug: Print details of each sleep record
                     for record in sleep_data.get('records', []):
@@ -478,53 +520,63 @@ class WhoopService:
                         light_ms = stage_summary.get('total_light_sleep_time_milli', 0)
                         total_ms = rem_ms + slow_wave_ms + light_ms
                         total_hours = round(total_ms / 3600000, 2)
-                        print(f"  📊 Sleep: date={sleep_date}, start={sleep_start}, end={sleep_end}, duration={total_hours}h (actual sleep)")
+                        logger.info(f"  📊 Sleep: date={sleep_date}, start={sleep_start}, end={sleep_end}, duration={total_hours}h (actual sleep)")
                 else:
-                    print(f"⚠️  No cycles found, skipping sleep data fetch")
+                    logger.warning(f"⚠️  No cycles found, skipping sleep data fetch")
                 
-                # Fetch workout data (v1 API - v2 not available yet)
-                # Whoop API returns max 25 records per page, so we need pagination
-                all_workouts = []
-                next_token = None
-                
-                while True:
-                    params = {
-                        'start': start_date.isoformat() + 'Z',
-                        'end': end_date.isoformat() + 'Z',
-                        'limit': 25  # Max allowed by Whoop API
-                    }
-                    if next_token:
-                        params['nextToken'] = next_token
-                    
-                    workout_response = await self._request_with_retry(
-                        client=client,
-                        method="GET",
-                        url=f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
-                        headers={'Authorization': f'Bearer {access_token}'},
-                        params=params
-                    )
-                    
-                    if workout_response.is_success:
-                        any_api_success = True
-                        workout_page = workout_response.json()
-                        page_records = workout_page.get('records', [])
-                        all_workouts.extend(page_records)
-                        
-                        # Check if there are more pages
-                        next_token = workout_page.get('next_token')
-                        if not next_token:
-                            break  # No more pages
-                    elif workout_response.status_code == 401:
-                        print(f"❌ Whoop API returned 401 (unauthorized) for workouts")
-                        break
-                    else:
-                        print(f"⚠️  Error fetching workouts: {workout_response.status_code}")
-                        break
-                
-                workout_data = {'records': all_workouts} if all_workouts else None
-                if workout_data:
-                    synced_data["workouts"] = len(workout_data.get('records', []))
-                    print(f"✅ Synced {synced_data['workouts']} workout records")
+                workout_data = None
+                if enabled_metrics["workouts"]:
+                    # Fetch workout data (v1 API - v2 not available yet)
+                    # Whoop API returns max 25 records per page, so we need pagination
+                    all_workouts = []
+                    next_token = None
+
+                    while True:
+                        params = {
+                            'start': start_date.isoformat() + 'Z',
+                            'end': end_date.isoformat() + 'Z',
+                            'limit': 25  # Max allowed by Whoop API
+                        }
+                        if next_token:
+                            params['nextToken'] = next_token
+
+                        workout_response = await self._request_with_retry(
+                            client=client,
+                            method="GET",
+                            url=f"{self.WHOOP_API_BASE}/developer/v1/activity/workout",
+                            headers={'Authorization': f'Bearer {access_token}'},
+                            params=params
+                        )
+
+                        if workout_response.is_success:
+                            any_api_success = True
+                            workout_page = workout_response.json()
+                            page_records = workout_page.get('records', [])
+                            all_workouts.extend(page_records)
+
+                            # Check if there are more pages
+                            next_token = workout_page.get('next_token')
+                            if not next_token:
+                                break  # No more pages
+                        elif workout_response.status_code == 401:
+                            logger.error("❌ Whoop API returned 401 (unauthorized) for workouts")
+                            break
+                        elif workout_response.status_code in {403, 404}:
+                            logger.info(
+                                "ℹ️ Whoop workout endpoint unavailable for this account/config "
+                                f"(status {workout_response.status_code}); skipping workout sync."
+                            )
+                            break
+                        else:
+                            logger.warning(f"⚠️  Error fetching workouts: {workout_response.status_code}")
+                            break
+
+                    workout_data = {'records': all_workouts} if all_workouts else None
+                    if workout_data:
+                        synced_data["workouts"] = len(workout_data.get('records', []))
+                        logger.info(f"✅ Synced {synced_data['workouts']} workout records")
+                else:
+                    logger.info("ℹ️ Skipping Whoop workout fetch: no workout/strain habit mapping enabled.")
                 
                 # Store data in Tinybird for analytics
                 if self.tinybird_enabled:
@@ -536,9 +588,9 @@ class WhoopService:
                             workout_data=workout_data,
                             cycle_data=cycle_data
                         )
-                        print(f"✅ Whoop data synced to Tinybird for analytics")
+                        logger.info(f"✅ Whoop data synced to Tinybird for analytics")
                     except Exception as tb_error:
-                        print(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
+                        logger.warning(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
                 
                 # Store data in Turso database for dashboard display
                 try:
@@ -549,12 +601,12 @@ class WhoopService:
                         workout_data=workout_data,
                         cycle_data=cycle_data
                     )
-                    print(f"✅ Whoop data synced to Turso habit_logs for dashboard")
+                    logger.info(f"✅ Whoop data synced to Turso habit_logs for dashboard")
                 except Exception as db_error:
-                    print(f"⚠️  Database sync failed (non-fatal): {str(db_error)}")
+                    logger.warning(f"⚠️  Database sync failed (non-fatal): {str(db_error)}")
                 
             except Exception as e:
-                print(f"⚠️  Error fetching Whoop data: {str(e)}")
+                logger.warning(f"⚠️  Error fetching Whoop data: {str(e)}")
         
         # If no API call succeeded at all, this is likely a total auth failure
         # Don't update last_sync_at so the next sync uses the correct date range
@@ -577,7 +629,7 @@ class WhoopService:
                 )
                 await session.commit()
             except SQLAlchemyError as e:
-                print(f"⚠️  Error updating last_sync_at: {str(e)}")
+                logger.warning(f"⚠️  Error updating last_sync_at: {str(e)}")
         
         # Calculate days synced for the response
         days_synced = (end_date - start_date).days
@@ -637,7 +689,7 @@ class WhoopService:
             
             if recovery_events:
                 await self.tinybird.ingest_events('whoop_recovery_data', recovery_events)
-                print(f"📊 Ingested {len(recovery_events)} recovery records to Tinybird")
+                logger.info(f"📊 Ingested {len(recovery_events)} recovery records to Tinybird")
         
         # Ingest sleep data
         if sleep_data and sleep_data.get('records'):
@@ -675,7 +727,7 @@ class WhoopService:
             
             if sleep_events:
                 await self.tinybird.ingest_events('whoop_sleep_data', sleep_events)
-                print(f"📊 Ingested {len(sleep_events)} sleep records to Tinybird")
+                logger.info(f"📊 Ingested {len(sleep_events)} sleep records to Tinybird")
         
         # Ingest workout data
         if workout_data and workout_data.get('records'):
@@ -710,7 +762,7 @@ class WhoopService:
             
             if workout_events:
                 await self.tinybird.ingest_events('whoop_workout_data', workout_events)
-                print(f"📊 Ingested {len(workout_events)} workout records to Tinybird")
+                logger.info(f"📊 Ingested {len(workout_events)} workout records to Tinybird")
     
     def _get_sport_name(self, sport_id: int) -> str:
         """Map Whoop sport ID to name"""
@@ -748,10 +800,10 @@ class WhoopService:
                 whoop_habits = result.scalars().all()
                 
                 if not whoop_habits:
-                    print(f"ℹ️  No Whoop habits found for user {user_id}")
+                    logger.info(f"ℹ️  No Whoop habits found for user {user_id}")
                     return
                 
-                print(f"📋 Found {len(whoop_habits)} Whoop habits to sync")
+                logger.info(f"📋 Found {len(whoop_habits)} Whoop habits to sync")
                 
                 # Map habit names to habit IDs for quick lookup
                 habit_map = {habit.name.lower(): habit for habit in whoop_habits}
@@ -769,11 +821,11 @@ class WhoopService:
                 
                 # Sync Sleep Duration
                 if sleep_data and sleep_data.get('records'):
-                    print(f"🛌 Processing {len(sleep_data['records'])} sleep records from Whoop API")
+                    logger.info(f"🛌 Processing {len(sleep_data['records'])} sleep records from Whoop API")
                     for sleep_habit_name in ['sleep duration', 'sleep', 'whoop sleep']:
                         if sleep_habit_name in habit_map:
                             habit = habit_map[sleep_habit_name]
-                            print(f"✅ Found sleep habit: {habit.name} (id: {habit.id})")
+                            logger.info(f"✅ Found sleep habit: {habit.name} (id: {habit.id})")
                             
                             for record in sleep_data['records']:
                                 score = record.get('score', {})
@@ -799,10 +851,10 @@ class WhoopService:
                                 sleep_start_full = record.get('start', '')
                                 sleep_end_full = record.get('end', '')
                                 
-                                print(f"  🔍 Processing sleep: start={sleep_start_full}, end={sleep_end_full}, date={sleep_date}, duration={total_sleep_minutes}min")
+                                logger.info(f"  🔍 Processing sleep: start={sleep_start_full}, end={sleep_end_full}, date={sleep_date}, duration={total_sleep_minutes}min")
                                 
                                 if not sleep_date or total_sleep_minutes == 0:
-                                    print(f"  ⚠️  Skipping sleep record: date={sleep_date}, duration={total_sleep_minutes}min")
+                                    logger.info(f"  ⚠️  Skipping sleep record: date={sleep_date}, duration={total_sleep_minutes}min")
                                     continue
                                 
                                 # Check if log already exists for this date
@@ -827,7 +879,7 @@ class WhoopService:
                                     existing.completed_at = record.get('end', '')
                                     existing.notes = f"Synced from Whoop (Sleep Performance: {score.get('sleep_performance_percentage', 0)}%)"
                                     existing.log_metadata = metadata_json  # Note: using log_metadata in SQLAlchemy
-                                    print(f"🔄 Updated sleep log for {sleep_date}: {total_sleep_minutes} minutes")
+                                    logger.info(f"🔄 Updated sleep log for {sleep_date}: {total_sleep_minutes} minutes")
                                     
                                     # Sync to Tinybird
                                     if self.tinybird_enabled:
@@ -848,7 +900,7 @@ class WhoopService:
                                                 'metadata': metadata_json
                                             })
                                         except Exception as tb_error:
-                                            print(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
+                                            logger.warning(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
                                 else:
                                     # Prepare metadata with sleep timestamps
                                     metadata = {
@@ -875,7 +927,7 @@ class WhoopService:
                                     # Flush to make this log visible for duplicate detection in same transaction
                                     await session.flush()
                                     logs_created += 1
-                                    print(f"✅ Created sleep log for {sleep_date}: {total_sleep_minutes} minutes")
+                                    logger.info(f"✅ Created sleep log for {sleep_date}: {total_sleep_minutes} minutes")
                                     
                                     # Sync to Tinybird
                                     if self.tinybird_enabled:
@@ -896,7 +948,7 @@ class WhoopService:
                                                 'metadata': metadata_json
                                             })
                                         except Exception as tb_error:
-                                            print(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
+                                            logger.warning(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
                             
                             break  # Only process one sleep habit
                 
@@ -994,9 +1046,9 @@ class WhoopService:
                 # Steps tracking should be done manually or via other integrations (Apple Watch, Fitbit)
                 # Commit all changes
                 await session.commit()
-                print(f"💾 Created {logs_created} new habit logs in Turso database")
+                logger.info(f"💾 Created {logs_created} new habit logs in Turso database")
                 
             except Exception as e:
                 await session.rollback()
-                print(f"❌ Error syncing to habit_logs: {str(e)}")
+                logger.error(f"❌ Error syncing to habit_logs: {str(e)}")
                 raise

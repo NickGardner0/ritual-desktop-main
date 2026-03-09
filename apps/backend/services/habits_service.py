@@ -1,9 +1,10 @@
 """
 Habits Service - Handles all habit-related database operations
-Mirrors the functionality of the TypeScript habits-service.ts
+Used by the FastAPI routers for habits and habit logs.
 """
 
 import uuid
+import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,8 @@ from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
 from services.tinybird_service import TinybirdService
+
+logger = logging.getLogger(__name__)
 
 
 # Phase 5A: Built-in synonym map for common habit types
@@ -44,9 +47,9 @@ class HabitsService:
         try:
             self.tinybird = TinybirdService()
             self.tinybird_enabled = True
-            print("✅ Tinybird service initialized - automatic sync enabled")
+            logger.info("✅ Tinybird service initialized - automatic sync enabled")
         except Exception as e:
-            print(f"⚠️  Tinybird service not available: {e}")
+            logger.warning(f"⚠️  Tinybird service not available: {e}")
             self.tinybird = None
             self.tinybird_enabled = False
     
@@ -83,16 +86,16 @@ class HabitsService:
                 if self.tinybird_enabled:
                     try:
                         await self._sync_habit_to_tinybird(habit)
-                        print(f"📊 Habit '{habit.name}' synced to Tinybird")
+                        logger.info(f"📊 Habit '{habit.name}' synced to Tinybird")
                     except Exception as e:
-                        print(f"⚠️  Tinybird sync failed for habit '{habit.name}': {e}")
+                        logger.warning(f"⚠️  Tinybird sync failed for habit '{habit.name}': {e}")
                 
                 # Index to Typesense for search (async, non-blocking)
                 try:
                     from services.search_service import search_service
                     await search_service.index_habit(habit.model_dump(), user_id)
                 except Exception as e:
-                    print(f"⚠️  Search index failed for habit '{habit.name}': {e}")
+                    logger.warning(f"⚠️  Search index failed for habit '{habit.name}': {e}")
                 
                 return habit
                 
@@ -196,11 +199,11 @@ class HabitsService:
                 habit = check_result.scalar_one_or_none()
                 
                 if not habit:
-                    print(f"❌ Habit not found: {habit_id}")
+                    logger.error(f"❌ Habit not found: {habit_id}")
                     raise Exception(f"Habit not found with ID: {habit_id}")
                 
                 if habit.user_id != user_id:
-                    print(f"❌ Unauthorized: habit user_id={habit.user_id}, requested user_id={user_id}")
+                    logger.error(f"❌ Unauthorized: habit user_id={habit.user_id}, requested user_id={user_id}")
                     raise Exception(f"Not authorized to delete this habit")
                 
                 # Delete habit logs first (cascade)
@@ -208,7 +211,7 @@ class HabitsService:
                     delete(HabitLogDB)
                     .where(HabitLogDB.habit_id == habit_id)
                 )
-                print(f"🗑️ Deleted {logs_result.rowcount} habit logs for habit {habit_id}")
+                logger.info(f"🗑️ Deleted {logs_result.rowcount} habit logs for habit {habit_id}")
                 
                 # Delete the habit
                 result = await session.execute(
@@ -221,11 +224,11 @@ class HabitsService:
                     raise Exception("Habit not found or not authorized")
                 
                 await session.commit()
-                print(f"✅ Successfully deleted habit: {habit.name} ({habit_id})")
+                logger.info(f"✅ Successfully deleted habit: {habit.name} ({habit_id})")
                 
             except SQLAlchemyError as e:
                 await session.rollback()
-                print(f"❌ Database error deleting habit: {str(e)}")
+                logger.error(f"❌ Database error deleting habit: {str(e)}")
                 raise Exception(f"Failed to delete habit: {str(e)}")
     
     async def log_habit(self, habit_id: str, log_data: HabitLogCreate, user_id: str) -> HabitLog:
@@ -261,19 +264,19 @@ class HabitsService:
                 # Sync to Tinybird (async, non-blocking)
                 if self.tinybird_enabled:
                     try:
-                        print(f"🔄 Syncing habit log for '{habit.name}' to Tinybird...")
+                        logger.info(f"🔄 Syncing habit log for '{habit.name}' to Tinybird...")
                         result = await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
                         if result and result.get('success'):
-                            print(f"✅ Habit log for '{habit.name}' synced to Tinybird ({result.get('count', 0)} events)")
+                            logger.info(f"✅ Habit log for '{habit.name}' synced to Tinybird ({result.get('count', 0)} events)")
                         else:
-                            print(f"❌ Tinybird sync failed for habit log: {result.get('error', 'Unknown error')}")
-                            print(f"❌ Tinybird response: {result}")
+                            logger.error(f"❌ Tinybird sync failed for habit log: {result.get('error', 'Unknown error')}")
+                            logger.error(f"❌ Tinybird response: {result}")
                     except Exception as e:
-                        print(f"❌ Tinybird sync exception for habit log: {e}")
+                        logger.error(f"❌ Tinybird sync exception for habit log: {e}")
                         import traceback
                         traceback.print_exc()
                 else:
-                    print(f"⚠️  Tinybird sync disabled - habit log NOT synced to analytics")
+                    logger.warning(f"⚠️  Tinybird sync disabled - habit log NOT synced to analytics")
                 
                 # Index to Typesense for search (async, non-blocking)
                 try:
@@ -285,7 +288,7 @@ class HabitsService:
                         category=habit.category
                     )
                 except Exception as e:
-                    print(f"⚠️  Search index failed for habit log: {e}")
+                    logger.warning(f"⚠️  Search index failed for habit log: {e}")
                 
                 return habit_log
                 
@@ -303,7 +306,7 @@ class HabitsService:
         Phase 5A: Batch log multiple habits at once.
         Returns per-item results with success/error status.
         """
-        results = []
+        results: List[Dict[str, Any]] = []
         
         async with get_db_session() as session:
             try:
@@ -314,7 +317,7 @@ class HabitsService:
                     )
                     existing_logs = existing.scalars().all()
                     if existing_logs:
-                        print(f"⚠️ Duplicate client_event_id detected: {client_event_id}")
+                        logger.warning(f"⚠️ Duplicate client_event_id detected: {client_event_id}")
                         return {
                             "success": True,
                             "duplicate": True,
@@ -324,73 +327,83 @@ class HabitsService:
                             ]
                         }
                 
-                # Pre-fetch all user habits for validation
-                user_habits = await self.get_habits(user_id)
-                habits_by_id = {h.id: h for h in user_habits}
-                
-                created_logs = []
-                
+                # Pre-fetch all user habits for validation in this transaction.
+                habit_rows = await session.execute(
+                    select(HabitDB).where(HabitDB.user_id == user_id)
+                )
+                habits_by_id = {habit.id: habit for habit in habit_rows.scalars().all()}
+
+                validation_errors: List[Dict[str, Any]] = []
+                prepared_logs: List[tuple[int, HabitLogDB, HabitDB]] = []
+
                 for index, item in enumerate(items):
-                    try:
-                        habit_id = item.get("habit_id")
-                        
-                        # Validate habit ownership
-                        if habit_id not in habits_by_id:
-                            results.append({
-                                "index": index,
-                                "success": False,
-                                "error": f"Habit not found or not authorized: {habit_id}"
-                            })
-                            continue
-                        
-                        habit = habits_by_id[habit_id]
-                        
-                        # Create habit log
-                        log_id = str(uuid.uuid4())
-                        log_db = HabitLogDB(
-                            id=log_id,
-                            habit_id=habit_id,
-                            habit_name=habit.name,
-                            duration=item.get("duration"),
-                            amount=item.get("amount"),
-                            date=item.get("date"),
-                            completed_at=item.get("completed_at") or datetime.utcnow().isoformat(),
-                            status="completed",
-                            notes=item.get("notes"),
-                            client_event_id=client_event_id,
-                            source=item.get("source", "ai_log_v2")
-                        )
-                        
-                        session.add(log_db)
-                        created_logs.append((index, log_db, habit))
-                        
-                        results.append({
-                            "index": index,
-                            "success": True,
-                            "log_id": log_id,
-                            "habit_id": habit_id,
-                            "habit_name": habit.name
-                        })
-                        
-                    except Exception as item_error:
-                        results.append({
+                    habit_id = item.get("habit_id")
+                    habit = habits_by_id.get(habit_id)
+                    if habit is None:
+                        validation_errors.append({
                             "index": index,
                             "success": False,
-                            "error": str(item_error)
+                            "error": f"Habit not found or not authorized: {habit_id}"
                         })
-                
-                # Commit all successful logs
+                        continue
+
+                    # date is required for time-series analytics consistency.
+                    if not item.get("date"):
+                        validation_errors.append({
+                            "index": index,
+                            "success": False,
+                            "error": "Missing required field: date"
+                        })
+                        continue
+
+                    log_db = HabitLogDB(
+                        id=str(uuid.uuid4()),
+                        habit_id=habit_id,
+                        habit_name=habit.name,
+                        duration=item.get("duration"),
+                        amount=item.get("amount"),
+                        date=item.get("date"),
+                        completed_at=item.get("completed_at") or datetime.utcnow().isoformat(),
+                        status="completed",
+                        notes=item.get("notes"),
+                        client_event_id=client_event_id,
+                        source=item.get("source", "ai_log_v2")
+                    )
+                    prepared_logs.append((index, log_db, habit))
+
+                # All-or-nothing: if any item fails validation, do not write anything.
+                if validation_errors:
+                    return {
+                        "success": False,
+                        "error": "Batch validation failed. No logs were created.",
+                        "results": validation_errors,
+                        "logged_count": 0
+                    }
+
+                for _, log_db, _ in prepared_logs:
+                    session.add(log_db)
+
+                # Commit all logs as a single atomic transaction.
                 await session.commit()
-                
+
+                for index, log_db, habit in prepared_logs:
+                    results.append({
+                        "index": index,
+                        "success": True,
+                        "log_id": log_db.id,
+                        "habit_id": log_db.habit_id,
+                        "habit_name": habit.name
+                    })
+
                 # Sync to Tinybird for all created logs
-                if self.tinybird_enabled and created_logs:
-                    for index, log_db, habit in created_logs:
+                if self.tinybird_enabled and prepared_logs:
+                    for _, log_db, habit in prepared_logs:
                         try:
                             await session.refresh(log_db)
                             habit_log = habit_log_db_to_pydantic(log_db)
                             await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
                         except Exception as e:
-                            print(f"⚠️ Tinybird sync failed for log {log_db.id}: {e}")
+                            logger.warning(f"⚠️ Tinybird sync failed for log {log_db.id}: {e}")
                 
                 return {
                     "success": True,
@@ -403,7 +416,8 @@ class HabitsService:
                 return {
                     "success": False,
                     "error": f"Database error: {str(e)}",
-                    "results": results
+                    "results": results,
+                    "logged_count": 0
                 }
     
     async def get_habit_logs(self, habit_id: Optional[str], user_id: str) -> List[HabitLog]:
@@ -425,19 +439,6 @@ class HabitsService:
                 
             except SQLAlchemyError as e:
                 raise Exception(f"Failed to fetch habit logs: {str(e)}")
-    
-    async def migrate_user_data_from_supabase(self, user_id: str) -> dict:
-        """
-        Migrate user's data from Supabase to the new backend
-        This would be used during the migration phase
-        """
-        # This would implement the actual migration logic
-        # For now, return a placeholder
-        return {
-            "habits_migrated": 0,
-            "logs_migrated": 0,
-            "message": "Migration functionality to be implemented"
-        }
     
     async def _sync_habit_to_tinybird(self, habit: Habit) -> None:
         """
@@ -534,7 +535,7 @@ class HabitsService:
                 return breakdown
                 
             except SQLAlchemyError as e:
-                print(f"❌ Error fetching category breakdown: {e}")
+                logger.error(f"❌ Error fetching category breakdown: {e}")
                 raise
     
     # ================================
@@ -559,7 +560,7 @@ class HabitsService:
                 return [row[0] for row in result.all()]
                 
             except SQLAlchemyError as e:
-                print(f"❌ Error fetching habit aliases: {e}")
+                logger.error(f"❌ Error fetching habit aliases: {e}")
                 return []
     
     async def add_habit_alias(self, habit_id: str, alias_text: str, user_id: str) -> bool:
@@ -596,7 +597,7 @@ class HabitsService:
                 
             except SQLAlchemyError as e:
                 await session.rollback()
-                print(f"❌ Error adding habit alias: {e}")
+                logger.error(f"❌ Error adding habit alias: {e}")
                 return False
     
     async def auto_generate_aliases(self, habit: Habit) -> List[str]:
@@ -670,5 +671,5 @@ class HabitsService:
                 return aliases_map
                 
             except SQLAlchemyError as e:
-                print(f"❌ Error fetching user aliases: {e}")
+                logger.error(f"❌ Error fetching user aliases: {e}")
                 return {}

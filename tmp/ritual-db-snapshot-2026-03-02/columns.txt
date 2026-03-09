@@ -1,0 +1,156 @@
+=== activity_events ===
+0|id|INTEGER|0||1
+1|device_id|TEXT|1||0
+2|user_id|TEXT|1||0
+3|ts_start|INTEGER|1||0
+4|ts_end|INTEGER|1||0
+5|app_bundle_id|TEXT|1||0
+6|app_name|TEXT|1||0
+7|window_title|TEXT|0||0
+8|window_title_hash|TEXT|0||0
+9|window_owner_pid|INTEGER|0||0
+10|is_afk|INTEGER|1|0|0
+11|browser_url|TEXT|0||0
+12|browser_domain|TEXT|0||0
+13|is_incognito|INTEGER|1|0|0
+14|source|TEXT|1|'ritual_watcher_v2'|0
+15|created_at|INTEGER|1||0
+
+=== activity_segments ===
+0|id|INTEGER|0||1
+1|device_id|TEXT|1||0
+2|user_id|TEXT|1||0
+3|ts_start|INTEGER|1||0
+4|ts_end|INTEGER|1||0
+5|app_bundle_id|TEXT|0||0
+6|app_name|TEXT|0||0
+7|window_title_normalized|TEXT|0||0
+8|browser_domain|TEXT|0||0
+9|segment_kind|TEXT|0|'work'|0
+10|duration_ms|INTEGER|1||0
+11|frame_count|INTEGER|0|0|0
+12|key_topics|TEXT|0||0
+13|segment_embedding|F32_BLOB(384)|0||0
+14|created_at|INTEGER|1||0
+
+=== afk_events ===
+0|id|INTEGER|0||1
+1|device_id|TEXT|1||0
+2|user_id|TEXT|1||0
+3|ts_start|INTEGER|1||0
+4|ts_end|INTEGER|1||0
+5|status|TEXT|1||0
+6|created_at|INTEGER|1||0
+
+=== daily_rollup_cache ===
+0|date|TEXT|1||1
+1|device_id|TEXT|1||2
+2|user_id|TEXT|1||0
+3|total_active_ms|INTEGER|1|0|0
+4|total_afk_ms|INTEGER|1|0|0
+5|app_summaries|TEXT|0||0
+6|domain_summaries|TEXT|0||0
+7|updated_at|INTEGER|1||0
+
+=== embedding_worker_state ===
+0|id|INTEGER|0||1
+1|is_running|INTEGER|0|0|0
+2|last_run_at|INTEGER|0||0
+3|frames_processed|INTEGER|0|0|0
+4|frames_failed|INTEGER|0|0|0
+5|updated_at|INTEGER|1||0
+
+=== ocr_embeddings ===
+0|id|INTEGER|0||1
+1|frame_id|INTEGER|1||0
+2|embedding|F32_BLOB(384)|0||0
+3|model_version|TEXT|0|'all-MiniLM-L6-v2'|0
+4|created_at|INTEGER|1||0
+5|status|TEXT|0|'ok'|0
+6|error_message|TEXT|0||0
+7|retry_count|INTEGER|0|0|0
+
+=== ocr_frames ===
+0|id|INTEGER|0||1
+1|timestamp|INTEGER|1||0
+2|activity_event_id|INTEGER|0||0
+3|app_bundle_id|TEXT|0||0
+4|app_name|TEXT|0||0
+5|window_title|TEXT|0||0
+6|ocr_text|TEXT|0||0
+7|ocr_confidence|REAL|0|0.0|0
+8|thumbnail_path|TEXT|0||0
+9|video_chunk_id|INTEGER|0||0
+10|frame_offset|INTEGER|0||0
+11|image_hash|TEXT|0||0
+12|storage_tier|TEXT|0|'hot'|0
+13|created_at|TEXT|0|CURRENT_TIMESTAMP|0
+14|summary|TEXT|0||0
+15|activity_type|TEXT|0||0
+16|keywords|TEXT|0||0
+17|text_quality|REAL|0|0.0|0
+
+=== ocr_frames_fts ===
+0|ocr_text||0||0
+1|app_name||0||0
+2|window_title||0||0
+
+=== ocr_frames_fts_config ===
+0|k||1||1
+1|v||0||0
+
+=== ocr_frames_fts_data ===
+0|id|INTEGER|0||1
+1|block|BLOB|0||0
+
+=== ocr_frames_fts_docsize ===
+0|id|INTEGER|0||1
+1|sz|BLOB|0||0
+
+=== ocr_frames_fts_idx ===
+0|segid||1||1
+1|term||1||2
+2|pgno||0||0
+
+=== recorder_stats ===
+0|id|INTEGER|0||1
+1|total_frames|INTEGER|0|0|0
+2|total_video_chunks|INTEGER|0|0|0
+3|total_storage_bytes|INTEGER|0|0|0
+4|last_capture_time|INTEGER|0||0
+5|updated_at|TEXT|0|CURRENT_TIMESTAMP|0
+
+=== schema_migrations ===
+0|version|INTEGER|0||1
+1|applied_at|INTEGER|1||0
+2|description|TEXT|0||0
+
+=== segment_frames ===
+0|segment_id|INTEGER|1||1
+1|frame_id|INTEGER|1||2
+
+=== sync_queue ===
+0|id|INTEGER|0||1
+1|entry_type|TEXT|1||0
+2|event_id|INTEGER|1||0
+3|ts_end|INTEGER|0||0
+4|status|TEXT|1|'pending'|0
+5|retry_count|INTEGER|1|0|0
+6|created_at|INTEGER|1||0
+7|updated_at|INTEGER|1||0
+
+=== video_chunks ===
+0|id|INTEGER|0||1
+1|file_path|TEXT|1||0
+2|start_time|INTEGER|1||0
+3|end_time|INTEGER|0||0
+4|frame_count|INTEGER|0|0|0
+5|file_size_bytes|INTEGER|0||0
+6|monitor_id|INTEGER|0|0|0
+7|storage_tier|TEXT|0|'hot'|0
+8|created_at|TEXT|0|CURRENT_TIMESTAMP|0
+
+=== watcher_heartbeat ===
+0|device_id|TEXT|0||1
+1|last_seen_ts|INTEGER|1||0
+

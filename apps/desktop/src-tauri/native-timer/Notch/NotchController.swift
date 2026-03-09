@@ -224,8 +224,8 @@ final class NotchController {
     }
 
     private func stopVoiceListening() {
-        speechEngine.stopListening()
         sessionStore.voiceMode = .processing
+        speechEngine.stopListening()
     }
 
     private func handleFinalTranscript(_ transcript: String) {

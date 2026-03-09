@@ -222,6 +222,76 @@ final class HealthKitManagerV2 {
     func confirmAnchor(for metricType: String, anchor: HKQueryAnchor) {
         anchorStorage.saveAnchor(anchor, for: metricType)
     }
+
+    /// Build serialized anchor tokens for transport to backend.
+    /// Tokens are base64-encoded secure archives of HKQueryAnchor.
+    func makeAnchorTokens(_ anchors: [String: HKQueryAnchor]) -> [String: String] {
+        var tokens: [String: String] = [:]
+
+        for (metricType, anchor) in anchors {
+            do {
+                let data = try NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true)
+                tokens[metricType] = data.base64EncodedString()
+            } catch {
+                print("⚠️ Failed to serialize anchor for \(metricType): \(error)")
+            }
+        }
+
+        return tokens
+    }
+
+    /// Confirm and persist anchors only when backend echoes the matching tokens.
+    /// This prevents local anchor advancement unless server accepted the payload.
+    func confirmAnchorsFromServer(
+        confirmedAnchorTokens: [String: String]?,
+        pendingAnchors: [String: HKQueryAnchor]
+    ) {
+        guard let confirmedAnchorTokens, !confirmedAnchorTokens.isEmpty else { return }
+        guard !pendingAnchors.isEmpty else { return }
+
+        let pendingTokens = makeAnchorTokens(pendingAnchors)
+
+        for (metricType, confirmedToken) in confirmedAnchorTokens {
+            guard let pendingAnchor = pendingAnchors[metricType],
+                  let pendingToken = pendingTokens[metricType] else {
+                continue
+            }
+
+            guard pendingToken == confirmedToken else {
+                print("⚠️ Anchor token mismatch for \(metricType); skipping local anchor update")
+                continue
+            }
+
+            confirmAnchor(for: metricType, anchor: pendingAnchor)
+        }
+    }
+
+    /// Bootstrap an incremental anchor at "now" without syncing historical samples.
+    /// Useful after initial aggregate sync so future runs can use true incremental deletes.
+    func captureAnchorBaseline(for metricType: String) async throws -> HKQueryAnchor? {
+        guard let sampleType = healthKitType(for: metricType) else {
+            throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
+        }
+
+        let now = Date()
+        let predicate = HKQuery.predicateForSamples(withStart: now, end: nil, options: .strictStartDate)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: sampleType,
+                predicate: predicate,
+                anchor: nil,
+                limit: HKObjectQueryNoLimit
+            ) { _, _, _, newAnchor, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: newAnchor)
+            }
+            healthStore.execute(query)
+        }
+    }
     
     /// Reset anchor for full resync
     func resetAnchor(for metricType: String) {
@@ -553,18 +623,19 @@ final class HealthKitManagerV2 {
         }
     }
     
-    /// Fetch DAILY AGGREGATED metrics for a type using HKStatisticsCollectionQuery
-    /// This dramatically reduces data volume (e.g., 50,000 HR samples -> ~700 daily averages)
-    func fetchDailyAggregatedMetrics(for metricType: String, daysBack: Int = 730) async throws -> [NormalizedMetric] {
-        guard let quantityType = healthKitType(for: metricType) as? HKQuantityType else {
-            // For non-quantity types (sleep, workouts), use raw sample approach with aggregation
-            return try await fetchAndAggregateCategoryMetrics(for: metricType, daysBack: daysBack)
-        }
-        
+    /// Fetch DAILY AGGREGATED metrics for a type over an exact date range.
+    /// Range is inclusive by day (startOfDay(startDate) through endDate).
+    func fetchDailyAggregatedMetrics(for metricType: String, startDate: Date, endDate: Date) async throws -> [NormalizedMetric] {
         let calendar = Calendar.current
-        let now = Date()
-        let startOfToday = calendar.startOfDay(for: now)
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: startOfToday)!
+        let normalizedStart = calendar.startOfDay(for: min(startDate, endDate))
+        let normalizedEnd = max(startDate, endDate)
+        let anchorDate = calendar.startOfDay(for: normalizedEnd)
+        let queryEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: normalizedEnd)) ?? normalizedEnd
+
+        guard let quantityType = healthKitType(for: metricType) as? HKQuantityType else {
+            // For non-quantity types (sleep, workouts), use raw sample approach with aggregation.
+            return try await fetchAndAggregateCategoryMetrics(for: metricType, startDate: normalizedStart, endDate: queryEnd)
+        }
         
         // Daily interval
         var interval = DateComponents()
@@ -586,14 +657,14 @@ final class HealthKitManagerV2 {
             options = .cumulativeSum
         }
         
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: now, options: .strictStartDate)
+        let predicate = HKQuery.predicateForSamples(withStart: normalizedStart, end: queryEnd, options: .strictStartDate)
         
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsCollectionQuery(
                 quantityType: quantityType,
                 quantitySamplePredicate: predicate,
                 options: options,
-                anchorDate: startOfToday,
+                anchorDate: anchorDate,
                 intervalComponents: interval
             )
             
@@ -610,7 +681,7 @@ final class HealthKitManagerV2 {
                 
                 var metrics: [NormalizedMetric] = []
                 
-                statsCollection.enumerateStatistics(from: startDate, to: now) { statistics, _ in
+                statsCollection.enumerateStatistics(from: normalizedStart, to: queryEnd) { statistics, _ in
                     guard let metric = self.convertStatisticsToMetric(
                         statistics,
                         metricType: metricType,
@@ -620,12 +691,22 @@ final class HealthKitManagerV2 {
                     metrics.append(metric)
                 }
                 
-                print("📊 Daily aggregated sync for \(metricType): \(metrics.count) daily values (from \(daysBack) days)")
+                print("📊 Daily aggregated sync for \(metricType): \(metrics.count) daily values (\(normalizedStart) -> \(queryEnd))")
                 continuation.resume(returning: metrics)
             }
             
             healthStore.execute(query)
         }
+    }
+
+    /// Fetch DAILY AGGREGATED metrics for a type using a rolling days-back window.
+    /// This dramatically reduces data volume (e.g., 50,000 HR samples -> ~700 daily averages).
+    func fetchDailyAggregatedMetrics(for metricType: String, daysBack: Int = 730) async throws -> [NormalizedMetric] {
+        let calendar = Calendar.current
+        let now = Date()
+        let startOfToday = calendar.startOfDay(for: now)
+        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: startOfToday) ?? startOfToday
+        return try await fetchDailyAggregatedMetrics(for: metricType, startDate: startDate, endDate: now)
     }
     
     /// Convert HKStatistics (daily aggregate) to NormalizedMetric
@@ -707,17 +788,12 @@ final class HealthKitManagerV2 {
         }
     }
     
-    /// Fetch and aggregate category metrics (sleep, mindfulness) by day
-    private func fetchAndAggregateCategoryMetrics(for metricType: String, daysBack: Int) async throws -> [NormalizedMetric] {
+    /// Fetch and aggregate category metrics (sleep, mindfulness) by day.
+    private func fetchAndAggregateCategoryMetrics(for metricType: String, startDate: Date, endDate: Date) async throws -> [NormalizedMetric] {
         guard let sampleType = healthKitType(for: metricType) else {
             throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
         }
-        
-        let calendar = Calendar.current
-        let now = Date()
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: now)!
-        
-        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: now, options: .strictStartDate)
+        let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
         
         let samples = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[HKSample], Error>) in
             let query = HKSampleQuery(
@@ -747,6 +823,8 @@ final class HealthKitManagerV2 {
         var dailyTotals: [Date: Double] = [:]
         
         for sample in samples {
+            guard shouldIncludeCategorySample(sample, for: metricType) else { continue }
+
             let attributedDate = calculateAttributedDate(for: sample, metricType: metricType)
             let dayStart = calendar.startOfDay(for: attributedDate)
             
@@ -793,6 +871,35 @@ final class HealthKitManagerV2 {
                 rawPayload: ["aggregation": AnyCodable("daily_sum")]
             )
         }.sorted { $0.startTime < $1.startTime }
+    }
+
+    /// Restrict sleep metrics to the expected HealthKit sleep stage(s).
+    /// Without this filtering, every sleep_* metric can incorrectly include all sleep samples.
+    private func shouldIncludeCategorySample(_ sample: HKSample, for metricType: String) -> Bool {
+        guard metricType.hasPrefix("sleep") else { return true }
+        guard let categorySample = sample as? HKCategorySample else { return false }
+
+        let value = categorySample.value
+
+        switch metricType {
+        case "sleep_rem":
+            return value == HKCategoryValueSleepAnalysis.asleepREM.rawValue
+        case "sleep_deep":
+            return value == HKCategoryValueSleepAnalysis.asleepDeep.rawValue
+        case "sleep_core":
+            return value == HKCategoryValueSleepAnalysis.asleepCore.rawValue
+        case "sleep_session":
+            let allowedAsleepValues: Set<Int> = [
+                HKCategoryValueSleepAnalysis.asleep.rawValue,
+                HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+                HKCategoryValueSleepAnalysis.asleepREM.rawValue,
+                HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
+                HKCategoryValueSleepAnalysis.asleepCore.rawValue
+            ]
+            return allowedAsleepValues.contains(value)
+        default:
+            return true
+        }
     }
     
     // MARK: - Full Backfill with Daily Aggregation (RECOMMENDED)
@@ -885,6 +992,20 @@ final class HealthKitManagerV2 {
                 continuation.resume(returning: metrics)
             }
             healthStore.execute(query)
+        }
+    }
+}
+
+enum HealthKitError: LocalizedError {
+    case notAvailable
+    case queryFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notAvailable:
+            return "Health data is not available on this device."
+        case .queryFailed(let message):
+            return message
         }
     }
 }

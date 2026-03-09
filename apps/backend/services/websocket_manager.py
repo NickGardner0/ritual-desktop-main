@@ -7,6 +7,9 @@ from fastapi import WebSocket
 from typing import Dict, List
 import json
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class WebSocketManager:
     """Manages WebSocket connections for real-time updates"""
@@ -23,7 +26,7 @@ class WebSocketManager:
             self.active_connections[user_id] = []
         
         self.active_connections[user_id].append(websocket)
-        print(f"✅ WebSocket connected for user: {user_id}")
+        logger.info(f"✅ WebSocket connected for user: {user_id}")
     
     def disconnect(self, websocket: WebSocket, user_id: str):
         """Remove a WebSocket connection"""
@@ -35,7 +38,7 @@ class WebSocketManager:
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
         
-        print(f"❌ WebSocket disconnected for user: {user_id}")
+        logger.error(f"❌ WebSocket disconnected for user: {user_id}")
     
     async def send_personal_message(self, message: str, user_id: str):
         """Send a message to a specific user"""

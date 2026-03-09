@@ -1,5 +1,6 @@
 import SwiftUI
 import Clerk
+import UniformTypeIdentifiers
 
 /// Main status view showing connection state and sync controls
 struct StatusView: View {
@@ -7,6 +8,11 @@ struct StatusView: View {
     @State private var showingPermissions = false
     @State private var showingDisconnectAlert = false
     @State private var lastBackgroundSyncInfo: String? = nil
+    @State private var retryStartDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+    @State private var retryEndDate: Date = Date()
+    @State private var exportStartDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+    @State private var exportEndDate: Date = Date()
+    @State private var showingExportFolderPicker = false
     
     // Access Clerk user directly
     private var clerkUser: User? {
@@ -193,6 +199,359 @@ struct StatusView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                 }
+
+                if appState.isConnected {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Retry Queue")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+
+                        HStack(spacing: 10) {
+                            Image(systemName: appState.queueTelemetry.pendingCount > 0 ? "tray.full" : "tray")
+                                .font(.system(size: 14))
+                                .foregroundColor(.black)
+                            Text(appState.retryQueueDescription)
+                                .font(.system(size: 12))
+                                .foregroundColor(.black)
+                            Spacer()
+                        }
+
+                        if !appState.latestFailedDays.isEmpty {
+                            Button(action: { retryFailedDays(appState.latestFailedDays) }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 12))
+                                    Text("Retry \(appState.latestFailedDays.count) failed day(s)")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(Color.black.opacity(0.2), lineWidth: 1)
+                                )
+                            }
+                            .disabled(appState.isSyncing)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                }
+
+                if appState.isConnected {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Backfill & Recovery")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+
+                        HStack(spacing: 8) {
+                            DatePicker("Start", selection: $retryStartDate, displayedComponents: .date)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                            Text("to")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                            DatePicker("End", selection: $retryEndDate, displayedComponents: .date)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                        }
+
+                        Button(action: retryDateRange) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "calendar.badge.clock")
+                                    .font(.system(size: 12))
+                                Text("Retry Date Range")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .overlay(
+                                Rectangle()
+                                    .stroke(Color.black.opacity(0.2), lineWidth: 1)
+                            )
+                        }
+                        .disabled(appState.isSyncing)
+
+                        if let summary = appState.dateRangeRetrySummary, !summary.isEmpty {
+                            Text(summary)
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                }
+
+                if appState.isConnected {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Local Export")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Button(action: { showingExportFolderPicker = true }) {
+                                Text("Select Folder")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.black)
+                            }
+                        }
+
+                        Text("Destination: \(appState.exportDestinationName)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.black)
+
+                        HStack(spacing: 8) {
+                            Text("Format")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                            Picker("Format", selection: exportFormatBinding) {
+                                ForEach(LocalExportFormat.allCases, id: \.self) { format in
+                                    Text(format.displayName).tag(format)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Write")
+                                .font(.system(size: 12))
+                                .foregroundColor(.gray)
+                            Picker("Write Mode", selection: exportWriteModeBinding) {
+                                ForEach(LocalExportWriteMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Filename Template")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                            TextField("{date}", text: exportFilenameTemplateBinding)
+                                .font(.system(size: 12))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .padding(8)
+                                .overlay(
+                                    Rectangle().stroke(Color.black.opacity(0.15), lineWidth: 1)
+                                )
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Folder Structure (optional)")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                            TextField("e.g. {year}/{month}", text: exportFolderStructureBinding)
+                                .font(.system(size: 12))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .padding(8)
+                                .overlay(
+                                    Rectangle().stroke(Color.black.opacity(0.15), lineWidth: 1)
+                                )
+                        }
+
+                        HStack(spacing: 8) {
+                            DatePicker("Export Start", selection: $exportStartDate, displayedComponents: .date)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                            Text("to")
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                            DatePicker("Export End", selection: $exportEndDate, displayedComponents: .date)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                        }
+
+                        HStack(spacing: 10) {
+                            Button(action: exportDateRange) {
+                                HStack(spacing: 6) {
+                                    if appState.isExporting {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .black))
+                                            .scaleEffect(0.7)
+                                    } else {
+                                        Image(systemName: "square.and.arrow.down")
+                                            .font(.system(size: 12))
+                                    }
+                                    Text(appState.isExporting ? "Exporting..." : "Export Date Range")
+                                        .font(.system(size: 12, weight: .medium))
+                                }
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .overlay(
+                                    Rectangle()
+                                        .stroke(Color.black.opacity(0.2), lineWidth: 1)
+                                )
+                            }
+                            .disabled(!appState.canExport)
+
+                            Button(action: requestNotificationPermissions) {
+                                Text(appState.notificationsEnabled ? "Notifications On" : "Enable Notifications")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.black)
+                            }
+                        }
+
+                        if let status = appState.exportStatusMessage, !status.isEmpty {
+                            Text(status)
+                                .font(.system(size: 11))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                }
+
+                if !appState.syncHistory.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Recent Syncs")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+
+                        ForEach(Array(appState.syncHistory.prefix(5)), id: \.id) { entry in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: entry.succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(entry.succeeded ? .green : .red)
+                                    Text(syncHistoryTitle(for: entry))
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.black)
+                                    Spacer()
+                                }
+
+                                Text(syncHistoryDetail(for: entry))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.gray)
+
+                                if !entry.failedDays.isEmpty {
+                                    Button(action: { retryFailedDays(entry.failedDays) }) {
+                                        Text("Retry \(entry.failedDays.count) failed day(s)")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.black)
+                                    }
+                                    .disabled(appState.isSyncing)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                }
+
+                if !appState.exportHistory.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Recent Exports")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                            Spacer()
+                            Button(action: appState.clearExportHistory) {
+                                Text("Clear")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.black)
+                            }
+                        }
+
+                        ForEach(Array(appState.exportHistory.prefix(5)), id: \.id) { entry in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: entry.isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(entry.isSuccess ? .green : .red)
+                                    Text(entry.summary)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.black)
+                                    Spacer()
+                                    Text(entry.format.displayName)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.gray)
+                                }
+
+                                Text("Days \(entry.successDays)/\(entry.attemptedDays) | Metrics \(entry.exportedMetricCount)")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.gray)
+
+                                if !entry.failedDays.isEmpty {
+                                    Button(action: { retryExportHistory(entry) }) {
+                                        Text("Retry \(entry.failedDays.count) failed day(s)")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.black)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .overlay(
+                        Rectangle()
+                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Local Pairing (Future)")
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+
+                    Text("Any future iPhone-to-device local sync request must be explicitly approved before data is shared.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.black)
+
+                    Text("Trusted peers: \(appState.trustedPeers.count)")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+
+                    #if DEBUG
+                    Button(action: simulatePairingRequest) {
+                        Text("Simulate Pair Request")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.black)
+                    }
+                    #endif
+                }
+                .padding(16)
+                .background(Color.white)
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
                 
                 Spacer(minLength: 48)
                 
@@ -222,8 +581,29 @@ struct StatusView: View {
             }
         }
         .background(Color(.systemGray6))
+        .onAppear {
+            appState.refreshSyncDiagnostics()
+        }
         .sheet(isPresented: $showingPermissions) {
             PermissionsView()
+        }
+        .sheet(item: $appState.pendingPairingRequest) { request in
+            pairingConfirmationSheet(for: request)
+        }
+        .fileImporter(
+            isPresented: $showingExportFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    appState.selectExportDestination(url)
+                }
+            case .failure(let error):
+                appState.errorMessage = "Folder selection failed: \(error.localizedDescription)"
+                appState.showError = true
+            }
         }
         .onChange(of: showingPermissions) { _, isPresented in
             if !isPresented {
@@ -235,18 +615,33 @@ struct StatusView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             Task {
                 await appState.refreshHealthStatus()
+                await MainActor.run {
+                    appState.refreshSyncDiagnostics()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundSyncCompleted"))) { notification in
             if let userInfo = notification.userInfo,
-               let count = userInfo["count"] as? Int,
                let time = userInfo["time"] as? Date {
+                let addedCount = userInfo["addedCount"] as? Int
+                let deletedCount = userInfo["deletedCount"] as? Int
+                let legacyCount = userInfo["count"] as? Int
+                let displayCount = addedCount ?? legacyCount ?? 0
+
                 let formatter = DateFormatter()
                 formatter.timeStyle = .short
-                lastBackgroundSyncInfo = "\(count) metrics synced at \(formatter.string(from: time))"
+
+                if let deletedCount {
+                    lastBackgroundSyncInfo = "\(displayCount) added, \(deletedCount) deleted at \(formatter.string(from: time))"
+                } else {
+                    lastBackgroundSyncInfo = "\(displayCount) metrics synced at \(formatter.string(from: time))"
+                }
                 
                 Task {
                     await appState.fetchTrackedMetrics()
+                    await MainActor.run {
+                        appState.refreshSyncDiagnostics()
+                    }
                 }
             }
         }
@@ -258,7 +653,7 @@ struct StatusView: View {
                 }
             }
         } message: {
-            Text("This will stop syncing health data. You'll stay signed in but will need to reconnect to sync again.")
+            Text("This will stop syncing health data and sign you out on this iPhone.")
         }
     }
     
@@ -300,6 +695,158 @@ struct StatusView: View {
             await appState.fetchTrackedMetrics()
         }
     }
+
+    private func retryFailedDays(_ dayKeys: [String]) {
+        Task {
+            await appState.retryFailedDays(dayKeys)
+        }
+    }
+
+    private func retryDateRange() {
+        Task {
+            await appState.retryDateRange(startDate: retryStartDate, endDate: retryEndDate)
+        }
+    }
+
+    private func exportDateRange() {
+        Task {
+            await appState.exportDateRange(startDate: exportStartDate, endDate: exportEndDate)
+        }
+    }
+
+    private func retryExportHistory(_ entry: LocalExportHistoryEntry) {
+        Task {
+            await appState.exportFailedDays(entry.failedDays)
+        }
+    }
+
+    private func requestNotificationPermissions() {
+        Task {
+            await appState.requestSyncNotificationPermissions()
+        }
+    }
+
+    private var exportFormatBinding: Binding<LocalExportFormat> {
+        Binding(
+            get: { appState.exportSettings.format },
+            set: { newValue in
+                appState.updateExportSettings { $0.format = newValue }
+            }
+        )
+    }
+
+    private var exportWriteModeBinding: Binding<LocalExportWriteMode> {
+        Binding(
+            get: { appState.exportSettings.writeMode },
+            set: { newValue in
+                appState.updateExportSettings { $0.writeMode = newValue }
+            }
+        )
+    }
+
+    private var exportFilenameTemplateBinding: Binding<String> {
+        Binding(
+            get: { appState.exportSettings.filenameTemplate },
+            set: { newValue in
+                appState.updateExportSettings { $0.filenameTemplate = newValue }
+            }
+        )
+    }
+
+    private var exportFolderStructureBinding: Binding<String> {
+        Binding(
+            get: { appState.exportSettings.folderStructure },
+            set: { newValue in
+                appState.updateExportSettings { $0.folderStructure = newValue }
+            }
+        )
+    }
+
+    private func syncHistoryTitle(for entry: BackgroundSyncManagerV2.SyncHistoryEntry) -> String {
+        let mode = entry.isRetry ? "Retry" : (entry.isBackground ? "Background" : "Manual")
+        return "\(mode) | \(entry.addedCount) metric(s)"
+    }
+
+    private func syncHistoryDetail(for entry: BackgroundSyncManagerV2.SyncHistoryEntry) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        let finished = formatter.localizedString(for: entry.finishedAt, relativeTo: Date())
+
+        if let error = entry.errorMessage, !error.isEmpty {
+            return "\(finished) | \(error)"
+        }
+
+        if entry.failedBatchCount > 0 {
+            return "\(finished) | \(entry.failedBatchCount) failed batch(es), \(entry.queuedBatchCount) queued"
+        }
+
+        return "\(finished) | \(entry.metricTypes.count) metric type(s)"
+    }
+
+    private func pairingConfirmationSheet(for request: PeerPairingRequest) -> some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Pair with \(request.peerName)?")
+                    .font(.system(size: 22, weight: .semibold))
+
+                Text("Only approve if you initiated this connection on a trusted local network.")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Peer Fingerprint")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                    Text(request.peerFingerprint)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(.black)
+                }
+                .padding(12)
+                .background(Color(.systemGray6))
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                )
+
+                Spacer()
+
+                VStack(spacing: 10) {
+                    Button(action: {
+                        appState.confirmPendingPairing()
+                    }) {
+                        Text("Approve Pairing")
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.black)
+                            .foregroundColor(.white)
+                    }
+
+                    Button(action: {
+                        appState.declinePendingPairing()
+                    }) {
+                        Text("Decline")
+                            .font(.system(size: 15, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .foregroundColor(.black)
+                    }
+                }
+            }
+            .padding(20)
+            .navigationTitle("Pairing Request")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    #if DEBUG
+    private func simulatePairingRequest() {
+        appState.receivePairingRequest(
+            peerName: "Example MacBook",
+            peerFingerprint: "F6:17:32:AA:8C:90:1D:44"
+        )
+    }
+    #endif
 }
 
 // MARK: - Flow Layout for metric tags

@@ -7,9 +7,12 @@ import os
 import json
 import asyncio
 import time
+import logging
 import httpx
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
+
+logger = logging.getLogger(__name__)
 
 class TinybirdService:
     """Service for Tinybird operations"""
@@ -33,6 +36,34 @@ class TinybirdService:
             'Content-Type': 'application/json'
         }
 
+    async def check_connectivity(self) -> Dict[str, Any]:
+        """
+        Lightweight connectivity probe for health checks.
+        """
+        url = f"{self.base_url}/v0/datasources"
+        started = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=self.headers, params={"limit": 1})
+
+            latency_ms = round((time.monotonic() - started) * 1000, 2)
+            if response.status_code == 200:
+                return {"status": "ok", "latency_ms": latency_ms}
+
+            return {
+                "status": "error",
+                "status_code": response.status_code,
+                "latency_ms": latency_ms,
+                "message": response.text[:300],
+            }
+        except Exception as exc:
+            latency_ms = round((time.monotonic() - started) * 1000, 2)
+            return {
+                "status": "error",
+                "latency_ms": latency_ms,
+                "message": str(exc),
+            }
+
     async def _wait_for_job(
         self,
         job_id: str,
@@ -46,6 +77,11 @@ class TinybirdService:
         url = f"{self.base_url}/v0/jobs/{job_id}"
         last_status = "unknown"
         last_payload: Dict[str, Any] = {}
+
+        # Adaptive backoff dramatically reduces noisy polling/log volume while
+        # still converging quickly for short jobs.
+        interval_seconds = max(0.5, float(poll_interval_seconds or 0.5))
+        max_interval_seconds = 3.0
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             while True:
@@ -92,7 +128,8 @@ class TinybirdService:
                         "result": last_payload,
                     }
 
-                await asyncio.sleep(max(0.1, poll_interval_seconds))
+                await asyncio.sleep(interval_seconds)
+                interval_seconds = min(max_interval_seconds, interval_seconds * 1.35)
     
     async def ingest_events(self, datasource: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -106,7 +143,7 @@ class TinybirdService:
             event_headers = dict(self.headers)
             event_headers['Content-Type'] = 'application/x-ndjson'
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     url,
                     headers=event_headers,
@@ -139,7 +176,7 @@ class TinybirdService:
         try:
             url = f"{self.base_url}/v0/pipes/{pipe_name}.json"
             
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -258,9 +295,9 @@ class TinybirdService:
             'created_at': timestamp_str,
         }
         
-        print(f"🔍 Tinybird event data (formatted): {event}")
+        logger.info(f"🔍 Tinybird event data (formatted): {event}")
         result = await self.ingest_events('habit_logs', [event])
-        print(f"🔍 Tinybird ingest result: {result}")
+        logger.info(f"🔍 Tinybird ingest result: {result}")
         return result
     
     async def ingest_habit_logs_batch(self, logs: List[Dict[str, Any]], batch_size: int = 500) -> Dict[str, Any]:
@@ -423,7 +460,7 @@ class TinybirdService:
         delete_condition: str,
         wait_for_completion: bool = False,
         timeout_seconds: float = 60.0,
-        poll_interval_seconds: float = 0.5,
+        poll_interval_seconds: float = 1.5,
     ) -> Dict[str, Any]:
         """
         Delete rows from a datasource by condition using Tinybird's Delete API
@@ -443,7 +480,7 @@ class TinybirdService:
         try:
             url = f"{self.base_url}/v0/datasources/{datasource}/delete"
             
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     url,
                     headers=self.headers,

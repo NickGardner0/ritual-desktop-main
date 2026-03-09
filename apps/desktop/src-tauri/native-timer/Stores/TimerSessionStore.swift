@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AVFoundation
 
 /// Appends a timestamped line to ~/.ritual/widget.log for debugging.
 /// Useful because stdout is not visible when the widget is launched via `open`.
@@ -16,6 +17,58 @@ func widgetLog(_ message: String) {
         fh.closeFile()
     } else {
         try? line.data(using: .utf8)?.write(to: logFile)
+    }
+}
+
+// Matches the two-oscillator chime from the dashboard Web Audio API.
+private var _chimeEngine: AVAudioEngine?
+private var _chimePlayer: AVAudioPlayerNode?
+
+func playSuccessChime() {
+    let sampleRate: Double = 44100
+    let duration: Double = 0.6
+    let frameCount = AVAudioFrameCount(sampleRate * duration)
+
+    guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
+          let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+          let samples = buffer.floatChannelData?[0] else { return }
+
+    buffer.frameLength = frameCount
+
+    let freq1 = 523.25 // C5
+    let freq2 = 659.25 // E5
+    let twoPi = 2.0 * Double.pi
+
+    for i in 0..<Int(frameCount) {
+        let t = Double(i) / sampleRate
+        let gain: Double
+        if t < 0.1 {
+            gain = 0.5 * (t / 0.1)
+        } else {
+            gain = 0.5 * exp(-(t - 0.1) * 12.4)
+        }
+        let sample = gain * (sin(twoPi * freq1 * t) + sin(twoPi * freq2 * t)) / 2.0
+        samples[i] = Float(sample)
+    }
+
+    let engine = AVAudioEngine()
+    let player = AVAudioPlayerNode()
+    engine.attach(player)
+    engine.connect(player, to: engine.mainMixerNode, format: format)
+
+    do {
+        try engine.start()
+        _chimeEngine = engine
+        _chimePlayer = player
+        player.scheduleBuffer(buffer)
+        player.play()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.15) { [weak engine, weak player] in
+            player?.stop()
+            engine?.stop()
+        }
+    } catch {
+        widgetLog("playSuccessChime: \(error.localizedDescription)")
     }
 }
 
@@ -271,6 +324,7 @@ final class TimerSessionStore: ObservableObject {
             startedAt = nil
             isRunning = false
             statusOverride = "Logged"
+            playSuccessChime()
             notifyDashboardRefresh()
         } else {
             statusOverride = "Log failed"
@@ -295,8 +349,10 @@ final class TimerSessionStore: ObservableObject {
 
         for habit in habits {
             let habitLower = habit.name.lowercased()
+
+            // Full name found verbatim in transcript — highest confidence.
             if lower.contains(habitLower) {
-                let score = habitLower.count
+                let score = 100 + habitLower.count
                 if score > bestScore {
                     bestScore = score
                     bestMatch = habit
@@ -305,9 +361,25 @@ final class TimerSessionStore: ObservableObject {
             }
 
             let habitTokens = habitLower.split(separator: " ").map(String.init)
-            let overlap = habitTokens.filter { tokens.contains($0) }.count
-            if overlap > 0 && overlap > bestScore {
-                bestScore = overlap
+            var score = 0
+
+            for habitToken in habitTokens {
+                for token in tokens {
+                    if habitToken == token {
+                        score += 10
+                    } else if habitToken.count >= 3 && token.count >= 3 {
+                        // Prefix match: "read"→"reading", "walked"→"walk", "code"→"coding"
+                        let shorter = habitToken.count <= token.count ? habitToken : token
+                        let longer  = habitToken.count <= token.count ? token : habitToken
+                        if longer.hasPrefix(shorter) {
+                            score += 6
+                        }
+                    }
+                }
+            }
+
+            if score > bestScore {
+                bestScore = score
                 bestMatch = habit
             }
         }
@@ -370,6 +442,7 @@ final class TimerSessionStore: ObservableObject {
         if success {
             widgetLog("voiceLog: success")
             statusOverride = "Logged ✓"
+            playSuccessChime()
             notifyDashboardRefresh()
         } else {
             widgetLog("voiceLog: FAILED")
@@ -440,7 +513,7 @@ final class TimerSessionStore: ObservableObject {
             return false
         }
 
-        for attempt in 1...2 {
+        for attempt in 1...3 {
             guard let token = await freshAuthToken() else {
                 widgetLog("createHabitLog: no auth token available (attempt \(attempt))")
                 continue
@@ -468,11 +541,11 @@ final class TimerSessionStore: ObservableObject {
                     return true
                 }
 
-                if (http.statusCode == 401 || http.statusCode == 403) && attempt == 1 {
+                if (http.statusCode == 401 || http.statusCode == 403) && attempt < 3 {
                     let bodyStr = String(data: data, encoding: .utf8) ?? ""
-                    widgetLog("createHabitLog: auth failed, requesting token refresh and retrying. \(bodyStr.prefix(200))")
+                    widgetLog("createHabitLog: auth failed (attempt \(attempt)), requesting token refresh. \(bodyStr.prefix(200))")
                     requestAuthTokenRefresh()
-                    try? await Task.sleep(for: .milliseconds(800))
+                    try? await Task.sleep(for: .seconds(3))
                     continue
                 }
 
@@ -607,8 +680,8 @@ final class TimerSessionStore: ObservableObject {
     }
 
     private func authTokenFromFile() -> String? {
-        let tokenFile = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("ritual_auth_token.txt")
+        let tokenFile = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ritual/auth_token.txt")
         guard let token = try? String(contentsOf: tokenFile, encoding: .utf8) else {
             return nil
         }

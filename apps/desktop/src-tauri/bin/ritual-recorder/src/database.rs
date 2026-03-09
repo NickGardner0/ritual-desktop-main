@@ -140,14 +140,10 @@ impl VideoChunk {
 
 impl RecorderDatabase {
     /// Create a new database connection and initialize schema
-    /// Note: The path argument is ignored - we use the unified ritual.db
     pub fn new(db_path: &str) -> Result<Self> {
-        info!(
-            "Opening Ritual database (unified libSQL) - ignoring path: {}",
-            db_path
-        );
+        info!("Opening recorder database: {}", db_path);
 
-        let db = BlockingDatabase::open_default()
+        let db = BlockingDatabase::open_with_path(db_path)
             .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
 
         Ok(Self { db })
@@ -354,14 +350,13 @@ pub struct ActivityContext {
     pub window_title: Option<String>,
 }
 
-/// Get current activity from the unified database
-/// Note: The path argument is ignored since we use the unified ritual.db
+/// Get current activity from the watcher activity database.
 pub fn get_current_activity_from_watcher(
-    _watcher_db_path: &str,
+    watcher_db_path: &str,
 ) -> anyhow::Result<Option<ActivityContext>> {
     // Open a fresh connection to get current activity
     // This is used by the recorder to correlate frames with watcher activity
-    let db = BlockingDatabase::open_default()
+    let db = BlockingDatabase::open_with_path(watcher_db_path)
         .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
 
     db.get_current_activity()

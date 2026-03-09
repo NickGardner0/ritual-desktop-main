@@ -81,6 +81,7 @@ interface ScreenRecordingsDebug {
   enabled: boolean;
   mode_used: string;
   status: string;
+  retrieval_tier?: string;
   warning?: string;
   source_counts?: {
     hybrid?: number;
@@ -102,8 +103,168 @@ interface ScreenRecordingsData {
   debug?: ScreenRecordingsDebug;
 }
 
+interface ScreenTimeSpentCategoryItem {
+  rank: number;
+  category: string;
+  estimated_minutes: number;
+  estimated_hours: number;
+  share_percent: number;
+  hit_count: number;
+  last_seen: string;
+  sample_app?: string;
+  sample_window?: string | null;
+}
+
+interface ScreenTimeSpentDailyItem {
+  date: string;
+  estimated_minutes: number;
+  estimated_hours: number;
+  hit_count: number;
+}
+
+interface ScreenTimeSpentMomentItem {
+  timestamp: string;
+  app: string;
+  window: string;
+  relevance: string;
+  preview: string;
+}
+
+interface ScreenTimeSpentData {
+  success: boolean;
+  query: string;
+  group_by: 'app' | 'window' | 'domain';
+  days_searched: number;
+  status?: string;
+  mode_used?: string;
+  retrieval_tier?: string;
+  warning?: string;
+  freshness?: {
+    status?: 'healthy' | 'degraded_semantic' | 'degraded_ocr' | 'stale' | 'unavailable' | string;
+    capture_lag_seconds?: number;
+    ocr_lag_seconds?: number;
+    embedding_lag_seconds?: number;
+    source_mismatch?: boolean;
+    source_mismatch_note?: string;
+  };
+  confidence?: {
+    level?: 'high' | 'medium' | 'low' | string;
+    score?: number;
+    reason?: string;
+  };
+  provider_path?: {
+    retrieval?: string;
+    rerank?: string;
+    answer?: string;
+  };
+  result_count: number;
+  summary?: {
+    estimated_total_minutes?: number;
+    estimated_total_hours?: number;
+    total_hits?: number;
+    unique_apps?: number;
+    days_with_activity?: number;
+    range_start?: string;
+    range_end?: string;
+    metric_source?: 'matched_estimate' | 'watcher_aggregate';
+    metric_label?: string;
+    matched_total_minutes?: number;
+    matched_total_hours?: number;
+    matched_hits?: number;
+    matched_days_with_activity?: number;
+  };
+  top_categories?: ScreenTimeSpentCategoryItem[];
+  daily_breakdown?: ScreenTimeSpentDailyItem[];
+  sample_moments?: ScreenTimeSpentMomentItem[];
+  estimation?: {
+    method?: string;
+    default_chunk_seconds?: number;
+    max_gap_minutes?: number;
+    note?: string;
+  };
+  debug?: ScreenRecordingsDebug;
+}
+
+interface WeeklyOverviewHabitDailyRow {
+  date: string;
+  value: number;
+  unit?: string;
+  total_hours?: number | null;
+  total_duration_seconds?: number | null;
+  total_amount?: number | null;
+  sleep_start?: string;
+  sleep_end?: string;
+  entries?: Array<{
+    time?: string;
+    amount?: number;
+    duration_seconds?: number;
+    notes?: string;
+    sleep_start?: string;
+    sleep_end?: string;
+  }>;
+}
+
+interface WeeklyOverviewHabit {
+  id: string;
+  name: string;
+  category?: string;
+  unit?: string;
+  total: number;
+  average: number;
+  min: number;
+  max: number;
+  days_with_data: number;
+  total_entries: number;
+  daily: WeeklyOverviewHabitDailyRow[];
+}
+
+interface WeeklyOverviewComputerActivity {
+  days_with_data: number;
+  total_hours: number;
+  average_daily_hours: number;
+  min_daily_hours: number;
+  max_daily_hours: number;
+  daily: Array<{
+    day: string;
+    active_hours: number;
+    events_count: number;
+    apps_count: number;
+  }>;
+  top_apps: Array<{
+    app_name?: string;
+    total_active_ms?: number;
+    total_events?: number;
+    days_used?: number;
+    hours?: number;
+  }>;
+  top_domains: Array<{
+    domain?: string;
+    total_active_ms?: number;
+    total_events?: number;
+    days_used?: number;
+    hours?: number;
+    minutes?: number;
+  }>;
+}
+
+interface WeeklyOverviewData {
+  success: boolean;
+  date_range: {
+    start: string;
+    end: string;
+    days: number;
+  };
+  summary: {
+    habits_with_data: number;
+    total_habits_tracked: number;
+  };
+  habits: WeeklyOverviewHabit[];
+  computer_activity?: WeeklyOverviewComputerActivity;
+  suggested_followups?: string[];
+}
+
 export interface HabitCanvasData {
-  type: 'trends' | 'stats' | 'breakdown' | 'anomalies' | 'screenRecordings';
+  type: 'trends' | 'stats' | 'breakdown' | 'anomalies' | 'screenRecordings' | 'weeklyOverview' | 'screenTimeSpent';
   title: string;
   habitName?: string;
   dateRange?: { start: string; end: string };
@@ -134,6 +295,8 @@ export interface HabitCanvasData {
   trends?: TrendsData;
   anomalies?: AnomaliesData;
   screenRecordings?: ScreenRecordingsData;
+  screenTimeSpent?: ScreenTimeSpentData;
+  weeklyOverview?: WeeklyOverviewData;
 }
 
 interface HabitCanvasProps {
@@ -144,7 +307,10 @@ interface HabitCanvasProps {
 
 function formatDate(dateStr: string): string {
   try {
-    const date = new Date(dateStr);
+    const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+    const date = ymdMatch
+      ? new Date(Number(ymdMatch[1]), Number(ymdMatch[2]) - 1, Number(ymdMatch[3]))
+      : new Date(dateStr);
     if (isNaN(date.getTime())) {
       return dateStr;
     }
@@ -513,6 +679,11 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
             <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
               status: {debug.status}
             </span>
+            {debug.retrieval_tier && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                tier: {debug.retrieval_tier}
+              </span>
+            )}
             {debug.source_counts && (
               <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
                 sources h:{debug.source_counts.hybrid || 0} t:{debug.source_counts.text || 0} a:{debug.source_counts.activity || 0}
@@ -627,6 +798,511 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
   );
 });
 
+const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
+  screenTimeSpent,
+}: {
+  screenTimeSpent: ScreenTimeSpentData;
+}) {
+  const summary = screenTimeSpent.summary || {};
+  const topCategories = screenTimeSpent.top_categories || [];
+  const dailyBreakdown = screenTimeSpent.daily_breakdown || [];
+  const sampleMoments = screenTimeSpent.sample_moments || [];
+  const isActivityOnlyMode =
+    screenTimeSpent.retrieval_tier === 'activity_only'
+    || screenTimeSpent.mode_used === 'activity'
+    || summary.metric_source === 'watcher_aggregate';
+
+  const rangeLabel =
+    summary.range_start && summary.range_end
+      ? `${formatDate(summary.range_start)} - ${formatDate(summary.range_end)}`
+      : `Last ${screenTimeSpent.days_searched} days`;
+
+  const totalHours = summary.estimated_total_hours || 0;
+  const totalHits = isActivityOnlyMode
+    ? (summary.total_hits ?? screenTimeSpent.result_count ?? 0)
+    : (summary.matched_hits ?? summary.total_hits ?? screenTimeSpent.result_count ?? 0);
+  const uniqueApps = summary.unique_apps || 0;
+  const daysWithActivity = summary.days_with_activity || 0;
+  const matchedDaysWithActivity = isActivityOnlyMode
+    ? daysWithActivity
+    : (summary.matched_days_with_activity ?? daysWithActivity);
+  const metricLabel = summary.metric_label || 'Estimated matched time';
+  const isWatcherAggregate = summary.metric_source === 'watcher_aggregate';
+
+  const formatHours = (value?: number) => {
+    const numeric = Number(value || 0);
+    return `${numeric.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')}h`;
+  };
+
+  const groupLabel = screenTimeSpent.group_by === 'domain'
+    ? 'Top domains'
+    : screenTimeSpent.group_by === 'window'
+      ? 'Top windows'
+      : 'Top apps';
+  const uniqueBucketLabel = screenTimeSpent.group_by === 'domain'
+    ? 'Unique domains'
+    : screenTimeSpent.group_by === 'window'
+      ? 'Unique windows'
+      : 'Unique apps';
+  const dailyTimeLabel = isWatcherAggregate ? 'Active Time' : 'Estimated Time';
+
+  const debug = screenTimeSpent.debug;
+  const freshness = screenTimeSpent.freshness;
+  const confidence = screenTimeSpent.confidence;
+  const providerPath = screenTimeSpent.provider_path;
+
+  return (
+    <div className="space-y-6">
+      <div className="text-[12px] text-[#707070]">
+        Query: <span className="text-black">{screenTimeSpent.query}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="text-[12px] text-[#707070] mb-1">{metricLabel}</div>
+          <div className="text-[18px] font-normal text-black mb-1">
+            {formatHours(totalHours)}
+          </div>
+          <div className="text-[10px] text-[#707070]">{rangeLabel}</div>
+        </div>
+        <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="text-[12px] text-[#707070] mb-1">{isActivityOnlyMode ? 'Activity events' : 'Matched moments'}</div>
+          <div className="text-[18px] font-normal text-black mb-1">{totalHits}</div>
+          <div className="text-[10px] text-[#707070]">
+            {matchedDaysWithActivity} active day{matchedDaysWithActivity === 1 ? '' : 's'}
+          </div>
+        </div>
+        <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="text-[12px] text-[#707070] mb-1">{uniqueBucketLabel}</div>
+          <div className="text-[18px] font-normal text-black mb-1">{uniqueApps}</div>
+          <div className="text-[10px] text-[#707070]">
+            {isWatcherAggregate ? 'Across active-time records' : 'Across matching moments'}
+          </div>
+        </div>
+        <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="text-[12px] text-[#707070] mb-1">Grouping</div>
+          <div className="text-[18px] font-normal text-black mb-1 capitalize">
+            {screenTimeSpent.group_by}
+          </div>
+          <div className="text-[10px] text-[#707070]">
+            Search mode: {screenTimeSpent.mode_used || 'unknown'} · Tier: {screenTimeSpent.retrieval_tier || debug?.retrieval_tier || 'unknown'}
+          </div>
+          {providerPath && (
+            <div className="text-[10px] text-[#707070] mt-1">
+              Providers: {providerPath.retrieval || 'n/a'} / {providerPath.rerank || 'n/a'} / {providerPath.answer || 'n/a'}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {screenTimeSpent.warning && (
+        <div className="border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+          {screenTimeSpent.warning}
+        </div>
+      )}
+
+      {!isActivityOnlyMode && (freshness?.status || confidence?.level) && (
+        <div className={cn("gap-3", !isActivityOnlyMode ? "grid grid-cols-2" : "grid grid-cols-1")}>
+          <div className="border border-[#e6e6e6] p-3 bg-white">
+            <div className="text-[12px] text-[#707070] mb-1">Freshness</div>
+            <div className="text-[18px] font-normal text-black mb-1 capitalize">
+              {freshness?.status || 'unknown'}
+            </div>
+            <div className="text-[10px] text-[#707070]">
+              OCR lag: {Number(freshness?.ocr_lag_seconds || 0)}s
+            </div>
+          </div>
+          {!isActivityOnlyMode && (
+            <div className="border border-[#e6e6e6] p-3 bg-white">
+              <div className="text-[12px] text-[#707070] mb-1">Semantic confidence</div>
+              <div className="text-[18px] font-normal text-black mb-1 capitalize">
+                {confidence?.level || 'unknown'}
+              </div>
+              <div className="text-[10px] text-[#707070]">
+                Score: {Number.isFinite(Number(confidence?.score)) ? `${Math.round(Number(confidence?.score) * 100)}%` : 'n/a'}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {debug?.enabled && (
+        <div className="border border-[#e6e6e6] p-3 bg-[#f9fafb]">
+          <div className="text-[11px] text-[#707070] mb-1 uppercase tracking-wide">QA debug</div>
+          <div className="flex flex-wrap gap-2 text-[11px] text-black">
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              mode: {debug.mode_used}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              status: {debug.status}
+            </span>
+            {debug.retrieval_tier && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                tier: {debug.retrieval_tier}
+              </span>
+            )}
+            {debug.source_counts && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                sources h:{debug.source_counts.hybrid || 0} t:{debug.source_counts.text || 0} a:{debug.source_counts.activity || 0}
+              </span>
+            )}
+          </div>
+          {debug.warning && (
+            <div className="text-[10px] text-amber-700 mt-2">
+              {debug.warning}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <h4 className="text-[18px] font-normal text-black">{groupLabel}</h4>
+        <div className="border border-[#e6e6e6] max-h-[280px] overflow-y-auto">
+          <table className="w-full">
+            <thead className="sticky top-0 bg-white">
+              <tr className="border-b border-[#e6e6e6]">
+                <th className="px-2 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6] w-[42px]">#</th>
+                <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Bucket</th>
+                <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Time</th>
+                <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Share</th>
+                <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal">Hits</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topCategories.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-5 text-center text-[12px] text-[#707070]">
+                    No grouped results available.
+                  </td>
+                </tr>
+              ) : (
+                topCategories.map((row, idx) => (
+                  <tr key={`${row.category}-${idx}`} className="border-b border-[#e6e6e6] last:border-b-0 hover:bg-[#F2F1EF] transition-colors">
+                    <td className="px-2 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6]">{row.rank || idx + 1}</td>
+                    <td className="px-3 py-1.5 text-[12px] text-black border-r border-[#e6e6e6]">
+                      <div className="truncate" title={row.category}>{row.category}</div>
+                      <div className="text-[10px] text-[#707070] truncate" title={row.last_seen}>
+                        Last seen: {row.last_seen}
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-[12px] text-black text-right tabular-nums border-r border-[#e6e6e6]">{formatHours(row.estimated_hours)}</td>
+                    <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums border-r border-[#e6e6e6]">{row.share_percent.toFixed(1)}%</td>
+                    <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums">{row.hit_count}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <h4 className="text-[18px] font-normal text-black">Daily breakdown</h4>
+        <div className="border border-[#e6e6e6] max-h-[220px] overflow-y-auto">
+          <table className="w-full">
+            <thead className="sticky top-0 bg-white">
+              <tr className="border-b border-[#e6e6e6]">
+                <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Date</th>
+                <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">{dailyTimeLabel}</th>
+                <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal">Hits</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dailyBreakdown.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-3 py-5 text-center text-[12px] text-[#707070]">
+                    No day-level rows found.
+                  </td>
+                </tr>
+              ) : (
+                dailyBreakdown.map((row) => (
+                  <tr key={row.date} className="border-b border-[#e6e6e6] last:border-b-0 hover:bg-[#F2F1EF] transition-colors">
+                    <td className="px-3 py-1.5 text-[12px] text-black border-r border-[#e6e6e6]">{formatDate(row.date)}</td>
+                    <td className="px-3 py-1.5 text-[12px] text-black text-right tabular-nums border-r border-[#e6e6e6]">{formatHours(row.estimated_hours)}</td>
+                    <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums">{row.hit_count}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {sampleMoments.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[12px] leading-normal text-[#707070]">Sample moments</h4>
+          <div className="space-y-2">
+            {sampleMoments.slice(0, 5).map((moment, index) => (
+              <div key={`${moment.timestamp}-${index}`} className="border border-[#e6e6e6] p-2 bg-white">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] text-black truncate">{moment.app}</div>
+                  <div className="text-[10px] text-[#707070] whitespace-nowrap">{moment.relevance}</div>
+                </div>
+                <div className="text-[10px] text-[#707070] truncate mt-0.5">{moment.timestamp}</div>
+                <div className="text-[11px] text-[#707070] truncate mt-1">{moment.window}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {screenTimeSpent.estimation?.note && (
+        <div className="text-[10px] text-[#707070]">
+          {screenTimeSpent.estimation.note}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
+  weeklyOverview,
+}: {
+  weeklyOverview: WeeklyOverviewData;
+}) {
+  const habits = [...(weeklyOverview.habits || [])].sort((a, b) => a.name.localeCompare(b.name));
+  const computer = weeklyOverview.computer_activity;
+
+  const formatNumber = (value: number) => {
+    if (!Number.isFinite(value)) return '0';
+    return value.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+  };
+
+  const formatMetric = (value: number, unit?: string) => {
+    const normalized = (unit || '').toLowerCase().trim();
+    if (normalized === 'hours' || normalized === 'hour' || normalized === 'h') {
+      return `${formatNumber(value)}h`;
+    }
+    if (normalized === 'minutes' || normalized === 'minute' || normalized === 'min' || normalized === 'm') {
+      return `${formatNumber(value)}m`;
+    }
+    if (normalized === 'milligrams' || normalized === 'milligram' || normalized === 'mg') {
+      return `${formatNumber(value)}mg`;
+    }
+    if (normalized === 'grams' || normalized === 'gram' || normalized === 'g') {
+      return `${formatNumber(value)}g`;
+    }
+    return `${formatNumber(value)}${formatUnit(unit)}`;
+  };
+
+  const MetricStrip = ({
+    items,
+    columnsClassName = 'grid-cols-4',
+  }: {
+    items: Array<{ label: string; value: string | number }>;
+    columnsClassName?: string;
+  }) => (
+    <div className={cn('grid border border-[#e6e6e6] bg-white', columnsClassName)}>
+      {items.map((item, index) => (
+        <div
+          key={`${item.label}-${index}`}
+          className={cn(
+            'px-3 py-2',
+            index !== items.length - 1 && 'border-r border-[#e6e6e6]',
+          )}
+        >
+          <div className="text-[11px] text-[#707070] leading-tight mb-0.5">{item.label}</div>
+          <div className="text-[16px] leading-[1.2] font-normal text-black whitespace-nowrap">{item.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const formatEvents = (value?: number) => (value || 0).toLocaleString();
+
+  const renderDailyValueTable = (
+    rows: Array<{ date: string; value: string; entries: number; sleep?: string; wake?: string }>,
+    emptyText: string,
+    options?: { showSleepWake?: boolean; valueLabel?: string },
+  ) => (
+    <div className="border border-[#e6e6e6] max-h-[220px] overflow-y-auto">
+      <table className="w-full">
+        <thead className="sticky top-0 bg-white">
+          <tr className="border-b border-[#e6e6e6]">
+            <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Date</th>
+            {options?.showSleepWake ? (
+              <>
+                <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Sleep</th>
+                <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Wake</th>
+              </>
+            ) : null}
+            <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">
+              {options?.valueLabel || 'Value'}
+            </th>
+            <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal">Entries</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={options?.showSleepWake ? 5 : 3} className="px-3 py-5 text-center text-[12px] text-[#707070]">
+                {emptyText}
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => (
+              <tr key={row.date} className="border-b border-[#e6e6e6] last:border-b-0 hover:bg-[#F2F1EF] transition-colors">
+                <td className="px-3 py-1.5 text-[12px] text-black border-r border-[#e6e6e6]">{formatDate(row.date)}</td>
+                {options?.showSleepWake ? (
+                  <>
+                    <td className="px-3 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">{row.sleep || '—'}</td>
+                    <td className="px-3 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">{row.wake || '—'}</td>
+                  </>
+                ) : null}
+                <td className="px-3 py-1.5 text-[12px] text-black text-right tabular-nums border-r border-[#e6e6e6]">{row.value}</td>
+                <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums">{row.entries}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderRankedUsageTable = (
+    title: string,
+    emptyText: string,
+    rows: Array<{ name: string; hours: number; events: number }>,
+    nameHeader: string,
+  ) => (
+    <div className="space-y-2">
+      <div className="text-[12px] text-[#707070]">{title}</div>
+      <div className="border border-[#e6e6e6] max-h-[240px] overflow-y-auto">
+        <table className="w-full">
+          <thead className="sticky top-0 bg-white">
+            <tr className="border-b border-[#e6e6e6]">
+              <th className="px-2 py-1.5 w-[44px] text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">#</th>
+              <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">{nameHeader}</th>
+              <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Hours</th>
+              <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal">Events</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-3 py-5 text-center text-[12px] text-[#707070]">
+                  {emptyText}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, idx) => (
+                <tr key={`${row.name}-${idx}`} className="border-b border-[#e6e6e6] last:border-b-0 hover:bg-[#F2F1EF] transition-colors">
+                  <td className="px-2 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6]">{idx + 1}</td>
+                  <td className="px-3 py-1.5 text-[12px] text-black border-r border-[#e6e6e6] truncate" title={row.name}>{row.name}</td>
+                  <td className="px-3 py-1.5 text-[12px] text-black text-right tabular-nums border-r border-[#e6e6e6]">{formatNumber(row.hours)}h</td>
+                  <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums">{formatEvents(row.events)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const computerDailyRows = [...(computer?.daily || [])].sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  const computerDailyTableRows = computerDailyRows.map((row) => ({
+    date: row.day,
+    value: `${formatNumber(row.active_hours)}h`,
+    entries: row.events_count || 0,
+  }));
+  const appTableRows = (computer?.top_apps || []).slice(0, 10).map((app) => ({
+    name: app.app_name || 'Unknown',
+    hours: app.hours || 0,
+    events: app.total_events || 0,
+  }));
+  const domainTableRows = (computer?.top_domains || []).slice(0, 10).map((domain) => ({
+    name: domain.domain || 'Unknown',
+    hours: domain.hours || 0,
+    events: domain.total_events || 0,
+  }));
+
+  return (
+    <div className="space-y-8">
+      <MetricStrip
+        columnsClassName="grid-cols-3"
+        items={[
+          { label: 'Habits with data', value: weeklyOverview.summary.habits_with_data },
+          { label: 'Habits tracked', value: weeklyOverview.summary.total_habits_tracked },
+          { label: 'Range length', value: `${weeklyOverview.date_range.days} days` },
+        ]}
+      />
+
+      {habits.map((habit) => (
+        <div key={habit.id} className="space-y-3">
+          <div>
+            <h4 className="text-[18px] font-normal text-black">{habit.name}</h4>
+            <div className="text-[11px] text-[#707070] mt-0.5">
+              {habit.days_with_data} days with data{habit.total_entries ? ` • ${habit.total_entries} entries` : ''}
+            </div>
+          </div>
+
+          <MetricStrip
+            items={[
+              { label: 'Total', value: formatMetric(habit.total, habit.unit) },
+              { label: 'Average', value: formatMetric(habit.average, habit.unit) },
+              { label: 'Minimum', value: formatMetric(habit.min, habit.unit) },
+              { label: 'Maximum', value: formatMetric(habit.max, habit.unit) },
+            ]}
+          />
+
+          {(() => {
+            const isSleepHabit = habit.name.toLowerCase().includes('sleep');
+            const dailyRows = [...(habit.daily || [])].sort((a, b) => a.date.localeCompare(b.date));
+            return renderDailyValueTable(
+              dailyRows.map((row) => {
+                const sleepEntry = (row.entries || []).find((entry) => entry.sleep_start || entry.sleep_end);
+                return {
+                  date: row.date,
+                  value: formatMetric(row.value || 0, habit.unit),
+                  entries: row.entries?.length || 0,
+                  sleep: row.sleep_start || sleepEntry?.sleep_start || '—',
+                  wake: row.sleep_end || sleepEntry?.sleep_end || sleepEntry?.time || '—',
+                };
+              }),
+              'No daily rows available for this habit in the selected range.',
+              isSleepHabit ? { showSleepWake: true, valueLabel: 'Duration' } : undefined,
+            );
+          })()}
+        </div>
+      ))}
+
+      {computer && (
+        <div className="space-y-4">
+          <h4 className="text-[18px] font-normal text-black">Computer Time</h4>
+          <MetricStrip
+            items={[
+              { label: 'Total', value: `${formatNumber(computer.total_hours)}h` },
+              { label: 'Average', value: `${formatNumber(computer.average_daily_hours)}h` },
+              { label: 'Minimum', value: `${formatNumber(computer.min_daily_hours)}h` },
+              { label: 'Maximum', value: `${formatNumber(computer.max_daily_hours)}h` },
+            ]}
+          />
+
+          {renderDailyValueTable(
+            computerDailyTableRows,
+            'No computer time rows found for this date range.',
+          )}
+
+          {renderRankedUsageTable(
+            'Top apps/websites by active time',
+            'No application activity found for this date range.',
+            appTableRows,
+            'App',
+          )}
+
+          {renderRankedUsageTable(
+            'Top domains',
+            'No domain activity found for this date range.',
+            domainTableRows,
+            'Domain',
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ====================
 // MAIN CANVAS COMPONENT - MIDDAY STYLE
 // ====================
@@ -636,6 +1312,8 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
   const hasTrends = data.trends && data.trends.success;
   const hasAnomalies = data.anomalies && data.anomalies.success;
   const hasScreenRecordings = data.screenRecordings && data.screenRecordings.success;
+  const hasScreenTimeSpent = data.screenTimeSpent && data.screenTimeSpent.success;
+  const hasWeeklyOverview = data.weeklyOverview && data.weeklyOverview.success;
   const hasStats = data.stats;
   const hasDailyData = data.dailyData && data.dailyData.length > 0;
 
@@ -694,8 +1372,18 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
           <ScreenRecordingsSection screenRecordings={data.screenRecordings} />
         )}
 
+        {/* Screen Time Spent Section */}
+        {hasScreenTimeSpent && data.screenTimeSpent && (
+          <ScreenTimeSpentSection screenTimeSpent={data.screenTimeSpent} />
+        )}
+
+        {/* Weekly Overview Section */}
+        {hasWeeklyOverview && data.weeklyOverview && (
+          <WeeklyOverviewSection weeklyOverview={data.weeklyOverview} />
+        )}
+
         {/* Stats Summary - Midday style */}
-        {hasStats && !hasTrends && !hasAnomalies && (
+        {hasStats && !hasTrends && !hasAnomalies && !hasWeeklyOverview && !hasScreenTimeSpent && (
           <div className="grid grid-cols-2 gap-3 mb-6">
             {totalValue !== undefined && (
               <div className="border border-[#e6e6e6] p-3 bg-white">
@@ -717,7 +1405,7 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
         )}
 
         {/* Daily Data Table - Midday style with borders */}
-        {hasDailyData && data.dailyData && (() => {
+        {hasDailyData && data.dailyData && !hasWeeklyOverview && !hasScreenTimeSpent && (() => {
           const isSleepData = data.dailyData.some(day => 
             day.entries?.some(entry => entry.sleep_start || entry.sleep_end)
           );

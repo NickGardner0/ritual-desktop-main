@@ -295,6 +295,80 @@ pub struct ActivityContext {
     pub window_title: Option<String>,
 }
 
+/// Raw capture event for append-only ingestion log
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureEventRaw {
+    pub id: Option<i64>,
+    pub event_type: String,
+    pub device_id: Option<String>,
+    pub user_id: Option<String>,
+    pub ts_event: i64,
+    pub payload_json: String,
+    pub dedup_key: Option<String>,
+    pub ingest_status: String,
+    pub ingest_error: Option<String>,
+    pub created_at: i64,
+    pub ingested_at: Option<i64>,
+}
+
+/// Semantic chunk built from contiguous OCR frames
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchChunk {
+    pub id: Option<i64>,
+    pub device_id: String,
+    pub user_id: String,
+    pub logical_chunk_id: Option<String>,
+    pub chunk_start_ts: i64,
+    pub chunk_end_ts: i64,
+    pub app_bundle_id: Option<String>,
+    pub app_name: Option<String>,
+    pub window_title_norm: Option<String>,
+    pub browser_domain: Option<String>,
+    pub raw_text_compact: String,
+    pub contextual_text_compact: String,
+    pub text_compact: String,
+    pub content_hash: Option<String>,
+    pub keywords_json: Option<String>,
+    pub quality_score: f64,
+    pub frame_count: i64,
+    pub build_version: i64,
+    pub context_version: i64,
+    pub session_key: Option<String>,
+    pub session_position: i64,
+    pub session_chunk_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Chunk embedding state record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkEmbedding {
+    pub id: Option<i64>,
+    pub chunk_id: i64,
+    pub model_version: String,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub retry_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Pipeline freshness and source state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineWatermarks {
+    pub id: i64,
+    pub last_capture_ts: Option<i64>,
+    pub last_activity_ts: Option<i64>,
+    pub last_ocr_frame_ts: Option<i64>,
+    pub last_chunk_built_ts: Option<i64>,
+    pub last_chunk_embedded_ts: Option<i64>,
+    pub pending_chunks: i64,
+    pub oldest_pending_chunk_ts: Option<i64>,
+    pub source_mismatch: bool,
+    pub source_mismatch_note: Option<String>,
+    pub updated_at: i64,
+}
+
 // ============================================================
 // SYNC QUEUE TYPES
 // ============================================================

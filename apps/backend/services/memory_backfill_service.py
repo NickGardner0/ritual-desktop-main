@@ -1,4 +1,4 @@
-"""Backfill cloud-memory chunks from local ritual.db search_chunks."""
+"""Backfill cloud-memory chunks from local memory DB search_chunks."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from services.memory_embedding_service import process_embedding_jobs_with_guard
 from services.memory_ingest_service import ingest_memory_chunks
-from services.watcher_service_local_db import get_local_watcher_db_path_impl
+from services.watcher_service_local_db import get_local_memory_db_path_impl
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ async def backfill_cloud_from_local_chunks(
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
-    db_path = get_local_watcher_db_path_impl()
+    db_path = get_local_memory_db_path_impl()
     safe_limit = max(1, min(int(limit or 5000), 20000))
     safe_batch_size = max(1, min(int(batch_size or 200), 500))
 
@@ -60,7 +60,7 @@ async def backfill_cloud_from_local_chunks(
         if not _table_exists(cursor, "search_chunks"):
             return {
                 "success": False,
-                "error": "search_chunks table not found in local ritual.db",
+                "error": "search_chunks table not found in local memory DB",
                 "accepted": 0,
                 "deduped": 0,
                 "failed": 0,

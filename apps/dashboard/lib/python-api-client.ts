@@ -1,33 +1,43 @@
 /**
  * Python FastAPI Backend Client
- * Mirrors the existing habits-service.ts interface exactly
+ * Mirrors the shared dashboard habit type interfaces.
  */
 
-import { Habit, HabitLog } from './habits-service'
+import { Habit, HabitLog } from './habit-types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const REQUEST_TIMEOUT_MS = 30000;
 
-interface ApiResponse<T> {
-  data?: T
-  error?: string
-  message?: string
+type TokenProvider = () => Promise<string | null>
+
+function timeoutSignal(timeoutMs: number): AbortSignal {
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), timeoutMs)
+  return controller.signal
 }
 
 class PythonApiClient {
-  private async getAuthToken(): Promise<string | null> {
-    // Get token from Clerk authentication
-    if (typeof window !== 'undefined') {
-      // Try to get Clerk token from localStorage (set by Clerk)
-      // Note: This is a fallback - ideally tokens should be passed in
-      const clerkToken = localStorage.getItem('clerk_session')
-      
-      // Fallback to stored Google token (for Tauri desktop app)
-      const googleToken = localStorage.getItem('google_access_token')
-      
-      return clerkToken || googleToken || null
+  private tokenProvider: TokenProvider | null = null
+
+  setTokenProvider(provider: TokenProvider): void {
+    this.tokenProvider = provider
+  }
+
+  clearTokenProvider(): void {
+    this.tokenProvider = null
+  }
+
+  private async getAuthToken(): Promise<string> {
+    if (!this.tokenProvider) {
+      throw new Error('Authentication provider is not configured. Pass Clerk getToken() via setTokenProvider().')
     }
-    
-    return null
+
+    const token = await this.tokenProvider()
+    if (!token) {
+      throw new Error('Authentication required. Please sign in again.')
+    }
+
+    return token
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -37,9 +47,10 @@ class PythonApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` }),
+        'Authorization': `Bearer ${token}`,
         ...options.headers,
       },
+      signal: options.signal || timeoutSignal(REQUEST_TIMEOUT_MS),
     })
     
     if (!response.ok) {
@@ -57,7 +68,7 @@ class PythonApiClient {
   async testConnection(): Promise<boolean> {
     try {
       console.log('🔄 Testing Python backend connection...')
-      const response = await fetch(`${API_BASE_URL}/health`)
+      const response = await fetch(`${API_BASE_URL}/health`, { signal: timeoutSignal(REQUEST_TIMEOUT_MS) })
       const result = await response.json()
       
       if (response.ok && result.status === 'healthy') {
@@ -76,36 +87,21 @@ class PythonApiClient {
   async createHabit(habitData: Omit<Habit, 'id' | 'created_at' | 'updated_at'>): Promise<Habit> {
     console.log('🔄 Creating habit in Python backend:', habitData)
     
-    // Use main API endpoint (auth bypassed temporarily)
-    const result = await fetch(`${API_BASE_URL}/api/habits`, {
+    const result = await this.request<Habit>(`/api/habits`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(habitData)
     })
-    
-    const data = await result.json()
-    
-    if (result.ok) {
-      console.log('✅ Habit created in Python backend:', data)
-      return data
-    } else {
-      throw new Error(data.error || data.message || 'Failed to create habit')
-    }
+
+    console.log('✅ Habit created in Python backend:', result)
+    return result
   }
 
   async getHabits(): Promise<Habit[]> {
     console.log('🔄 Fetching habits from Python backend...')
     
-    // Use main API endpoint (auth bypassed temporarily)
-    const result = await fetch(`${API_BASE_URL}/api/habits`)
-    const data = await result.json()
-    
-    if (result.ok) {
-      console.log('✅ Habits fetched from Python backend:', data.length, 'habits')
-      return data
-    } else {
-      throw new Error(data.error || data.message || 'Failed to fetch habits')
-    }
+    const result = await this.request<Habit[]>(`/api/habits`)
+    console.log('✅ Habits fetched from Python backend:', result.length, 'habits')
+    return result
   }
 
   async updateHabit(id: string, updates: Partial<Habit>): Promise<Habit> {

@@ -11,9 +11,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Monitor, BarChart3, Globe, RefreshCw, X } from 'lucide-react'
 import { TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
 import { useComputerActivity } from '@/lib/computerActivity/useComputerActivity'
-import { SessionFlowTimeline, DailyStackedTimeline } from './SessionFlowTimeline'
 import { RankedBars } from './RankedBars'
-import { DeepDrillDrawer } from './DeepDrillDrawer'
 import { UsageBreakdownCard } from './UsageBreakdownCard'
 import { useUsageBreakdown } from '@/hooks/use-usage-breakdown'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
@@ -85,10 +83,6 @@ export function ComputerActivityPanel({
     range,
     setRange,
     refresh,
-    selectedSegment,
-    selectSegment,
-    drillDownData,
-    isDrillLoading,
   } = useComputerActivity({
     initialRange: '1D',
     autoRefresh: true,
@@ -180,20 +174,19 @@ export function ComputerActivityPanel({
     })
   }, [])
   
-  // Determine if we should show daily stacked view (for longer ranges)
-  const showDailyStacked = range === '30D' || range === '90D' || range === 'ALL'
-  
   const hasData = segments.length > 0 || apps.length > 0 || domains.length > 0
   
   // Format active time for display
   const activeTime = formatActiveTime(header.primaryValueMs)
+  const rangeDurationMs = Math.max(1, viewModel.range.end - viewModel.range.start)
+  const activePercent = Math.round((header.primaryValueMs / rangeDurationMs) * 100)
   
   return (
     <div className={`bg-white border border-gray-200 ${className}`}>
       {/* Header */}
       <div className="px-5 pt-4 pb-3">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-medium text-gray-900">Computer Activity</h2>
+          <h2 className="text-lg font-medium text-gray-900">Activity Breakdown</h2>
           <div className="flex items-center gap-1">
             <button
               onClick={refresh}
@@ -292,30 +285,20 @@ export function ComputerActivityPanel({
       {/* Content */}
       {!error && hasData && (
         <div className="px-5 pb-5 space-y-4">
-          {/* Active Time + Timeline Card */}
+          {/* Active Time Summary Card */}
           <div className="p-4 border border-gray-200 bg-white">
-            <div className="flex items-baseline gap-2 mb-4">
-              <span className="text-3xl font-semibold text-gray-900 tabular-nums">
-                {activeTime.value}{activeTime.unit}
-              </span>
-              <span className="text-sm text-gray-400">Active Time</span>
+            <div className="flex items-end gap-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-semibold text-gray-900 tabular-nums">
+                  {activeTime.value}{activeTime.unit}
+                </span>
+                <span className="text-sm text-gray-400">Active Time</span>
+              </div>
             </div>
-            
-            {/* Timeline */}
-            {showDailyStacked ? (
-              <DailyStackedTimeline
-                segments={segments}
-                range={viewModel.range}
-              />
-            ) : (
-              <SessionFlowTimeline
-                segments={segments}
-                range={viewModel.range}
-                onSelectSegment={selectSegment}
-                selectedSegmentId={selectedSegment?.id}
-                height={28}
-              />
-            )}
+
+            <div className="mt-2 text-sm text-gray-500 tabular-nums">
+              {activePercent}% of selected range · {apps.length} apps · {domains.length} sites
+            </div>
           </div>
 
           {/* App Usage Section - Two Cards */}
@@ -328,7 +311,7 @@ export function ComputerActivityPanel({
                 </h3>
                 <RankedBars 
                   items={apps} 
-                  maxVisible={activeTab === 'apps' ? 10 : 3} 
+                  maxVisible={Infinity} 
                   type="apps"
                   selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
                   onSelect={(item) => handleUsageSelect('app', item.key, item.label)}
@@ -367,7 +350,7 @@ export function ComputerActivityPanel({
                 </h3>
                 <RankedBars 
                   items={domains} 
-                  maxVisible={activeTab === 'websites' ? 10 : 5} 
+                  maxVisible={Infinity} 
                   type="domains"
                   selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
                   onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
@@ -398,15 +381,6 @@ export function ComputerActivityPanel({
               </div>
             )}
           </div>
-
-          {/* Deep Drill Drawer (when segment selected) */}
-          {(selectedSegment || isDrillLoading) && (
-            <DeepDrillDrawer
-              data={drillDownData}
-              isLoading={isDrillLoading}
-              onClose={() => selectSegment(null)}
-            />
-          )}
         </div>
       )}
       

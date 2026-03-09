@@ -18,6 +18,7 @@ mod database;
 mod dedup;
 mod metrics;
 mod ocr;
+mod spool;
 mod storage;
 mod thumbnail;
 #[cfg(target_os = "macos")]
@@ -36,10 +37,11 @@ use tracing::{debug, error, info, warn};
 
 use capture::ScreenCapture;
 use config::RecorderConfig;
-use database::{OcrFrame, RecorderDatabase};
+use database::{get_current_activity_from_watcher, OcrFrame, RecorderDatabase};
 use dedup::FrameDeduplicator;
 use metrics::RecorderMetrics;
 use ocr::OcrProcessor;
+use spool::OcrSpoolWriter;
 use storage::StorageManager;
 use thumbnail::ThumbnailGenerator;
 
@@ -49,12 +51,12 @@ use thumbnail::ThumbnailGenerator;
 #[command(about = "Screen recording with OCR for Ritual")]
 #[command(version)]
 pub struct Args {
-    /// Path to the frames database
-    #[arg(long, default_value = "~/.ritual/frames.db")]
+    /// Path to the memory database (OCR/chunks/embeddings)
+    #[arg(long, default_value = "~/.ritual/memory.db")]
     pub database: String,
 
-    /// Path to the watcher database (for activity correlation)
-    #[arg(long, default_value = "~/.ritual/watcher.db")]
+    /// Path to the activity database (for watcher correlation)
+    #[arg(long, default_value = "~/.ritual/activity.db")]
     pub watcher_db: String,
 
     /// Directory for thumbnails
@@ -255,7 +257,7 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
     config.ensure_directories()?;
 
     // Initialize components
-    let db = RecorderDatabase::new(config.frames_db_path.to_str().unwrap())?;
+    let _db = RecorderDatabase::new(config.frames_db_path.to_str().unwrap())?;
     let mut screen_capture = ScreenCapture::new(config)?;
     let mut deduplicator = if config.enable_dedup {
         Some(FrameDeduplicator::new(
@@ -272,8 +274,19 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
     };
     let thumbnail_generator = ThumbnailGenerator::new(config.thumbnail_dir.clone());
     thumbnail_generator.ensure_directory()?;
+    let spool_dir = config
+        .frames_db_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("ocr_spool");
+    let mut spool_writer = OcrSpoolWriter::new(spool_dir.clone())?;
+    info!(
+        "Recorder single-writer mode enabled: spooling OCR frames to {}",
+        spool_dir.display()
+    );
 
-    // Storage manager for periodic maintenance
+    // Storage manager for periodic status reporting.
+    // DB maintenance is delegated away from recorder in single-writer mode.
     let storage_manager = StorageManager::new(config);
     let mut last_maintenance = Instant::now();
     let maintenance_interval = Duration::from_secs(3600); // Every hour
@@ -285,8 +298,15 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
     // Track last OCR text for multi-signal deduplication
     let mut last_ocr_text: Option<String> = None;
     let mut last_stats = start_time;
+    let idle_fallback_ms = 10_000_i64;
+    let mut last_stored_timestamp: i64 = 0;
+    let mut last_focus_signature = String::new();
+    let mut last_activity_event_id: Option<i64> = None;
 
-    info!("Recorder initialized (no video encoding), starting capture loop");
+    info!(
+        "Recorder initialized with trigger-driven capture (idle fallback {}s), starting capture loop",
+        idle_fallback_ms / 1000
+    );
 
     // Main capture loop
     while running.load(Ordering::SeqCst) {
@@ -319,9 +339,9 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
         };
 
         // Check deduplication with multi-signal detection (timed)
-        // Note: OCR text from previous frame is used since OCR runs after dedup
+        // Note: OCR text from previous frame is used since OCR runs after dedup.
         let dedup_start = Instant::now();
-        let (should_store, image_hash) = if let Some(ref mut dedup) = deduplicator {
+        let (content_changed, image_hash) = if let Some(ref mut dedup) = deduplicator {
             dedup.should_store_with_context(
                 &capture_result.image,
                 capture_result.timestamp,
@@ -333,6 +353,54 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
             (true, "".to_string())
         };
         metrics.record_dedup_time(dedup_start.elapsed());
+
+        let activity = get_current_activity_from_watcher(
+            config.watcher_db_path.to_str().unwrap_or_default(),
+        )
+        .ok()
+        .flatten();
+        let focus_signature = capture_result
+            .focused_window
+            .as_ref()
+            .map(|win| {
+                format!(
+                    "{}::{}",
+                    win.bundle_id.clone().unwrap_or_default(),
+                    win.window_title
+                )
+            })
+            .or_else(|| {
+                activity.as_ref().map(|act| {
+                    format!(
+                        "{}::{}",
+                        act.bundle_id,
+                        act.window_title.clone().unwrap_or_default()
+                    )
+                })
+            })
+            .unwrap_or_default();
+
+        let focus_changed = !focus_signature.is_empty() && focus_signature != last_focus_signature;
+        let current_activity_event_id = activity.as_ref().map(|act| act.event_id);
+        let activity_changed = current_activity_event_id != last_activity_event_id;
+        let idle_due = last_stored_timestamp <= 0
+            || capture_result
+                .timestamp
+                .saturating_sub(last_stored_timestamp)
+                >= idle_fallback_ms;
+
+        let should_store = content_changed || focus_changed || activity_changed || idle_due;
+        let trigger_reason = if focus_changed {
+            "app_or_window_change"
+        } else if activity_changed {
+            "activity_event_change"
+        } else if content_changed {
+            "screen_change"
+        } else if idle_due {
+            "idle_fallback"
+        } else {
+            "suppressed"
+        };
 
         if !should_store {
             metrics.inc_deduped();
@@ -364,9 +432,6 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
             };
             metrics.record_ocr_time(ocr_start.elapsed());
 
-            // Get activity context from watcher
-            let activity = db.get_current_activity().ok().flatten();
-
             // Generate thumbnail for EVERY stored frame (timed)
             let thumb_start = Instant::now();
             let thumbnail_path = match thumbnail_generator
@@ -380,7 +445,7 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
             };
             metrics.record_thumbnail_time(thumb_start.elapsed());
 
-            // Store OCR frame in database (no video_chunk_id or frame_offset)
+            // Build OCR frame payload for watcher-owned DB writer.
             let (bundle_id, app_name, window_title, activity_id) =
                 if let Some(ref win) = capture_result.focused_window {
                     (
@@ -400,10 +465,13 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
                     (String::new(), String::new(), None, None)
                 };
 
+            let share_activity_fk = config.frames_db_path == config.watcher_db_path;
             let ocr_frame = OcrFrame {
                 id: None,
                 timestamp: capture_result.timestamp,
-                activity_event_id: activity_id,
+                // In split-DB mode, activity rows live in activity.db and OCR rows live in
+                // memory.db, so we intentionally avoid cross-file FK writes.
+                activity_event_id: if share_activity_fk { activity_id } else { None },
                 app_bundle_id: bundle_id,
                 app_name,
                 window_title,
@@ -417,8 +485,11 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
             };
 
             let db_start = Instant::now();
-            db.insert_ocr_frame(&ocr_frame)?;
+            spool_writer.enqueue_frame(&ocr_frame)?;
             metrics.record_db_insert_time(db_start.elapsed());
+            last_stored_timestamp = capture_result.timestamp;
+            last_focus_signature = focus_signature;
+            last_activity_event_id = current_activity_event_id;
 
             // Update last OCR text for multi-signal deduplication on next frame
             if !ocr_frame.ocr_text.is_empty() {
@@ -426,8 +497,9 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
             }
 
             debug!(
-                "Frame {} stored: OCR {} chars, confidence {:.2}, thumbnail: {}",
+                "Frame {} stored (trigger={}): OCR {} chars, confidence {:.2}, thumbnail: {}",
                 capture_result.frame_number,
+                trigger_reason,
                 ocr_frame.ocr_text.len(),
                 ocr_frame.ocr_confidence,
                 ocr_frame.thumbnail_path.is_some()
@@ -449,12 +521,9 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
             last_stats = Instant::now();
         }
 
-        // Run maintenance periodically
+        // In single-writer mode, avoid recorder-side DB maintenance writes.
         if last_maintenance.elapsed() >= maintenance_interval {
-            info!("Running scheduled storage maintenance");
-            if let Err(e) = storage_manager.run_maintenance(&db) {
-                error!("Storage maintenance failed: {}", e);
-            }
+            info!("Skipping recorder DB maintenance (single-writer mode)");
             last_maintenance = Instant::now();
         }
 

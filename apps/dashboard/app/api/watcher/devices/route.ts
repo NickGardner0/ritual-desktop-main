@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId,
+        'X-Internal-Key': process.env.INTERNAL_API_KEY || '',
       },
     });
 
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId,
+        'X-Internal-Key': process.env.INTERNAL_API_KEY || '',
       },
       body: JSON.stringify(body),
     });

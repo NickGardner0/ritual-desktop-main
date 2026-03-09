@@ -11,13 +11,12 @@
 //! events detected by the watcher's own window/AppleScript polling.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
-
-use crate::database::WatcherDatabase;
 
 /// Default port for the browser heartbeat server
 pub const DEFAULT_PORT: u16 = 8766;
@@ -27,6 +26,15 @@ const SESSION_TIMEOUT_MS: u64 = 45_000; // 45 seconds (extension sends every 20s
 /// Reject or clamp timestamps that are clearly invalid (clock skew / stale replay)
 const MAX_CLIENT_CLOCK_SKEW_MS: u64 = 60_000; // 60s future skew
 const MAX_BACKFILL_AGE_MS: u64 = 24 * 60 * 60 * 1000; // 24h
+/// Throttle write frequency when merging many heartbeats into the same session.
+/// We still keep the in-memory timestamp current and flush on close.
+const MERGE_DB_FLUSH_INTERVAL_MS: u64 = 12_000;
+/// Guard against rapid duplicate "create session" bursts from extension callbacks.
+/// If the same domain/url arrives within this window, treat it as merge.
+const DUPLICATE_CREATE_GUARD_MS: u64 = 5_000;
+/// When a create attempt is deferred (typically lock contention), suppress
+/// immediate retries for the same logical browser session key.
+const PENDING_CREATE_GUARD_MS: u64 = 10_000;
 
 /// Heartbeat payload from the browser extension
 #[derive(Debug, Clone, Deserialize)]
@@ -89,6 +97,8 @@ struct StatusResponse {
     active_session: bool,
     total_heartbeats: u64,
     total_sessions: u64,
+    deferred_writes: u64,
+    duplicate_suppressed: u64,
 }
 
 /// Current browser session state (for heartbeat merging)
@@ -103,11 +113,38 @@ struct BrowserSession {
     audible: bool,
     /// Last heartbeat timestamp (ms)
     last_heartbeat_ms: u64,
+    /// Last time a heartbeat request was received by this server.
+    /// Used for timeout/merge logic to avoid client clock skew issues.
+    last_received_ms: u64,
+    /// Last time we flushed ts_end to SQLite for this session
+    last_db_flush_ms: u64,
+}
+
+/// Database write commands sent to the watcher's single-writer loop.
+pub enum BrowserDbCommand {
+    InsertBrowserActivityEvent {
+        device_id: String,
+        user_id: String,
+        ts_start: u64,
+        ts_end: u64,
+        app_bundle_id: String,
+        app_name: String,
+        window_title: Option<String>,
+        browser_url: Option<String>,
+        browser_domain: Option<String>,
+        is_incognito: bool,
+        response: Sender<Result<i64, String>>,
+    },
+    UpdateEventEndTime {
+        event_id: i64,
+        ts_end: u64,
+        response: Sender<Result<(), String>>,
+    },
 }
 
 /// Shared state for the browser heartbeat server
 struct ServerState {
-    db: WatcherDatabase,
+    db_write_tx: Sender<BrowserDbCommand>,
     device_id: String,
     user_id: String,
     current_session: Option<BrowserSession>,
@@ -117,6 +154,11 @@ struct ServerState {
     track_incognito: bool,
     url_mode: String,
     last_extension_heartbeat_ms: Arc<AtomicU64>,
+    pending_create_domain: Option<String>,
+    pending_create_url: Option<String>,
+    pending_create_received_ms: u64,
+    deferred_writes: u64,
+    duplicate_suppressed: u64,
 }
 
 fn now_ms() -> u64 {
@@ -124,6 +166,28 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_millis() as u64
+}
+
+fn is_lock_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("database is locked")
+        || lower.contains("database busy")
+        || lower.contains("busy timeout")
+        || lower.contains("sql_busy")
+        || lower.contains("database table is locked")
+        || lower.contains("sqlite failure")
+        || lower.contains("timed out waiting")
+}
+
+fn normalize_domain_for_tracking(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let normalized = raw.trim().to_lowercase();
+        if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized)
+        }
+    })
 }
 
 /// Map browser name to a macOS bundle ID
@@ -192,7 +256,8 @@ fn normalize_heartbeat_timestamp(client_ts: Option<u64>, received_at: u64) -> u6
 fn close_current_session(state: &mut ServerState, ts_end: u64, reason: &str) {
     if let Some(session) = state.current_session.take() {
         let final_ts = ts_end.max(session.last_heartbeat_ms);
-        if let Err(e) = state.db.update_event_end_time(session.event_id, final_ts) {
+        if let Err(e) = queue_update_event_end_time(&state.db_write_tx, session.event_id, final_ts)
+        {
             error!(
                 "Failed to close browser session {}: {}",
                 session.event_id, e
@@ -206,12 +271,67 @@ fn close_current_session(state: &mut ServerState, ts_end: u64, reason: &str) {
     }
 }
 
+fn queue_update_event_end_time(
+    db_write_tx: &Sender<BrowserDbCommand>,
+    event_id: i64,
+    ts_end: u64,
+) -> Result<(), String> {
+    let (response_tx, response_rx) = mpsc::channel();
+    db_write_tx
+        .send(BrowserDbCommand::UpdateEventEndTime {
+            event_id,
+            ts_end,
+            response: response_tx,
+        })
+        .map_err(|e| format!("failed to send update_event_end_time command: {}", e))?;
+
+    response_rx
+        .recv_timeout(Duration::from_secs(15))
+        .map_err(|e| format!("timed out waiting for update_event_end_time: {}", e))?
+}
+
+#[allow(clippy::too_many_arguments)]
+fn queue_insert_browser_activity_event(
+    db_write_tx: &Sender<BrowserDbCommand>,
+    device_id: String,
+    user_id: String,
+    ts_start: u64,
+    ts_end: u64,
+    app_bundle_id: String,
+    app_name: String,
+    window_title: Option<String>,
+    browser_url: Option<String>,
+    browser_domain: Option<String>,
+    is_incognito: bool,
+) -> Result<i64, String> {
+    let (response_tx, response_rx) = mpsc::channel();
+    db_write_tx
+        .send(BrowserDbCommand::InsertBrowserActivityEvent {
+            device_id,
+            user_id,
+            ts_start,
+            ts_end,
+            app_bundle_id,
+            app_name,
+            window_title,
+            browser_url,
+            browser_domain,
+            is_incognito,
+            response: response_tx,
+        })
+        .map_err(|e| format!("failed to send insert_activity_event command: {}", e))?;
+
+    response_rx
+        .recv_timeout(Duration::from_secs(15))
+        .map_err(|e| format!("timed out waiting for insert_activity_event: {}", e))?
+}
+
 fn should_merge_with_session(
     session: &BrowserSession,
     incoming_domain: &Option<String>,
     incoming_url: &Option<String>,
     url_mode: &str,
-    event_ts: u64,
+    received_at: u64,
 ) -> bool {
     let same_domain = session.domain == *incoming_domain;
     let same_url = if url_mode == "full" {
@@ -219,7 +339,7 @@ fn should_merge_with_session(
     } else {
         true
     };
-    let within_timeout = event_ts.saturating_sub(session.last_heartbeat_ms) < SESSION_TIMEOUT_MS;
+    let within_timeout = received_at.saturating_sub(session.last_received_ms) < SESSION_TIMEOUT_MS;
     same_domain && same_url && within_timeout
 }
 
@@ -269,7 +389,7 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
     }
 
     // Determine the domain to track
-    let domain = match state.url_mode.as_str() {
+    let domain = normalize_domain_for_tracking(match state.url_mode.as_str() {
         "off" => None,
         "domain" => heartbeat
             .domain
@@ -279,7 +399,7 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
             .domain
             .clone()
             .or_else(|| heartbeat.url.as_ref().and_then(|u| extract_domain(u))),
-    };
+    });
 
     // Skip internal browser pages
     if let Some(ref url) = heartbeat.url {
@@ -301,7 +421,13 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
 
     // Check if we should merge with existing session or start a new one
     let should_merge = if let Some(ref session) = state.current_session {
-        should_merge_with_session(session, &domain, &heartbeat.url, &state.url_mode, event_ts)
+        should_merge_with_session(
+            session,
+            &domain,
+            &heartbeat.url,
+            &state.url_mode,
+            received_at,
+        )
     } else {
         false
     };
@@ -318,16 +444,38 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                 };
             }
         };
+        session.last_received_ms = received_at;
         session.last_heartbeat_ms = session.last_heartbeat_ms.max(event_ts);
         session.audible = heartbeat.audible;
 
-        // Update end time in DB
-        if let Err(e) = state
-            .db
-            .update_event_end_time(session.event_id, session.last_heartbeat_ms)
-        {
-            error!("Failed to update browser session end time: {}", e);
+        // Throttle DB writes to reduce lock contention under high heartbeat volume.
+        let due_for_flush = session
+            .last_heartbeat_ms
+            .saturating_sub(session.last_db_flush_ms)
+            >= MERGE_DB_FLUSH_INTERVAL_MS;
+        if due_for_flush {
+            if let Err(e) = queue_update_event_end_time(
+                &state.db_write_tx,
+                session.event_id,
+                session.last_heartbeat_ms,
+            ) {
+                if is_lock_error(&e) {
+                    state.deferred_writes = state.deferred_writes.saturating_add(1);
+                    debug!(
+                        "Deferred browser session {} ts_end flush due to lock contention",
+                        session.event_id
+                    );
+                } else {
+                    error!("Failed to update browser session end time: {}", e);
+                }
+            } else {
+                session.last_db_flush_ms = session.last_heartbeat_ms;
+            }
         }
+
+        state.pending_create_domain = None;
+        state.pending_create_url = None;
+        state.pending_create_received_ms = 0;
 
         debug!(
             "Extended browser session {} (domain: {:?}, audible: {})",
@@ -340,6 +488,41 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
             session_id: Some(session.event_id),
         }
     } else {
+        // Fallback duplicate guard: even if the strict merge predicate fails due to
+        // subtle extension payload variance, do not create a second session when the
+        // same logical tab/domain arrives almost immediately.
+        if let Some(session) = state.current_session.as_mut() {
+            let same_domain = session.domain == domain;
+            let within_guard =
+                received_at.saturating_sub(session.last_received_ms) <= DUPLICATE_CREATE_GUARD_MS;
+            // Domain-level duplicate suppression: rapid same-domain heartbeats should
+            // not create a second session even if URL/title jitter occurs.
+            if same_domain && within_guard {
+                session.last_received_ms = received_at;
+                session.last_heartbeat_ms = session.last_heartbeat_ms.max(event_ts);
+                session.audible = heartbeat.audible;
+                state.duplicate_suppressed = state.duplicate_suppressed.saturating_add(1);
+                return HeartbeatResponse {
+                    status: "merged".to_string(),
+                    message: Some("duplicate_guard".to_string()),
+                    session_id: Some(session.event_id),
+                };
+            }
+        }
+
+        let same_pending_create_domain = state.pending_create_domain == domain;
+        let pending_create_within_guard = state.pending_create_received_ms > 0
+            && received_at.saturating_sub(state.pending_create_received_ms)
+                <= PENDING_CREATE_GUARD_MS;
+        if same_pending_create_domain && pending_create_within_guard {
+            state.duplicate_suppressed = state.duplicate_suppressed.saturating_add(1);
+            return HeartbeatResponse {
+                status: "deferred".to_string(),
+                message: Some("pending_create_guard".to_string()),
+                session_id: None,
+            };
+        }
+
         // Close any existing session
         close_current_session(state, event_ts, "session key changed");
 
@@ -362,24 +545,24 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
         };
         let window_title = heartbeat.title.as_deref();
 
-        match state.db.insert_activity_event_with_source(
-            &state.device_id,
-            &state.user_id,
+        match queue_insert_browser_activity_event(
+            &state.db_write_tx,
+            state.device_id.clone(),
+            state.user_id.clone(),
             event_ts,
             event_ts,
-            bundle_id,
-            app_name,
-            window_title,
-            None,  // window_title_hash
-            None,  // window_owner_pid
-            false, // is_afk
-            tracked_url,
-            domain.as_deref(),
+            bundle_id.to_string(),
+            app_name.to_string(),
+            window_title.map(|v| v.to_string()),
+            tracked_url.map(|v| v.to_string()),
+            domain.clone(),
             heartbeat.incognito,
-            Some("browser_extension"),
         ) {
             Ok(event_id) => {
                 state.total_sessions += 1;
+                state.pending_create_domain = None;
+                state.pending_create_url = None;
+                state.pending_create_received_ms = 0;
                 info!(
                     "New browser session {} (domain: {:?}, audible: {}, browser: {})",
                     event_id, domain, heartbeat.audible, heartbeat.browser
@@ -391,6 +574,8 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                     url: tracked_url.map(|s| s.to_string()),
                     audible: heartbeat.audible,
                     last_heartbeat_ms: event_ts,
+                    last_received_ms: received_at,
+                    last_db_flush_ms: event_ts,
                 });
 
                 HeartbeatResponse {
@@ -400,11 +585,27 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                 }
             }
             Err(e) => {
-                error!("Failed to create browser session: {}", e);
-                HeartbeatResponse {
-                    status: "error".to_string(),
-                    message: Some(format!("Database error: {}", e)),
-                    session_id: None,
+                if is_lock_error(&e) {
+                    state.deferred_writes = state.deferred_writes.saturating_add(1);
+                    state.pending_create_domain = domain.clone();
+                    state.pending_create_url = tracked_url.map(|v| v.to_string());
+                    state.pending_create_received_ms = received_at;
+                    warn!(
+                        "Deferred browser session creation due to lock contention: {}",
+                        e
+                    );
+                    HeartbeatResponse {
+                        status: "deferred".to_string(),
+                        message: Some("lock_contention".to_string()),
+                        session_id: None,
+                    }
+                } else {
+                    error!("Failed to create browser session: {}", e);
+                    HeartbeatResponse {
+                        status: "error".to_string(),
+                        message: Some(format!("Database error: {}", e)),
+                        session_id: None,
+                    }
                 }
             }
         }
@@ -452,6 +653,8 @@ fn handle_request(state: &Arc<Mutex<ServerState>>, request: tiny_http::Request) 
                 active_session: state_guard.current_session.is_some(),
                 total_heartbeats: state_guard.total_heartbeats,
                 total_sessions: state_guard.total_sessions,
+                deferred_writes: state_guard.deferred_writes,
+                duplicate_suppressed: state_guard.duplicate_suppressed,
             };
 
             let body = serde_json::to_string(&status).unwrap_or_default();
@@ -540,30 +743,13 @@ pub fn start_server(
     url_mode: String,
     port: u16,
     last_extension_heartbeat_ms: Arc<AtomicU64>,
+    db_write_tx: Sender<BrowserDbCommand>,
 ) -> std::thread::JoinHandle<()> {
     info!("Starting browser heartbeat server on localhost:{}", port);
 
     std::thread::spawn(move || {
-        // Wait for the main watcher to finish database initialization first.
-        // Opening two connections simultaneously causes SQLite "database is locked"
-        // errors during migration. The migration can take 3-4 seconds, so we wait
-        // 10 seconds total to ensure the main watcher is fully initialized.
-        std::thread::sleep(Duration::from_secs(10));
-
-        // Open a separate database connection for the HTTP server thread
-        let db = match WatcherDatabase::new("") {
-            Ok(db) => db,
-            Err(e) => {
-                error!(
-                    "Failed to open database for browser heartbeat server: {}",
-                    e
-                );
-                return;
-            }
-        };
-
         let state = Arc::new(Mutex::new(ServerState {
-            db,
+            db_write_tx,
             device_id,
             user_id,
             current_session: None,
@@ -573,6 +759,11 @@ pub fn start_server(
             track_incognito,
             url_mode,
             last_extension_heartbeat_ms,
+            pending_create_domain: None,
+            pending_create_url: None,
+            pending_create_received_ms: 0,
+            deferred_writes: 0,
+            duplicate_suppressed: 0,
         }));
 
         // Bind to localhost only (security: don't expose to network)
@@ -613,8 +804,8 @@ pub fn start_server(
                     let mut state_guard = state.lock().unwrap();
                     let stale = state_guard.current_session.as_ref().and_then(|session| {
                         let now = now_ms();
-                        let elapsed = now.saturating_sub(session.last_heartbeat_ms);
-                        if is_session_stale(session.last_heartbeat_ms, now) {
+                        let elapsed = now.saturating_sub(session.last_received_ms);
+                        if is_session_stale(session.last_received_ms, now) {
                             Some((session.event_id, session.last_heartbeat_ms, elapsed))
                         } else {
                             None
@@ -654,6 +845,8 @@ mod tests {
             url: url.map(|u| u.to_string()),
             audible: false,
             last_heartbeat_ms,
+            last_received_ms: last_heartbeat_ms,
+            last_db_flush_ms: last_heartbeat_ms,
         }
     }
 

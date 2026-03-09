@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
         "X-User-ID": userId,
+        "X-Internal-Key": process.env.INTERNAL_API_KEY || "",
       },
     });
 

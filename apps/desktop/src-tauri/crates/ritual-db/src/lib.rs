@@ -151,7 +151,18 @@ impl RitualDatabase {
         let _ = conn.query("PRAGMA synchronous = NORMAL;", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+
+        // Wait for write locks under recorder/watcher concurrent writes (two
+        // processes share ritual.db; only one writer at a time).
+        let _ = conn.query("PRAGMA busy_timeout = 30000;", ())
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        // Keep WAL checkpoints bounded to reduce long writer stalls.
+        let _ = conn.query("PRAGMA wal_autocheckpoint = 1000;", ())
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         let _ = conn.query("PRAGMA cache_size = -2000;", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;

@@ -44,7 +44,7 @@ export const habitLogKeys = {
  * - Deduplicated requests
  */
 export function useHabitsQuery() {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const { getToken } = useAuth();
 
   return useQuery({
@@ -53,6 +53,7 @@ export function useHabitsQuery() {
       if (!user) throw new Error('No user');
 
       const token = await getToken();
+      if (!token) throw new Error('No auth token available');
       console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress);
 
       const response = await fetch(`${PYTHON_API_BASE}/api/habits`, {
@@ -70,7 +71,7 @@ export function useHabitsQuery() {
       console.log('✅ [React Query] Habits fetched:', habits.length);
       return habits as Habit[];
     },
-    enabled: !!user?.id,
+    enabled: isLoaded && !!user?.id,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }
@@ -79,7 +80,7 @@ export function useHabitsQuery() {
  * Fetch Habit Logs with React Query
  */
 export function useHabitLogsQuery() {
-  const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const { getToken } = useAuth();
 
   return useQuery({
@@ -88,6 +89,7 @@ export function useHabitLogsQuery() {
       if (!user) throw new Error('No user');
 
       const token = await getToken();
+      if (!token) throw new Error('No auth token available');
       console.log('🔄 [React Query] Fetching habit logs...');
 
       const response = await fetch(`${PYTHON_API_BASE}/api/habit-logs`, {
@@ -110,7 +112,7 @@ export function useHabitLogsQuery() {
       console.log('✅ [React Query] Habit logs fetched:', processedLogs.length);
       return processedLogs as HabitLog[];
     },
-    enabled: !!user?.id,
+    enabled: isLoaded && !!user?.id,
     staleTime: 1000 * 60 * 2, // 2 minutes (logs change more frequently)
   });
 }

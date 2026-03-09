@@ -6,7 +6,12 @@
 #![allow(dead_code)] // Public API - methods used by Tauri commands
 
 use ritual_db::blocking::BlockingDatabase;
-use tracing::{debug, info};
+use std::thread;
+use std::time::Duration;
+use tracing::{debug, info, warn};
+
+const DB_LOCK_RETRY_ATTEMPTS: usize = 20;
+const DB_LOCK_RETRY_BASE_MS: u64 = 50;
 
 /// Sync status for queued items
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -54,31 +59,100 @@ pub struct SyncQueue {
 }
 
 impl SyncQueue {
-    /// Create a new sync queue
-    /// Note: The path argument is ignored - we use the unified ritual.db
-    pub fn new(_path: &str) -> Result<Self, String> {
-        info!("Opening sync queue (unified ritual.db)");
+    fn is_lock_error(message: &str) -> bool {
+        let lower = message.to_lowercase();
+        lower.contains("database is locked")
+            || lower.contains("database busy")
+            || lower.contains("busy timeout")
+            || lower.contains("sql_busy")
+            || lower.contains("database table is locked")
+    }
 
-        let db = BlockingDatabase::open_default()
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    fn with_write_retry<T, F>(&self, op_name: &str, mut op: F) -> Result<T, String>
+    where
+        F: FnMut() -> Result<T, String>,
+    {
+        for attempt in 0..DB_LOCK_RETRY_ATTEMPTS {
+            match op() {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if !Self::is_lock_error(&err) || attempt + 1 >= DB_LOCK_RETRY_ATTEMPTS {
+                        return Err(err);
+                    }
+                    let sleep_ms = DB_LOCK_RETRY_BASE_MS * (1_u64 << attempt.min(6));
+                    warn!(
+                        "[sync-queue] {} hit lock contention (attempt {}/{}), retrying in {}ms",
+                        op_name,
+                        attempt + 1,
+                        DB_LOCK_RETRY_ATTEMPTS,
+                        sleep_ms
+                    );
+                    thread::sleep(Duration::from_millis(sleep_ms));
+                }
+            }
+        }
+        Err(format!(
+            "{} failed after {} retries due to lock contention",
+            op_name, DB_LOCK_RETRY_ATTEMPTS
+        ))
+    }
+
+    /// Create a new sync queue.
+    pub fn new(path: &str) -> Result<Self, String> {
+        info!(
+            "Opening sync queue database (activity.db split): {}",
+            path
+        );
+        let mut last_error: Option<String> = None;
+        let mut db: Option<BlockingDatabase> = None;
+        for attempt in 0..DB_LOCK_RETRY_ATTEMPTS {
+            match BlockingDatabase::open_with_path(path) {
+                Ok(opened) => {
+                    db = Some(opened);
+                    break;
+                }
+                Err(e) => {
+                    let err = format!("Failed to open database: {}", e);
+                    if !Self::is_lock_error(&err) || attempt + 1 >= DB_LOCK_RETRY_ATTEMPTS {
+                        return Err(err);
+                    }
+                    let sleep_ms = DB_LOCK_RETRY_BASE_MS * (1_u64 << attempt.min(6));
+                    warn!(
+                        "[sync-queue] open hit lock contention (attempt {}/{}), retrying in {}ms",
+                        attempt + 1,
+                        DB_LOCK_RETRY_ATTEMPTS,
+                        sleep_ms
+                    );
+                    last_error = Some(err);
+                    thread::sleep(Duration::from_millis(sleep_ms));
+                }
+            }
+        }
+        let db = db.ok_or_else(|| {
+            last_error.unwrap_or_else(|| "Failed to open sync queue database".to_string())
+        })?;
 
         Ok(Self { db })
     }
 
     /// Queue an activity event for full sync (new event)
     pub fn queue_activity_sync(&self, event_id: i64) -> Result<(), String> {
-        self.db
-            .queue_activity_sync(event_id)
-            .map_err(|e| e.to_string())?;
+        self.with_write_retry("queue_activity_sync", || {
+            self.db
+                .queue_activity_sync(event_id)
+                .map_err(|e| e.to_string())
+        })?;
         debug!("Queued activity event {} for sync", event_id);
         Ok(())
     }
 
     /// Queue an activity update (end time extended)
     pub fn queue_activity_update(&self, event_id: i64, ts_end: u64) -> Result<(), String> {
-        self.db
-            .queue_activity_update(event_id, ts_end as i64)
-            .map_err(|e| e.to_string())?;
+        self.with_write_retry("queue_activity_update", || {
+            self.db
+                .queue_activity_update(event_id, ts_end as i64)
+                .map_err(|e| e.to_string())
+        })?;
         debug!(
             "Queued activity update for event {} (end: {})",
             event_id, ts_end
@@ -112,14 +186,18 @@ impl SyncQueue {
 
     /// Mark an item as synced
     pub fn mark_synced(&self, queue_id: i64) -> Result<(), String> {
-        self.db.mark_synced(queue_id).map_err(|e| e.to_string())
+        self.with_write_retry("mark_synced", || {
+            self.db.mark_synced(queue_id).map_err(|e| e.to_string())
+        })
     }
 
     /// Mark an item as failed (will retry)
     pub fn mark_failed(&self, queue_id: i64) -> Result<(), String> {
-        self.db
-            .mark_sync_failed(queue_id)
-            .map_err(|e| e.to_string())
+        self.with_write_retry("mark_sync_failed", || {
+            self.db
+                .mark_sync_failed(queue_id)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Reset failed items to pending (for retry)

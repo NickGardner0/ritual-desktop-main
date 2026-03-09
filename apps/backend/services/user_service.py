@@ -3,12 +3,15 @@ User Service - Handles user profile and onboarding operations
 """
 
 import json
+import logging
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
 from database.models import UserDB
+
+logger = logging.getLogger(__name__)
 
 class UserService:
     """Service class for user operations"""
@@ -25,7 +28,7 @@ class UserService:
                 user = result.scalar_one_or_none()
                 return user
             except SQLAlchemyError as e:
-                print(f"❌ Database error getting user profile: {str(e)}")
+                logger.error(f"❌ Database error getting user profile: {str(e)}")
                 raise Exception(f"Failed to get user profile: {str(e)}")
     
     async def update_onboarding(
@@ -50,7 +53,7 @@ class UserService:
                 user = result.scalar_one_or_none()
                 
                 if not user:
-                    print(f"❌ User not found: {user_id}")
+                    logger.error(f"❌ User not found: {user_id}")
                     raise Exception(f"User not found with ID: {user_id}")
                 
                 # Update user profile
@@ -76,12 +79,12 @@ class UserService:
                 )
                 updated_user = result.scalar_one()
                 
-                print(f"✅ Successfully updated onboarding for user: {user_id}")
+                logger.info(f"✅ Successfully updated onboarding for user: {user_id}")
                 return updated_user
                 
             except SQLAlchemyError as e:
                 await session.rollback()
-                print(f"❌ Database error updating onboarding: {str(e)}")
+                logger.error(f"❌ Database error updating onboarding: {str(e)}")
                 raise Exception(f"Failed to update onboarding: {str(e)}")
     
     async def ensure_user_exists(self, user_id: str, email: str, full_name: Optional[str] = None) -> UserDB:
@@ -99,7 +102,7 @@ class UserService:
                 if user:
                     # Update email if it's the fallback format and we have a real email
                     if email and email != user.email and user.email.endswith("@clerk.user"):
-                        print(f"🔄 Updating email from fallback to: {email}")
+                        logger.info(f"🔄 Updating email from fallback to: {email}")
                         await session.execute(
                             update(UserDB)
                             .where(UserDB.id == user_id)
@@ -107,11 +110,11 @@ class UserService:
                         )
                         await session.commit()
                         await session.refresh(user)
-                    print(f"✅ User already exists: {user.email}")
+                    logger.info(f"✅ User already exists: {user.email}")
                     return user
                 
                 # Create new user with defaults
-                print(f"🆕 Creating new user: {email or user_id}")
+                logger.info(f"🆕 Creating new user: {email or user_id}")
                 
                 # Handle case where email might be None
                 default_name = full_name
@@ -131,13 +134,12 @@ class UserService:
                 session.add(new_user)
                 await session.commit()
                 
-                print(f"✅ Created new user: {email or user_id}")
+                logger.info(f"✅ Created new user: {email or user_id}")
                 return new_user
                 
             except SQLAlchemyError as e:
                 await session.rollback()
-                print(f"❌ Database error ensuring user exists: {str(e)}")
+                logger.error(f"❌ Database error ensuring user exists: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 raise Exception(f"Failed to ensure user exists: {str(e)}")
-

@@ -19,7 +19,6 @@ export function BrailleSpinner({
   const [frameIndex, setFrameIndex] = useState(0);
 
   useEffect(() => {
-    setFrameIndex(0);
     const id = window.setInterval(() => {
       setFrameIndex((current) => (current + 1) % spinner.frames.length);
     }, spinner.interval);

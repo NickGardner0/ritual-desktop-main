@@ -107,6 +107,39 @@ function buildDateTimeForUpdatedDate(nextDate: string, completedAt?: string): st
   return `${nextDate} ${time}`;
 }
 
+function readSavedViewsFromStorage(storageKey: string): SavedFilterView[] {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as SavedFilterView[];
+    return parsed
+      .filter((view) => view && view.id && view.name)
+      .map((view) => ({
+        ...view,
+        filters: cloneFilters(view.filters),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function readDensityFromStorage(storageKey: string): TableDensity {
+  if (typeof window === 'undefined') return 'comfortable';
+  const storedDensity = localStorage.getItem(storageKey);
+  return storedDensity === 'compact' || storedDensity === 'comfortable'
+    ? storedDensity
+    : 'comfortable';
+}
+
+function readTabFromStorage(storageKey: string): ActivityTab {
+  if (typeof window === 'undefined') return 'all';
+  const storedTab = localStorage.getItem(storageKey);
+  return storedTab === 'all' || storedTab === 'review' ? storedTab : 'all';
+}
+
 function getFiltersForPreset(presetId: BuiltInFilterPresetId): FilterState {
   const now = new Date();
 
@@ -144,9 +177,28 @@ function getFiltersForPreset(presetId: BuiltInFilterPresetId): FilterState {
   }
 }
 
+type ActivityClientInnerProps = {
+  userId: string | null;
+  getToken: () => Promise<string | null>;
+};
+
 export function ActivityClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
+
+  return (
+    <ActivityClientInner
+      key={user?.id ?? 'anonymous'}
+      userId={user?.id ?? null}
+      getToken={getToken}
+    />
+  );
+}
+
+function ActivityClientInner({ userId, getToken }: ActivityClientInnerProps) {
+  const savedViewsStorageKey = `ritual-logs-saved-views-${userId ?? 'anonymous'}`;
+  const densityStorageKey = `ritual-logs-density-${userId ?? 'anonymous'}`;
+  const tabStorageKey = `ritual-logs-tab-${userId ?? 'anonymous'}`;
 
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [sortColumn, setSortColumn] = useState<string | null>('date');
@@ -164,31 +216,16 @@ export function ActivityClient() {
     notes: false,
     actions: true,
   });
-  const [density, setDensity] = useState<TableDensity>('comfortable');
-  const [activeTab, setActiveTab] = useState<ActivityTab>('all');
-  const [savedViews, setSavedViews] = useState<SavedFilterView[]>([]);
+  const [density, setDensity] = useState<TableDensity>(() => readDensityFromStorage(densityStorageKey));
+  const [activeTab, setActiveTab] = useState<ActivityTab>(() => readTabFromStorage(tabStorageKey));
+  const [savedViews, setSavedViews] = useState<SavedFilterView[]>(() => readSavedViewsFromStorage(savedViewsStorageKey));
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const [localEdits, setLocalEdits] = useState<Record<string, Partial<HabitLog>>>({});
   const [updatingLogIds, setUpdatingLogIds] = useState<Record<string, boolean>>({});
 
-  const savedViewsStorageKey = useMemo(
-    () => `ritual-logs-saved-views-${user?.id || 'anonymous'}`,
-    [user?.id],
-  );
-
-  const densityStorageKey = useMemo(
-    () => `ritual-logs-density-${user?.id || 'anonymous'}`,
-    [user?.id],
-  );
-
-  const tabStorageKey = useMemo(
-    () => `ritual-logs-tab-${user?.id || 'anonymous'}`,
-    [user?.id],
-  );
-
   // Fetch habits for filter dropdown
   const { data: habitsData } = useQuery({
-    queryKey: ['habits', user?.id],
+    queryKey: ['habits', userId],
     queryFn: async () => {
       const token = await getToken();
       const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -198,7 +235,7 @@ export function ActivityClient() {
       if (!res.ok) throw new Error('Failed to fetch habits');
       return res.json();
     },
-    enabled: !!user?.id,
+    enabled: !!userId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -223,13 +260,13 @@ export function ActivityClient() {
 
   // Fetch habit logs with filters
   const { data: logsData, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['habit-logs', user?.id, queryParams],
+    queryKey: ['habit-logs', userId, queryParams],
     queryFn: async () => {
       const res = await fetch(`/api/analytics/habits/logs/all?${queryParams}`);
       if (!res.ok) throw new Error('Failed to fetch logs');
       return res.json();
     },
-    enabled: !!user?.id,
+    enabled: !!userId,
     staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
   });
@@ -400,65 +437,20 @@ export function ActivityClient() {
 
   const hasScopedFilters = hasFilters || activeTab === 'review';
 
-  // Hydrate saved views from local storage
   useEffect(() => {
-    if (!user?.id) return;
-
-    try {
-      const raw = localStorage.getItem(savedViewsStorageKey);
-      if (!raw) {
-        setSavedViews([]);
-        return;
-      }
-
-      const parsed = JSON.parse(raw) as SavedFilterView[];
-      const normalized = parsed
-        .filter((view) => view && view.id && view.name)
-        .map((view) => ({
-          ...view,
-          filters: cloneFilters(view.filters),
-        }));
-
-      setSavedViews(normalized);
-    } catch {
-      setSavedViews([]);
-    }
-  }, [savedViewsStorageKey, user?.id]);
-
-  useEffect(() => {
-    if (!user?.id) return;
+    if (!userId) return;
     localStorage.setItem(savedViewsStorageKey, JSON.stringify(savedViews));
-  }, [savedViews, savedViewsStorageKey, user?.id]);
-
-  // Hydrate density from local storage
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const storedDensity = localStorage.getItem(densityStorageKey);
-    if (storedDensity === 'compact' || storedDensity === 'comfortable') {
-      setDensity(storedDensity);
-    }
-  }, [densityStorageKey, user?.id]);
+  }, [savedViews, savedViewsStorageKey, userId]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!userId) return;
     localStorage.setItem(densityStorageKey, density);
-  }, [density, densityStorageKey, user?.id]);
-
-  // Hydrate active tab from local storage
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const storedTab = localStorage.getItem(tabStorageKey);
-    if (storedTab === 'all' || storedTab === 'review') {
-      setActiveTab(storedTab);
-    }
-  }, [tabStorageKey, user?.id]);
+  }, [density, densityStorageKey, userId]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!userId) return;
     localStorage.setItem(tabStorageKey, activeTab);
-  }, [activeTab, tabStorageKey, user?.id]);
+  }, [activeTab, tabStorageKey, userId]);
 
   // Handle filter changes
   const handleFilterChange = useCallback((newFilters: Partial<FilterState>) => {
@@ -587,8 +579,16 @@ export function ActivityClient() {
   }, [scopedLogs, hasScopedFilters]);
 
   // Selected logs for export bar
-  const selectedCount = Object.keys(rowSelection).length;
-  const selectedLogs = scopedLogs.filter((log) => rowSelection[log.id]);
+  const scopedLogIdSet = useMemo(() => new Set(scopedLogs.map((log) => log.id)), [scopedLogs]);
+  const sanitizedRowSelection = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(rowSelection).filter(([id, selected]) => selected && scopedLogIdSet.has(id)),
+      ),
+    [rowSelection, scopedLogIdSet],
+  );
+  const selectedCount = Object.keys(sanitizedRowSelection).length;
+  const selectedLogs = scopedLogs.filter((log) => sanitizedRowSelection[log.id]);
 
   const exportLogsToCsv = useCallback((logsToExport: HabitLog[]) => {
     if (!logsToExport.length) return;
@@ -643,21 +643,10 @@ export function ActivityClient() {
   }, []);
 
   const handleDeleteSelected = useCallback(() => {
-    const ids = Object.keys(rowSelection);
+    const ids = Object.keys(sanitizedRowSelection);
     if (!ids.length || deleteMutation.isPending) return;
     deleteMutation.mutate(ids);
-  }, [rowSelection, deleteMutation]);
-
-  // Keep selection stable when new data arrives (remove IDs no longer in table)
-  useEffect(() => {
-    setRowSelection((prev) => {
-      const validIds = new Set(scopedLogs.map((log) => log.id));
-      const next = Object.fromEntries(
-        Object.entries(prev).filter(([id, selected]) => selected && validIds.has(id)),
-      );
-      return next;
-    });
-  }, [scopedLogs]);
+  }, [sanitizedRowSelection, deleteMutation]);
 
   if (isLoading && logs.length === 0) {
     return <ActivityLoading />;
@@ -745,7 +734,7 @@ export function ActivityClient() {
       <div className="flex-1 overflow-hidden px-6">
         <HabitLogsDataTable
           logs={scopedLogs}
-          rowSelection={rowSelection}
+          rowSelection={sanitizedRowSelection}
           onRowSelectionChange={setRowSelection}
           columnVisibility={columnVisibility}
           sortColumn={sortColumn}

@@ -100,6 +100,7 @@ function UnifiedAnalyticsContent() {
   
   // Metrics view controls
   const [chartViewMode, setChartViewMode] = useState<'chart' | 'ticker'>('ticker');
+  const [summaryPanelOpen, setSummaryPanelOpen] = useState(false);
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const habitDropdownButtonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -407,6 +408,19 @@ function UnifiedAnalyticsContent() {
               <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
           </div>
+          <button
+            onClick={() => setSummaryPanelOpen(prev => !prev)}
+            className={`flex items-center justify-center w-8 h-8 border text-sm transition-colors ${
+              summaryPanelOpen
+                ? 'bg-gray-900 border-gray-900 text-white'
+                : 'bg-white border-gray-200 text-gray-500 hover:bg-[#F7F7F7]'
+            }`}
+            title="Habit summary"
+          >
+            <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 3.5h11M2 7.5h11M2 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+          </button>
         </div>
       )}
       
@@ -491,10 +505,12 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'metrics' && (
-            <MetricsView 
-              hideControls={true} 
+            <MetricsView
+              hideControls={true}
               externalChartViewMode={chartViewMode}
               onChartViewModeChange={setChartViewMode}
+              summaryPanelOpen={summaryPanelOpen}
+              onSummaryPanelChange={setSummaryPanelOpen}
             />
           )}
         </div>

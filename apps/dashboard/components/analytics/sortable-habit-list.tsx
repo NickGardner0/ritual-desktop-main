@@ -23,6 +23,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { StatsTooltip } from '@/components/stats-tooltip';
 import type { Habit } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { getHabitDisplayName } from '@/lib/computer-time-habit';
 
 const DynamicIcon = dynamic(() => import('@/components/ui/dynamic-icon'), {
   ssr: false,
@@ -86,6 +87,7 @@ function SortableHabitItem({
   confirmDelete,
   deletingHabit,
 }: SortableHabitItemProps) {
+  const displayName = getHabitDisplayName(habit.name);
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
   const {
     attributes,
@@ -121,10 +123,10 @@ function SortableHabitItem({
               <HabitIcon iconName={habit.icon} />
             )
           ) : (
-            <span className="text-base leading-none">{getHabitIcon(habit.name)}</span>
+            <span className="text-base leading-none">{getHabitIcon(displayName)}</span>
           )}
         </span>
-        <span className="text-[17px] font-normal text-gray-900 truncate">{habit.name}</span>
+        <span className="text-[17.5px] font-normal text-gray-900 truncate">{displayName}</span>
       </div>
       <div
         ref={metricTriggerRef}
@@ -134,7 +136,7 @@ function SortableHabitItem({
           setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '');
         }}
       >
-        <span className="text-[17px] font-normal text-gray-900 select-none tabular-nums">
+        <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">
           {getHabitMetricDisplay(
             habit, 
             scrubberHoveredDate && scrubberHoveredValues 

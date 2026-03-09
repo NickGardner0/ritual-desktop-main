@@ -16,12 +16,26 @@ export type WearableSource =
   | "fitbit";
 
 export type MetricType =
+  // Activity
   | "sleep_session"
+  | "sleep_asleep"
+  | "sleep_awake"
+  | "sleep_rem"
+  | "sleep_deep"
+  | "sleep_core"
   | "hr"
   | "hrv"
   | "steps"
   | "active_energy"
+  | "basal_energy"
+  | "distance"
+  | "flights_climbed"
+  | "exercise_time"
+  | "stand_time"
   | "resting_hr"
+  | "walking_hr"
+  | "respiratory_rate"
+  | "oxygen_saturation"
   | "workout"
   | "mindful_minutes";
 
@@ -32,7 +46,12 @@ export type Unit =
   | "kcal"
   | "seconds"
   | "minutes"
-  | "hours";
+  | "hours"
+  | "meters"
+  | "km"
+  | "miles"
+  | "percent"
+  | "breaths_per_minute";
 
 /**
  * Canonical normalized metric format for all wearable data sources.
@@ -69,6 +88,12 @@ export interface NormalizedMetric {
   device_id?: string;
   /** Stable ID from source (e.g., Apple Health sample UUID) */
   external_id?: string;
+  /** Source app bundle ID (e.g., com.apple.health) */
+  source_bundle_id?: string;
+  /** Source device name (e.g., Apple Watch Series 9) */
+  source_device_name?: string;
+  /** Day this metric belongs to in UI (YYYY-MM-DD) */
+  attributed_date?: string;
 
   // Metadata
   /** ISO8601 timestamp when the metric was captured on device */

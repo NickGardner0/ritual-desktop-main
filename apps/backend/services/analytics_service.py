@@ -11,6 +11,7 @@ All calculations follow the rule: Average = Total / Days with Data (not per entr
 """
 
 import math
+import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any, Tuple
 from collections import defaultdict
@@ -19,6 +20,8 @@ from sqlalchemy import select, and_, or_
 
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyticsService:
@@ -249,7 +252,7 @@ class AnalyticsService:
                             display_hour = 12
                         log_time = f"{display_hour}:{minute:02d}{period}"
                     except Exception as e:
-                        print(f"Time parsing error: {e}")
+                        logger.info(f"Time parsing error: {e}")
                         pass
                 
                 # Keep only requested local date range when timezone conversion is applied.

@@ -9,6 +9,7 @@ struct RitualCompanionApp: App {
     
     /// Use V2 sync manager for incremental sync, offline queue, etc.
     private let syncManager = BackgroundSyncManagerV2.shared
+    private let notificationManager = NotificationManager.shared
     
     init() {
         // Configure Clerk early in app lifecycle
@@ -38,6 +39,12 @@ struct RitualCompanionApp: App {
                     // Handle token expiration - force re-auth
                     handleRequiresReauth()
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .syncActionRequired)) { notification in
+                    handleSyncActionRequired(notification)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .syncRetryCompleted)) { notification in
+                    handleSyncRetryCompleted(notification)
+                }
         }
     }
     
@@ -64,11 +71,7 @@ struct RitualCompanionApp: App {
                     
                     // Update the UI with the latest sync time
                     await MainActor.run {
-                        if let syncTime = syncManager.lastSyncTime {
-                            appState.lastSyncTime = syncTime
-                        }
-                        // Update sync status
-                        appState.syncStatus = syncManager.syncStatus
+                        appState.refreshSyncDiagnostics()
                     }
                 }
             }
@@ -98,7 +101,7 @@ struct RitualCompanionApp: App {
         
         // Update sync status
         Task { @MainActor in
-            appState.syncStatus = syncManager.syncStatus
+            appState.refreshSyncDiagnostics()
         }
     }
     
@@ -109,6 +112,26 @@ struct RitualCompanionApp: App {
         Task { @MainActor in
             // Disconnect and force sign-in again
             await appState.disconnect()
+        }
+    }
+
+    private func handleSyncActionRequired(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+        guard let rawReason = userInfo["reason"] as? String,
+              let reason = SyncActionRequiredReason(rawValue: rawReason) else { return }
+        let message = userInfo["message"] as? String
+        notificationManager.sendActionRequired(reason, message: message)
+    }
+
+    private func handleSyncRetryCompleted(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+        let failedDays = (userInfo["failedDays"] as? [String]) ?? []
+        let syncedMetricCount = userInfo["syncedMetricCount"] as? Int ?? 0
+        if !failedDays.isEmpty {
+            notificationManager.sendRetryCompleted(
+                remainingFailedDays: failedDays.count,
+                syncedMetricCount: syncedMetricCount
+            )
         }
     }
 }

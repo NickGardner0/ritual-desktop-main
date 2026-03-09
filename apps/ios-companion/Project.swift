@@ -28,7 +28,8 @@ let project = Project(
                 "ITSAppUsesNonExemptEncryption": false,
                 // Background task registration - required for BGTaskScheduler
                 "BGTaskSchedulerPermittedIdentifiers": [
-                    "com.ritual.companion.healthsync"
+                    "com.ritual.companion.healthsync",
+                    "com.ritual.companion.healthsync.v2"
                 ],
                 // Enable background modes for fetch and processing
                 "UIBackgroundModes": [
@@ -55,6 +56,18 @@ let project = Project(
             ]),
             dependencies: [
                 .package(product: "Clerk")
+            ]
+        ),
+        .target(
+            name: "RitualCompanionTests",
+            destinations: .iOS,
+            product: .unitTests,
+            bundleId: "com.ritual.companion.tests",
+            deploymentTargets: .iOS("17.0"),
+            infoPlist: .default,
+            sources: ["Tests/**"],
+            dependencies: [
+                .target(name: "RitualCompanion")
             ]
         ),
     ]

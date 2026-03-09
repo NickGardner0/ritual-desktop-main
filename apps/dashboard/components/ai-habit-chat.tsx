@@ -156,6 +156,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const router = useRouter();
   const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
 
+  useEffect(() => {
+    router.prefetch('/chat');
+  }, [router]);
+
   const screenshotHabitOptions = useMemo<HabitOption[]>(() => {
     if (!screenshotPreview) return [];
 
@@ -301,6 +305,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       setInput('');
       setIsFocused(false);
       trackAIChatMessageSent({ messageLength: question.length });
+      router.prefetch('/chat');
       router.push(`/chat?q=${encodeURIComponent(question)}`);
       return;
     }
@@ -438,6 +443,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       setInput('');
       setError(null);
       trackAIChatMessageSent({ messageLength: inputText.length });
+      router.prefetch('/chat');
       router.push(`/chat?q=${encodeURIComponent(inputText)}`);
       return;
     }

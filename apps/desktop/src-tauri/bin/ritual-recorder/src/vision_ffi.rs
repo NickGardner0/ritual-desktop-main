@@ -16,6 +16,7 @@ use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send, msg_send_id};
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSError, NSString};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use tracing::{debug, trace};
 
 /// CGRect-compatible struct for receiving bounding box from Vision
@@ -123,7 +124,22 @@ pub fn recognize_text(
     image_data: &[u8],
     level: VNRequestTextRecognitionLevel,
 ) -> Result<VisionOcrResult, String> {
-    autoreleasepool(|_pool| unsafe { recognize_text_impl(image_data, level) })
+    // Guard Objective-C bridge calls from unwinding past FFI boundaries.
+    match catch_unwind(AssertUnwindSafe(|| {
+        autoreleasepool(|_pool| unsafe { recognize_text_impl(image_data, level) })
+    })) {
+        Ok(result) => result,
+        Err(payload) => {
+            let reason = if let Some(msg) = payload.downcast_ref::<&str>() {
+                (*msg).to_string()
+            } else if let Some(msg) = payload.downcast_ref::<String>() {
+                msg.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            Err(format!("Vision bridge panic: {}", reason))
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -151,7 +167,7 @@ unsafe fn recognize_text_impl(
 unsafe fn create_nsdata_from_bytes(bytes: &[u8]) -> Result<Retained<NSData>, String> {
     let data: Option<Retained<NSData>> = msg_send_id![
         class!(NSData),
-        dataWithBytes: bytes.as_ptr(),
+        dataWithBytes: bytes.as_ptr().cast::<std::ffi::c_void>(),
         length: bytes.len()
     ];
     data.ok_or_else(|| "Failed to create NSData from bytes".to_string())

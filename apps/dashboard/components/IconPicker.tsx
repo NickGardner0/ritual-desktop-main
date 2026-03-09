@@ -138,6 +138,7 @@ export default function IconPicker({
   const [scrollTop, setScrollTop] = React.useState(0);
   const anchorRef = React.useRef<HTMLButtonElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
+  const [portalHost, setPortalHost] = React.useState<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = React.useState({ left: 0, top: 0, width: 420, maxH: 400 });
 
   const floatingStyle = useFloatingWithinCard(
@@ -152,6 +153,10 @@ export default function IconPicker({
     const id = setTimeout(() => setDebounced(search), 120);
     return () => clearTimeout(id);
   }, [search]);
+
+  React.useEffect(() => {
+    setPortalHost(portalRef?.current ?? null);
+  }, [open, portalRef]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -277,7 +282,8 @@ export default function IconPicker({
     setOpen(true);
   };
 
-  const viewportHeight = portalRef?.current ? 260 : Math.max(200, menuPos.maxH - 80);
+  const useCardPortal = Boolean(portalHost);
+  const viewportHeight = useCardPortal ? 260 : Math.max(200, menuPos.maxH - 80);
   const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
   const endIndex = Math.min(list.length, startIndex + visibleCount);
@@ -287,12 +293,12 @@ export default function IconPicker({
     <div
       ref={menuRef}
       style={
-        portalRef?.current
+        useCardPortal
           ? floatingStyle
           : { left: menuPos.left, top: menuPos.top, width: menuPos.width, maxHeight: menuPos.maxH }
       }
       className={
-        portalRef?.current
+        useCardPortal
           ? 'flex flex-col overflow-hidden border border-gray-300 bg-white shadow-lg'
           : 'fixed z-[100000] overflow-hidden border border-gray-300 bg-white shadow-2xl'
       }
@@ -405,7 +411,7 @@ export default function IconPicker({
 
       {open &&
         typeof window !== 'undefined' &&
-        (portalRef?.current ? createPortal(menu, portalRef.current) : createPortal(menu, document.body))}
+        createPortal(menu, portalHost ?? document.body)}
     </>
   );
 }

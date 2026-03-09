@@ -23,10 +23,7 @@ export function StatsTooltip({ open, triggerRef, children }: StatsTooltipProps) 
   const contentRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
-    if (!open || !triggerRef?.current || typeof document === 'undefined') {
-      setPosition(null);
-      return;
-    }
+    if (!open || !triggerRef?.current || typeof document === 'undefined') return;
 
     const updatePosition = () => {
       const trigger = triggerRef.current;

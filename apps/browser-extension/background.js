@@ -18,12 +18,14 @@ import {
 // ============================================================
 
 const CONFIG = {
-  serverUrls: [
+  defaultServerUrls: [
     'http://127.0.0.1:8766',
     'http://127.0.0.1:8767',
     'http://localhost:8766',
     'http://localhost:8767',
   ],
+  serverUrlsStorageKey: 'serverUrls',
+  activeServerUrlStorageKey: 'serverUrl',
   heartbeatAlarmName: 'ritual-heartbeat',
   heartbeatIntervalSeconds: 20,
   minimumAlarmMinutes: 0.5, // Chrome may clamp to platform minimum
@@ -32,6 +34,8 @@ const CONFIG = {
   idleDetectionSeconds: 300, // 5 minutes
   maxOfflineQueue: 50,
   requestTimeoutMs: 2000,
+  reconnectBaseDelayMs: 1000,
+  reconnectMaxDelayMs: 60000,
 };
 
 // ============================================================
@@ -42,12 +46,79 @@ let currentTab = null;
 let browserFocused = true;
 let idleState = 'active';
 let serverConnected = false;
-let activeServerUrl = CONFIG.serverUrls[0];
+let serverUrls = [...CONFIG.defaultServerUrls];
+let activeServerUrl = serverUrls[0];
 let lastHeartbeatTime = 0;
 let totalHeartbeatsSent = 0;
 let totalErrors = 0;
 let cachedTabCount = 0;
 let isReplayingQueue = false;
+let reconnectAttempts = 0;
+let nextReconnectAllowedAt = 0;
+
+function normalizeServerUrl(candidate) {
+  if (!candidate || typeof candidate !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeServerUrls(candidates) {
+  if (!Array.isArray(candidates)) {
+    return [...CONFIG.defaultServerUrls];
+  }
+
+  const normalized = candidates
+    .map((candidate) => normalizeServerUrl(candidate))
+    .filter((value) => Boolean(value));
+
+  return normalized.length > 0
+    ? [...new Set(normalized)]
+    : [...CONFIG.defaultServerUrls];
+}
+
+async function loadServerConfig() {
+  try {
+    const result = await chrome.storage.local.get([
+      CONFIG.serverUrlsStorageKey,
+      CONFIG.activeServerUrlStorageKey,
+    ]);
+
+    serverUrls = sanitizeServerUrls(result[CONFIG.serverUrlsStorageKey]);
+
+    const persistedActiveServer = normalizeServerUrl(result[CONFIG.activeServerUrlStorageKey]);
+    if (persistedActiveServer && serverUrls.includes(persistedActiveServer)) {
+      activeServerUrl = persistedActiveServer;
+    } else if (!serverUrls.includes(activeServerUrl)) {
+      activeServerUrl = serverUrls[0];
+    }
+  } catch (e) {
+    console.debug('Failed to load server config:', e.message);
+    serverUrls = [...CONFIG.defaultServerUrls];
+    if (!serverUrls.includes(activeServerUrl)) {
+      activeServerUrl = serverUrls[0];
+    }
+  }
+}
+
+async function persistActiveServerUrl() {
+  try {
+    await chrome.storage.local.set({
+      [CONFIG.activeServerUrlStorageKey]: activeServerUrl,
+    });
+  } catch (e) {
+    console.debug('Failed to persist active server URL:', e.message);
+  }
+}
 
 // ============================================================
 // Browser Detection
@@ -140,7 +211,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
 async function postHeartbeatPayload(payload) {
   let lastError = null;
 
-  for (const baseUrl of getServerCandidates(activeServerUrl, CONFIG.serverUrls)) {
+  for (const baseUrl of getServerCandidates(activeServerUrl, serverUrls)) {
     try {
       const response = await fetchWithTimeout(
         `${baseUrl}/api/heartbeat`,
@@ -159,6 +230,7 @@ async function postHeartbeatPayload(payload) {
 
       const result = await response.json().catch(() => ({ status: 'ok' }));
       activeServerUrl = baseUrl;
+      await persistActiveServerUrl();
       return { ok: true, result, serverUrl: baseUrl };
     } catch (e) {
       lastError = e;
@@ -166,6 +238,24 @@ async function postHeartbeatPayload(payload) {
   }
 
   return { ok: false, error: lastError };
+}
+
+function resetReconnectBackoff() {
+  reconnectAttempts = 0;
+  nextReconnectAllowedAt = 0;
+}
+
+function scheduleReconnectBackoff() {
+  reconnectAttempts += 1;
+  const exponentialDelay = CONFIG.reconnectBaseDelayMs * (2 ** (reconnectAttempts - 1));
+  const delayMs = Math.min(CONFIG.reconnectMaxDelayMs, exponentialDelay);
+  nextReconnectAllowedAt = Date.now() + delayMs;
+  return delayMs;
+}
+
+function getReconnectWaitMs() {
+  const waitMs = nextReconnectAllowedAt - Date.now();
+  return waitMs > 0 ? waitMs : 0;
 }
 
 // ============================================================
@@ -203,6 +293,7 @@ async function sendHeartbeat(tab, options = {}) {
     serverConnected = true;
     lastHeartbeatTime = Date.now();
     totalHeartbeatsSent++;
+    resetReconnectBackoff();
 
     if (!options.skipReplay) {
       await replayOfflineQueue();
@@ -217,7 +308,9 @@ async function sendHeartbeat(tab, options = {}) {
 
   serverConnected = false;
   totalErrors++;
+  const retryDelayMs = scheduleReconnectBackoff();
   console.debug('Heartbeat failed:', result.error?.message || 'unknown error');
+  console.debug(`Next reconnect attempt in ${retryDelayMs}ms`);
 
   if (options.queueOnFail !== false) {
     await queueOfflineEvent(heartbeat);
@@ -297,6 +390,15 @@ async function replayOfflineQueue() {
 // ============================================================
 
 async function heartbeat(reason = 'periodic', options = {}) {
+  if (!options.ignoreBackoff) {
+    const waitMs = getReconnectWaitMs();
+    if (waitMs > 0) {
+      console.debug(`Heartbeat skipped (${reason}): reconnect backoff ${waitMs}ms remaining`);
+      await updateStatus();
+      return;
+    }
+  }
+
   const tab = await getActiveTab();
   if (!tab) {
     console.debug(`Heartbeat skipped (${reason}): no active tab`);
@@ -413,13 +515,15 @@ async function updateStatus() {
       browserFocused,
       idleState,
       tabCount: getKnownTabCount(),
+      reconnectAttempts,
+      reconnectInMs: getReconnectWaitMs(),
     },
   });
 }
 
 async function checkServerStatus() {
   let lastError = null;
-  for (const baseUrl of getServerCandidates(activeServerUrl, CONFIG.serverUrls)) {
+  for (const baseUrl of getServerCandidates(activeServerUrl, serverUrls)) {
     try {
       const response = await fetchWithTimeout(
         `${baseUrl}/api/status`,
@@ -432,6 +536,7 @@ async function checkServerStatus() {
       }
       const data = await response.json();
       activeServerUrl = baseUrl;
+      await persistActiveServerUrl();
       serverConnected = true;
       return { connected: true, serverUrl: baseUrl, ...data };
     } catch (e) {
@@ -450,12 +555,15 @@ async function checkServerStatus() {
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.info(`Ritual Browser Tracker installed (${details.reason})`);
 
+  await loadServerConfig();
   scheduleHeartbeatAlarm();
   await refreshTabCount();
 
   await chrome.storage.local.set({
     enabled: true,
     offlineQueue: [],
+    [CONFIG.serverUrlsStorageKey]: serverUrls,
+    [CONFIG.activeServerUrlStorageKey]: activeServerUrl,
     status: {
       connected: false,
       serverUrl: activeServerUrl,
@@ -476,9 +584,21 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 chrome.runtime.onStartup.addListener(async () => {
   console.info('Ritual Browser Tracker starting (browser opened)');
+  await loadServerConfig();
   scheduleHeartbeatAlarm();
   await refreshTabCount();
   await heartbeat('startup');
+});
+
+chrome.storage.onChanged.addListener(async (changes, areaName) => {
+  if (areaName !== 'local') {
+    return;
+  }
+
+  if (changes[CONFIG.serverUrlsStorageKey] || changes[CONFIG.activeServerUrlStorageKey]) {
+    await loadServerConfig();
+    await updateStatus();
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -490,7 +610,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'forceHeartbeat') {
-    heartbeat('manual').then(() => {
+    heartbeat('manual', { ignoreBackoff: true }).then(() => {
       sendResponse({ ok: true });
     });
     return true;
@@ -507,5 +627,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Boot-time initialization for service worker restarts.
-refreshTabCount().then(() => heartbeat('service-worker-start'));
+loadServerConfig().then(() => refreshTabCount().then(() => heartbeat('service-worker-start')));
 console.info(`Ritual Browser Tracker loaded (browser: ${BROWSER_NAME})`);

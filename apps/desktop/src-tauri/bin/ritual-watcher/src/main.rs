@@ -14,11 +14,16 @@
 #![allow(dead_code)] // Some fields are kept for future use and debugging
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
+use ritual_db::{OcrFrame as RitualOcrFrame, StorageTier as RitualStorageTier};
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::{debug, error, info, warn};
 
@@ -44,6 +49,7 @@ mod window_observer;
 
 use afk::{AfkState, AfkWatcher};
 use browser::{get_browser_info, is_browser};
+use browser_heartbeat_server::BrowserDbCommand;
 use config::{TitleMode, UrlMode, WatcherConfig};
 use database::WatcherDatabase;
 use macos::get_active_window_info;
@@ -62,7 +68,7 @@ use window_observer::{observe_app, WindowChangeListener};
 #[command(about = "macOS computer activity tracker for Ritual")]
 struct Args {
     /// Path to the SQLite database
-    #[arg(short, long, default_value = "~/.ritual/watcher.db")]
+    #[arg(short, long, default_value = "~/.ritual/activity.db")]
     database: String,
 
     /// Device ID (UUID)
@@ -176,12 +182,191 @@ impl std::fmt::Display for SessionCloseReason {
 
 // Keep old struct name as alias for compatibility
 type CurrentActivity = CurrentSession;
+static BROWSER_DB_LOCK_ERRORS: AtomicU64 = AtomicU64::new(0);
+const RECORDER_SPOOL_MAX_FILES_PER_TICK: usize = 256;
+
+#[derive(Debug, Deserialize)]
+struct RecorderSpoolFrame {
+    timestamp: i64,
+    activity_event_id: Option<i64>,
+    app_bundle_id: String,
+    app_name: String,
+    window_title: Option<String>,
+    ocr_text: String,
+    ocr_confidence: f64,
+    thumbnail_path: Option<String>,
+    video_chunk_id: Option<i64>,
+    frame_offset: Option<i64>,
+    image_hash: String,
+    storage_tier: String,
+}
+
+impl RecorderSpoolFrame {
+    fn to_ritual_frame(&self) -> RitualOcrFrame {
+        let mut frame = RitualOcrFrame::new(
+            self.timestamp,
+            &self.app_bundle_id,
+            &self.app_name,
+            &self.ocr_text,
+            &self.image_hash,
+        );
+        frame.activity_event_id = self.activity_event_id;
+        frame.window_title = self.window_title.clone();
+        frame.ocr_confidence = self.ocr_confidence;
+        frame.thumbnail_path = self.thumbnail_path.clone();
+        frame.video_chunk_id = self.video_chunk_id;
+        frame.frame_offset = self.frame_offset;
+        frame.storage_tier = match self.storage_tier.trim().to_ascii_lowercase().as_str() {
+            "warm" => RitualStorageTier::Warm,
+            "cold" => RitualStorageTier::Cold,
+            _ => RitualStorageTier::Hot,
+        };
+        frame
+    }
+}
 
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_millis() as u64
+}
+
+fn is_db_lock_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("database is locked")
+        || lower.contains("database busy")
+        || lower.contains("busy timeout")
+        || lower.contains("sql_busy")
+        || lower.contains("database table is locked")
+        || lower.contains("sqlite failure")
+}
+
+fn recorder_spool_dir(database_path: &str) -> PathBuf {
+    Path::new(database_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("ocr_spool")
+}
+
+fn derive_memory_db_path(activity_db_path: &str) -> String {
+    let activity_path = Path::new(activity_db_path);
+    let parent = activity_path.parent().unwrap_or_else(|| Path::new("."));
+    parent.join("memory.db").to_string_lossy().to_string()
+}
+
+fn recorder_spool_deadletter_dir(spool_dir: &Path) -> PathBuf {
+    spool_dir.join("deadletter")
+}
+
+fn list_spool_files(spool_dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = match fs::read_dir(spool_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|path| path.is_file())
+            .filter(|path| path.extension().map(|ext| ext == "json").unwrap_or(false))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    files.sort();
+    files
+}
+
+fn move_to_deadletter(path: &Path, deadletter_dir: &Path) {
+    if let Err(err) = fs::create_dir_all(deadletter_dir) {
+        warn!(
+            "Failed to create recorder deadletter dir {}: {}",
+            deadletter_dir.display(),
+            err
+        );
+        return;
+    }
+
+    let fallback_name = format!("invalid_{}_{}.json", std::process::id(), now_ms());
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or(fallback_name);
+    let target = deadletter_dir.join(file_name);
+
+    if let Err(err) = fs::rename(path, &target) {
+        warn!(
+            "Failed to move invalid recorder spool {} to {}: {}",
+            path.display(),
+            target.display(),
+            err
+        );
+        if let Err(remove_err) = fs::remove_file(path) {
+            warn!(
+                "Failed to remove invalid recorder spool {}: {}",
+                path.display(),
+                remove_err
+            );
+        }
+    }
+}
+
+fn drain_recorder_spool(
+    db: &WatcherDatabase,
+    spool_dir: &Path,
+    max_files: usize,
+) -> (usize, usize) {
+    let files = list_spool_files(spool_dir);
+    if files.is_empty() {
+        return (0, 0);
+    }
+
+    let mut ingested = 0usize;
+    let mut invalid = 0usize;
+    let deadletter_dir = recorder_spool_deadletter_dir(spool_dir);
+
+    for path in files.into_iter().take(max_files.max(1)) {
+        let payload = match fs::read_to_string(&path) {
+            Ok(raw) => match serde_json::from_str::<RecorderSpoolFrame>(&raw) {
+                Ok(payload) => payload,
+                Err(err) => {
+                    invalid = invalid.saturating_add(1);
+                    warn!("Invalid recorder spool JSON {}: {}", path.display(), err);
+                    move_to_deadletter(&path, &deadletter_dir);
+                    continue;
+                }
+            },
+            Err(err) => {
+                invalid = invalid.saturating_add(1);
+                warn!("Failed to read recorder spool {}: {}", path.display(), err);
+                move_to_deadletter(&path, &deadletter_dir);
+                continue;
+            }
+        };
+
+        let frame = payload.to_ritual_frame();
+        match db.insert_ocr_frame(&frame) {
+            Ok(_) => {
+                if let Err(err) = fs::remove_file(&path) {
+                    warn!(
+                        "Recorder spool ingested but failed to remove {}: {}",
+                        path.display(),
+                        err
+                    );
+                }
+                ingested = ingested.saturating_add(1);
+            }
+            Err(err) => {
+                // Keep file in place for retry on the next tick.
+                if !is_db_lock_error(&err) {
+                    warn!(
+                        "Failed to ingest recorder spool {}: {}",
+                        path.display(),
+                        err
+                    );
+                }
+                break;
+            }
+        }
+    }
+
+    (ingested, invalid)
 }
 
 fn hash_title(title: &str) -> String {
@@ -256,14 +441,30 @@ fn main() {
         pulsetime_seconds: (args.poll_interval as f64 / 1000.0) + 1.0,
     };
 
-    // Initialize database
+    // Initialize activity database (watcher events + sync queue).
     let db = match WatcherDatabase::new(&config.database_path) {
         Ok(db) => {
-            info!("✅ Database connected: {}", config.database_path);
+            info!("✅ Activity database connected: {}", config.database_path);
             db
         }
         Err(e) => {
-            error!("❌ Failed to connect to database: {}", e);
+            error!("❌ Failed to connect to activity database: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Initialize memory database (OCR frames + chunks + embeddings pipeline).
+    let memory_database_path = derive_memory_db_path(&config.database_path);
+    let memory_db = match WatcherDatabase::new(&memory_database_path) {
+        Ok(db) => {
+            info!("✅ Memory database connected: {}", memory_database_path);
+            db
+        }
+        Err(e) => {
+            error!(
+                "❌ Failed to connect to memory database {}: {}",
+                memory_database_path, e
+            );
             std::process::exit(1);
         }
     };
@@ -278,19 +479,17 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    // Start browser heartbeat HTTP server for receiving events from the browser extension
     let browser_extension_last_seen = Arc::new(AtomicU64::new(0));
-    let _browser_server_handle = browser_heartbeat_server::start_server(
-        args.device_id.clone(),
-        args.user_id.clone(),
-        args.track_incognito,
-        args.url_mode.clone(),
-        browser_heartbeat_server::DEFAULT_PORT,
-        browser_extension_last_seen.clone(),
-    );
 
     // Main polling loop
-    run_watcher_loop(&config, &db, running, browser_extension_last_seen);
+    run_watcher_loop(
+        &config,
+        &db,
+        &memory_db,
+        &memory_database_path,
+        running,
+        browser_extension_last_seen,
+    );
 
     info!("👋 Ritual Watcher stopped");
 }
@@ -352,9 +551,156 @@ fn decide_session_action(
     }
 }
 
+fn storage_title_fields(
+    mode: &TitleMode,
+    truncate_length: usize,
+    window_title: Option<&String>,
+) -> (Option<String>, Option<String>) {
+    match mode {
+        TitleMode::Off => (None, None),
+        TitleMode::Full => (window_title.cloned(), None),
+        TitleMode::Truncate => (
+            window_title.map(|t| truncate_title(t, truncate_length)),
+            None,
+        ),
+        TitleMode::Hash => (None, window_title.map(|t| hash_title(t))),
+    }
+}
+
+fn ensure_session_event_persisted(
+    session: &mut CurrentSession,
+    config: &WatcherConfig,
+    db: &WatcherDatabase,
+    sync_queue: &Option<SyncQueue>,
+    now: u64,
+    main_db_lock_errors: &mut u64,
+    context: &str,
+) -> bool {
+    if session.event_id.is_some() {
+        return true;
+    }
+
+    let (stored_title, stored_hash) = storage_title_fields(
+        &config.title_mode,
+        config.truncate_length,
+        session.window_title.as_ref(),
+    );
+
+    match db.insert_activity_event(
+        &config.device_id,
+        &config.user_id,
+        session.start_time.min(now),
+        now,
+        &session.signature.bundle_id,
+        &session.app_name,
+        stored_title.as_deref(),
+        stored_hash.as_deref(),
+        session.pid,
+        session.signature.is_afk,
+        session.browser_url.as_deref(),
+        session.browser_domain.as_deref(),
+        session.is_incognito,
+    ) {
+        Ok(id) => {
+            session.event_id = Some(id);
+            if context == "create_new" {
+                info!("Started tracking: {} (event {})", session.app_name, id);
+            } else if context == "close_then_create" {
+                debug!("Created new session {} for {}", id, session.app_name);
+            } else {
+                debug!(
+                    "Recovered deferred session write: {} (event {}, context={})",
+                    session.app_name, id, context
+                );
+            }
+            if let Some(ref sq) = sync_queue {
+                if let Err(e) = sq.queue_activity_sync(id) {
+                    debug!("Failed to queue recovered session for sync: {}", e);
+                }
+            }
+            true
+        }
+        Err(e) => {
+            if is_db_lock_error(&e) {
+                *main_db_lock_errors = main_db_lock_errors.saturating_add(1);
+                debug!(
+                    "Deferring session create due to lock contention: app={}, context={}",
+                    session.app_name, context
+                );
+            } else {
+                warn!(
+                    "Failed to persist session activity (context={}, app={}): {}",
+                    context, session.app_name, e
+                );
+            }
+            false
+        }
+    }
+}
+
+fn close_session_with_lock_fallback(
+    session: &mut CurrentSession,
+    config: &WatcherConfig,
+    db: &WatcherDatabase,
+    sync_queue: &Option<SyncQueue>,
+    now: u64,
+    reason: SessionCloseReason,
+    main_db_lock_errors: &mut u64,
+    pending_main_end_update: &mut Option<(i64, u64)>,
+    last_main_session_end_update_ms: &mut u64,
+) {
+    if session.event_id.is_none() {
+        let _ = ensure_session_event_persisted(
+            session,
+            config,
+            db,
+            sync_queue,
+            now,
+            main_db_lock_errors,
+            "close_before_drop",
+        );
+    }
+
+    if let Some(event_id) = session.event_id {
+        debug!(
+            "Closing session {} ({}): {} [{:.1}s]",
+            event_id,
+            session.app_name,
+            reason,
+            (now - session.start_time) as f64 / 1000.0
+        );
+        if let Err(e) = db.update_event_end_time(event_id, now) {
+            if is_db_lock_error(&e) {
+                debug!(
+                    "Deferring close for event {} due to lock contention; will retry",
+                    event_id
+                );
+                *pending_main_end_update = Some((event_id, now));
+            } else {
+                error!("Failed to close event: {}", e);
+            }
+        } else {
+            *last_main_session_end_update_ms = now;
+            *pending_main_end_update = None;
+        }
+        if let Some(ref sq) = sync_queue {
+            if let Err(e) = sq.queue_activity_sync(event_id) {
+                debug!("Failed to queue for sync: {}", e);
+            }
+        }
+    } else {
+        debug!(
+            "Dropping session without persisted event due to ongoing lock contention: {}",
+            session.app_name
+        );
+    }
+}
+
 fn run_watcher_loop(
     config: &WatcherConfig,
     db: &WatcherDatabase,
+    memory_db: &WatcherDatabase,
+    memory_database_path: &str,
     running: Arc<AtomicBool>,
     browser_extension_last_seen: Arc<AtomicU64>,
 ) {
@@ -389,22 +735,48 @@ fn run_watcher_loop(
     let mut last_notified_bundle: Option<String> = None; // Track last notification to avoid duplicates
     let mut loop_iteration: u64 = 0; // Track loop iterations for diagnostics
     let mut last_status_log = now_ms(); // Periodic status logging
+    let mut last_main_session_end_update_ms: u64 = 0;
+    let coalesce_end_update_ms: u64 = 2_000;
+    let heartbeat_write_interval_ms: u64 = 15_000;
+    let mut last_heartbeat_write_ms: u64 = 0;
+    let mut heartbeat_write_pending = false;
+    let mut pending_main_end_update: Option<(i64, u64)> = None;
+    let mut pending_main_end_retry_not_before_ms: u64 = 0;
+    let mut pending_main_end_retry_delay_ms: u64 = 250;
+    let mut main_db_lock_errors: u64 = 0;
+    let mut spool_ingested_total: u64 = 0;
+    let mut spool_invalid_total: u64 = 0;
+    let mut browser_server_started = false;
+    let mut _browser_server_handle: Option<std::thread::JoinHandle<()>> = None;
+    let (browser_db_tx, browser_db_rx): (Sender<BrowserDbCommand>, Receiver<BrowserDbCommand>) =
+        mpsc::channel();
+    let spool_dir = recorder_spool_dir(memory_database_path);
+    if let Err(err) = fs::create_dir_all(&spool_dir) {
+        warn!(
+            "Failed to ensure recorder spool dir {}: {}",
+            spool_dir.display(),
+            err
+        );
+    } else {
+        info!("📥 Recorder spool ingest enabled: {}", spool_dir.display());
+    }
 
-    // Initialize sync queue for backend reliability
-    let sync_queue =
-        match SyncQueue::new(&config.database_path.replace("watcher.db", "sync_queue.db")) {
-            Ok(sq) => {
-                info!("✅ Sync queue initialized");
-                Some(sq)
-            }
-            Err(e) => {
-                warn!(
-                    "⚠️ Could not initialize sync queue: {} - events won't be synced to backend",
-                    e
-                );
-                None
-            }
-        };
+    // Initialize sync queue for backend reliability (with runtime retry if startup is locked).
+    let mut sync_queue = match SyncQueue::new(&config.database_path) {
+        Ok(sq) => {
+            info!("✅ Sync queue initialized");
+            Some(sq)
+        }
+        Err(e) => {
+            warn!(
+                "⚠️ Could not initialize sync queue at startup: {} - will retry in background",
+                e
+            );
+            None
+        }
+    };
+    let mut sync_queue_retry_not_before_ms: u64 = 0;
+    let mut sync_queue_retry_delay_ms: u64 = 1_000;
 
     // Initialize event-driven notification listener (macOS)
     // This provides immediate app switch detection instead of waiting for next poll
@@ -460,34 +832,72 @@ fn run_watcher_loop(
         );
     }
 
-    // Helper closure to close current session
-    let close_session = |session: &CurrentSession,
-                         db: &WatcherDatabase,
-                         sync_queue: &Option<SyncQueue>,
-                         now: u64,
-                         reason: SessionCloseReason| {
-        if let Some(event_id) = session.event_id {
-            debug!(
-                "Closing session {} ({}): {} [{:.1}s]",
-                event_id,
-                session.app_name,
-                reason,
-                (now - session.start_time) as f64 / 1000.0
-            );
-            if let Err(e) = db.update_event_end_time(event_id, now) {
-                error!("Failed to close event: {}", e);
-            }
-            // Queue for sync
-            if let Some(ref sq) = sync_queue {
-                if let Err(e) = sq.queue_activity_sync(event_id) {
-                    debug!("Failed to queue for sync: {}", e);
+    while running.load(Ordering::SeqCst) {
+        let loop_now = now_ms();
+        if sync_queue.is_none() && loop_now >= sync_queue_retry_not_before_ms {
+            match SyncQueue::new(&config.database_path) {
+                Ok(sq) => {
+                    info!("✅ Sync queue initialized (retry)");
+                    sync_queue = Some(sq);
+                    sync_queue_retry_not_before_ms = 0;
+                    sync_queue_retry_delay_ms = 1_000;
+                }
+                Err(e) => {
+                    if is_db_lock_error(&e) {
+                        debug!(
+                            "Sync queue init lock contention; retrying in {}ms",
+                            sync_queue_retry_delay_ms
+                        );
+                    } else {
+                        warn!(
+                            "Sync queue init retry failed: {} (retry in {}ms)",
+                            e, sync_queue_retry_delay_ms
+                        );
+                    }
+                    sync_queue_retry_not_before_ms =
+                        loop_now.saturating_add(sync_queue_retry_delay_ms);
+                    sync_queue_retry_delay_ms = (sync_queue_retry_delay_ms.saturating_mul(2)).min(30_000);
                 }
             }
         }
-    };
 
-    while running.load(Ordering::SeqCst) {
+        process_browser_db_commands(db, &sync_queue, &browser_db_rx);
+        let (spool_ingested, spool_invalid) =
+            drain_recorder_spool(memory_db, &spool_dir, RECORDER_SPOOL_MAX_FILES_PER_TICK);
+        spool_ingested_total = spool_ingested_total.saturating_add(spool_ingested as u64);
+        spool_invalid_total = spool_invalid_total.saturating_add(spool_invalid as u64);
+
         let now = now_ms();
+        if let Some((event_id, ts_end)) = pending_main_end_update {
+            if now >= pending_main_end_retry_not_before_ms {
+                match db.update_event_end_time(event_id, ts_end) {
+                    Ok(()) => {
+                        pending_main_end_update = None;
+                        last_main_session_end_update_ms = now;
+                        pending_main_end_retry_delay_ms = 250;
+                        pending_main_end_retry_not_before_ms = 0;
+                    }
+                    Err(e) => {
+                        if is_db_lock_error(&e) {
+                            main_db_lock_errors = main_db_lock_errors.saturating_add(1);
+                            pending_main_end_retry_not_before_ms =
+                                now.saturating_add(pending_main_end_retry_delay_ms);
+                            pending_main_end_retry_delay_ms =
+                                (pending_main_end_retry_delay_ms.saturating_mul(2)).min(4_000);
+                        } else {
+                            warn!(
+                                "Pending end-time update for event {} failed: {}",
+                                event_id, e
+                            );
+                            pending_main_end_update = None;
+                            pending_main_end_retry_delay_ms = 250;
+                            pending_main_end_retry_not_before_ms = 0;
+                        }
+                    }
+                }
+            }
+        }
+
         let browser_extension_active = now
             .saturating_sub(browser_extension_last_seen.load(Ordering::Relaxed))
             <= browser_extension_recent_ms;
@@ -528,13 +938,17 @@ fn run_watcher_loop(
                         ScreenEventType::ScreenLocked => {
                             info!("🔒 Screen locked - closing current session");
                             is_screen_locked = true;
-                            if let Some(ref session) = current_session {
-                                close_session(
+                            if let Some(ref mut session) = current_session {
+                                close_session_with_lock_fallback(
                                     session,
+                                    config,
                                     db,
                                     &sync_queue,
                                     event.timestamp_ms,
                                     SessionCloseReason::ScreenLocked,
+                                    &mut main_db_lock_errors,
+                                    &mut pending_main_end_update,
+                                    &mut last_main_session_end_update_ms,
                                 );
                             }
                             current_session = None;
@@ -548,13 +962,17 @@ fn run_watcher_loop(
                         }
                         ScreenEventType::WillSleep => {
                             info!("💤 System going to sleep - closing current session");
-                            if let Some(ref session) = current_session {
-                                close_session(
+                            if let Some(ref mut session) = current_session {
+                                close_session_with_lock_fallback(
                                     session,
+                                    config,
                                     db,
                                     &sync_queue,
                                     event.timestamp_ms,
                                     SessionCloseReason::SleepWake,
+                                    &mut main_db_lock_errors,
+                                    &mut pending_main_end_update,
+                                    &mut last_main_session_end_update_ms,
                                 );
                             }
                             current_session = None;
@@ -618,13 +1036,17 @@ fn run_watcher_loop(
                 time_since_last_poll as f64 / 1000.0
             );
             // Close current session at the last known time
-            if let Some(ref session) = current_session {
-                close_session(
+            if let Some(ref mut session) = current_session {
+                close_session_with_lock_fallback(
                     session,
+                    config,
                     db,
                     &sync_queue,
                     last_poll_time,
                     SessionCloseReason::SleepWake,
+                    &mut main_db_lock_errors,
+                    &mut pending_main_end_update,
+                    &mut last_main_session_end_update_ms,
                 );
                 current_session = None;
             }
@@ -678,18 +1100,22 @@ fn run_watcher_loop(
                     );
 
                     // If we have a current session for this browser, check if domain changed
-                    if let Some(ref session) = current_session {
+                    if let Some(ref mut session) = current_session {
                         if session.signature.bundle_id == tab_event.bundle_id {
                             // Same browser - check if domain changed (significant change)
                             let domain_changed = session.browser_domain != tab_event.domain;
                             if domain_changed {
                                 // Close current session - the next poll will create a new one with updated info
-                                close_session(
+                                close_session_with_lock_fallback(
                                     session,
+                                    config,
                                     db,
                                     &sync_queue,
                                     tab_event.timestamp_ms,
                                     SessionCloseReason::BrowserTabChanged,
+                                    &mut main_db_lock_errors,
+                                    &mut pending_main_end_update,
+                                    &mut last_main_session_end_update_ms,
                                 );
                                 current_session = None;
                             }
@@ -723,13 +1149,17 @@ fn run_watcher_loop(
                         "Skipping native browser tracking for {} (extension active)",
                         info.bundle_id
                     );
-                    if let Some(ref session) = current_session {
-                        close_session(
+                    if let Some(ref mut session) = current_session {
+                        close_session_with_lock_fallback(
                             session,
+                            config,
                             db,
                             &sync_queue,
                             now,
                             SessionCloseReason::BrowserExtensionActive,
+                            &mut main_db_lock_errors,
+                            &mut pending_main_end_update,
+                            &mut last_main_session_end_update_ms,
                         );
                     }
                     current_session = None;
@@ -760,13 +1190,17 @@ fn run_watcher_loop(
                 // ===== EXCLUDED APP CHECK =====
                 if excluded.contains(&info.bundle_id) {
                     debug!("Skipping excluded app: {}", info.bundle_id);
-                    if let Some(ref session) = current_session {
-                        close_session(
+                    if let Some(ref mut session) = current_session {
+                        close_session_with_lock_fallback(
                             session,
+                            config,
                             db,
                             &sync_queue,
                             now,
                             SessionCloseReason::AppExcluded,
+                            &mut main_db_lock_errors,
+                            &mut pending_main_end_update,
+                            &mut last_main_session_end_update_ms,
                         );
                     }
                     current_session = None;
@@ -833,9 +1267,36 @@ fn run_watcher_loop(
                         // Update end time (heartbeat)
                         if let Some(ref mut session) = current_session {
                             session.last_seen_ts = now;
+                            if session.event_id.is_none() {
+                                let _ = ensure_session_event_persisted(
+                                    session,
+                                    config,
+                                    db,
+                                    &sync_queue,
+                                    now,
+                                    &mut main_db_lock_errors,
+                                    "merge_retry",
+                                );
+                            }
                             if let Some(event_id) = session.event_id {
-                                if let Err(e) = db.update_event_end_time(event_id, now) {
-                                    error!("Failed to update event end time: {}", e);
+                                let due_for_end_update = now
+                                    .saturating_sub(last_main_session_end_update_ms)
+                                    >= coalesce_end_update_ms;
+                                if due_for_end_update || should_commit {
+                                    if let Err(e) = db.update_event_end_time(event_id, now) {
+                                        if is_db_lock_error(&e) {
+                                            pending_main_end_update = Some((event_id, now));
+                                            pending_main_end_retry_not_before_ms =
+                                                now.saturating_add(125);
+                                            main_db_lock_errors =
+                                                main_db_lock_errors.saturating_add(1);
+                                        } else {
+                                            error!("Failed to update event end time: {}", e);
+                                        }
+                                    } else {
+                                        last_main_session_end_update_ms = now;
+                                        pending_main_end_update = None;
+                                    }
                                 }
 
                                 // Periodic sync for long sessions
@@ -852,59 +1313,27 @@ fn run_watcher_loop(
                     }
                     SessionAction::Close => {
                         // Close previous session
-                        if let Some(ref session) = current_session {
+                        if let Some(ref mut session) = current_session {
                             if let Some(reason) = close_reason {
-                                close_session(session, db, &sync_queue, now, reason);
+                                close_session_with_lock_fallback(
+                                    session,
+                                    config,
+                                    db,
+                                    &sync_queue,
+                                    now,
+                                    reason,
+                                    &mut main_db_lock_errors,
+                                    &mut pending_main_end_update,
+                                    &mut last_main_session_end_update_ms,
+                                );
                             }
                         }
 
-                        // Create new session
-                        let (stored_title, stored_hash) = match &config.title_mode {
-                            TitleMode::Off => (None, None),
-                            TitleMode::Full => (info.window_title.clone(), None),
-                            TitleMode::Truncate => (
-                                info.window_title
-                                    .as_ref()
-                                    .map(|t| truncate_title(t, config.truncate_length)),
-                                None,
-                            ),
-                            TitleMode::Hash => {
-                                (None, info.window_title.as_ref().map(|t| hash_title(t)))
-                            }
-                        };
-
-                        let event_id = match db.insert_activity_event(
-                            &config.device_id,
-                            &config.user_id,
-                            now,
-                            now,
-                            &info.bundle_id,
-                            &info.app_name,
-                            stored_title.as_deref(),
-                            stored_hash.as_deref(),
-                            info.pid,
-                            is_afk,
-                            tracked_url.as_deref(),
-                            tracked_domain.as_deref(),
-                            browser_info.is_incognito,
-                        ) {
-                            Ok(id) => {
-                                debug!(
-                                    "Created new session {} for {} (domain: {:?})",
-                                    id, info.app_name, tracked_domain
-                                );
-                                Some(id)
-                            }
-                            Err(e) => {
-                                error!("Failed to insert activity event: {}", e);
-                                None
-                            }
-                        };
-
                         last_commit_time = now;
-                        current_session = Some(CurrentSession {
+                        last_main_session_end_update_ms = now;
+                        let mut new_session = CurrentSession {
                             signature: new_signature,
-                            event_id,
+                            event_id: None,
                             start_time: now,
                             last_seen_ts: now,
                             app_name: info.app_name,
@@ -913,53 +1342,24 @@ fn run_watcher_loop(
                             browser_domain: tracked_domain,
                             is_incognito: browser_info.is_incognito,
                             pid: info.pid,
-                        });
+                        };
+                        let _ = ensure_session_event_persisted(
+                            &mut new_session,
+                            config,
+                            db,
+                            &sync_queue,
+                            now,
+                            &mut main_db_lock_errors,
+                            "close_then_create",
+                        );
+                        current_session = Some(new_session);
                     }
                     SessionAction::CreateNew => {
-                        // First event - create new session
-                        let (stored_title, stored_hash) = match &config.title_mode {
-                            TitleMode::Off => (None, None),
-                            TitleMode::Full => (info.window_title.clone(), None),
-                            TitleMode::Truncate => (
-                                info.window_title
-                                    .as_ref()
-                                    .map(|t| truncate_title(t, config.truncate_length)),
-                                None,
-                            ),
-                            TitleMode::Hash => {
-                                (None, info.window_title.as_ref().map(|t| hash_title(t)))
-                            }
-                        };
-
-                        let event_id = match db.insert_activity_event(
-                            &config.device_id,
-                            &config.user_id,
-                            now,
-                            now,
-                            &info.bundle_id,
-                            &info.app_name,
-                            stored_title.as_deref(),
-                            stored_hash.as_deref(),
-                            info.pid,
-                            is_afk,
-                            tracked_url.as_deref(),
-                            tracked_domain.as_deref(),
-                            browser_info.is_incognito,
-                        ) {
-                            Ok(id) => {
-                                info!("Started tracking: {} (event {})", info.app_name, id);
-                                Some(id)
-                            }
-                            Err(e) => {
-                                error!("Failed to insert activity event: {}", e);
-                                None
-                            }
-                        };
-
                         last_commit_time = now;
-                        current_session = Some(CurrentSession {
+                        last_main_session_end_update_ms = now;
+                        let mut new_session = CurrentSession {
                             signature: new_signature,
-                            event_id,
+                            event_id: None,
                             start_time: now,
                             last_seen_ts: now,
                             app_name: info.app_name,
@@ -968,14 +1368,34 @@ fn run_watcher_loop(
                             browser_domain: tracked_domain,
                             is_incognito: browser_info.is_incognito,
                             pid: info.pid,
-                        });
+                        };
+                        let _ = ensure_session_event_persisted(
+                            &mut new_session,
+                            config,
+                            db,
+                            &sync_queue,
+                            now,
+                            &mut main_db_lock_errors,
+                            "create_new",
+                        );
+                        current_session = Some(new_session);
                     }
                 }
             }
             Ok(None) => {
                 debug!("No active window detected");
-                if let Some(ref session) = current_session {
-                    close_session(session, db, &sync_queue, now, SessionCloseReason::NoWindow);
+                if let Some(ref mut session) = current_session {
+                    close_session_with_lock_fallback(
+                        session,
+                        config,
+                        db,
+                        &sync_queue,
+                        now,
+                        SessionCloseReason::NoWindow,
+                        &mut main_db_lock_errors,
+                        &mut pending_main_end_update,
+                        &mut last_main_session_end_update_ms,
+                    );
                 }
                 current_session = None;
             }
@@ -985,22 +1405,62 @@ fn run_watcher_loop(
                     "Failed to get active window info: {} (permission revoked?)",
                     e
                 );
-                if let Some(ref session) = current_session {
-                    close_session(
+                if let Some(ref mut session) = current_session {
+                    close_session_with_lock_fallback(
                         session,
+                        config,
                         db,
                         &sync_queue,
                         now,
                         SessionCloseReason::PermissionLost,
+                        &mut main_db_lock_errors,
+                        &mut pending_main_end_update,
+                        &mut last_main_session_end_update_ms,
                     );
                 }
                 current_session = None;
             }
         }
 
-        // Update heartbeat
-        if let Err(e) = db.update_heartbeat(&config.device_id, now) {
-            error!("Failed to update heartbeat: {}", e);
+        // Update heartbeat (coalesced to reduce write contention with recorder).
+        let heartbeat_due = heartbeat_write_pending
+            || now.saturating_sub(last_heartbeat_write_ms) >= heartbeat_write_interval_ms;
+        if heartbeat_due {
+            match db.update_heartbeat(&config.device_id, now) {
+                Ok(()) => {
+                    heartbeat_write_pending = false;
+                    last_heartbeat_write_ms = now;
+                    if !browser_server_started {
+                        let url_mode = match &config.url_mode {
+                            UrlMode::Off => "off",
+                            UrlMode::DomainOnly => "domain",
+                            UrlMode::Full => "full",
+                        }
+                        .to_string();
+                        _browser_server_handle = Some(browser_heartbeat_server::start_server(
+                            config.device_id.clone(),
+                            config.user_id.clone(),
+                            config.track_incognito,
+                            url_mode,
+                            browser_heartbeat_server::DEFAULT_PORT,
+                            browser_extension_last_seen.clone(),
+                            browser_db_tx.clone(),
+                        ));
+                        browser_server_started = true;
+                        info!(
+                            "✅ Browser heartbeat server started after first successful heartbeat write"
+                        );
+                    }
+                }
+                Err(e) => {
+                    if is_db_lock_error(&e) {
+                        heartbeat_write_pending = true;
+                        main_db_lock_errors = main_db_lock_errors.saturating_add(1);
+                    } else {
+                        error!("Failed to update heartbeat: {}", e);
+                    }
+                }
+            }
         }
 
         // Increment loop counter
@@ -1020,7 +1480,7 @@ fn run_watcher_loop(
                 })
                 .unwrap_or_else(|| "none".to_string());
             info!(
-                "📊 Watcher status: {} iterations, current session: {}, AFK: {}, extension: {}",
+                "📊 Watcher status: {} iterations, current session: {}, AFK: {}, extension: {}, db_locks(main={}, browser={}), recorder_spool(ingested={}, invalid={})",
                 loop_iteration,
                 session_info,
                 if was_afk { "yes" } else { "no" },
@@ -1029,6 +1489,10 @@ fn run_watcher_loop(
                 } else {
                     "inactive"
                 },
+                main_db_lock_errors,
+                BROWSER_DB_LOCK_ERRORS.load(Ordering::Relaxed),
+                spool_ingested_total,
+                spool_invalid_total,
             );
             last_status_log = now;
         }
@@ -1037,14 +1501,31 @@ fn run_watcher_loop(
     }
 
     // ===== SHUTDOWN: Close final session =====
-    if let Some(ref session) = current_session {
-        close_session(
+    process_browser_db_commands(db, &sync_queue, &browser_db_rx);
+
+    if let Some(ref mut session) = current_session {
+        close_session_with_lock_fallback(
             session,
+            config,
             db,
             &sync_queue,
             now_ms(),
             SessionCloseReason::Shutdown,
+            &mut main_db_lock_errors,
+            &mut pending_main_end_update,
+            &mut last_main_session_end_update_ms,
         );
+    }
+
+    if let Some((event_id, ts_end)) = pending_main_end_update {
+        if let Err(e) = db.update_event_end_time(event_id, ts_end) {
+            if !is_db_lock_error(&e) {
+                warn!(
+                    "Final pending end-time update for event {} failed: {}",
+                    event_id, e
+                );
+            }
+        }
     }
 
     info!("📊 Watcher statistics:");
@@ -1062,6 +1543,94 @@ fn run_watcher_loop(
     if let Some(ref sq) = sync_queue {
         if let Ok(pending) = sq.pending_count() {
             info!("   Pending sync items: {}", pending);
+        }
+    }
+}
+
+fn process_browser_db_commands(
+    db: &WatcherDatabase,
+    sync_queue: &Option<SyncQueue>,
+    browser_db_rx: &Receiver<BrowserDbCommand>,
+) {
+    loop {
+        match browser_db_rx.try_recv() {
+            Ok(BrowserDbCommand::InsertBrowserActivityEvent {
+                device_id,
+                user_id,
+                ts_start,
+                ts_end,
+                app_bundle_id,
+                app_name,
+                window_title,
+                browser_url,
+                browser_domain,
+                is_incognito,
+                response,
+            }) => {
+                let result = db.insert_activity_event_with_source(
+                    &device_id,
+                    &user_id,
+                    ts_start,
+                    ts_end,
+                    &app_bundle_id,
+                    &app_name,
+                    window_title.as_deref(),
+                    None,
+                    None,
+                    false,
+                    browser_url.as_deref(),
+                    browser_domain.as_deref(),
+                    is_incognito,
+                    Some("browser_extension"),
+                );
+                match result {
+                    Ok(event_id) => {
+                        if let Some(ref sq) = sync_queue {
+                            if let Err(e) = sq.queue_activity_sync(event_id) {
+                                debug!("Failed to queue browser insert for sync: {}", e);
+                            }
+                        }
+                        let _ = response.send(Ok(event_id));
+                    }
+                    Err(err) => {
+                        if is_db_lock_error(&err) {
+                            BROWSER_DB_LOCK_ERRORS.fetch_add(1, Ordering::Relaxed);
+                        }
+                        let _ = response.send(Err(err));
+                    }
+                }
+            }
+            Ok(BrowserDbCommand::UpdateEventEndTime {
+                event_id,
+                ts_end,
+                response,
+            }) => {
+                match db.update_event_end_time(event_id, ts_end) {
+                    Ok(()) => {
+                        if let Some(ref sq) = sync_queue {
+                            if let Err(e) = sq.queue_activity_update(event_id, ts_end) {
+                                debug!("Failed to queue browser update for sync: {}", e);
+                            }
+                        }
+                        let _ = response.send(Ok(()));
+                    }
+                    Err(err) => {
+                        if is_db_lock_error(&err) {
+                            BROWSER_DB_LOCK_ERRORS.fetch_add(1, Ordering::Relaxed);
+                            // Best effort: browser heartbeats will keep retrying and close flush
+                            // paths will write the latest ts_end eventually.
+                            let _ = response.send(Ok(()));
+                        } else {
+                            let _ = response.send(Err(err));
+                        }
+                    }
+                }
+            }
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => {
+                warn!("Browser DB command channel disconnected");
+                break;
+            }
         }
     }
 }

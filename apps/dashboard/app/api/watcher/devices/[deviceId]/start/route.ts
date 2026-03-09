@@ -24,6 +24,7 @@ export async function POST(
       headers: {
         'Content-Type': 'application/json',
         'X-User-ID': userId,
+        'X-Internal-Key': process.env.INTERNAL_API_KEY || '',
       },
     });
 

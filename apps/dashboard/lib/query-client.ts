@@ -23,14 +23,22 @@ export const queryClient = new QueryClient({
       // Don't refetch when reconnecting (we're always connected locally)
       refetchOnReconnect: false,
       
-      // Retry failed requests once (local API should be reliable)
-      retry: 1,
+      // Retry transient failures once, but never retry auth errors (401/403).
+      // Auth errors happen when Clerk hasn't finished refreshing the JWT
+      // after an app restart — retrying just floods the backend with
+      // doomed requests. The queries will naturally refetch once
+      // Clerk's session refresh completes and components re-render.
+      retry: (failureCount, error) => {
+        if (failureCount >= 1) return false;
+        const msg = (error as Error)?.message ?? '';
+        if (msg.includes('401') || msg.includes('403')) return false;
+        return true;
+      },
       
       // Fast retry delay (100ms for localhost)
       retryDelay: 100,
     },
     mutations: {
-      // Retry mutations once if they fail
       retry: 1,
     },
   },

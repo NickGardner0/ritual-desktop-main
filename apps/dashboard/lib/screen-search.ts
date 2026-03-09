@@ -35,6 +35,7 @@ interface TextSearchResult {
 interface EmbeddingStats {
   total_embeddings: number;
   frames_without_embeddings: number;
+  pending_chunks?: number;
   embedding_dimension: number;
   current_model: string;
 }
@@ -44,8 +45,27 @@ interface EmbeddingPipelineReadyResponse {
   init_error: string | null;
   total_embeddings: number;
   frames_without_embeddings: number;
+  pending_chunks?: number;
   worker_running: boolean;
   worker_started: boolean;
+}
+
+interface ChunkEmbeddingCoverage {
+  total_chunks: number;
+  embedded_chunks: number;
+  pending_chunks: number;
+  coverage: number;
+  frames_without_embeddings: number;
+  worker_running: boolean;
+  last_worker_run: number | null;
+}
+
+interface ChunkEmbeddingBackfillStatus {
+  running: boolean;
+  started_at: number | null;
+  finished_at: number | null;
+  last_message: string | null;
+  last_error: string | null;
 }
 
 export interface ScreenSearchResultItem {
@@ -82,8 +102,13 @@ export interface PrefetchScreenResultsOptions {
 }
 
 const SCREEN_SEARCH_WARNING =
-  'Some semantic results may be missing while embeddings finish processing. Showing keyword + partial matches.';
+  'Some semantic results may be missing while embeddings finish processing. This affects semantic/evidence matches, not activity-time totals.';
 const PIPELINE_BOOT_SESSION_KEY = 'ritual.embedding.pipeline.ready.v1';
+const AUTO_SEMANTIC_BACKFILL_LAST_RUN_KEY = 'ritual.semantic.backfill.auto.last_run_ms.v1';
+const AUTO_SEMANTIC_BACKFILL_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
+const AUTO_SEMANTIC_BACKFILL_COVERAGE_THRESHOLD = 0.85;
+const AUTO_SEMANTIC_BACKFILL_PENDING_THRESHOLD = 800;
+const AUTO_SEMANTIC_BACKFILL_MIN_CHUNKS = 200;
 const isTauri = typeof window !== 'undefined' && Boolean(
   (window as { __TAURI__?: unknown; __TAURI_IPC__?: unknown }).__TAURI__ ||
   (window as { __TAURI__?: unknown; __TAURI_IPC__?: unknown }).__TAURI_IPC__,
@@ -99,7 +124,21 @@ function clampRelevance(score: number): number {
 }
 
 async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  return invoke<T>(command, args);
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    const message = String((error as { message?: unknown })?.message ?? error ?? '').toLowerCase();
+    const needsDbInit =
+      command !== 'init_ritual_database' &&
+      message.includes('database not initialized') &&
+      message.includes('initialize_database');
+    if (!needsDbInit) {
+      throw error;
+    }
+
+    await invoke<string>('init_ritual_database');
+    return await invoke<T>(command, args);
+  }
 }
 
 function normalizeHybridResults(results: HybridSearchResult[]): ScreenSearchResultItem[] {
@@ -137,6 +176,11 @@ function normalizeTextResults(results: TextSearchResult[]): ScreenSearchResultIt
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function clampDaysBack(daysBack?: number): number {
+  if (!Number.isFinite(daysBack) || !daysBack || daysBack <= 0) return 7;
+  return Math.min(Math.max(Math.round(daysBack), 1), 90);
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{ value: T | null; timedOut: boolean }> {
   const timeoutToken = Symbol('timeout');
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -158,42 +202,16 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<{
   }
 }
 
-function getTimeRangeFromQuery(query: string): number {
-  const lowerQuery = query.toLowerCase();
-  const relativeWindowMatch = lowerQuery.match(/\b(?:last|past)\s+(\d{1,3})\s*(hour|hours|day|days|week|weeks|month|months)\b/);
-  if (relativeWindowMatch) {
-    const amount = Number(relativeWindowMatch[1]);
-    const unit = relativeWindowMatch[2];
-    if (Number.isFinite(amount) && amount > 0) {
-      if (unit.startsWith('hour')) return Math.max(1, Math.ceil(amount / 24));
-      if (unit.startsWith('day')) return amount;
-      if (unit.startsWith('week')) return amount * 7;
-      if (unit.startsWith('month')) return amount * 30;
-    }
-  }
-
-  const daysAgoMatch = lowerQuery.match(/\b(\d{1,3})\s+days?\s+ago\b/);
-  if (daysAgoMatch) {
-    const days = Number(daysAgoMatch[1]);
-    if (Number.isFinite(days) && days > 0) {
-      return days + 1;
-    }
-  }
-
-  if (lowerQuery.includes('this morning') || lowerQuery.includes('earlier today')) return 1;
-  if (lowerQuery.includes('today')) return 1;
-  if (lowerQuery.includes('yesterday')) return 2;
-  if (lowerQuery.includes('this week') || lowerQuery.includes('past week') || lowerQuery.includes('last 7')) return 7;
-  if (lowerQuery.includes('last week')) return 14;
-  if (lowerQuery.includes('this month') || lowerQuery.includes('past month') || lowerQuery.includes('last 30')) return 30;
-
-  return 7;
-}
-
 export function isScreenRecordingQuery(query: string): boolean {
   const lowerQuery = query.toLowerCase();
 
   const strongPatterns = [
+    'what did i do this week',
+    'what did i do last week',
+    'what did i do today',
+    'what did i do yesterday',
+    'what did i do lately',
+    'what did i do recently',
     'what was i working on',
     'what was i doing',
     'what was i looking at',
@@ -303,7 +321,9 @@ export async function ensureEmbeddingPipelineReady(): Promise<EmbeddingPipelineR
     }
 
     let workerStarted = false;
-    if (initError === null && statsAfter.frames_without_embeddings > 0 && !workerRunning) {
+    const frameBacklog = statsAfter.frames_without_embeddings ?? 0;
+    const chunkBacklog = statsAfter.pending_chunks ?? 0;
+    if (initError === null && frameBacklog + chunkBacklog > 0 && !workerRunning) {
       try {
         await invokeCommand<string>('start_embedding_worker');
         workerRunning = true;
@@ -318,6 +338,7 @@ export async function ensureEmbeddingPipelineReady(): Promise<EmbeddingPipelineR
       init_error: initError,
       total_embeddings: statsAfter.total_embeddings ?? statsBefore.total_embeddings ?? 0,
       frames_without_embeddings: statsAfter.frames_without_embeddings ?? statsBefore.frames_without_embeddings ?? 0,
+      pending_chunks: statsAfter.pending_chunks ?? statsBefore.pending_chunks ?? 0,
       worker_running: workerRunning,
       worker_started: workerStarted,
     };
@@ -356,6 +377,68 @@ export async function ensureEmbeddingPipelineReadyOnLaunch(): Promise<EmbeddingP
   return bootEnsurePromise;
 }
 
+export async function ensureAutoSemanticBackfillOnLaunch(): Promise<boolean> {
+  if (!isTauri || typeof window === 'undefined') return false;
+
+  try {
+    const lastRunRaw = window.localStorage.getItem(AUTO_SEMANTIC_BACKFILL_LAST_RUN_KEY);
+    const lastRun = Number(lastRunRaw);
+    if (Number.isFinite(lastRun) && Date.now() - lastRun < AUTO_SEMANTIC_BACKFILL_MIN_INTERVAL_MS) {
+      return false;
+    }
+  } catch {
+    // Ignore storage errors and continue.
+  }
+
+  let backfillStatus: ChunkEmbeddingBackfillStatus | null = null;
+  try {
+    backfillStatus = await invokeCommand<ChunkEmbeddingBackfillStatus>('get_chunk_embedding_backfill_status');
+  } catch {
+    backfillStatus = null;
+  }
+  if (backfillStatus?.running) {
+    return false;
+  }
+
+  let coverage: ChunkEmbeddingCoverage | null = null;
+  try {
+    coverage = await invokeCommand<ChunkEmbeddingCoverage>('get_chunk_embedding_coverage');
+  } catch {
+    coverage = null;
+  }
+  if (!coverage) {
+    return false;
+  }
+
+  const shouldAutoBackfill =
+    coverage.pending_chunks >= AUTO_SEMANTIC_BACKFILL_PENDING_THRESHOLD ||
+    (
+      coverage.total_chunks >= AUTO_SEMANTIC_BACKFILL_MIN_CHUNKS &&
+      coverage.coverage < AUTO_SEMANTIC_BACKFILL_COVERAGE_THRESHOLD
+    );
+
+  if (!shouldAutoBackfill) {
+    return false;
+  }
+
+  try {
+    await invokeCommand<string>('start_chunk_embedding_backfill', {
+      batchSize: 200,
+      maxBatches: 600,
+      lookbackDays: 3650,
+    });
+    try {
+      window.localStorage.setItem(AUTO_SEMANTIC_BACKFILL_LAST_RUN_KEY, String(Date.now()));
+    } catch {
+      // Ignore storage errors.
+    }
+    return true;
+  } catch (error) {
+    console.warn('Failed to auto-start semantic backfill:', error);
+    return false;
+  }
+}
+
 export async function prefetchScreenResults(
   query: string,
   opts: PrefetchScreenResultsOptions = {},
@@ -371,12 +454,12 @@ export async function prefetchScreenResults(
   const limit = opts.limit ?? 20;
   const minRelevance = opts.minRelevance ?? 0.3;
   const now = Date.now();
-  const daysBack = opts.daysBack ?? getTimeRangeFromQuery(query);
+  const daysBack = clampDaysBack(opts.daysBack);
   const cutoffTime = now - daysBack * DAY_MS;
 
   const pipelineResult = await withTimeout(ensureEmbeddingPipelineReady(), opts.pipelineWaitMs ?? 1400);
   const pipeline = pipelineResult.value;
-  const pendingEmbeddings = pipeline?.frames_without_embeddings;
+  const pendingEmbeddings = (pipeline?.frames_without_embeddings ?? 0) + (pipeline?.pending_chunks ?? 0);
   const totalEmbeddings = pipeline?.total_embeddings;
   const workerRunning = pipeline?.worker_running;
 
@@ -384,7 +467,7 @@ export async function prefetchScreenResults(
   if (pipelineResult.timedOut || pipeline?.init_error) {
     warning = SCREEN_SEARCH_WARNING;
   }
-  if (typeof pendingEmbeddings === 'number' && pendingEmbeddings > 0) {
+  if (pendingEmbeddings > 0) {
     warning = warning ?? SCREEN_SEARCH_WARNING;
   }
 
@@ -392,10 +475,9 @@ export async function prefetchScreenResults(
   const forceTextMode =
     pipelineResult.timedOut ||
     Boolean(pipeline?.init_error) ||
-    (typeof pendingEmbeddings === 'number' &&
-      typeof totalEmbeddings === 'number' &&
-      totalEmbeddings === 0 &&
-      pendingEmbeddings > pendingFallbackThreshold);
+    typeof totalEmbeddings === 'number' &&
+    totalEmbeddings === 0 &&
+    pendingEmbeddings > pendingFallbackThreshold;
 
   if (!forceTextMode) {
     try {

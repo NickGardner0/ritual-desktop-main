@@ -7,14 +7,27 @@ TOKEN "habit_progress_since_start_read" READ
 
 NODE deduplicated_logs
 DESCRIPTION >
-    Deduplicate logs by id, keeping latest version
+    Deduplicate logs by id with deterministic latest-created row selection
 SQL >
     %
     SELECT id, user_id, habit_id, habit_name, unit, timestamp, status, amount, duration, created_at
-    FROM habit_logs
-    WHERE user_id = {{ String(user_id, '') }}
-    ORDER BY id, created_at DESC
-    LIMIT 1 BY id
+    FROM (
+        SELECT
+            id,
+            user_id,
+            habit_id,
+            habit_name,
+            unit,
+            timestamp,
+            status,
+            amount,
+            duration,
+            created_at,
+            row_number() OVER (PARTITION BY id ORDER BY created_at DESC) AS row_num
+        FROM habit_logs
+        WHERE user_id = {{ String(user_id, required=True) }}
+    )
+    WHERE row_num = 1
 
 NODE habit_date_range
 DESCRIPTION >

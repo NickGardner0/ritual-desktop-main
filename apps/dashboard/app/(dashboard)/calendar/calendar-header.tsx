@@ -5,6 +5,13 @@ import { format, startOfWeek, endOfWeek, isSameMonth, isSameWeek, startOfToday }
 import { ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 
 type ViewMode = 'week' | 'month';
 
@@ -100,17 +107,32 @@ export const CalendarHeader = memo(function CalendarHeader({
           </Button>
         </div>
 
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-9 w-9 rounded-none border-gray-300"
-          title={weekStartsOnMonday ? 'Week starts on Monday' : 'Week starts on Sunday'}
-          onClick={() => {
-            onSettingsChange?.({ weekStartsOnMonday: !weekStartsOnMonday });
-          }}
-        >
-          <SlidersHorizontal className="h-4 w-4 text-[#6B7280]" />
-        </Button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 rounded-none border-gray-300"
+              title="Calendar settings"
+            >
+              <SlidersHorizontal className="h-4 w-4 text-[#6B7280]" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56" align="end">
+            <div className="flex items-center space-x-2 py-2">
+              <Checkbox
+                id="week-starts"
+                checked={weekStartsOnMonday}
+                onCheckedChange={(checked) => {
+                  onSettingsChange?.({ weekStartsOnMonday: Boolean(checked) });
+                }}
+              />
+              <Label htmlFor="week-starts" className="text-sm font-normal cursor-pointer">
+                Week starts on Monday
+              </Label>
+            </div>
+          </PopoverContent>
+        </Popover>
 
         {/* View mode toggle */}
         <div className="flex h-9 items-stretch border border-gray-300">

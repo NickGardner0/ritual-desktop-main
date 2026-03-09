@@ -215,8 +215,7 @@ export const CategoryCell = memo(({ category }: { category: string }) => {
     .join(' ');
   
   return (
-    <div className="flex items-center gap-2 whitespace-nowrap min-w-0">
-      <span className={cn('w-2.5 h-2.5 shrink-0', config.swatchClass)} />
+    <div className="flex items-center min-w-0">
       <span className="text-sm font-normal text-gray-900 truncate block">
         {normalizedCategory}
       </span>
@@ -229,8 +228,7 @@ export const StatusCell = memo(({ status }: { status: 'completed' | 'skipped' | 
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.completed;
   
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      <span className={cn('w-2 h-2 shrink-0', config.dotClass)} />
+    <div className="flex items-center min-w-0">
       <span className="text-sm font-normal text-gray-900 truncate">
         {config.label}
       </span>

@@ -57,6 +57,12 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
             window_title TEXT,
             browser_domain TEXT,
             text_compact TEXT NOT NULL,
+            raw_text_compact TEXT NOT NULL DEFAULT '',
+            contextual_text_compact TEXT NOT NULL DEFAULT '',
+            context_version INTEGER NOT NULL DEFAULT 1,
+            session_key TEXT,
+            session_position INTEGER NOT NULL DEFAULT 0,
+            session_chunk_count INTEGER NOT NULL DEFAULT 1,
             quality_score REAL NOT NULL DEFAULT 0.0,
             source_frame_ids_json TEXT,
             content_hash TEXT NOT NULL,
@@ -76,12 +82,6 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_memory_chunks_provider_doc_id
         ON memory_chunks(provider_doc_id);
-
-        CREATE INDEX IF NOT EXISTS idx_memory_chunks_active_logical
-        ON memory_chunks(user_id, device_id, logical_chunk_id, deleted_at, updated_at);
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_chunks_dedupe_logical
-        ON memory_chunks(user_id, device_id, logical_chunk_id, content_hash);
 
         CREATE TABLE IF NOT EXISTS memory_embedding_jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,6 +144,24 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
 
     # Forward-compatible migrations for existing local metadata DBs.
     _add_column_if_missing(conn, "memory_chunks", "logical_chunk_id", "TEXT")
+    _add_column_if_missing(conn, "memory_chunks", "raw_text_compact", "TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "memory_chunks", "contextual_text_compact", "TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "memory_chunks", "context_version", "INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(conn, "memory_chunks", "session_key", "TEXT")
+    _add_column_if_missing(conn, "memory_chunks", "session_position", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "memory_chunks", "session_chunk_count", "INTEGER NOT NULL DEFAULT 1")
+
+    # These indexes depend on logical_chunk_id and must be created after the
+    # column migration for pre-existing local DBs.
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_memory_chunks_active_logical
+        ON memory_chunks(user_id, device_id, logical_chunk_id, deleted_at, updated_at);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_chunks_dedupe_logical
+        ON memory_chunks(user_id, device_id, logical_chunk_id, content_hash);
+        """
+    )
 
     # Backfill logical identity for older rows that only had chunk_id.
     conn.execute(
@@ -151,6 +169,20 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
         UPDATE memory_chunks
         SET logical_chunk_id = chunk_id
         WHERE logical_chunk_id IS NULL OR TRIM(logical_chunk_id) = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE memory_chunks
+        SET raw_text_compact = text_compact
+        WHERE COALESCE(TRIM(raw_text_compact), '') = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE memory_chunks
+        SET contextual_text_compact = text_compact
+        WHERE COALESCE(TRIM(contextual_text_compact), '') = ''
         """
     )
 

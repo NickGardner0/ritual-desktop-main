@@ -11,7 +11,10 @@ import base64
 import json
 import os
 import time
+import logging
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 # Try to import Gemini first (primary), OpenAI as fallback
 try:
@@ -19,7 +22,7 @@ try:
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    print("⚠️ google-generativeai not installed, falling back to OpenAI")
+    logger.warning("⚠️ google-generativeai not installed, falling back to OpenAI")
 
 from openai import OpenAI
 
@@ -39,10 +42,10 @@ def _get_gemini_model():
     """
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("⚠️ No GEMINI_API_KEY found, will use OpenAI fallback")
+        logger.warning("⚠️ No GEMINI_API_KEY found, will use OpenAI fallback")
         return None
     
-    print(f"✅ Gemini API key found (starts with: {api_key[:10]}...)")
+    logger.info(f"✅ Gemini API key found (starts with: {api_key[:10]}...)")
     genai.configure(api_key=api_key)
     return genai.GenerativeModel("gemini-2.0-flash")
 
@@ -141,20 +144,21 @@ def _analyze_with_gemini(
                 temperature=0.0,
                 max_output_tokens=500,
             ),
+            request_options={"timeout": 60},
         )
         
         elapsed = time.time() - start_time
         raw_content = response.text
-        print(f"🚀 Gemini Flash response ({elapsed:.2f}s): {raw_content}")
+        logger.info(f"🚀 Gemini Flash response ({elapsed:.2f}s): {raw_content}")
         
         return _parse_analysis_response(raw_content, available_habits)
         
     except Exception as e:
         import traceback
-        print(f"⚠️ Gemini analysis failed: {e}")
-        print(f"   Error type: {type(e).__name__}")
-        print(f"   Traceback: {traceback.format_exc()}")
-        print("   Falling back to OpenAI...")
+        logger.warning(f"⚠️ Gemini analysis failed: {e}")
+        logger.info(f"   Error type: {type(e).__name__}")
+        logger.info(f"   Traceback: {traceback.format_exc()}")
+        logger.info("   Falling back to OpenAI...")
         return None
 
 
@@ -198,16 +202,17 @@ def _analyze_with_openai(
             ],
             temperature=0.0,
             max_tokens=500,
+            timeout=60,
         )
 
         elapsed = time.time() - start_time
         raw_content = completion.choices[0].message.content
-        print(f"🔍 OpenAI vision response ({elapsed:.2f}s): {raw_content}")
+        logger.info(f"🔍 OpenAI vision response ({elapsed:.2f}s): {raw_content}")
         
         return _parse_analysis_response(raw_content, available_habits)
         
     except Exception as e:
-        print(f"❌ OpenAI vision API error: {e}")
+        logger.error(f"❌ OpenAI vision API error: {e}")
         raise ScreenshotAnalysisError(
             f"Failed to analyze screenshot: {str(e)}",
             code="ANALYSIS_FAILED"
@@ -314,24 +319,24 @@ def _parse_analysis_response(
             pass
     
     if not json_data:
-        print(f"⚠️ Could not parse JSON from response: {raw_content}")
+        logger.warning(f"⚠️ Could not parse JSON from response: {raw_content}")
         return None
     
     # Check for error response
     if "error" in json_data:
-        print(f"⚠️ Model returned error: {json_data['error']}")
+        logger.warning(f"⚠️ Model returned error: {json_data['error']}")
         return None
     
     # Validate required fields
     if not json_data.get("extracted_value") or not json_data.get("habit_match"):
-        print(f"⚠️ Missing required fields in response")
+        logger.warning(f"⚠️ Missing required fields in response")
         return None
     
     extracted = json_data["extracted_value"]
     habit_match = json_data["habit_match"]
     
     if extracted.get("value") is None:
-        print(f"⚠️ No value extracted")
+        logger.warning(f"⚠️ No value extracted")
         return None
     
     # Build result
@@ -371,7 +376,7 @@ def _parse_analysis_response(
     result["validation"] = validation
     
     if not validation["is_valid"]:
-        print(f"⚠️ Value validation failed: {validation['reason']}")
+        logger.warning(f"⚠️ Value validation failed: {validation['reason']}")
         result["validation_warning"] = validation["reason"]
     
     return result

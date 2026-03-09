@@ -4,13 +4,19 @@ Turso Cloud with embedded replica
 """
 
 import os
+import logging
+import shutil
+from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+from typing import Any, Dict, List
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from database.models import Base
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -23,6 +29,17 @@ LOCAL_ONLY_MODE = os.getenv("RITUAL_DB_LOCAL_ONLY", "").strip().lower() in {"1",
 project_root = Path(__file__).parent.parent
 local_db_path = project_root / ".turso_replica.db"
 
+DATABASE_RUNTIME_STATE: Dict[str, Any] = {
+    "db_ready": False,
+    "last_error": None,
+    "migration": {
+        "status": "unknown",
+        "warning_count": 0,
+        "warnings": [],
+        "applied": [],
+    },
+}
+
 if not DATABASE_URL:
     raise ValueError(
         "DATABASE_URL environment variable is required.\n"
@@ -31,8 +48,8 @@ if not DATABASE_URL:
     )
 
 if LOCAL_ONLY_MODE:
-    print("📡 Mode: Local replica only (RITUAL_DB_LOCAL_ONLY=1)")
-    print(f"💾 Local replica: {local_db_path}")
+    logger.info("📡 Mode: Local replica only (RITUAL_DB_LOCAL_ONLY=1)")
+    logger.info(f"💾 Local replica: {local_db_path}")
 
     # Local-only mode avoids libsql sync/TLS dependencies for scripts and CI.
     engine = create_async_engine(
@@ -62,9 +79,9 @@ else:
     # HTTPS URL for syncing with Turso Cloud
     sync_url = f"https://{parsed.netloc}"
 
-    print(f"🔗 Connecting to Turso Cloud: {parsed.netloc}")
-    print(f"📡 Mode: Local replica with automatic sync")
-    print(f"💾 Local replica: {local_db_path}")
+    logger.info(f"🔗 Connecting to Turso Cloud: {parsed.netloc}")
+    logger.info(f"📡 Mode: Local replica with automatic sync")
+    logger.info(f"💾 Local replica: {local_db_path}")
 
     # Create the engine with embedded replica
     # Note: Must use NullPool for async SQLite/libsql engines - QueuePool is not compatible
@@ -110,7 +127,17 @@ async def init_database():
     
     max_retries = 5
     retry_delay = 1.0  # seconds
+    DATABASE_RUNTIME_STATE["db_ready"] = False
+    DATABASE_RUNTIME_STATE["last_error"] = None
+    DATABASE_RUNTIME_STATE["migration"] = {
+        "status": "unknown",
+        "warning_count": 0,
+        "warnings": [],
+        "applied": [],
+    }
     
+    recovery_attempted = False
+
     for attempt in range(max_retries):
         try:
             # Just verify we can query the database - don't try to create tables
@@ -118,35 +145,96 @@ async def init_database():
             async with async_session_factory() as session:
                 result = await session.execute(text("SELECT COUNT(*) FROM users"))
                 count = result.scalar()
-                print(f"✅ Database ready: {count} user(s)")
+                logger.info(f"✅ Database ready: {count} user(s)")
                 
                 # Run lightweight migrations for new columns
-                await _run_migrations(session)
+                migration_summary = await _run_migrations(session)
+                DATABASE_RUNTIME_STATE["db_ready"] = True
+                DATABASE_RUNTIME_STATE["migration"] = migration_summary
                 
                 return  # Success!
                 
         except Exception as e:
             error_msg = str(e)
+            DATABASE_RUNTIME_STATE["last_error"] = error_msg
+
+            # Recover once from local replica corruption and retry startup.
+            if (
+                not recovery_attempted
+                and "database disk image is malformed" in error_msg.lower()
+            ):
+                recovery_attempted = True
+                recovered = await _recover_corrupt_local_replica()
+                if recovered:
+                    logger.warning(
+                        "⚠️ Recreated corrupted local replica; retrying database initialization"
+                    )
+                    continue
+
             if attempt < max_retries - 1:
                 # Likely sync hasn't completed yet, wait and retry
-                print(f"⏳ Waiting for database sync (attempt {attempt + 1}/{max_retries})...")
+                logger.info(f"⏳ Waiting for database sync (attempt {attempt + 1}/{max_retries})...")
                 await asyncio.sleep(retry_delay)
                 retry_delay *= 1.5  # Exponential backoff
             else:
+                DATABASE_RUNTIME_STATE["db_ready"] = False
                 if "no such table" in error_msg.lower():
-                    print(f"❌ Database tables missing: {error_msg}")
-                    print("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
+                    logger.error(f"❌ Database tables missing: {error_msg}")
+                    logger.info("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
                 else:
-                    print(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
+                    logger.warning(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
+
+
+async def _recover_corrupt_local_replica() -> bool:
+    """Quarantine a malformed local replica so libsql can resync a clean copy."""
+    try:
+        await engine.dispose()
+    except Exception as e:
+        logger.warning("⚠️ Failed to dispose database engine before recovery: %s", e)
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    candidates = [
+        local_db_path,
+        local_db_path.with_name(f"{local_db_path.name}-wal"),
+        local_db_path.with_name(f"{local_db_path.name}-shm"),
+        local_db_path.with_name(f"{local_db_path.name}-journal"),
+        local_db_path.with_name(f"{local_db_path.name}-info"),
+    ]
+
+    moved_any = False
+    for src in candidates:
+        if not src.exists():
+            continue
+        backup = src.with_name(f"{src.name}.corrupt-{timestamp}")
+        try:
+            shutil.move(str(src), str(backup))
+            moved_any = True
+            logger.warning("⚠️ Quarantined malformed replica file: %s", src.name)
+        except Exception as e:
+            logger.error("❌ Failed to quarantine replica file %s: %s", src, e)
+            return False
+
+    if not moved_any:
+        logger.warning("⚠️ Malformed replica was reported, but no local replica files were found")
+
+    return True
 
 
 async def _run_migrations(session):
     """Run lightweight schema migrations for new columns."""
     from sqlalchemy import text
+    warnings: List[str] = []
+    applied: List[str] = []
+
+    def add_warning(scope: str, message: str) -> None:
+        warnings.append(f"{scope}: {message}")
     
     migrations = [
         # Add afk_timeout_seconds to watcher_state (15 min default)
         ("watcher_state", "afk_timeout_seconds", "ALTER TABLE watcher_state ADD COLUMN afk_timeout_seconds INTEGER DEFAULT 900"),
+        # Import v2 undo support columns (required by import service queries)
+        ("import_runs", "undo_expires_at", "ALTER TABLE import_runs ADD COLUMN undo_expires_at DATETIME"),
+        ("import_runs", "undo_package_json", "ALTER TABLE import_runs ADD COLUMN undo_package_json TEXT"),
     ]
     
     for table, column, sql in migrations:
@@ -158,11 +246,13 @@ async def _run_migrations(session):
             if column not in columns:
                 await session.execute(text(sql))
                 await session.commit()
-                print(f"  ✅ Added {table}.{column}")
+                applied.append(f"{table}.{column}")
+                logger.info(f"  ✅ Added {table}.{column}")
         except Exception as e:
             # Table might not exist yet, or column already exists
             if "no such table" not in str(e).lower():
-                print(f"  ⚠️ Migration {table}.{column}: {e}")
+                add_warning(f"migration:{table}.{column}", str(e))
+                logger.warning(f"  ⚠️ Migration {table}.{column}: {e}")
 
     # Create scheduled blocks table for calendar week-view planner.
     try:
@@ -190,7 +280,8 @@ async def _run_migrations(session):
         await session.commit()
     except Exception as e:
         if "no such table" not in str(e).lower():
-            print(f"  ⚠️ Migration scheduled_blocks: {e}")
+            add_warning("migration:scheduled_blocks", str(e))
+            logger.warning(f"  ⚠️ Migration scheduled_blocks: {e}")
 
     # Weather integration tables (privacy-first weather snapshots).
     try:
@@ -266,9 +357,10 @@ async def _run_migrations(session):
         await session.commit()
     except Exception as e:
         if "no such table" not in str(e).lower():
-            print(f"  ⚠️ Migration weather tables: {e}")
+            add_warning("migration:weather_tables", str(e))
+            logger.warning(f"  ⚠️ Migration weather tables: {e}")
 
-    # Enforce one derived Computer Use projection row per (habit_id, date, source).
+    # Enforce one derived Computer Time projection row per (habit_id, date, source).
     # This prevents duplicate projection logs during concurrent sync operations.
     try:
         await session.execute(text("""
@@ -298,9 +390,61 @@ async def _run_migrations(session):
         await session.commit()
     except Exception as e:
         if "no such table" not in str(e).lower():
-            print(f"  ⚠️ Migration habit_logs.projection_unique: {e}")
+            add_warning("migration:habit_logs_projection_unique", str(e))
+            logger.warning(f"  ⚠️ Migration habit_logs.projection_unique: {e}")
+
+    # One-time data migration: persistently rename computer habit records to "Computer Time".
+    # This is idempotent and will no-op once data has already been renamed.
+    try:
+        await session.execute(text("""
+            UPDATE habits
+            SET name = 'Computer Time',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE LOWER(TRIM(name)) IN ('computer use', 'computer activity')
+        """))
+        renamed_habits = int((await session.execute(text("SELECT changes()"))).scalar() or 0)
+
+        await session.execute(text("""
+            UPDATE habit_logs
+            SET habit_name = 'Computer Time'
+            WHERE habit_name IS NOT NULL
+              AND LOWER(TRIM(habit_name)) IN ('computer use', 'computer activity')
+        """))
+        renamed_logs = int((await session.execute(text("SELECT changes()"))).scalar() or 0)
+
+        if renamed_habits > 0 or renamed_logs > 0:
+            applied.append(f"data:computer_time_rename habits={renamed_habits} logs={renamed_logs}")
+            logger.info(
+                "  ✅ Renamed computer habit records to Computer Time (habits=%s, logs=%s)",
+                renamed_habits,
+                renamed_logs,
+            )
+        await session.commit()
+    except Exception as e:
+        if "no such table" not in str(e).lower():
+            add_warning("migration:computer_time_rename", str(e))
+            logger.warning(f"  ⚠️ Migration computer_time_rename: {e}")
+
+    return {
+        "status": "degraded" if warnings else "ok",
+        "warning_count": len(warnings),
+        "warnings": warnings,
+        "applied": applied,
+    }
+
+
+def get_database_runtime_health() -> Dict[str, Any]:
+    """Return structured DB/runtime migration health state for /health checks."""
+    return {
+        "db_ready": DATABASE_RUNTIME_STATE["db_ready"],
+        "last_error": DATABASE_RUNTIME_STATE["last_error"],
+        "migration": DATABASE_RUNTIME_STATE["migration"],
+        "mode": "local_only" if LOCAL_ONLY_MODE else "cloud_replica",
+        "local_replica_path": str(local_db_path),
+    }
 
 async def close_database():
     """Close database connections"""
     await engine.dispose()
-    print("✅ Database connections closed")
+    DATABASE_RUNTIME_STATE["db_ready"] = False
+    logger.info("✅ Database connections closed")

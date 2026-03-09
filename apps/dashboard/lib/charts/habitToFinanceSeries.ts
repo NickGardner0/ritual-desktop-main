@@ -9,7 +9,7 @@ export type HabitChartPoint = {
   date: string; // "MMM d, yyyy" format
   shortDate: string; // "MMM d" format
   value: number;
-  compValue?: number;
+  compValue?: number | null;
   unit?: string;
   compUnit?: string;
   sleepOnset?: string;
@@ -25,6 +25,7 @@ export type HabitChartPoint = {
 export type SimpleHabitPoint = {
   t: number; // unix ms
   value: number;
+  compValue?: number | null;
   volume?: number;
   sleepOnset?: string;
   sleepEnd?: string;
@@ -58,6 +59,13 @@ function parseDateString(dateStr: string): number {
   } catch {
     return Date.now();
   }
+}
+
+function toOptionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
 }
 
 /**
@@ -97,6 +105,7 @@ export function habitToFinanceSeries(series: HabitChartPoint[]): FinancePoint[] 
       high,
       low,
       close,
+      compareClose: toOptionalNumber(p.compValue),
       volume,
       sleepOnset: p.sleepOnset,
       sleepEnd: p.sleepEnd,
@@ -130,6 +139,7 @@ export function simpleHabitToFinanceSeries(
       high,
       low,
       close,
+      compareClose: toOptionalNumber(p.compValue),
       volume: p.volume ?? 0,
       sleepOnset: p.sleepOnset,
       sleepEnd: p.sleepEnd,

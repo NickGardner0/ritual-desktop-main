@@ -7,6 +7,24 @@ extern "C" {
     fn stop_speech_recognition() -> bool;
 }
 
+macro_rules! nw_info {
+    ($($arg:tt)*) => {
+        log::info!("[NATIVE_WIDGET] {}", format!($($arg)*))
+    };
+}
+
+macro_rules! nw_warn {
+    ($($arg:tt)*) => {
+        log::warn!("[NATIVE_WIDGET] {}", format!($($arg)*))
+    };
+}
+
+macro_rules! nw_error {
+    ($($arg:tt)*) => {
+        log::error!("[NATIVE_WIDGET] {}", format!($($arg)*))
+    };
+}
+
 fn native_widget_process_running() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -18,7 +36,10 @@ fn native_widget_process_running() -> bool {
         {
             Ok(output) => output.status.success() && !output.stdout.is_empty(),
             Err(e) => {
-                eprintln!("⚠️ Could not check NativeTimerWidget process state via pgrep: {}", e);
+                nw_warn!(
+                    "⚠️ Could not check NativeTimerWidget process state via pgrep: {}",
+                    e
+                );
                 false
             }
         }
@@ -36,14 +57,17 @@ fn terminate_native_widget_processes() {
         use std::process::Command;
         use std::time::Duration;
 
-        match Command::new("pkill").args(["-x", "NativeTimerWidget"]).status() {
+        match Command::new("pkill")
+            .args(["-x", "NativeTimerWidget"])
+            .status()
+        {
             Ok(status) => {
                 if status.success() {
-                    println!("🛑 Terminated existing NativeTimerWidget process");
+                    nw_info!("🛑 Terminated existing NativeTimerWidget process");
                 }
             }
             Err(e) => {
-                eprintln!("⚠️ Could not terminate NativeTimerWidget via pkill: {}", e);
+                nw_warn!("⚠️ Could not terminate NativeTimerWidget via pkill: {}", e);
             }
         }
 
@@ -72,7 +96,7 @@ fn build_native_timer_widget_if_possible() {
             ))
             .status();
     } else {
-        println!("❌ Could not find build script 'native-timer/build_widget.sh'.");
+        nw_error!("❌ Could not find build script 'native-timer/build_widget.sh'.");
     }
 }
 
@@ -130,7 +154,7 @@ fn native_widget_needs_rebuild(exec_path: &std::path::Path) -> bool {
         match fs::metadata(source).and_then(|metadata| metadata.modified()) {
             Ok(source_modified) => {
                 if source_modified > binary_modified {
-                    println!(
+                    nw_info!(
                         "🔨 Native widget rebuild required: {:?} is newer than binary",
                         source
                     );
@@ -148,12 +172,12 @@ fn launch_native_timer_widget(force_restart: bool) {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    println!("🚀 Creating native Swift timer widget...");
+    nw_info!("🚀 Creating native Swift timer widget...");
 
     if force_restart {
         terminate_native_widget_processes();
     } else if native_widget_process_running() {
-        println!("ℹ️ Native Swift timer widget already running; skipping duplicate launch");
+        nw_info!("ℹ️ Native Swift timer widget already running; skipping duplicate launch");
         return;
     }
 
@@ -171,12 +195,9 @@ fn launch_native_timer_widget(force_restart: bool) {
 
     let parent_pid = std::process::id().to_string();
 
-    let find_app_bundle = || -> Option<PathBuf> {
-        app_bundle_candidates.iter().find(|p| p.exists()).cloned()
-    };
-    let find_bare = || -> Option<PathBuf> {
-        bare_candidates.iter().find(|p| p.exists()).cloned()
-    };
+    let find_app_bundle =
+        || -> Option<PathBuf> { app_bundle_candidates.iter().find(|p| p.exists()).cloned() };
+    let find_bare = || -> Option<PathBuf> { bare_candidates.iter().find(|p| p.exists()).cloned() };
     let find_any_binary = || -> Option<PathBuf> {
         // For rebuild-check we need the actual binary, not the .app dir
         let bin_inside_app: Vec<PathBuf> = app_bundle_candidates
@@ -190,17 +211,22 @@ fn launch_native_timer_widget(force_restart: bool) {
             .or_else(|| bare_candidates.iter().find(|p| p.exists()).cloned())
     };
 
-    println!("🔍 Current working directory: {:?}", std::env::current_dir().unwrap_or_default());
+    nw_info!(
+        "🔍 Current working directory: {:?}",
+        std::env::current_dir().unwrap_or_default()
+    );
 
     // Check if a build exists; if not, or if stale, rebuild.
     match find_any_binary() {
         None => {
-            println!("⚠️ Native widget executable not found. Attempting to build via build_widget.sh...");
+            nw_info!(
+                "⚠️ Native widget executable not found. Attempting to build via build_widget.sh..."
+            );
             build_native_timer_widget_if_possible();
         }
         Some(bin) => {
             if native_widget_needs_rebuild(&bin) {
-                println!("🔄 Rebuilding native widget to pick up latest Swift changes...");
+                nw_info!("🔄 Rebuilding native widget to pick up latest Swift changes...");
                 build_native_timer_widget_if_possible();
             }
         }
@@ -210,7 +236,7 @@ fn launch_native_timer_widget(force_restart: bool) {
     if let Some(bundle_path) = find_app_bundle() {
         let abs_bundle = std::fs::canonicalize(&bundle_path).unwrap_or(bundle_path);
         let bundle_str = abs_bundle.to_string_lossy().to_string();
-        println!("🔍 Launching widget via `open -n -a {}`", bundle_str);
+        nw_info!("🔍 Launching widget via `open -n -a {}`", bundle_str);
         match Command::new("open")
             .args([
                 "-n",
@@ -222,30 +248,39 @@ fn launch_native_timer_widget(force_restart: bool) {
             .output()
         {
             Ok(output) if output.status.success() => {
-                println!("✅ Native Swift timer widget launched successfully!");
+                nw_info!("✅ Native Swift timer widget launched successfully!");
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("⚠️ `open` exited with {}: {}", output.status, stderr.trim());
-                println!("⚠️ Falling back to direct binary exec");
+                nw_info!("⚠️ `open` exited with {}: {}", output.status, stderr.trim());
+                nw_info!("⚠️ Falling back to direct binary exec");
                 launch_bare_binary(find_bare(), &parent_pid);
             }
             Err(e) => {
-                println!("⚠️ `open` failed ({}), falling back to direct exec", e);
+                nw_info!("⚠️ `open` failed ({}), falling back to direct exec", e);
                 launch_bare_binary(find_bare(), &parent_pid);
             }
         }
     } else if let Some(bare_path) = find_bare() {
-        println!("🔍 No .app bundle found, using bare binary: {:?}", bare_path);
+        nw_info!(
+            "🔍 No .app bundle found, using bare binary: {:?}",
+            bare_path
+        );
         launch_bare_binary(Some(bare_path), &parent_pid);
     } else {
-        println!("❌ No widget executable found. Trying build + retry...");
+        nw_error!("❌ No widget executable found. Trying build + retry...");
         build_native_timer_widget_if_possible();
         if let Some(bundle_path) = find_app_bundle() {
             let abs_bundle = std::fs::canonicalize(&bundle_path).unwrap_or(bundle_path);
             let bundle_str = abs_bundle.to_string_lossy().to_string();
             let _ = Command::new("open")
-                .args(["-n", "-a", &bundle_str, "--args", &format!("--parent-pid={}", parent_pid)])
+                .args([
+                    "-n",
+                    "-a",
+                    &bundle_str,
+                    "--args",
+                    &format!("--parent-pid={}", parent_pid),
+                ])
                 .output();
         } else {
             launch_bare_binary(find_bare(), &parent_pid);
@@ -258,21 +293,21 @@ fn launch_bare_binary(path: Option<std::path::PathBuf>, parent_pid: &str) {
 
     match path {
         Some(p) => {
-            println!("🔍 Using bare widget binary at: {:?}", p);
+            nw_info!("🔍 Using bare widget binary at: {:?}", p);
             match Command::new(&p)
                 .env("RITUAL_PARENT_PID", parent_pid)
                 .spawn()
             {
-                Ok(_) => println!("✅ Native Swift timer widget launched (bare binary)!"),
+                Ok(_) => nw_info!("✅ Native Swift timer widget launched (bare binary)!"),
                 Err(e) => {
-                    println!("❌ Failed to launch native Swift widget: {}", e);
-                    println!("🔄 If the problem persists, try: 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
+                    nw_error!("❌ Failed to launch native Swift widget: {}", e);
+                    nw_info!("🔄 If the problem persists, try: 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
                 }
             }
         }
         None => {
-            println!("❌ Failed to locate or build the native widget executable.");
-            println!("🔄 Ensure Xcode Command Line Tools are installed and run 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
+            nw_error!("❌ Failed to locate or build the native widget executable.");
+            nw_info!("🔄 Ensure Xcode Command Line Tools are installed and run 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
         }
     }
 }
@@ -286,30 +321,43 @@ pub fn restart_native_timer_widget() {
     launch_native_timer_widget(true);
 }
 
-#[tauri::command] 
+#[tauri::command]
 pub fn close_native_timer_widget() {
-    println!("🔴 Close native Swift timer widget requested (disabled)");
+    nw_info!("🔴 Close native Swift timer widget requested (disabled)");
     // TODO: Add close function to Swift and call it here
 }
 
 #[tauri::command]
 pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
-    println!("🔐 Writing auth token to file for native widget...");
-    
+    nw_info!("🔐 Writing auth token to file for native widget...");
+
+    use dirs::home_dir;
     use std::fs;
-    use std::env;
-    
-    let temp_dir = env::temp_dir();
-    let token_file = temp_dir.join("ritual_auth_token.txt");
-    
+    use std::os::unix::fs::PermissionsExt;
+
+    let token_dir = home_dir()
+        .ok_or_else(|| "Failed to resolve home directory".to_string())?
+        .join(".ritual");
+    fs::create_dir_all(&token_dir).map_err(|e| format!("Failed to create token directory: {e}"))?;
+    let token_file = token_dir.join("auth_token.txt");
+
     match fs::write(&token_file, &token) {
         Ok(_) => {
-            println!("✅ Auth token written to: {:?}", token_file);
-            println!("🔐 Token preview: {}...", &token[..std::cmp::min(20, token.len())]);
+            let mut perms = fs::metadata(&token_file)
+                .map_err(|e| format!("Failed to read token file metadata: {e}"))?
+                .permissions();
+            perms.set_mode(0o600);
+            fs::set_permissions(&token_file, perms)
+                .map_err(|e| format!("Failed to set token file permissions: {e}"))?;
+            nw_info!("✅ Auth token written to: {:?}", token_file);
+            nw_info!(
+                "🔐 Token preview: {}...",
+                &token[..std::cmp::min(20, token.len())]
+            );
             Ok(format!("Token written to: {:?}", token_file))
         }
         Err(e) => {
-            println!("❌ Failed to write token file: {}", e);
+            nw_error!("❌ Failed to write token file: {}", e);
             Err(format!("Failed to write token file: {}", e))
         }
     }
@@ -317,12 +365,12 @@ pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn check_dashboard_refresh_trigger() -> Result<f64, String> {
-    use std::fs;
     use std::env;
-    
+    use std::fs;
+
     let temp_dir = env::temp_dir();
     let trigger_file = temp_dir.join("ritual_timer_updated.txt");
-    
+
     match fs::read_to_string(&trigger_file) {
         Ok(timestamp_str) => {
             match timestamp_str.trim().parse::<f64>() {
@@ -336,12 +384,12 @@ pub async fn check_dashboard_refresh_trigger() -> Result<f64, String> {
 
 #[tauri::command]
 pub async fn check_token_refresh_request() -> Result<f64, String> {
-    use std::fs;
     use std::env;
-    
+    use std::fs;
+
     let temp_dir = env::temp_dir();
     let request_file = temp_dir.join("ritual_refresh_token_request.txt");
-    
+
     match fs::read_to_string(&request_file) {
         Ok(timestamp_str) => {
             match timestamp_str.trim().parse::<f64>() {
@@ -361,18 +409,18 @@ pub async fn check_token_refresh_request() -> Result<f64, String> {
 pub async fn show_native_microphone_permission_dialog() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        println!("🎤 Showing native macOS microphone permission dialog...");
-        
+        nw_info!("🎤 Showing native macOS microphone permission dialog...");
+
         unsafe {
             let granted = show_microphone_permission_dialog();
-            println!("🎤 Microphone permission result: {}", granted);
+            nw_info!("🎤 Microphone permission result: {}", granted);
             Ok(granted)
         }
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     {
-        println!("🎤 Native microphone permission dialog not available on this platform");
+        nw_info!("🎤 Native microphone permission dialog not available on this platform");
         Ok(false)
     }
 }
@@ -381,44 +429,43 @@ pub async fn show_native_microphone_permission_dialog() -> Result<bool, String> 
 pub async fn check_native_microphone_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        println!("🎤 Checking native microphone permission...");
-        
+        nw_info!("🎤 Checking native microphone permission...");
+
         unsafe {
             let has_permission = check_microphone_permission();
-            println!("🎤 Current microphone permission: {}", has_permission);
+            nw_info!("🎤 Current microphone permission: {}", has_permission);
             Ok(has_permission)
         }
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     {
-        println!("🎤 Native microphone permission check not available on this platform");
+        nw_info!("🎤 Native microphone permission check not available on this platform");
         Ok(false)
     }
 }
-
 
 #[tauri::command]
 pub async fn start_native_speech_recognition() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        println!("🎤 Starting native speech recognition...");
-        
+        nw_info!("🎤 Starting native speech recognition...");
+
         unsafe {
             let success = start_speech_recognition();
             if success {
-                println!("✅ Native speech recognition started successfully");
+                nw_info!("✅ Native speech recognition started successfully");
                 Ok(())
             } else {
-                println!("❌ Failed to start native speech recognition");
+                nw_error!("❌ Failed to start native speech recognition");
                 Err("Failed to start speech recognition".to_string())
             }
         }
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     {
-        println!("🎤 Native speech recognition not available on this platform");
+        nw_info!("🎤 Native speech recognition not available on this platform");
         Err("Speech recognition not supported on this platform".to_string())
     }
 }
@@ -427,23 +474,23 @@ pub async fn start_native_speech_recognition() -> Result<(), String> {
 pub async fn stop_native_speech_recognition() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        println!("🎤 Stopping native speech recognition...");
-        
+        nw_info!("🎤 Stopping native speech recognition...");
+
         unsafe {
             let success = stop_speech_recognition();
             if success {
-                println!("✅ Native speech recognition stopped successfully");
+                nw_info!("✅ Native speech recognition stopped successfully");
                 Ok(())
             } else {
-                println!("❌ Failed to stop native speech recognition");
+                nw_error!("❌ Failed to stop native speech recognition");
                 Err("Failed to stop speech recognition".to_string())
             }
         }
     }
-    
+
     #[cfg(not(target_os = "macos"))]
     {
-        println!("🎤 Native speech recognition not available on this platform");
+        nw_info!("🎤 Native speech recognition not available on this platform");
         Err("Speech recognition not supported on this platform".to_string())
     }
 }

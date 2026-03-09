@@ -60,7 +60,7 @@ pub struct WatcherConfig {
 impl Default for WatcherConfig {
     fn default() -> Self {
         Self {
-            database_path: "~/.ritual/watcher.db".to_string(),
+            database_path: "~/.ritual/activity.db".to_string(),
             device_id: String::new(),
             user_id: String::new(),
             poll_interval_ms: 2000,

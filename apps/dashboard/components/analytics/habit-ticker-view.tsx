@@ -6,29 +6,7 @@
 'use client';
 
 import React from 'react';
-import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
-import { X } from 'lucide-react';
-
-// Custom tooltip with frosty macOS-native look
-const SparkTooltip = ({ active, payload, unit }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div 
-        className="px-2 py-1.5 text-xs border border-gray-300/60 shadow-lg"
-        style={{
-          background: 'rgba(255, 255, 255, 0.72)',
-          backdropFilter: 'blur(12px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-        }}
-      >
-        <span className="text-gray-900 font-medium tabular-nums">
-          {payload[0].value?.toFixed(1)} {unit}
-        </span>
-      </div>
-    );
-  }
-  return null;
-};
+import { HabitMetricCard } from './habit-metric-card';
 
 interface HabitTickerCardProps {
   habitName: string;
@@ -37,6 +15,7 @@ interface HabitTickerCardProps {
   percentChange: number;
   absoluteChange: number;
   chartData: { value: number }[];
+  currentValue: number;
   onClick?: () => void;
   onRemove?: () => void;
   darkMode?: boolean;
@@ -44,129 +23,26 @@ interface HabitTickerCardProps {
 
 export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
   habitName,
-  category,
   unit,
   percentChange,
   absoluteChange,
   chartData,
+  currentValue,
   onClick,
   onRemove,
-  darkMode = false,
 }) => {
-  const isPositive = percentChange >= 0;
-  const isNeutral = Math.abs(percentChange) < 0.5; // Consider < 0.5% as neutral
-  
-  // Match Codex/git-style line change colors (+added / -removed)
-  const positiveColor = '#0E7A3A';
-  const negativeColor = '#B42318';
-  const chartColor = isNeutral ? '#6B7280' : (isPositive ? positiveColor : negativeColor);
-  const bgColor = isNeutral 
-    ? 'rgba(107, 114, 128, 0.08)' 
-    : (isPositive ? 'rgba(14, 122, 58, 0.16)' : 'rgba(180, 35, 24, 0.14)');
-
   return (
-    <div
-      className="group relative w-full cursor-pointer bg-white border border-gray-200 p-2.5 hover:bg-gray-50 transition-colors duration-150 overflow-hidden min-w-0"
+    <HabitMetricCard
+      habitName={habitName}
+      currentValue={currentValue}
+      unit={unit}
+      change={percentChange}
+      absoluteChange={absoluteChange}
+      chartData={chartData}
+      isPositive={percentChange >= 0}
       onClick={onClick}
-    >
-      {/* Close Button - Top right corner in padding area, appears on hover */}
-      {onRemove && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20 rounded-sm bg-white/80 p-0.5 hover:bg-white"
-          aria-label="Remove habit"
-        >
-          <X className="w-2.5 h-2.5 text-gray-400 hover:text-gray-600" />
-        </button>
-      )}
-
-      {/* Header Row: Name + Badge + Change */}
-      <div className="flex items-start justify-between gap-1 mb-1">
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <h3 className="font-medium text-[12px] text-gray-900 truncate leading-tight">
-            {habitName}
-          </h3>
-          <p className="text-[9px] text-gray-500 uppercase tracking-wider truncate">
-            {unit}
-          </p>
-        </div>
-        
-        {/* Right side: Badge + Absolute Change - flush to right edge */}
-        <div className="flex flex-col items-end shrink-0">
-          {/* % Badge - Perplexity style */}
-          <div 
-            className="flex items-center gap-0.5 px-1 py-0.5 rounded-sm whitespace-nowrap"
-            style={{ backgroundColor: bgColor }}
-          >
-            {!isNeutral && (
-              isPositive 
-                ? <span className="text-[9px]" style={{ color: chartColor }}>↗</span>
-                : <span className="text-[9px]" style={{ color: chartColor }}>↘</span>
-            )}
-            <span 
-              className="text-[9px] font-medium tabular-nums"
-              style={{ color: chartColor }}
-            >
-              {Math.abs(percentChange).toFixed(1)}%
-            </span>
-          </div>
-          {/* Absolute change under percentage */}
-          <span 
-            className="text-[9px] font-medium tabular-nums mt-0.5"
-            style={{ color: chartColor }}
-          >
-            {isPositive ? '+' : ''}{absoluteChange.toFixed(1)}
-          </span>
-        </div>
-      </div>
-
-      {/* Sparkline */}
-      <div className="h-[46px] my-1 overflow-hidden w-full min-w-0">
-        {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-            <AreaChart 
-              data={chartData} 
-              margin={{ top: 2, right: 2, left: 2, bottom: 2 }}
-            >
-              <defs>
-                <linearGradient 
-                  id={`gradient-${habitName.replace(/[^a-zA-Z0-9]/g, '')}`} 
-                  x1="0" 
-                  y1="0" 
-                  x2="0" 
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.32}/>
-                  <stop offset="100%" stopColor={chartColor} stopOpacity={0.16}/>
-                </linearGradient>
-              </defs>
-              <Tooltip 
-                content={<SparkTooltip unit={unit} />}
-                cursor={{ stroke: chartColor, strokeWidth: 1, strokeDasharray: '3 3' }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={chartColor}
-                strokeWidth={1.5}
-                fill={`url(#gradient-${habitName.replace(/[^a-zA-Z0-9]/g, '')})`}
-                isAnimationActive={false}
-                dot={false}
-                connectNulls
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <span className="text-[10px] text-gray-400">No data</span>
-          </div>
-        )}
-      </div>
-
-    </div>
+      onRemove={onRemove}
+    />
   );
 };
 
@@ -176,6 +52,8 @@ interface HabitTickerGridProps {
     habit_name: string;
     category?: string;
     unit: string;
+    display_value?: number;
+    absolute_change?: number;
     last_7_days_avg: number;
     prev_7_days_avg: number;
     weekly_amount_change_pct: number;
@@ -194,7 +72,7 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
 }) => {
   // Filter out any invalid habits (missing habit_id)
   const validHabits = habits.filter(habit => habit && habit.habit_id);
-  
+
   if (validHabits.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -204,15 +82,18 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
   }
 
   return (
-    <div 
-      className="mx-auto w-full max-w-[1460px] grid grid-cols-2 sm:grid-cols-4 gap-2"
-      style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}
+    <div
+      className="mx-auto grid w-full max-w-[920px] grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"
     >
       {validHabits.map((habit, index) => {
-        const currentValue = habit.last_7_days_avg || 0;
+        const currentValue = Number.isFinite(habit.display_value)
+          ? Number(habit.display_value)
+          : (habit.last_7_days_avg || 0);
         const previousValue = habit.prev_7_days_avg || 0;
         const percentChange = habit.weekly_amount_change_pct || 0;
-        const absoluteChange = currentValue - previousValue;
+        const absoluteChange = Number.isFinite(habit.absolute_change)
+          ? Number(habit.absolute_change)
+          : (currentValue - previousValue);
 
         return (
           <div key={habit.habit_id || `habit-${index}`} className="min-w-0">
@@ -223,6 +104,7 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
               percentChange={percentChange}
               absoluteChange={absoluteChange}
               chartData={habit.chartData || []}
+              currentValue={currentValue}
               onClick={() => onHabitClick?.(habit.habit_id)}
               onRemove={onHabitRemove ? () => onHabitRemove(habit.habit_id) : undefined}
               darkMode={darkMode}
@@ -234,76 +116,4 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
   );
 };
 
-// View Toggle - Dropdown style matching habits filter
-interface ViewToggleProps {
-  currentView: 'chart' | 'ticker';
-  onViewChange: (view: 'chart' | 'ticker') => void;
-  darkMode?: boolean;
-}
-
-export const AnalyticsViewToggle: React.FC<ViewToggleProps> = ({
-  currentView,
-  onViewChange,
-}) => {
-  const [isOpen, setIsOpen] = React.useState(false);
-  
-  const viewOptions = [
-    { value: 'ticker' as const, label: 'Spark' },
-    { value: 'chart' as const, label: 'Bar' }
-  ];
-  
-  const currentOption = viewOptions.find(opt => opt.value === currentView);
-  
-  return (
-    <div className="relative">
-      <button
-        id="view-toggle-dropdown-button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between gap-2 px-3 py-2 bg-white border border-gray-300 text-sm text-gray-700 hover:bg-[#F3F3F3] transition-colors min-w-[100px]"
-      >
-        <span className="text-sm">{currentOption?.label || 'View'}</span>
-        <svg 
-          className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none" 
-          stroke="currentColor" 
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      
-      {isOpen && (
-        <>
-          <div 
-            className="fixed inset-0" 
-            style={{ zIndex: 999 }}
-            onClick={() => setIsOpen(false)}
-          />
-          <div 
-            className="absolute left-0 top-full mt-1 bg-white border border-gray-300 shadow-lg z-[1000] min-w-[120px]"
-          >
-            <div className="p-1">
-              {viewOptions.map((option) => (
-                <label
-                  key={option.value}
-                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F3F3F3] cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={currentView === option.value}
-                    onChange={() => {
-                      onViewChange(option.value);
-                      setIsOpen(false);
-                    }}
-                    className="analytics-checkbox"
-                  />
-                  <span className="text-sm text-gray-900">{option.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
+export default HabitTickerGrid;

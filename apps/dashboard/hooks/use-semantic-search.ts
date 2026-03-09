@@ -112,7 +112,21 @@ async function invokeCommand<T>(command: string, args?: Record<string, unknown>)
     console.warn(`Tauri command ${command} called in non-Tauri environment`);
     throw new Error('Not running in Tauri');
   }
-  return invoke<T>(command, args);
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    const message = String((error as { message?: unknown })?.message ?? error ?? '').toLowerCase();
+    const needsDbInit =
+      command !== 'init_ritual_database' &&
+      message.includes('database not initialized') &&
+      message.includes('initialize_database');
+    if (!needsDbInit) {
+      throw error;
+    }
+
+    await invoke<string>('init_ritual_database');
+    return await invoke<T>(command, args);
+  }
 }
 
 // ============================================================

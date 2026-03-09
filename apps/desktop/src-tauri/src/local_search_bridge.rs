@@ -15,18 +15,82 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 const DEFAULT_BRIDGE_PORT: u16 = 3031;
 const HYBRID_PATH: &str = "/v1/hybrid-search";
+const HEALTH_PATH: &str = "/health";
+const READINESS_PATH: &str = "/readiness";
 const TOKEN_HEADER: &str = "X-Ritual-Bridge-Token";
 const DEFAULT_TOKEN_FILE_NAME: &str = "local_search_bridge.token";
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+const AUTO_BACKFILL_PENDING_THRESHOLD: i64 = 800;
+const AUTO_BACKFILL_BATCH_SIZE: usize = 200;
+const AUTO_BACKFILL_MAX_BATCHES: usize = 600;
+const AUTO_BACKFILL_LOOKBACK_DAYS: i64 = 3650;
 
 static BRIDGE_STARTED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+static BRIDGE_RESTART_COUNT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+#[allow(dead_code)]
+pub fn bridge_restart_count() -> u64 {
+    BRIDGE_RESTART_COUNT.load(Ordering::Relaxed)
+}
+
+/// Reset the BRIDGE_STARTED flag so the watchdog can restart the bridge.
+#[allow(dead_code)]
+pub fn mark_bridge_stopped() {
+    BRIDGE_STARTED.store(false, Ordering::SeqCst);
+}
+
+/// Check bridge health by connecting to the local health endpoint.
+#[allow(dead_code)]
+pub fn bridge_health_check() -> bool {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    let port = std::env::var("RITUAL_LOCAL_SEARCH_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(DEFAULT_BRIDGE_PORT);
+    let addr = format!("127.0.0.1:{}", port);
+    let stream = match TcpStream::connect_timeout(
+        &addr.parse().unwrap(),
+        std::time::Duration::from_secs(2),
+    ) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
+    let mut stream = stream;
+    let request = format!("GET {} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n", HEALTH_PATH);
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 256];
+    match stream.read(&mut buf) {
+        Ok(n) if n > 0 => {
+            let response = String::from_utf8_lossy(&buf[..n]);
+            response.contains("200")
+        }
+        _ => false,
+    }
+}
+
+#[allow(dead_code)]
+pub fn is_bridge_started() -> bool {
+    BRIDGE_STARTED.load(Ordering::SeqCst)
+}
+
+macro_rules! lsb_info {
+    ($($arg:tt)*) => {
+        log::info!("[LOCAL_SEARCH_BRIDGE] {}", format!($($arg)*))
+    };
+}
 
 #[derive(Debug, Deserialize)]
 struct HybridBridgeRequest {
@@ -139,8 +203,13 @@ fn write_token_to_file(path: &Path, token: &str) -> Result<(), String> {
         })?;
     }
 
-    fs::write(path, format!("{}\n", token))
-        .map_err(|e| format!("failed to write bridge token file {}: {}", path.display(), e))?;
+    fs::write(path, format!("{}\n", token)).map_err(|e| {
+        format!(
+            "failed to write bridge token file {}: {}",
+            path.display(),
+            e
+        )
+    })?;
 
     #[cfg(unix)]
     {
@@ -230,11 +299,33 @@ fn process_hybrid_request(payload: HybridBridgeRequest) -> HybridBridgeResponse 
                     error: Some(init_error),
                 };
             }
-            if state.frames_without_embeddings > 0 {
+            if state.frames_without_embeddings > 0 || state.pending_chunks > 0 {
                 warning = Some(
-                    "Some semantic results may be missing while embeddings finish processing."
+                    "Some semantic results may be missing while embeddings finish processing. This affects semantic/evidence matches, not activity-time totals."
                         .to_string(),
                 );
+            }
+            if state.pending_chunks >= AUTO_BACKFILL_PENDING_THRESHOLD {
+                match ritual_database::start_chunk_embedding_backfill(
+                    Some(AUTO_BACKFILL_BATCH_SIZE),
+                    Some(AUTO_BACKFILL_MAX_BATCHES),
+                    Some(AUTO_BACKFILL_LOOKBACK_DAYS),
+                ) {
+                    Ok(message) => {
+                        lsb_info!(
+                            "🛠️ Auto-triggered chunk backfill (pending_chunks={}): {}",
+                            state.pending_chunks,
+                            message
+                        );
+                    }
+                    Err(err) => {
+                        lsb_info!(
+                            "⚠️ Failed to auto-trigger chunk backfill (pending_chunks={}): {}",
+                            state.pending_chunks,
+                            err
+                        );
+                    }
+                }
             }
         }
         Err(err) => {
@@ -310,6 +401,31 @@ fn handle_request(mut request: Request, expected_token: &str) {
     let method = request.method().clone();
     let path = request.url().split('?').next().unwrap_or(request.url());
 
+    if method == Method::Get && path == HEALTH_PATH {
+        let payload = serde_json::json!({
+            "success": true,
+            "status": "ok",
+            "path": HEALTH_PATH,
+            "restart_count": BRIDGE_RESTART_COUNT.load(Ordering::Relaxed),
+        });
+        send_json(request, 200, &payload);
+        return;
+    }
+
+    if method == Method::Get && path == READINESS_PATH {
+        let db_ok = match ritual_database::ensure_embedding_pipeline_ready() {
+            Ok(_) => true,
+            Err(_) => false,
+        };
+        let payload = serde_json::json!({
+            "success": db_ok,
+            "status": if db_ok { "ready" } else { "not_ready" },
+            "path": READINESS_PATH,
+        });
+        send_json(request, if db_ok { 200 } else { 503 }, &payload);
+        return;
+    }
+
     if method != Method::Post || path != HYBRID_PATH {
         let payload = serde_json::json!({
             "success": false,
@@ -368,20 +484,52 @@ pub fn start_local_search_bridge() -> Result<(), String> {
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(DEFAULT_BRIDGE_PORT);
     let addr = format!("127.0.0.1:{}", port);
-    let (bridge_token, token_source) = resolve_bridge_token()?;
+    let (bridge_token, token_source) = match resolve_bridge_token() {
+        Ok(value) => value,
+        Err(err) => {
+            BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            return Err(err);
+        }
+    };
     let expected_token = Arc::new(bridge_token);
 
-    let server = Server::http(&addr)
-        .map_err(|e| format!("Failed to start local search bridge at {}: {}", addr, e))?;
+    let server = match Server::http(&addr) {
+        Ok(server) => server,
+        Err(err) => {
+            BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            return Err(format!(
+                "Failed to start local search bridge at {}: {}",
+                addr, err
+            ));
+        }
+    };
 
-    println!("🔎 Local hybrid search bridge listening on http://{}", addr);
-    println!("🔐 Local hybrid search bridge token source: {}", token_source);
+    lsb_info!("🔎 Local hybrid search bridge listening on http://{}", addr);
+    lsb_info!("🩺 Local hybrid search bridge health endpoint: http://{}{}", addr, HEALTH_PATH);
+    lsb_info!(
+        "🔐 Local hybrid search bridge token source: {}",
+        token_source
+    );
 
     thread::spawn(move || {
-        for request in server.incoming_requests() {
-            handle_request(request, expected_token.as_str());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for request in server.incoming_requests() {
+                handle_request(request, expected_token.as_str());
+            }
+        }));
+        if let Err(panic_info) = result {
+            let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            log::error!("[LOCAL_SEARCH_BRIDGE] Bridge thread panicked: {}. Watchdog can restart.", msg);
+            BRIDGE_STARTED.store(false, Ordering::SeqCst);
         }
     });
 
+    BRIDGE_RESTART_COUNT.fetch_add(1, Ordering::Relaxed);
     Ok(())
 }

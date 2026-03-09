@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from '@/components/ui/button';
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
@@ -14,11 +13,6 @@ import dynamic from 'next/dynamic';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
-  { ssr: false }
-);
-
-const TimeTrackerWidget = dynamic(
-  () => import('@/components/timer/TimeTrackerWidget').then(m => ({ default: m.TimeTrackerWidget })),
   { ssr: false }
 );
 
@@ -45,55 +39,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
   const lastDashboardRefreshRef = useRef(0);
 
-  const openTimeTrackerWindow = async () => {
-    console.log('🖱️ Tracker button clicked - creating native Swift timer widget');
-    
-    if (typeof window !== 'undefined') {
-      try {
-        console.log('🔍 Creating native Swift timer widget...');
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        
-        // Get Clerk JWT token for authentication
-        const token = await getToken();
-        
-        if (token) {
-          console.log('🔐 Writing auth token for Swift widget...');
-          await invoke('write_auth_token_to_file', { token });
-        } else {
-          console.warn('⚠️ No auth token found - Swift widget may not work properly');
-        }
-        
-        await invoke('create_native_timer_widget');
-        console.log('✅ Native Swift timer widget created successfully!');
-        
-      } catch (error) {
-        console.error('❌ Failed to create native Swift timer widget:', error);
-        console.error('❌ Falling back to Tauri widget...');
-        
-        const { WebviewWindow } = await import('@tauri-apps/api/window');
-        
-        const windowLabel = `timer-widget-${Date.now()}`;
-        const trackerWindow = new WebviewWindow(windowLabel, {
-          url: '/widget',
-          width: 320,
-          height: 50,
-          alwaysOnTop: true,
-          decorations: false,
-          resizable: false,
-          skipTaskbar: true,
-          center: true,
-          title: 'Focus Timer',
-          transparent: true,
-        });
-        
-        trackerWindow.once('tauri://created', function () {
-          console.log('✅ Fallback Tauri timer widget created successfully!');
-        });
-      }
-    }
-  };
-
-  // Keep native notch auth token available even when tracker button isn't clicked.
+  // Keep native notch auth token available for the Swift timer widget.
   useEffect(() => {
     if (typeof window === 'undefined' || !isTauri()) return;
 
@@ -287,19 +233,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 />
               </div>
 
-              {/* Tracker Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={openTimeTrackerWindow}
-                className="flex items-center gap-2 text-[13px] text-gray-600 px-3 py-1.5 h-8 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] focus-visible:outline-none focus-visible:ring-0 rounded-none"
-              >
-                <span>Tracker</span>
-                <kbd className="ml-auto pointer-events-none inline-flex h-[18px] select-none items-center gap-0.5 border border-gray-200 bg-gray-50 px-1 font-mono text-[9px] font-medium text-muted-foreground opacity-100">
-                  <span className="text-[10px]">⌘</span>T
-                </kbd>
-              </Button>
-
               {/* Slot for page-specific left-side actions (e.g. + button) */}
               <div id="header-left-slot" className="flex items-center space-x-2.5" />
             </div>
@@ -317,11 +250,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       </div>
 
 
-      {/* Time Tracker Widget */}
-      <TimeTrackerWidget 
-        open={false} 
-        onClose={() => {}} 
-      />
     </div>
   );
 }

@@ -1284,7 +1284,6 @@ export function CalendarClient() {
               onDayBlockEditorOpen={openMonthDayBlockEditor}
               onDayHover={handleDayHover}
               onWeekClick={(_weekNumber, weekStart) => {
-                // Select the entire week when clicking week number
                 const weekEnd = endOfWeek(weekStart, { weekStartsOn: weekStartsOnMonday ? 1 : 0 });
                 setRange([
                   formatISO(weekStart, { representation: 'date' }),
@@ -1308,7 +1307,6 @@ export function CalendarClient() {
             {taskComposerModal}
           </div>
         )}
-      </div>
 
       {/* Hover panel - like Lumen (shows below calendar on left) */}
       {viewMode === 'month' && hoveredDate && !selectedDate && !validRange && (
@@ -1433,7 +1431,6 @@ export function CalendarClient() {
             </p>
 
             {(() => {
-              // Calculate total for range
               let totalRangeDuration = 0;
               let totalRangeLogs = 0;
 
@@ -1470,6 +1467,7 @@ export function CalendarClient() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

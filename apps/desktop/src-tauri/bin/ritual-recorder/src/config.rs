@@ -30,9 +30,9 @@ pub enum StorageTier {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecorderConfig {
     // === Paths ===
-    /// Path to the frames database
+    /// Path to the memory database (OCR/chunks/embeddings)
     pub frames_db_path: PathBuf,
-    /// Path to the watcher database (for activity correlation)
+    /// Path to the activity database (for watcher event correlation)
     pub watcher_db_path: PathBuf,
     /// Directory for thumbnails
     pub thumbnail_dir: PathBuf,
@@ -76,9 +76,9 @@ pub struct RecorderConfig {
 impl Default for RecorderConfig {
     fn default() -> Self {
         Self {
-            // Paths - will be set based on --database arg
-            frames_db_path: PathBuf::from("~/.ritual/frames.db"),
-            watcher_db_path: PathBuf::from("~/.ritual/watcher.db"),
+            // Paths - will be set based on --database/--watcher-db args
+            frames_db_path: PathBuf::from("~/.ritual/memory.db"),
+            watcher_db_path: PathBuf::from("~/.ritual/activity.db"),
             thumbnail_dir: PathBuf::from("~/.ritual/thumbnails"),
 
             // Capture

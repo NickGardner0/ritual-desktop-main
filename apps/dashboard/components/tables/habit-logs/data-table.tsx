@@ -200,6 +200,37 @@ const COLUMNS: ColumnConfig[] = [
 const STATUS_OPTIONS: HabitLog['status'][] = ['completed', 'skipped', 'missed'];
 const LEFT_STICKY_COLUMNS: string[] = [];
 
+function readStoredColumnWidths(): Record<string, number> {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = localStorage.getItem(COLUMN_RESIZE_STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    const columnById = Object.fromEntries(COLUMNS.map((column) => [column.id, column])) as Record<
+      string,
+      ColumnConfig
+    >;
+    const next: Record<string, number> = {};
+
+    for (const [key, value] of Object.entries(parsed)) {
+      const column = columnById[key];
+      if (!column || !Number.isFinite(value)) continue;
+      const clamped = Math.max(column.minWidth, Math.min(column.maxWidth ?? value, value));
+      if (clamped !== column.defaultWidth) {
+        next[key] = clamped;
+      }
+    }
+
+    return next;
+  } catch {
+    return {};
+  }
+}
+
 function SortButton({
   column,
   sortColumn,
@@ -251,15 +282,15 @@ function InlineDateEditor({
 }) {
   const [open, setOpen] = useState(false);
   const [draftDate, setDraftDate] = useState(date);
-
-  useEffect(() => {
-    if (!open) {
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
       setDraftDate(date);
     }
-  }, [date, open]);
+  }, [date]);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -457,7 +488,7 @@ export function HabitLogsDataTable({
 }: DataTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState<number>(0);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(readStoredColumnWidths);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
 
@@ -479,29 +510,6 @@ export function HabitLogsDataTable({
     if (!column) return 120;
     return columnWidths[columnId] ?? column.defaultWidth;
   }, [columnById, columnWidths]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(COLUMN_RESIZE_STORAGE_KEY);
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw) as Record<string, number>;
-      const next: Record<string, number> = {};
-
-      for (const [key, value] of Object.entries(parsed)) {
-        const column = columnById[key];
-        if (!column || !Number.isFinite(value)) continue;
-        const clamped = Math.max(column.minWidth, Math.min(column.maxWidth ?? value, value));
-        if (clamped !== column.defaultWidth) {
-          next[key] = clamped;
-        }
-      }
-
-      setColumnWidths(next);
-    } catch (error) {
-      console.error('Failed to restore log column widths:', error);
-    }
-  }, [columnById]);
 
   useEffect(() => {
     try {
@@ -727,13 +735,6 @@ export function HabitLogsDataTable({
     toggleAllRows,
     toggleRow,
   ]);
-
-  useEffect(() => {
-    setActiveRowIndex((prev) => {
-      if (logs.length === 0) return 0;
-      return Math.min(prev, logs.length - 1);
-    });
-  }, [logs.length]);
 
   useEffect(() => {
     const viewport = scrollViewportRef.current;

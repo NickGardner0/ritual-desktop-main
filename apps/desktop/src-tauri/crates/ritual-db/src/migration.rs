@@ -16,6 +16,8 @@ use crate::types::MigrationResult;
 
 /// Batch size for migration (to avoid memory issues with large databases)
 const MIGRATION_BATCH_SIZE: usize = 1000;
+const SOURCE_MISMATCH_THRESHOLD_MS: i64 = 60_000;
+const RESYNC_TAIL_WINDOW_MS: i64 = 5 * 60 * 1000;
 
 /// Check for legacy databases and migrate if needed
 pub async fn migrate_if_needed(conn: &Connection, data_dir: &Path) -> Result<()> {
@@ -30,12 +32,18 @@ pub async fn migrate_if_needed(conn: &Connection, data_dir: &Path) -> Result<()>
     
     if !has_watcher && !has_frames && !has_sync {
         debug!("No legacy databases found, skipping migration");
+        update_pipeline_watermarks(conn, false, None).await?;
         return Ok(());
     }
     
     // Check if migration was already completed
     if is_migration_complete(conn).await? {
         debug!("Migration already completed");
+        if has_frames {
+            let _ = resync_legacy_tail(conn, &frames_db).await;
+        } else {
+            update_pipeline_watermarks(conn, false, None).await?;
+        }
         return Ok(());
     }
     
@@ -97,15 +105,25 @@ pub async fn migrate_if_needed(conn: &Connection, data_dir: &Path) -> Result<()>
     // Re-enable foreign key enforcement
     let _ = conn.execute("PRAGMA foreign_keys = ON", ()).await;
     
-    // Always mark migration as complete to prevent infinite retry loops.
-    // Partial migration is better than retrying and failing every startup.
     if result.is_success() {
         backup_legacy_databases(data_dir, &mut result)?;
         info!("Migration completed successfully! Total: {} records", result.total_migrated());
+        mark_migration_complete(conn).await?;
     } else {
-        warn!("Migration completed with errors (will not retry): {:?}", result.errors);
+        warn!("Migration completed with errors (will retry on next startup): {:?}", result.errors);
+        update_pipeline_watermarks(
+            conn,
+            true,
+            Some("Legacy migration completed with partial errors; migration marker not advanced."),
+        ).await?;
+        return Ok(());
     }
-    mark_migration_complete(conn).await?;
+
+    if has_frames {
+        let _ = resync_legacy_tail(conn, &frames_db).await;
+    } else {
+        update_pipeline_watermarks(conn, false, None).await?;
+    }
     
     Ok(())
 }
@@ -132,6 +150,263 @@ async fn mark_migration_complete(conn: &Connection) -> Result<()> {
         libsql::params![0, now, "legacy_migration_complete"]
     ).await.map_err(|e| DatabaseError::Migration(e.to_string()))?;
     
+    Ok(())
+}
+
+async fn update_pipeline_watermarks(
+    conn: &Connection,
+    source_mismatch: bool,
+    source_note: Option<&str>,
+) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO pipeline_watermarks (id, updated_at)
+        VALUES (1, ?)
+        "#,
+        libsql::params![now]
+    ).await.map_err(|e| DatabaseError::Migration(e.to_string()))?;
+
+    let last_activity_ts = get_max_i64(conn, "SELECT MAX(ts_end) FROM activity_events").await?;
+    let last_ocr_frame_ts = get_max_i64(conn, "SELECT MAX(timestamp) FROM ocr_frames").await?;
+    let last_capture_ts = get_max_i64(
+        conn,
+        "SELECT MAX(COALESCE(end_time, start_time)) FROM video_chunks",
+    ).await?;
+    let pending_chunks = get_max_i64(
+        conn,
+        r#"
+        SELECT COUNT(*)
+        FROM ocr_frames f
+        LEFT JOIN ocr_embeddings e ON e.frame_id = f.id
+        WHERE (e.id IS NULL OR COALESCE(e.status, 'pending') != 'ok')
+          AND (
+            COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
+            OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
+            OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
+          )
+        "#,
+    ).await?.unwrap_or(0);
+    let oldest_pending = get_max_i64(
+        conn,
+        r#"
+        SELECT MIN(f.timestamp)
+        FROM ocr_frames f
+        LEFT JOIN ocr_embeddings e ON e.frame_id = f.id
+        WHERE (e.id IS NULL OR COALESCE(e.status, 'pending') != 'ok')
+          AND (
+            COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
+            OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
+            OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
+          )
+        "#,
+    ).await?;
+
+    conn.execute(
+        r#"
+        UPDATE pipeline_watermarks
+        SET
+          last_capture_ts = ?,
+          last_activity_ts = ?,
+          last_ocr_frame_ts = ?,
+          pending_chunks = ?,
+          oldest_pending_chunk_ts = ?,
+          source_mismatch = ?,
+          source_mismatch_note = ?,
+          updated_at = ?
+        WHERE id = 1
+        "#,
+        libsql::params![
+            last_capture_ts,
+            last_activity_ts,
+            last_ocr_frame_ts,
+            pending_chunks,
+            oldest_pending,
+            if source_mismatch { 1 } else { 0 },
+            source_note,
+            now,
+        ]
+    ).await.map_err(|e| DatabaseError::Migration(e.to_string()))?;
+
+    Ok(())
+}
+
+async fn get_max_i64(conn: &Connection, sql: &str) -> Result<Option<i64>> {
+    let mut rows = conn
+        .query(sql, ())
+        .await
+        .map_err(|e| DatabaseError::Migration(e.to_string()))?;
+    Ok(rows
+        .next()
+        .await
+        .map_err(|e| DatabaseError::Migration(e.to_string()))?
+        .and_then(|row| row.get::<i64>(0).ok()))
+}
+
+async fn resync_legacy_tail(conn: &Connection, frames_db_path: &Path) -> Result<()> {
+    if !frames_db_path.exists() {
+        update_pipeline_watermarks(conn, false, None).await?;
+        return Ok(());
+    }
+
+    let target_latest = get_max_i64(conn, "SELECT MAX(timestamp) FROM ocr_frames")
+        .await?
+        .unwrap_or(0);
+
+    let source = SqliteConn::open(frames_db_path)?;
+    let has_source_ocr_table: bool = source.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ocr_frames'",
+        [],
+        |row| row.get::<_, i32>(0).map(|count| count > 0),
+    )?;
+    if !has_source_ocr_table {
+        update_pipeline_watermarks(conn, false, None).await?;
+        return Ok(());
+    }
+
+    let source_latest: i64 = source.query_row(
+        "SELECT COALESCE(MAX(timestamp), 0) FROM ocr_frames",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+
+    if source_latest <= target_latest + SOURCE_MISMATCH_THRESHOLD_MS {
+        update_pipeline_watermarks(conn, false, None).await?;
+        return Ok(());
+    }
+
+    update_pipeline_watermarks(
+        conn,
+        true,
+        Some("Legacy frames.db is newer than ritual.db; running tail resync."),
+    ).await?;
+
+    let tail_start = target_latest.saturating_sub(RESYNC_TAIL_WINDOW_MS);
+    let has_source_video_chunks: bool = source.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='video_chunks'",
+        [],
+        |row| row.get::<_, i32>(0).map(|count| count > 0),
+    )?;
+    if has_source_video_chunks {
+        let mut video_stmt = source.prepare(
+            r#"
+            SELECT file_path, start_time, end_time, frame_count, file_size_bytes, monitor_id, storage_tier, created_at
+            FROM video_chunks
+            WHERE start_time >= ?
+            ORDER BY start_time ASC
+            "#,
+        )?;
+        let video_rows = video_stmt.query_map([tail_start], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, Option<i64>>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
+            ))
+        })?;
+
+        for row_result in video_rows {
+            let row = row_result?;
+            conn.execute(
+                r#"
+                INSERT OR IGNORE INTO video_chunks
+                (file_path, start_time, end_time, frame_count, file_size_bytes, monitor_id, storage_tier, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+                libsql::params![
+                    row.0.clone(),
+                    row.1,
+                    row.2,
+                    row.3,
+                    row.4,
+                    row.5 as i64,
+                    row.6.clone(),
+                    row.7.clone(),
+                ],
+            ).await.map_err(|e| DatabaseError::Migration(e.to_string()))?;
+        }
+    }
+
+    let mut frame_stmt = source.prepare(
+        r#"
+        SELECT timestamp, activity_event_id, app_bundle_id, app_name, window_title,
+               ocr_text, ocr_confidence, thumbnail_path, video_chunk_id, frame_offset,
+               image_hash, storage_tier, created_at
+        FROM ocr_frames
+        WHERE timestamp >= ?
+        ORDER BY timestamp ASC
+        "#,
+    )?;
+    let frame_rows = frame_stmt.query_map([tail_start], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, Option<i64>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, f64>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<i64>>(8)?,
+            row.get::<_, Option<i64>>(9)?,
+            row.get::<_, Option<String>>(10)?,
+            row.get::<_, String>(11)?,
+            row.get::<_, Option<String>>(12)?,
+        ))
+    })?;
+
+    for row_result in frame_rows {
+        let row = row_result?;
+        conn.execute(
+            r#"
+            INSERT INTO ocr_frames (
+                timestamp, activity_event_id, app_bundle_id, app_name, window_title,
+                ocr_text, ocr_confidence, thumbnail_path, video_chunk_id, frame_offset,
+                image_hash, storage_tier, created_at
+            )
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM ocr_frames
+                WHERE timestamp = ?
+                  AND COALESCE(image_hash, '') = COALESCE(?, '')
+            )
+            "#,
+            libsql::params![
+                row.0,
+                row.1,
+                row.2.clone(),
+                row.3.clone(),
+                row.4.clone(),
+                row.5.clone(),
+                row.6,
+                row.7.clone(),
+                row.8,
+                row.9,
+                row.10.clone(),
+                row.11.clone(),
+                row.12.clone(),
+                row.0,
+                row.10.clone(),
+            ],
+        ).await.map_err(|e| DatabaseError::Migration(e.to_string()))?;
+    }
+
+    let updated_target_latest = get_max_i64(conn, "SELECT MAX(timestamp) FROM ocr_frames")
+        .await?
+        .unwrap_or(0);
+    let still_mismatch = source_latest > updated_target_latest + SOURCE_MISMATCH_THRESHOLD_MS;
+    let note = if still_mismatch {
+        Some("Legacy frames.db still ahead after tail resync; full resync recommended.")
+    } else {
+        Some("Legacy tail resync completed.")
+    };
+    update_pipeline_watermarks(conn, still_mismatch, note).await?;
+
     Ok(())
 }
 

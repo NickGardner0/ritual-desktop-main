@@ -26,7 +26,7 @@ export function RangeSegmentedControl({
       role="tablist"
       aria-label="Range presets"
       className={cn(
-        'inline-flex h-8 max-w-full items-center gap-1 overflow-x-auto border border-gray-300 bg-white p-0.5',
+        'inline-flex h-[31px] max-w-full items-center overflow-x-auto border border-[rgba(39,37,30,0.07)] bg-white p-[3px]',
         className
       )}
     >
@@ -41,10 +41,10 @@ export function RangeSegmentedControl({
             aria-selected={selected}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              'h-full shrink-0 whitespace-nowrap rounded-sm px-2.5 text-[11px] font-medium leading-none transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset',
+              'h-[25px] min-w-[32px] shrink-0 whitespace-nowrap px-2 text-[11.5px] font-medium leading-[16px] tracking-[-0.4px] transition-all focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset',
               selected
-                ? 'bg-gray-100 text-gray-900'
-                : 'text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-900 focus:bg-[#F3F3F3]'
+                ? 'bg-[rgba(39,37,30,0.06)] text-[#27251E]'
+                : 'text-[rgba(39,37,30,0.5)] hover:bg-[rgba(39,37,30,0.02)] hover:text-[#27251E]'
             )}
           >
             {option.label}

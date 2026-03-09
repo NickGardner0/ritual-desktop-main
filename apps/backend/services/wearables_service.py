@@ -10,6 +10,7 @@ import hashlib
 import base64
 import json
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +34,8 @@ from schemas.wearables_apple import (
     AppleIngestResult,
     DeleteResult,
 )
+
+logger = logging.getLogger(__name__)
 
 # Background task executor for non-blocking operations
 _background_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="wearables_bg_")
@@ -82,13 +85,13 @@ class WearablesService:
                 try:
                     await tinybird.ingest_habit_log(log_data)
                 except Exception as e:
-                    print(f"⚠️ Tinybird sync error for log: {e}")
+                    logger.warning(f"⚠️ Tinybird sync error for log: {e}")
             
-            print(f"📊 Tinybird force flush: {count} logs synced")
+            logger.info(f"📊 Tinybird force flush: {count} logs synced")
             self._pending_tinybird_syncs = []
             return count
         except Exception as e:
-            print(f"⚠️ Tinybird force flush failed: {e}")
+            logger.warning(f"⚠️ Tinybird force flush failed: {e}")
             return 0
     
     async def _flush_tinybird_batch(self) -> None:
@@ -109,11 +112,11 @@ class WearablesService:
                 try:
                     await tinybird.ingest_habit_log(log_data)
                 except Exception as e:
-                    print(f"⚠️ Tinybird batch sync error for log: {e}")
+                    logger.warning(f"⚠️ Tinybird batch sync error for log: {e}")
             
-            print(f"📊 Tinybird batch sync: {len(batch)} logs")
+            logger.info(f"📊 Tinybird batch sync: {len(batch)} logs")
         except Exception as e:
-            print(f"⚠️ Tinybird batch sync failed: {e}")
+            logger.warning(f"⚠️ Tinybird batch sync failed: {e}")
             # Re-queue failed items (up to a limit to prevent infinite loops)
             if len(batch) < 100:
                 self._pending_tinybird_syncs.extend(batch)
@@ -154,7 +157,7 @@ class WearablesService:
             session.add(device)
             await session.commit()
         
-        print(f"✅ Registered device {device_id} for user {user_id}")
+        logger.info(f"✅ Registered device {device_id} for user {user_id}")
         return device_id, device_secret
     
     async def get_device(self, device_id: str) -> Optional[WearableDeviceDB]:
@@ -192,7 +195,7 @@ class WearablesService:
             device.is_active = False
             await session.commit()
             
-        print(f"✅ Deactivated device {device_id}")
+        logger.info(f"✅ Deactivated device {device_id}")
         return True
     
     # ================================
@@ -215,7 +218,7 @@ class WearablesService:
         4. client_event_id provides idempotency
         """
         canonical = f"{device_id}\n{client_event_id}\n{captured_at}"
-        print(f"📝 Backend canonical string: {canonical}")
+        logger.info(f"📝 Backend canonical string: {canonical}")
         return canonical
     
     def verify_signature(
@@ -241,7 +244,7 @@ class WearablesService:
             # Constant-time comparison to prevent timing attacks
             return hmac.compare_digest(expected_sig_b64, provided_signature)
         except Exception as e:
-            print(f"⚠️ Signature verification error: {e}")
+            logger.warning(f"⚠️ Signature verification error: {e}")
             return False
     
     # ================================
@@ -374,7 +377,7 @@ class WearablesService:
                     ))
                     
                 except Exception as e:
-                    print(f"⚠️ Error ingesting metric {idx}: {e}")
+                    logger.warning(f"⚠️ Error ingesting metric {idx}: {e}")
                     results.append(AppleIngestResult(
                         index=idx,
                         success=False,
@@ -426,13 +429,13 @@ class WearablesService:
         
         device_secret = self._decrypt_device_secret(device.device_secret_hash)
         if not self.verify_signature(device_secret, canonical, request.signature):
-            print(f"❌ Signature verification failed for device {request.device_id}")
+            logger.error(f"❌ Signature verification failed for device {request.device_id}")
             return False, [], "Invalid signature"
         
         # 3. Check idempotency
         existing_event = await self.check_idempotency(request.device_id, request.client_event_id)
         if existing_event:
-            print(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
+            logger.warning(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
             return True, [], "Already processed (idempotency)"
         
         # 4. Ingest metrics (store in wearable_metrics table)
@@ -452,15 +455,15 @@ class WearablesService:
             status=status
         )
         
-        print(f"✅ Ingested {success_count}/{len(request.metrics)} metrics for device {request.device_id}")
+        logger.info(f"✅ Ingested {success_count}/{len(request.metrics)} metrics for device {request.device_id}")
         
         # 6. Convert metrics to habit_logs (for dashboard & analytics)
         if success_count > 0:
             try:
                 log_result = await self.create_habit_logs_from_metrics(user_id, request.metrics)
-                print(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
+                logger.info(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
             except Exception as e:
-                print(f"⚠️ Error creating habit logs (non-fatal): {e}")
+                logger.warning(f"⚠️ Error creating habit logs (non-fatal): {e}")
         
         return success_count > 0, results, None
     
@@ -518,7 +521,7 @@ class WearablesService:
                     ))
                     
                 except Exception as e:
-                    print(f"⚠️ Error deleting metric {external_id}: {e}")
+                    logger.warning(f"⚠️ Error deleting metric {external_id}: {e}")
                     results.append(DeleteResult(
                         external_id=external_id,
                         success=False,
@@ -558,13 +561,13 @@ class WearablesService:
         
         device_secret = self._decrypt_device_secret(device.device_secret_hash)
         if not self.verify_signature(device_secret, canonical, request.signature):
-            print(f"❌ Signature verification failed for device {request.device_id}")
+            logger.error(f"❌ Signature verification failed for device {request.device_id}")
             return False, [], [], [], "Invalid signature"
         
         # 3. Check idempotency
         existing_event = await self.check_idempotency(request.device_id, request.client_event_id)
         if existing_event:
-            print(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
+            logger.warning(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
             return True, [], [], [], "Already processed (idempotency)"
         
         # 4. Process added metrics
@@ -604,16 +607,16 @@ class WearablesService:
             status=status
         )
         
-        print(f"✅ V2 Ingest: {added_success} added, {deleted_success} deleted, {modified_success} modified")
+        logger.info(f"✅ V2 Ingest: {added_success} added, {deleted_success} deleted, {modified_success} modified")
         
         # 8. Convert metrics to habit_logs (for added and modified)
         all_metrics = list(request.added) + list(request.modified)
         if all_metrics:
             try:
                 log_result = await self.create_habit_logs_from_metrics(user_id, all_metrics)
-                print(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
+                logger.info(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
             except Exception as e:
-                print(f"⚠️ Error creating habit logs (non-fatal): {e}")
+                logger.warning(f"⚠️ Error creating habit logs (non-fatal): {e}")
         
         return total_success > 0, added_results, deleted_results, modified_results, None
     
@@ -726,7 +729,7 @@ class WearablesService:
             tinybird = TinybirdService()
             tinybird_enabled = True
         except Exception as e:
-            print(f"⚠️ Tinybird not available: {e}")
+            logger.warning(f"⚠️ Tinybird not available: {e}")
             tinybird = None
             tinybird_enabled = False
         
@@ -741,7 +744,7 @@ class WearablesService:
             apple_habits = list(result.scalars().all())
             
             if not apple_habits:
-                print(f"📊 No Apple Health habits found for user {user_id}")
+                logger.info(f"📊 No Apple Health habits found for user {user_id}")
                 return {
                     "created": 0,
                     "skipped": len(metrics),
@@ -751,7 +754,7 @@ class WearablesService:
             
             # Create a map of metric_type -> habit
             habit_by_metric = {h.metric_type: h for h in apple_habits}
-            print(f"📊 Found {len(apple_habits)} Apple Health habits: {list(habit_by_metric.keys())}")
+            logger.info(f"📊 Found {len(apple_habits)} Apple Health habits: {list(habit_by_metric.keys())}")
             
             for metric in metrics:
                 try:
@@ -825,10 +828,10 @@ class WearablesService:
                         })
                         
                 except Exception as e:
-                    print(f"⚠️ Error creating habit log: {e}")
+                    logger.warning(f"⚠️ Error creating habit log: {e}")
                     errors.append(str(e))
         
-        print(f"✅ Created/updated {len(created_logs)} habit logs, skipped {len(skipped)}, errors {len(errors)}")
+        logger.info(f"✅ Created/updated {len(created_logs)} habit logs, skipped {len(skipped)}, errors {len(errors)}")
         
         return {
             "created": len(created_logs),
@@ -896,9 +899,9 @@ class WearablesService:
             }
             result = await tinybird.ingest_habit_log(log_data)
             if result.get('success'):
-                print(f"📊 Synced to Tinybird: {habit.name} = {log.amount}")
+                logger.info(f"📊 Synced to Tinybird: {habit.name} = {log.amount}")
         except Exception as e:
-            print(f"⚠️ Tinybird sync failed for {habit.name}: {e}")
+            logger.warning(f"⚠️ Tinybird sync failed for {habit.name}: {e}")
 
 
 # Singleton instance

@@ -33,6 +33,14 @@
 	<string>Ritual needs access to read your health data to sync steps, active energy, and other metrics with your desktop app.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Ritual needs access to write health data to record your tracked habits.</string>
+	<key>RitualAPIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>RitualAPIBaseURLDebug</key>
+	<string>$(API_BASE_URL_DEBUG)</string>
+	<key>RitualClerkFrontendAPI</key>
+	<string>$(CLERK_FRONTEND_API)</string>
+	<key>RitualClerkPublishableKey</key>
+	<string>$(CLERK_PUBLISHABLE_KEY)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -1,0 +1,157 @@
+{
+  "success": true,
+  "date_range": {
+    "start": "2026-02-23",
+    "end": "2026-02-27",
+    "days": 5
+  },
+  "summary": {
+    "habits_with_data": 3,
+    "total_habits_tracked": 4
+  },
+  "habits": [
+    {
+      "id": "h1",
+      "name": "Sleep Duration",
+      "unit": "hours",
+      "total": 43.77,
+      "average": 7.29,
+      "min": 4.37,
+      "max": 8.6,
+      "days_with_data": 6,
+      "total_entries": 6,
+      "daily": [
+        {
+          "date": "2026-02-23",
+          "value": 4.37,
+          "entries": [
+            {}
+          ]
+        },
+        {
+          "date": "2026-02-24",
+          "value": 8.6,
+          "entries": [
+            {}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h2",
+      "name": "Caffeine Consumption",
+      "unit": "mg",
+      "total": 453,
+      "average": 225,
+      "min": 200,
+      "max": 250,
+      "days_with_data": 2,
+      "total_entries": 2,
+      "daily": [
+        {
+          "date": "2026-02-24",
+          "value": 200,
+          "entries": [
+            {}
+          ]
+        },
+        {
+          "date": "2026-02-26",
+          "value": 253,
+          "entries": [
+            {}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "h3",
+      "name": "Nicotine Consumption",
+      "unit": "mg",
+      "total": 65,
+      "average": 16.25,
+      "min": 9,
+      "max": 20,
+      "days_with_data": 4,
+      "total_entries": 4,
+      "daily": [
+        {
+          "date": "2026-02-23",
+          "value": 9,
+          "entries": [
+            {}
+          ]
+        },
+        {
+          "date": "2026-02-24",
+          "value": 20,
+          "entries": [
+            {}
+          ]
+        }
+      ]
+    }
+  ],
+  "computer_activity": {
+    "days_with_data": 4,
+    "total_hours": 21.7,
+    "average_daily_hours": 5.42,
+    "min_daily_hours": 0.23,
+    "max_daily_hours": 9.35,
+    "daily": [
+      {
+        "day": "2026-02-23",
+        "active_hours": 0.23,
+        "events_count": 21,
+        "apps_count": 3
+      },
+      {
+        "day": "2026-02-24",
+        "active_hours": 4.08,
+        "events_count": 45,
+        "apps_count": 5
+      },
+      {
+        "day": "2026-02-25",
+        "active_hours": 8.04,
+        "events_count": 56,
+        "apps_count": 6
+      },
+      {
+        "day": "2026-02-26",
+        "active_hours": 9.35,
+        "events_count": 66,
+        "apps_count": 6
+      }
+    ],
+    "top_apps": [
+      {
+        "app_name": "Cursor",
+        "hours": 7.2,
+        "total_events": 120
+      },
+      {
+        "app_name": "Google Chrome",
+        "hours": 6.1,
+        "total_events": 140
+      }
+    ],
+    "top_domains": [
+      {
+        "domain": "github.com",
+        "hours": 2.4,
+        "total_events": 52
+      },
+      {
+        "domain": "prometheus.io",
+        "hours": 1.9,
+        "total_events": 36
+      }
+    ]
+  },
+  "suggested_followups": [
+    "Show me screen activity details for this week",
+    "Compare this week vs last week",
+    "Which habit changed the most?"
+  ]
+}

@@ -7,7 +7,8 @@
  */
 export function isTauri(): boolean {
   if (typeof window === 'undefined') return false;
-  return '__TAURI__' in window;
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
+  return Boolean(w.__TAURI__ || w.__TAURI_IPC__);
 }
 
 // Track if window has been shown to prevent multiple calls

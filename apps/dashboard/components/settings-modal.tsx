@@ -21,9 +21,15 @@ const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'geist-sans', label: 'Geist Sans' },
 ];
 
+const SETTINGS_PANEL_CLASS =
+  'relative bg-[#FCFCFB] w-full max-w-[520px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-none z-10 overflow-hidden max-h-[520px] flex flex-col';
+const SETTINGS_HEADER_CLASS =
+  'flex items-center justify-between px-4 py-2 border-b border-gray-200/70 bg-[#FCFCFB]';
+const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-none transition-colors hover:bg-gray-100';
+
 export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   const { user } = useUser();
-  const { signOut } = useClerk();
+  const { signOut, openUserProfile } = useClerk();
   const router = useRouter();
   const { font, setFont } = useFont();
   const [aiDataRetention, setAiDataRetention] = useState(true);
@@ -58,21 +64,21 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
         />
         
         {/* Modal */}
-        <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+        <div className={SETTINGS_PANEL_CLASS}>
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60 bg-white">
+          <div className={SETTINGS_HEADER_CLASS}>
             <button
               onClick={() => setCurrentView('account')}
-              className="p-0.5 transition-colors hover:bg-gray-100"
+              className={SETTINGS_HEADER_BUTTON_CLASS}
             >
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h2 className="text-sm font-medium text-gray-900">Computer Tracking</h2>
+            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Computer Tracking</h2>
             <div className="w-6" />
           </div>
 
           {/* Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="flex-1 overflow-y-auto px-3 py-1.5">
             <ComputerTrackingSettings 
               userId={user?.id || ''} 
               onClose={() => setCurrentView('account')}
@@ -95,21 +101,21 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
         />
         
         {/* Modal */}
-        <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+        <div className={SETTINGS_PANEL_CLASS}>
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60 bg-white">
+          <div className={SETTINGS_HEADER_CLASS}>
             <button
               onClick={() => setCurrentView('account')}
-              className="p-0.5 transition-colors hover:bg-gray-100"
+              className={SETTINGS_HEADER_BUTTON_CLASS}
             >
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h2 className="text-sm font-medium text-gray-900">Screen Recording</h2>
+            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Screen Recording</h2>
             <div className="w-6" />
           </div>
 
           {/* Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="flex-1 overflow-y-auto px-3 py-1.5">
             <RecorderSettings 
               userId={user?.id || ''} 
               deviceId={typeof window !== 'undefined' ? `${navigator.userAgent.slice(0, 20)}-${user?.id?.slice(0, 8)}` : ''} 
@@ -138,21 +144,21 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
         />
         
         {/* Modal */}
-        <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+        <div className={SETTINGS_PANEL_CLASS}>
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60 bg-white">
+          <div className={SETTINGS_HEADER_CLASS}>
             <button
               onClick={() => setCurrentView('account')}
-              className="p-0.5 transition-colors hover:bg-gray-100"
+              className={SETTINGS_HEADER_BUTTON_CLASS}
             >
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h2 className="text-sm font-medium text-gray-900">Apple Health Sync</h2>
+            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Apple Health Sync</h2>
             <div className="w-6" />
           </div>
 
           {/* Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 overflow-y-auto p-4">
             <AppleHealthSyncStatus showDevices={true} />
             
             {/* Help text */}
@@ -200,9 +206,9 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   };
 
   const handleManageAccount = () => {
-    // Open Clerk's user profile management
+    // Open Clerk's user profile management for the active instance/domain.
     if (user) {
-      window.open('https://accounts.clerk.dev/user', '_blank');
+      openUserProfile();
     }
   };
 
@@ -220,31 +226,31 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
       />
       
       {/* Modal - Compact and scrollable like Perplexity */}
-      <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+      <div className={SETTINGS_PANEL_CLASS}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200/60">
+        <div className={SETTINGS_HEADER_CLASS}>
           <button
             onClick={handleClose}
-            className="p-0.5 transition-colors hover:bg-gray-100"
+            className={SETTINGS_HEADER_BUTTON_CLASS}
           >
             <X className="w-5 h-5 text-gray-600" />
           </button>
-          <h2 className="text-sm font-medium text-gray-900">Settings</h2>
+          <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Settings</h2>
           <div className="w-6" />
         </div>
 
         {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto">
           {/* Profile Section */}
-          <div className="px-5 py-4 flex items-center gap-3 border-b border-gray-200/50">
-            <div className="w-11 h-11 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-base font-medium flex-shrink-0">
+          <div className="px-4 py-3 flex items-center gap-2.5 border-b border-gray-200/60">
+            <div className="w-10 h-10 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
               {userInitial}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-gray-900 truncate">{userName}</div>
+              <div className="text-[13px] font-medium text-gray-900 truncate tracking-tight">{userName}</div>
               <button 
                 onClick={handleManageAccount}
-                className="text-xs text-[#4B9EAA] hover:underline"
+                className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
               >
                 Manage Account
               </button>
@@ -252,12 +258,12 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
           </div>
 
           {/* Settings Items */}
-          <div className="px-5">
+          <div className="px-4">
             {/* AI Data Retention */}
-            <div className="py-3.5 flex items-center justify-between border-b border-gray-200/50">
-              <div className="flex items-center gap-2.5">
+            <div className="py-2.5 flex items-center justify-between border-b border-gray-200/60">
+              <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">AI Data Retention</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">AI Data Retention</span>
               </div>
               <button 
                 onClick={() => setAiDataRetention(!aiDataRetention)}
@@ -274,15 +280,15 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             </div>
 
             {/* App Font */}
-            <div className="py-3.5 flex items-center justify-between border-b border-gray-200/50">
-              <div className="flex items-center gap-2.5">
+            <div className="py-2.5 flex items-center justify-between border-b border-gray-200/60">
+              <div className="flex items-center gap-2">
                 <Type className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">App Font</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">App Font</span>
               </div>
               <div className="relative">
                 <button
                   onClick={() => setShowFontDropdown(!showFontDropdown)}
-                  className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+                  className="flex items-center gap-1 text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
                 >
                   <span className={font === 'geist-sans' ? 'font-geist' : ''}>
                     {fontOptions.find(f => f.value === font)?.label}
@@ -303,7 +309,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
                             setFont(option.value);
                             setShowFontDropdown(false);
                           }}
-                          className={`w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center justify-between ${
+                          className={`w-full px-3 py-1.5 text-[13px] text-left hover:bg-gray-50 flex items-center justify-between ${
                             font === option.value ? 'text-gray-900' : 'text-gray-600'
                           } ${option.value === 'geist-sans' ? 'font-geist' : ''}`}
                         >
@@ -322,11 +328,11 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Computer Tracking */}
             <button 
               onClick={() => setCurrentView('computer-tracking')}
-              className="w-full py-3.5 flex items-center justify-between border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Computer Tracking</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Computer Tracking</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
@@ -334,11 +340,11 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Screen Recording */}
             <button 
               onClick={() => setCurrentView('screen-recording')}
-              className="w-full py-3.5 flex items-center justify-between border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <Video className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Screen Recording</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Screen Recording</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
@@ -346,11 +352,11 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Voice Logging */}
             <button 
               onClick={() => setCurrentView('voice-logging')}
-              className="w-full py-3.5 flex items-center justify-between border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <Mic className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Voice Logging</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Voice Logging</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
@@ -358,11 +364,11 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Apple Health Sync */}
             <button 
               onClick={() => setCurrentView('apple-health')}
-              className="w-full py-3.5 flex items-center justify-between border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <Watch className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">Apple Health Sync</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Apple Health Sync</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
@@ -370,28 +376,28 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Clear History */}
             <button
               onClick={handleClearHistory}
-              className="w-full py-3.5 flex items-center gap-2.5 border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <Trash2 className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-900">Clear History</span>
+              <span className="text-[13px] font-medium text-gray-900 tracking-tight">Clear History</span>
             </button>
 
             {/* Delete Account */}
             <button
               onClick={handleDeleteAccount}
-              className="w-full py-3.5 flex items-center gap-2.5 border-b border-gray-200/50 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <AlertTriangle className="w-4 h-4 text-red-500" />
-              <span className="text-sm text-red-500">Delete Account</span>
+              <span className="text-[13px] font-medium text-red-500 tracking-tight">Delete Account</span>
             </button>
 
             {/* Sign Out */}
             <button
               onClick={handleSignOut}
-              className="w-full py-3.5 flex items-center gap-2.5 hover:bg-gray-50/50 transition-colors"
+              className="w-full py-2.5 flex items-center gap-2 hover:bg-gray-50/40 transition-colors"
             >
               <LogOut className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-900">Sign Out</span>
+              <span className="text-[13px] font-medium text-gray-900 tracking-tight">Sign Out</span>
             </button>
           </div>
         </div>
@@ -474,19 +480,19 @@ function VoiceLoggingSettings({ onBack, onClose }: { onBack: () => void; onClose
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[#e8e5df]/70" onClick={onClose} />
 
-      <div className="relative bg-white w-full max-w-[440px] border border-gray-300 z-10 overflow-hidden max-h-[700px] flex flex-col">
+      <div className={SETTINGS_PANEL_CLASS}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200/60 bg-white">
-          <button onClick={onBack} className="p-0.5 transition-colors hover:bg-gray-100">
+        <div className={SETTINGS_HEADER_CLASS}>
+          <button onClick={onBack} className={SETTINGS_HEADER_BUTTON_CLASS}>
             <ChevronLeft className="w-5 h-5 text-gray-600" />
           </button>
-          <h2 className="text-sm font-medium text-gray-900">Voice Logging</h2>
+          <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Voice Logging</h2>
           <div className="w-6" />
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <p className="text-xs text-gray-500 mb-4">
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <p className="text-xs text-gray-500 mb-3">
             Choose the keyboard shortcut to toggle voice logging in the notch widget. Press once to start listening, press again to stop and log.
           </p>
 
@@ -495,7 +501,7 @@ function VoiceLoggingSettings({ onBack, onClose }: { onBack: () => void; onClose
               <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {HOTKEY_OPTIONS.map((option) => {
                 const isSelected = selectedHotkey === option.value;
                 return (
@@ -503,17 +509,17 @@ function VoiceLoggingSettings({ onBack, onClose }: { onBack: () => void; onClose
                     key={option.value}
                     onClick={() => handleSelect(option.value)}
                     disabled={saving}
-                    className={`w-full flex items-center justify-between px-4 py-3 border transition-colors ${
+                    className={`w-full flex items-center justify-between px-3 py-2 border transition-colors ${
                       isSelected
-                        ? 'border-black bg-gray-50'
+                        ? 'border-black bg-gray-50/70'
                         : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
                     } ${saving ? 'opacity-60 cursor-not-allowed' : ''}`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-base font-mono font-medium text-gray-900 w-12 text-left">
+                      <span className="text-sm font-mono font-medium text-gray-900 w-12 text-left">
                         {option.label}
                       </span>
-                      <span className="text-sm text-gray-500">{option.description}</span>
+                      <span className="text-xs text-gray-500">{option.description}</span>
                     </div>
                     {isSelected && (
                       <Check className="w-4 h-4 text-black" />
@@ -524,7 +530,7 @@ function VoiceLoggingSettings({ onBack, onClose }: { onBack: () => void; onClose
             </div>
           )}
 
-          <div className="mt-5 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="mt-4 p-3 bg-gray-50/70 border border-gray-200 rounded-lg">
             <h4 className="text-sm font-medium text-gray-900 mb-1">How it works</h4>
             <p className="text-xs text-gray-500 leading-relaxed">
               Press the shortcut to open the notch voice listener. Speak your habit log 

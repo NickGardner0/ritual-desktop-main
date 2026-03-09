@@ -21,6 +21,9 @@ export type {
   AppleIngestRequest,
   AppleIngestResult,
   AppleIngestResponse,
+  AppleIngestRequestV2,
+  AppleIngestResponseV2,
+  DeleteResult,
   DeviceRegisterRequest,
   DeviceRegisterResponse,
 } from "./apple_ingest";

@@ -145,15 +145,13 @@ class AnalyticsApiClient {
     });
 
     if (!response.ok) {
-      // Handle rate limiting gracefully
+      // Propagate failures so the UI can render explicit error states.
       if (response.status === 429) {
-        console.warn('⚠️ Analytics API rate limited, returning empty result');
-        return { success: false, error: 'Rate limited', habits: [] } as T;
+        throw new Error('Analytics API rate limited (429). Please retry shortly.');
       }
       const errorText = await response.text();
       console.error(`Analytics API error: ${response.status} - ${errorText}`);
-      // Return empty result instead of throwing to prevent UI crashes
-      return { success: false, error: errorText, habits: [] } as T;
+      throw new Error(`Analytics API error (${response.status}): ${errorText}`);
     }
 
     return response.json();
