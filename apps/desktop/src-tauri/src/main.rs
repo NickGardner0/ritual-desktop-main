@@ -939,24 +939,52 @@ fn main() {
           println!("⚠️ Watcher auto-start skipped: accessibility permission not granted");
         }
       }
-      
-      // Auto-start Ritual Recorder if previously enabled
-      if let Some(config) = recorder::read_recorder_config() {
-        println!("🔄 Auto-starting Ritual Recorder...");
-        
-        // Check screen recording permission first
-        if recorder::check_screen_recording_permission() {
-          match recorder::start_recorder_sync(config) {
-            Ok(status) => {
-              println!("✅ Recorder auto-started successfully (PID: {:?})", status.pid);
-            }
-            Err(e) => {
-              println!("⚠️ Failed to auto-start recorder: {}", e);
-            }
+
+      tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // `tokio::time::interval` ticks immediately on first await; skip that
+        // bootstrap tick so we don't restart a watcher that just started and
+        // hasn't written its first healthy heartbeat/context window yet.
+        interval.tick().await;
+        loop {
+          interval.tick().await;
+          match watcher::check_and_restart_watcher_if_hung(60).await {
+            Ok(true) => println!("🔄 Background watcher watchdog restarted Ritual Watcher"),
+            Ok(false) => {}
+            Err(e) => eprintln!("⚠️ Background watcher watchdog check failed: {}", e),
           }
-        } else {
-          println!("⚠️ Recorder auto-start skipped: screen recording permission not granted");
         }
+      });
+      
+      // Recorder remains available, but context capture is now the default active path.
+      let recorder_autostart_enabled = matches!(
+        std::env::var("RITUAL_ENABLE_RECORDER_AUTOSTART")
+          .ok()
+          .as_deref()
+          .map(|value| value.trim().to_ascii_lowercase()),
+        Some(ref value) if matches!(value.as_str(), "1" | "true" | "yes" | "on")
+      );
+      if recorder_autostart_enabled {
+        if let Some(config) = recorder::read_recorder_config() {
+          println!("🔄 Auto-starting Ritual Recorder...");
+
+          // Check screen recording permission first
+          if recorder::check_screen_recording_permission() {
+            match recorder::start_recorder_sync(config) {
+              Ok(status) => {
+                println!("✅ Recorder auto-started successfully (PID: {:?})", status.pid);
+              }
+              Err(e) => {
+                println!("⚠️ Failed to auto-start recorder: {}", e);
+              }
+            }
+          } else {
+            println!("⚠️ Recorder auto-start skipped: screen recording permission not granted");
+          }
+        }
+      } else {
+        println!("ℹ️ Recorder auto-start disabled; using watcher-owned context capture as the default path");
       }
       
       #[cfg(target_os = "macos")]

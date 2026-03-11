@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import time
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from openai import AsyncOpenAI
@@ -17,9 +18,11 @@ from services.memory_embedding_service import (
     process_embedding_jobs_freshness_first,
     process_embedding_jobs_with_guard,
 )
-from services.memory_query_expansion import expand_memory_query_text
+from services.memory_query_expansion import ExpandedMemoryQuery, expand_memory_query
 from services.memory_rerank_service import rerank_candidates
+from services.memory_story_service import build_query_semantic_profile, enrich_story_evidence
 from services.memory_turbopuffer_service import TurbopufferService
+from services.watcher_service_search_utils import score_lexical_match_impl
 
 logger = logging.getLogger(__name__)
 
@@ -51,16 +54,14 @@ async def _embed_query(query: str) -> List[float]:
     return list(emb.data[0].embedding)
 
 
-def _filter_active_candidates(user_id: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    if not candidates:
-        return []
-    doc_ids = [str(item.get("doc_id") or "").strip() for item in candidates]
-    doc_ids = [doc_id for doc_id in doc_ids if doc_id]
+def _active_doc_ids(user_id: str, doc_ids: List[str]) -> set[str]:
     if not doc_ids:
-        return []
+        return set()
+    unique_doc_ids = [doc_id for doc_id in doc_ids if doc_id]
+    if not unique_doc_ids:
+        return set()
 
-    # Keep cloud retrieval grounded to currently active local versions only.
-    placeholders = ",".join(["?"] * len(doc_ids))
+    placeholders = ",".join(["?"] * len(unique_doc_ids))
     sql = f"""
         SELECT id, provider_doc_id, COALESCE(NULLIF(logical_chunk_id, ''), chunk_id) AS logical_chunk_id
         FROM memory_chunks
@@ -70,7 +71,8 @@ def _filter_active_candidates(user_id: str, candidates: List[Dict[str, Any]]) ->
         ORDER BY id DESC
     """
     with get_memory_db() as conn:
-        rows = conn.execute(sql, [user_id, *doc_ids]).fetchall()
+        rows = conn.execute(sql, [user_id, *unique_doc_ids]).fetchall()
+
     active_doc_ids: set[str] = set()
     seen_logical: set[str] = set()
     for row in rows:
@@ -83,37 +85,255 @@ def _filter_active_candidates(user_id: str, candidates: List[Dict[str, Any]]) ->
             continue
         seen_logical.add(dedupe_key)
         active_doc_ids.add(doc_id)
+    return active_doc_ids
+
+
+def _filter_active_candidates(user_id: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not candidates:
+        return []
+    doc_ids = [str(item.get("doc_id") or "").strip() for item in candidates]
+    doc_ids = [doc_id for doc_id in doc_ids if doc_id]
+    if not doc_ids:
+        return []
+    active_doc_ids = _active_doc_ids(user_id=user_id, doc_ids=doc_ids)
     if not active_doc_ids:
         return []
     return [item for item in candidates if str(item.get("doc_id") or "") in active_doc_ids]
 
 
-def _rrf_fuse(items: List[Dict[str, Any]], k: int = 60) -> List[Dict[str, Any]]:
-    scored: List[Dict[str, Any]] = []
-    # Since Turbopuffer may already fuse internally depending on query mode,
-    # we still run deterministic normalization + recency/quality boost.
+def _filter_active_ranked_lists(user_id: str, ranked_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    doc_ids: List[str] = []
+    for ranked_list in ranked_lists:
+        for item in ranked_list.get("items") or []:
+            doc_id = str(item.get("doc_id") or "").strip()
+            if doc_id:
+                doc_ids.append(doc_id)
+    active_doc_ids = _active_doc_ids(user_id=user_id, doc_ids=doc_ids)
+    if not active_doc_ids:
+        return []
+
+    filtered_lists: List[Dict[str, Any]] = []
+    for ranked_list in ranked_lists:
+        filtered_items = [
+            item
+            for item in ranked_list.get("items") or []
+            if str(item.get("doc_id") or "").strip() in active_doc_ids
+        ]
+        if filtered_items:
+            filtered_lists.append({**ranked_list, "items": filtered_items})
+    return filtered_lists
+
+
+def _normalized_key(value: Any) -> str:
+    text = "".join(ch if ch.isalnum() else " " for ch in str(value or "").lower())
+    return " ".join(text.split())
+
+
+def _candidate_semantic_bonus(query_profile: Dict[str, Any], candidate: Dict[str, Any]) -> float:
+    enriched = enrich_story_evidence(
+        {
+            "app_name": candidate.get("app_name"),
+            "window_title": candidate.get("window_title"),
+            "document_title": candidate.get("document_title"),
+            "browser_domain": candidate.get("browser_domain"),
+            "parent_context": candidate.get("parent_context"),
+            "contextual_retrieval_text": candidate.get("contextual_retrieval_text"),
+            "snippet": _citation_source_text(candidate),
+            "timestamp": int(candidate.get("chunk_end_ts") or candidate.get("chunk_start_ts") or 0),
+            "session_key": candidate.get("session_id") or candidate.get("session_key"),
+            "capture_quality": candidate.get("capture_quality"),
+        }
+    )
+    query_documents = {_normalized_key(value) for value in query_profile.get("document_refs") or [] if _normalized_key(value)}
+    query_entities = {_normalized_key(value) for value in query_profile.get("entity_refs") or [] if _normalized_key(value)}
+    query_tasks = {_normalized_key(value) for value in query_profile.get("task_phrases") or [] if _normalized_key(value)}
+    query_artifacts = {_normalized_key(value) for value in query_profile.get("artifact_refs") or [] if _normalized_key(value)}
+
+    candidate_documents = {_normalized_key(value) for value in enriched.get("document_refs") or [] if _normalized_key(value)}
+    candidate_entities = {_normalized_key(value) for value in enriched.get("project_refs") or [] if _normalized_key(value)}
+    candidate_tasks = {_normalized_key(value) for value in enriched.get("task_phrases") or [] if _normalized_key(value)}
+    candidate_artifacts = {_normalized_key(value) for value in enriched.get("artifact_refs") or [] if _normalized_key(value)}
+
+    bonus = 0.0
+    if query_documents & candidate_documents or query_artifacts & candidate_artifacts:
+        bonus += 0.14
+    if query_entities & candidate_entities:
+        bonus += 0.08
+    if query_tasks & candidate_tasks:
+        bonus += 0.08
+    return bonus
+
+
+def _candidate_haystack(candidate: Dict[str, Any]) -> str:
+    return " ".join(
+        [
+            str(candidate.get("app_name") or ""),
+            str(candidate.get("window_title") or ""),
+            str(candidate.get("document_title") or ""),
+            str(candidate.get("browser_domain") or ""),
+            str(candidate.get("parent_context") or ""),
+            _citation_source_text(candidate),
+        ]
+    ).lower()
+
+
+def _rrf_fuse(
+    ranked_lists: List[Dict[str, Any]],
+    *,
+    query: str,
+    query_profile: Dict[str, Any],
+    k: int = 60,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     now_ms = int(time.time() * 1000)
-    for idx, item in enumerate(items):
-        base = float(item.get("score") or 0.0)
-        quality = float(item.get("quality_score") or 0.0)
-        quality_weight = max(0.2, min(1.0, quality if quality > 0 else 0.5))
-        end_ts = int(item.get("chunk_end_ts") or 0)
+    traces: Dict[str, Dict[str, Any]] = {}
+    by_doc_id: Dict[str, Dict[str, Any]] = {}
+    lexical_tokens = [token for token in _normalized_key(query).split() if token]
+    context_overlap_keys = {
+        (
+            str(item.get("app_name") or "").strip().lower(),
+            str(item.get("browser_domain") or "").strip().lower(),
+            _time_bucket_key(int(item.get("chunk_end_ts") or item.get("chunk_start_ts") or 0)),
+        )
+        for ranked_list in ranked_lists
+        for item in ranked_list.get("items") or []
+        if str(item.get("source_kind") or "").strip().lower() != "legacy_ocr_chunk"
+    }
+
+    for list_index, ranked_list in enumerate(ranked_lists):
+        source = str(ranked_list.get("source") or "fts")
+        query_type = str(ranked_list.get("query_type") or "original")
+        query_text = str(ranked_list.get("query_text") or "")
+        weight = float(ranked_list.get("weight") or 1.0)
+        for rank_zero, item in enumerate(ranked_list.get("items") or []):
+            doc_id = str(item.get("doc_id") or "").strip()
+            if not doc_id:
+                continue
+            by_doc_id.setdefault(doc_id, dict(item))
+            contribution = weight / (k + rank_zero + 1)
+            trace = traces.setdefault(
+                doc_id,
+                {
+                    "doc_id": doc_id,
+                    "base_score": 0.0,
+                    "top_rank": rank_zero + 1,
+                    "top_rank_bonus": 0.0,
+                    "contributions": [],
+                },
+            )
+            trace["base_score"] += contribution
+            trace["top_rank"] = min(int(trace["top_rank"]), rank_zero + 1)
+            trace["contributions"].append(
+                {
+                    "list_index": list_index,
+                    "source": source,
+                    "query_type": query_type,
+                    "query": query_text,
+                    "rank": rank_zero + 1,
+                    "weight": weight,
+                    "backend_score": float(item.get("score") or 0.0),
+                    "rrf_contribution": contribution,
+                }
+            )
+
+    fused: List[Dict[str, Any]] = []
+    for doc_id, trace in traces.items():
+        item = dict(by_doc_id.get(doc_id) or {})
+        if not item:
+            continue
+        top_rank = int(trace.get("top_rank") or 999)
+        if top_rank == 1:
+            trace["top_rank_bonus"] = 0.05
+        elif top_rank <= 3:
+            trace["top_rank_bonus"] = 0.02
+        lexical_score = score_lexical_match_impl(_candidate_haystack(item), lexical_tokens)
+        semantic_bonus = _candidate_semantic_bonus(query_profile, item)
+        quality = float(item.get("capture_quality") or item.get("quality_score") or 0.0)
+        quality_bonus = min(0.08, max(0.0, quality) * 0.08)
+        end_ts = int(item.get("chunk_end_ts") or item.get("chunk_start_ts") or 0)
         age_hours = max(0.0, (now_ms - end_ts) / (1000.0 * 60.0 * 60.0)) if end_ts > 0 else 9999.0
-        recency_boost = max(0.0, 0.1 * (1.0 - min(age_hours / 72.0, 1.0)))
-        rank_term = 1.0 / (k + idx + 1.0)
-        final = (0.7 * base + 0.2 * rank_term + 0.1 * recency_boost) * quality_weight
-        enriched = dict(item)
-        enriched["fused_score"] = float(final)
-        scored.append(enriched)
-    scored.sort(key=lambda row: float(row.get("fused_score") or 0.0), reverse=True)
-    return scored
+        recency_bonus = max(0.0, 0.05 * (1.0 - min(age_hours / 72.0, 1.0)))
+        lexical_bonus = min(0.08, lexical_score * 0.08)
+        fused_score = float(trace["base_score"]) + float(trace["top_rank_bonus"]) + semantic_bonus + quality_bonus + recency_bonus + lexical_bonus
+        if str(item.get("source_kind") or "").strip().lower() == "legacy_ocr_chunk":
+            overlap_key = (
+                str(item.get("app_name") or "").strip().lower(),
+                str(item.get("browser_domain") or "").strip().lower(),
+                _time_bucket_key(int(item.get("chunk_end_ts") or item.get("chunk_start_ts") or 0)),
+            )
+            if overlap_key in context_overlap_keys:
+                fused_score *= 0.72
+        trace["total_score"] = round(float(fused_score), 6)
+        item["rrf_trace"] = trace
+        item["lexical_match_score"] = float(lexical_score)
+        item["fused_score"] = float(fused_score)
+        fused.append(item)
+
+    fused.sort(key=lambda row: float(row.get("fused_score") or 0.0), reverse=True)
+    trace_list = [item.get("rrf_trace") for item in fused if isinstance(item.get("rrf_trace"), dict)]
+    return fused, trace_list
+
+
+def _build_query_budgets(intent: str) -> Dict[str, int]:
+    if intent == "broad_overview":
+        return {"lane_top_k": 80, "candidate_limit": 40, "final_limit": 20}
+    if intent == "semantic_lookup":
+        return {"lane_top_k": 40, "candidate_limit": 20, "final_limit": 12}
+    return {"lane_top_k": 50, "candidate_limit": 30, "final_limit": 16}
+
+
+def _strong_signal_short_circuit(
+    *,
+    query: str,
+    ranked_lists: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    lexical_lists = [item for item in ranked_lists if str(item.get("source") or "") == "fts"]
+    if not lexical_lists:
+        return None
+    lexical_tokens = [token for token in _normalized_key(query).split() if token]
+    top_rows: List[Dict[str, Any]] = []
+    for lexical_list in lexical_lists:
+        items = lexical_list.get("items") or []
+        if items:
+            top_rows.append(dict(items[0]))
+    if not top_rows:
+        return None
+    scored_rows = []
+    for row in top_rows:
+        lexical_score = score_lexical_match_impl(_candidate_haystack(row), lexical_tokens)
+        row["lexical_match_score"] = lexical_score
+        scored_rows.append(row)
+    scored_rows.sort(key=lambda row: float(row.get("lexical_match_score") or 0.0), reverse=True)
+    top_row = scored_rows[0]
+    second_score = float(scored_rows[1].get("lexical_match_score") or 0.0) if len(scored_rows) > 1 else 0.0
+    top_score = float(top_row.get("lexical_match_score") or 0.0)
+    normalized_query = _normalized_key(query)
+    exact_match = normalized_query and normalized_query in _normalized_key(
+        " ".join(
+            [
+                str(top_row.get("document_title") or ""),
+                str(top_row.get("window_title") or ""),
+                str(top_row.get("raw_visible_text") or ""),
+                str(top_row.get("contextual_retrieval_text") or ""),
+            ]
+        )
+    )
+    if exact_match or (top_score >= 0.85 and (top_score - second_score) >= 0.15):
+        return {
+            "exact_match": bool(exact_match),
+            "top_score": round(top_score, 3),
+            "runner_up_score": round(second_score, 3),
+            "provider_doc_id": top_row.get("doc_id"),
+        }
+    return None
 
 
 def _citation_source_text(item: Dict[str, Any]) -> str:
     return str(
-        item.get("raw_text_compact")
-        or item.get("text_compact")
+        item.get("raw_visible_text")
+        or item.get("raw_text_compact")
+        or item.get("contextual_retrieval_text")
         or item.get("contextual_text_compact")
+        or item.get("text_compact")
         or ""
     ).strip()
 
@@ -125,16 +345,32 @@ def _time_bucket_key(ts_ms: int) -> str:
     return str(ts_ms // bucket_ms)
 
 
+def _build_rerank_intent(query_profile: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    if query_profile.get("document_refs"):
+        parts.append(f"documents: {', '.join(list(query_profile.get('document_refs') or [])[:2])}")
+    if query_profile.get("entity_refs"):
+        parts.append(f"entities: {', '.join(list(query_profile.get('entity_refs') or [])[:2])}")
+    if query_profile.get("task_phrases"):
+        parts.append(f"tasks: {', '.join(list(query_profile.get('task_phrases') or [])[:2])}")
+    return " | ".join(parts)[:240]
+
+
 def _build_recap_diversity_metrics(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     sessions = {
-        str(item.get("session_key") or "").strip()
+        str(item.get("session_id") or item.get("session_key") or "").strip()
         for item in items
-        if str(item.get("session_key") or "").strip()
+        if str(item.get("session_id") or item.get("session_key") or "").strip()
     }
     apps = {
         str(item.get("app_name") or "").strip()
         for item in items
         if str(item.get("app_name") or "").strip()
+    }
+    domains = {
+        str(item.get("browser_domain") or "").strip()
+        for item in items
+        if str(item.get("browser_domain") or "").strip()
     }
     buckets = {
         _time_bucket_key(int(item.get("chunk_end_ts") or item.get("chunk_start_ts") or 0))
@@ -147,6 +383,7 @@ def _build_recap_diversity_metrics(items: List[Dict[str, Any]]) -> Dict[str, Any
     return {
         "distinct_sessions": len(sessions),
         "distinct_apps": len(apps),
+        "distinct_domains": len(domains),
         "distinct_time_buckets": len([bucket for bucket in buckets if bucket != "unknown"]),
         "context_version_mix": context_versions,
     }
@@ -230,11 +467,17 @@ def _build_citations(items: List[Dict[str, Any]], limit: int = 8) -> List[Dict[s
                 "timestamp": int(item.get("chunk_end_ts") or 0) or int(item.get("chunk_start_ts") or 0),
                 "app_name": item.get("app_name"),
                 "window_title": item.get("window_title"),
-                "session_key": item.get("session_key"),
+                "document_title": item.get("document_title"),
+                "browser_domain": item.get("browser_domain"),
+                "session_key": item.get("session_id") or item.get("session_key"),
                 "context_version": int(item.get("context_version") or 1),
                 "snippet": snippet,
+                "parent_context": item.get("parent_context"),
+                "contextual_retrieval_text": item.get("contextual_retrieval_text"),
                 "score": round(float(item.get("rerank_score") or item.get("fused_score") or 0.0), 3),
                 "source": "cloud_hybrid",
+                "source_type": item.get("source_kind"),
+                "capture_quality": item.get("capture_quality"),
                 "provider_trace_id": item.get("doc_id"),
             }
         )
@@ -300,6 +543,7 @@ async def query_semantic_cloud(
     final_evidence_count = 0
     distinct_sessions = 0
     distinct_apps = 0
+    distinct_domains = 0
     distinct_time_buckets = 0
     context_version_mix: Dict[str, int] = {}
 
@@ -322,69 +566,119 @@ async def query_semantic_cloud(
         except Exception:
             pass
 
-        expanded_query_text = expand_memory_query_text(query)
-        query_vector: Optional[List[float]] = None
+        query_profile = build_query_semantic_profile(query)
+        broad_overview = intent == "broad_overview"
+        budgets = _build_query_budgets(intent)
+        expanded_queries = expand_memory_query(
+            query,
+            include_hyde=False,
+        )
+        vector_texts = sorted(
+            {
+                str(item.get("text") or "").strip()
+                for item in expanded_queries
+                if str(item.get("type") or "") in {"original", "vec", "hyde"}
+                and str(item.get("text") or "").strip()
+            }
+        )
+        query_vectors: Dict[str, List[float]] = {}
         lexical_only = False
-        embed_attempted = True
-        try:
-            query_vector = await _embed_query(query)
-            embed_succeeded = True
-        except Exception:
-            lexical_only = True
-            embed_error = "query_embedding_failed"
+        if vector_texts:
+            embed_attempted = True
+            try:
+                embedded_vectors = await asyncio.gather(*[_embed_query(text) for text in vector_texts])
+                query_vectors = {
+                    text: vector
+                    for text, vector in zip(vector_texts, embedded_vectors)
+                    if isinstance(vector, list) and vector
+                }
+                embed_succeeded = bool(query_vectors)
+            except Exception:
+                lexical_only = True
+                embed_error = "query_embedding_failed"
+
+        retrieval_queries: List[Dict[str, Any]] = []
+        for item in expanded_queries:
+            query_type = str(item.get("type") or "original")
+            query_text = str(item.get("text") or "").strip()
+            if not query_text:
+                continue
+            retrieval_query: Dict[str, Any] = {
+                "type": query_type,
+                "text": query_text,
+                "weight": float(item.get("weight") or 1.0),
+            }
+            if query_type in {"original", "vec", "hyde"} and query_text in query_vectors:
+                retrieval_query["vector"] = query_vectors[query_text]
+            retrieval_queries.append(retrieval_query)
 
         tp = TurbopufferService()
-        broad_overview = intent == "broad_overview"
-        raw_candidates = await tp.hybrid_candidates(
+        tp_result = await tp.hybrid_candidates(
             user_id=user_id,
-            query_text=expanded_query_text,
-            query_vector=query_vector,
+            queries=retrieval_queries,
             start_ms=start_ms,
             end_ms=end_ms,
-            top_k=200 if broad_overview else 120,
+            top_k=budgets["lane_top_k"],
         )
-        candidate_count_raw = len(raw_candidates)
-        candidates = _filter_active_candidates(user_id=user_id, candidates=raw_candidates)
-        candidate_count_active = len(candidates)
+        candidate_count_raw = int(tp_result.get("candidate_count_raw") or 0)
+        ranked_lists = tp_result.get("lists") or []
+        ranked_lists = _filter_active_ranked_lists(user_id=user_id, ranked_lists=ranked_lists)
+        candidate_count_active = sum(len(item.get("items") or []) for item in ranked_lists)
 
-        fused = _rrf_fuse(candidates, k=60)
-        rerank_input = fused[:80] if broad_overview else fused[:50]
+        strong_signal = _strong_signal_short_circuit(query=query, ranked_lists=ranked_lists)
+        fused, rrf_trace = _rrf_fuse(ranked_lists, query=query, query_profile=query_profile, k=60)
+        rerank_input = fused[: budgets["candidate_limit"]]
         rerank_input_count = len(rerank_input)
-        rerank_result = await rerank_candidates(
-            query=query,
-            candidates=rerank_input[:60] if broad_overview else rerank_input,
-            top_n=min(60 if broad_overview else 50, len(rerank_input)),
-        )
-        rerank_items = rerank_result.get("items") if isinstance(rerank_result, dict) else []
-        rerank_provider = rerank_result.get("provider") if isinstance(rerank_result, dict) else "none"
-        rerank_items_count = len(rerank_items) if isinstance(rerank_items, list) else 0
-        rerank_attempted = rerank_result.get("rerank_attempted", False) if isinstance(rerank_result, dict) else False
-        rerank_latency_ms = rerank_result.get("rerank_latency_ms", 0) if isinstance(rerank_result, dict) else 0
-
+        rerank_provider = "none"
+        rerank_attempted = False
+        rerank_latency_ms = 0
+        rerank_cache_hits = 0
+        rerank_cache_misses = 0
+        rerank_deduped_candidates = 0
         ranked_rows: List[Dict[str, Any]] = []
-        if isinstance(rerank_items, list) and rerank_items:
-            for item in rerank_items:
-                if not isinstance(item, (list, tuple)) or len(item) != 2:
-                    continue
-                idx = int(item[0])
-                score = float(item[1])
-                if idx < 0 or idx >= len(rerank_input):
-                    continue
-                row = dict(rerank_input[idx])
-                row["rerank_score"] = score
-                ranked_rows.append(row)
-        else:
+        if strong_signal:
             ranked_rows = rerank_input
+        else:
+            rerank_result = await rerank_candidates(
+                query=query,
+                rerank_intent=_build_rerank_intent(query_profile),
+                candidates=rerank_input,
+                top_n=min(budgets["candidate_limit"], len(rerank_input)),
+            )
+            rerank_items = rerank_result.get("items") if isinstance(rerank_result, dict) else []
+            rerank_provider = rerank_result.get("provider") if isinstance(rerank_result, dict) else "none"
+            rerank_items_count = len(rerank_items) if isinstance(rerank_items, list) else 0
+            rerank_attempted = rerank_result.get("rerank_attempted", False) if isinstance(rerank_result, dict) else False
+            rerank_latency_ms = rerank_result.get("rerank_latency_ms", 0) if isinstance(rerank_result, dict) else 0
+            rerank_cache_hits = int(rerank_result.get("cache_hits") or 0) if isinstance(rerank_result, dict) else 0
+            rerank_cache_misses = int(rerank_result.get("cache_misses") or 0) if isinstance(rerank_result, dict) else 0
+            rerank_deduped_candidates = int(rerank_result.get("deduped_candidates") or 0) if isinstance(rerank_result, dict) else 0
+            if isinstance(rerank_items, list) and rerank_items:
+                for item in rerank_items:
+                    if not isinstance(item, (list, tuple)) or len(item) != 2:
+                        continue
+                    idx = int(item[0])
+                    score = float(item[1])
+                    if idx < 0 or idx >= len(rerank_input):
+                        continue
+                    row = dict(rerank_input[idx])
+                    row["rerank_score"] = score
+                    ranked_rows.append(row)
+            else:
+                ranked_rows = rerank_input
+        if strong_signal:
+            rerank_items_count = 0
 
         final_rows = (
-            _select_diverse_recap_evidence(ranked_rows, target=20)
+            _select_diverse_recap_evidence(ranked_rows, target=budgets["final_limit"])
             if broad_overview
-            else ranked_rows[: max(8, limit)]
+            else ranked_rows[: max(8, min(limit, budgets["final_limit"]))]
         )
         diversity_metrics = _build_recap_diversity_metrics(final_rows)
         final_evidence_count = len(final_rows)
         distinct_sessions = int(diversity_metrics["distinct_sessions"])
         distinct_apps = int(diversity_metrics["distinct_apps"])
+        distinct_domains = int(diversity_metrics.get("distinct_domains") or 0)
         distinct_time_buckets = int(diversity_metrics["distinct_time_buckets"])
         context_version_mix = dict(diversity_metrics["context_version_mix"])
 
@@ -435,17 +729,37 @@ async def query_semantic_cloud(
             "final_evidence_count": final_evidence_count,
             "distinct_sessions": distinct_sessions,
             "distinct_apps": distinct_apps,
+            "distinct_domains": distinct_domains,
             "distinct_time_buckets": distinct_time_buckets,
             "context_version_mix": context_version_mix,
             "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=raw_text_compact",
             "rerank_provider": rerank_provider or "none",
-            "query_vector_present": bool(query_vector),
+            "query_vector_present": bool(query_vectors),
             "query_window_start": start_ms,
             "query_window_end": end_ms,
             "cloud_max_embedded_ts": cloud_max_embedded_ts,
             "cloud_pending_in_window": cloud_pending_in_window,
             "rerank_attempted": rerank_attempted,
             "rerank_latency_ms": rerank_latency_ms,
+            "retrieval_lists": [
+                {
+                    "source": item.get("source"),
+                    "query_type": item.get("query_type"),
+                    "query_text": item.get("query_text"),
+                    "weight": item.get("weight"),
+                    "result_count": len(item.get("items") or []),
+                }
+                for item in ranked_lists
+            ],
+            "rrf_trace": rrf_trace[:20],
+            "strong_signal_short_circuit": strong_signal,
+            "rerank_cache_hit": rerank_cache_hits > 0,
+            "rerank_cache_hits": rerank_cache_hits,
+            "rerank_cache_misses": rerank_cache_misses,
+            "rerank_deduped_candidates": rerank_deduped_candidates,
+            "rerank_candidates_considered": len(rerank_input),
+            "candidate_limit_applied": budgets["candidate_limit"],
+            "expanded_queries": expanded_queries,
         }
 
         semantic_truth = {
@@ -460,7 +774,7 @@ async def query_semantic_cloud(
         logger.info(
             "memory.cloud query lexical_only=%s embed_ok=%s candidates_raw=%s candidates_active=%s "
             "rerank_provider=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
-            "final_evidence=%s distinct_sessions=%s distinct_apps=%s distinct_buckets=%s "
+            "final_evidence=%s distinct_sessions=%s distinct_apps=%s distinct_domains=%s distinct_buckets=%s "
             "citations=%s tier=%s cloud_max_embedded_ts=%s cloud_pending_in_window=%s",
             lexical_only,
             embed_succeeded,
@@ -473,6 +787,7 @@ async def query_semantic_cloud(
             final_evidence_count,
             distinct_sessions,
             distinct_apps,
+            distinct_domains,
             distinct_time_buckets,
             len(citations),
             retrieval_tier,

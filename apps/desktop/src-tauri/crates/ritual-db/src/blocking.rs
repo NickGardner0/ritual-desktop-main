@@ -24,7 +24,8 @@ use std::sync::Arc;
 use crate::{
     DatabaseConfig, DatabaseError, Result, RitualDatabase,
     ActivityEvent, LastEvent, AppSummary, DomainSummary, DailySummary, FocusMetrics,
-    VideoChunk, OcrFrame, ActivityContext, RecorderStats,
+    VideoChunk, OcrFrame, ActivityContext, RecorderStats, ContextSnapshot,
+    SessionRetrievalDoc,
     QueuedSyncItem,
 };
 
@@ -139,6 +140,31 @@ impl BlockingDatabase {
     /// Delete old activity events
     pub fn delete_old_events(&self, days: i64) -> Result<i64> {
         self.rt.block_on(self.db.delete_old_events(days))
+    }
+
+    /// Clamp stale browser-extension events to a bounded session length.
+    pub fn clamp_stale_browser_extension_events(
+        &self,
+        device_id: &str,
+        stale_before_ts: i64,
+        max_span_ms: i64,
+    ) -> Result<i64> {
+        self.rt.block_on(
+            self.db
+                .clamp_stale_browser_extension_events(device_id, stale_before_ts, max_span_ms),
+        )
+    }
+
+    /// Delete exact duplicate browser-extension events.
+    pub fn delete_duplicate_browser_extension_events(
+        &self,
+        device_id: &str,
+        lookback_ts: i64,
+    ) -> Result<i64> {
+        self.rt.block_on(
+            self.db
+                .delete_duplicate_browser_extension_events(device_id, lookback_ts),
+        )
     }
     
     /// Insert or update an AFK event
@@ -270,6 +296,40 @@ impl BlockingDatabase {
         let conn = self.rt.block_on(self.db.connection());
         let ops = crate::recorder::RecorderOps::new(&conn);
         self.rt.block_on(ops.delete_ocr_frame(frame_id))
+    }
+
+    // ========================================================================
+    // Context Memory Operations
+    // ========================================================================
+
+    /// Record a context snapshot and update its owning session/doc.
+    pub fn record_context_snapshot(
+        &self,
+        snapshot: &ContextSnapshot,
+    ) -> Result<crate::context::ContextRecordOutcome> {
+        self.rt.block_on(self.db.record_context_snapshot(snapshot))
+    }
+
+    /// Get recent context snapshots in a time range.
+    pub fn get_recent_context_snapshots(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<ContextSnapshot>> {
+        self.rt
+            .block_on(self.db.get_recent_context_snapshots(start_ts, end_ts, limit))
+    }
+
+    /// Get context-derived retrieval docs in a time range.
+    pub fn get_session_retrieval_docs(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<SessionRetrievalDoc>> {
+        self.rt
+            .block_on(self.db.get_session_retrieval_docs(start_ts, end_ts, limit))
     }
     
     // ========================================================================

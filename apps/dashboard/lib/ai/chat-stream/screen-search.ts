@@ -3,12 +3,16 @@ import { PYTHON_API_BASE } from './core';
 // Screen recording search types
 interface ScreenRecordingResult {
   frame_id: number;
+  chunk_id?: number;
+  session_id?: number;
   timestamp: number;
   app_bundle_id: string;
   app_name: string;
   window_title: string | null;
   ocr_text: string;
   relevance_score: number;
+  capture_quality?: number;
+  source_type?: string;
   source?: 'hybrid' | 'text' | 'activity';
   fts_matched?: boolean;
 }
@@ -51,10 +55,58 @@ interface ScreenSearchContext {
     snippet?: string;
     score?: number;
     source?: string;
-  }>;
+    }>;
+  semanticTruth?: {
+    warning?: string;
+    mode_used?: string;
+    recap_outline?: Record<string, unknown>;
+    story_plan?: Record<string, unknown>;
+    renderer?: Record<string, unknown>;
+    highlights?: Array<{
+      frame_id?: number | null;
+      timestamp?: number;
+      app_name?: string;
+      window_title?: string | null;
+      session_key?: string | null;
+      context_version?: number;
+      snippet?: string;
+      score?: number;
+      source?: string;
+    }>;
+  };
+  retrievalDebug?: MemorySearchDebug | null;
   pendingEmbeddings?: number;
   totalEmbeddings?: number;
   workerRunning?: boolean;
+}
+
+interface MemorySearchDebug {
+  expanded_queries?: Array<{ type?: string; text?: string; weight?: number }>;
+  retrieval_lists?: Array<{
+    source?: string;
+    query_type?: string;
+    query_types?: string[];
+    query?: string;
+    result_count?: number;
+    candidate_count?: number;
+    candidate_limit?: number;
+  }>;
+  rrf_trace?: Array<{
+    doc_id?: string;
+    top_rank?: number;
+    top_rank_bonus?: number;
+    total_score?: number;
+  }>;
+  strong_signal_short_circuit?: {
+    exact_match?: boolean;
+    top_score?: number;
+    runner_up_score?: number;
+    source_type?: string;
+    provider_doc_id?: string;
+  } | null;
+  rerank_cache_hit?: boolean;
+  candidate_limit_applied?: number | Record<string, unknown>;
+  rerank_candidates_considered?: number;
 }
 
 interface MemoryQueryApiResponse {
@@ -68,12 +120,28 @@ interface MemoryQueryApiResponse {
     | 'activity_only'
     | 'unavailable'
     | string;
+  results?: Array<{
+    frame_id?: number | null;
+    timestamp?: number;
+    app_bundle_id?: string;
+    app_name?: string;
+    window_title?: string | null;
+    ocr_text?: string;
+    snippet?: string;
+    relevance_score?: number;
+    score?: number;
+    source?: string;
+    fts_matched?: boolean;
+  }>;
   days_back?: number;
   start_date?: string;
   end_date?: string;
   semantic_truth?: {
     mode_used?: string;
     warning?: string;
+    recap_outline?: Record<string, unknown>;
+    story_plan?: Record<string, unknown>;
+    renderer?: Record<string, unknown>;
     highlights?: Array<{
       frame_id?: number | null;
       timestamp?: number;
@@ -110,6 +178,7 @@ interface MemoryQueryApiResponse {
   };
   warning?: string;
   error?: string | null;
+  debug?: MemorySearchDebug | null;
 }
 
 interface ScreenSearchDebugPayload {
@@ -118,6 +187,24 @@ interface ScreenSearchDebugPayload {
   status: ScreenSearchContext['status'];
   retrieval_tier?: ScreenSearchContext['retrievalTier'];
   warning?: string;
+  strong_signal_short_circuit?: MemorySearchDebug['strong_signal_short_circuit'];
+  rerank_cache_hit?: boolean;
+  candidate_limit_applied?: number | Record<string, unknown>;
+  rerank_candidates_considered?: number;
+  retrieval_lists?: Array<{
+    source?: string;
+    query_type?: string;
+    query_types?: string[];
+    result_count?: number;
+    candidate_count?: number;
+    candidate_limit?: number;
+  }>;
+  rrf_trace?: Array<{
+    doc_id?: string;
+    top_rank?: number;
+    top_rank_bonus?: number;
+    total_score?: number;
+  }>;
   source_counts: {
     hybrid: number;
     text: number;
@@ -301,6 +388,12 @@ export function buildScreenSearchDebug(
     status: context.status,
     retrieval_tier: context.retrievalTier,
     warning: context.warning,
+    strong_signal_short_circuit: context.retrievalDebug?.strong_signal_short_circuit,
+    rerank_cache_hit: context.retrievalDebug?.rerank_cache_hit,
+    candidate_limit_applied: context.retrievalDebug?.candidate_limit_applied,
+    rerank_candidates_considered: context.retrievalDebug?.rerank_candidates_considered,
+    retrieval_lists: context.retrievalDebug?.retrieval_lists?.slice(0, 4),
+    rrf_trace: context.retrievalDebug?.rrf_trace?.slice(0, 4),
     source_counts: sourceCounts,
   };
 }
@@ -332,7 +425,10 @@ function hasSubstantiveOcrEvidence(value: string): boolean {
   const text = value.trim().toLowerCase();
   if (!text) return false;
   if (text === 'unknown' || text === 'n/a') return false;
-  if (text.startsWith('window:') || text.startsWith('app:')) return false;
+  if (text.startsWith('window:') || text.startsWith('app:')) {
+    if (text.includes('url:') || text.includes('domain:')) return text.length >= 24;
+    return text.length >= 48;
+  }
   if (text.length < 16) return false;
   return true;
 }
@@ -387,20 +483,28 @@ export async function fetchOnDemandScreenSearchContext(
       ? response.semantic_truth?.highlights || []
       : [];
     const citations = Array.isArray(response.citations) ? response.citations : [];
-    const sourceRows = semanticHighlights.length > 0 ? semanticHighlights : citations;
+    const directResults = Array.isArray(response.results) ? response.results : [];
+    const sourceRows = directResults.length > 0
+      ? directResults
+      : semanticHighlights.some((item) => item?.app_name || item?.window_title || hasSubstantiveOcrEvidence(String(item?.snippet || '')))
+        ? semanticHighlights
+        : citations;
 
     const mappedResults: ScreenRecordingResult[] = sourceRows
       .map((item) => {
         const timestamp = Number(item.timestamp || 0);
         if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+        const appName = String(item.app_name || '').trim();
+        const windowTitle = item.window_title ? String(item.window_title).trim() : '';
+        const snippet = String((item as any).ocr_text || item.snippet || '').trim();
         return {
           frame_id: Number(item.frame_id || 0),
           timestamp,
-          app_bundle_id: '',
-          app_name: item.app_name || 'Unknown',
-          window_title: item.window_title || null,
-          ocr_text: item.snippet || '',
-          relevance_score: Math.max(0, Math.min(1, Number(item.score || 0))),
+          app_bundle_id: String((item as any).app_bundle_id || ''),
+          app_name: appName || 'Unknown',
+          window_title: windowTitle || null,
+          ocr_text: snippet,
+          relevance_score: Math.max(0, Math.min(1, Number((item as any).relevance_score ?? item.score ?? 0))),
           source: item.source === 'activity' ? 'activity' : 'hybrid',
           fts_matched: item.source !== 'activity',
         } as ScreenRecordingResult;
@@ -447,6 +551,8 @@ export async function fetchOnDemandScreenSearchContext(
       freshness: response.freshness,
       confidence: response.confidence,
       citations,
+      semanticTruth: response.semantic_truth || undefined,
+      retrievalDebug: response.debug || undefined,
     };
   } catch (error) {
     console.warn('On-demand query-memory search failed; legacy fallback disabled:', error);
@@ -472,166 +578,49 @@ export async function fetchOnDemandScreenSearchContext(
 export async function executeSearchScreenRecordings(
   token: string,
   params: { query: string; daysBack?: number; limit?: number },
-  prefetchedScreenSearchContext: ScreenSearchContext | null
+  _prefetchedScreenSearchContext: ScreenSearchContext | null
 ): Promise<string> {
   console.log('🖥️ searchScreenRecordings called:', params);
-  console.log('🖥️ prefetched screenRecordingResults count:', prefetchedScreenSearchContext?.results?.length ?? 0);
+  return executeSearchContextMemory(token, params);
+}
 
+export async function executeSearchContextMemory(
+  token: string,
+  params: { query: string; daysBack?: number; limit?: number },
+): Promise<string> {
   const safeDaysBack = clampDaysBack(params.daysBack);
   const safeLimit = clampSearchLimit(params.limit);
 
-  const onDemandContext = await fetchOnDemandScreenSearchContext(token, {
-    query: params.query,
-    daysBack: safeDaysBack,
-    limit: Math.max(safeLimit * 2, 20),
-  });
+  try {
+    const response = await fetchPythonApiPost('/api/memory/search-context', token, {
+      query: params.query,
+      days_back: safeDaysBack,
+      limit: safeLimit,
+    });
 
-  let screenSearchContext: ScreenSearchContext | null = onDemandContext ?? prefetchedScreenSearchContext;
-  if (onDemandContext && prefetchedScreenSearchContext) {
-    const mergedResults = mergeScreenResults(onDemandContext.results ?? [], prefetchedScreenSearchContext.results ?? []);
-    const hasHybridResult = mergedResults.some((result) => result.source === 'hybrid');
-    const warnings = [onDemandContext.warning, prefetchedScreenSearchContext.warning].filter(Boolean);
-    screenSearchContext = {
-      modeUsed: hasHybridResult
-        ? 'hybrid'
-        : (onDemandContext.modeUsed !== 'none' ? onDemandContext.modeUsed : prefetchedScreenSearchContext.modeUsed),
-      status: hasHybridResult
-        ? 'hybrid'
-        : (onDemandContext.status !== 'unavailable' ? onDemandContext.status : prefetchedScreenSearchContext.status),
-      retrievalTier: onDemandContext.retrievalTier ?? prefetchedScreenSearchContext.retrievalTier,
-      results: mergedResults,
-      resolvedDaysBack: onDemandContext.resolvedDaysBack ?? prefetchedScreenSearchContext.resolvedDaysBack,
-      startDate: onDemandContext.startDate ?? prefetchedScreenSearchContext.startDate,
-      endDate: onDemandContext.endDate ?? prefetchedScreenSearchContext.endDate,
-      warning: warnings.length > 0 ? warnings.join(' ') : undefined,
-      freshness: onDemandContext.freshness ?? prefetchedScreenSearchContext.freshness,
-      confidence: onDemandContext.confidence ?? prefetchedScreenSearchContext.confidence,
-      citations: (onDemandContext.citations && onDemandContext.citations.length > 0)
-        ? onDemandContext.citations
-        : prefetchedScreenSearchContext.citations,
-      pendingEmbeddings: prefetchedScreenSearchContext.pendingEmbeddings,
-      totalEmbeddings: prefetchedScreenSearchContext.totalEmbeddings,
-      workerRunning: prefetchedScreenSearchContext.workerRunning,
-    };
-  }
-
-  // Distinguish between "service not available" (null/undefined) and "no results" (empty array)
-  if (screenSearchContext === null || screenSearchContext === undefined) {
+    const results = Array.isArray(response?.results) ? response.results : [];
+    return JSON.stringify({
+      success: Boolean(response?.success),
+      query: params.query,
+      days_searched: Number(response?.days_back || safeDaysBack),
+      result_count: Number(response?.result_count || results.length),
+      results,
+      status: response?.status || 'unavailable',
+      mode_used: response?.mode_used || 'none',
+      warning: response?.warning,
+      retrieval_tier: response?.retrieval_tier,
+      debug: response?.debug || null,
+      message:
+        results.length > 0
+          ? undefined
+          : `No context memory matches found for "${params.query}".`,
+    });
+  } catch (error) {
+    console.warn('Context memory search failed:', error);
     return JSON.stringify({
       success: false,
-      error: 'Screen history search is currently unavailable.',
-      hint: 'Make sure screen recording is active and local indexing is still processing.',
+      error: 'Context memory search is currently unavailable.',
+      hint: 'Make sure context awareness capture has recent snapshots.',
     });
   }
-
-  const screenRecordingResults = screenSearchContext.results ?? [];
-  const resolvedDaysBack = screenSearchContext.resolvedDaysBack ?? safeDaysBack;
-  if (screenRecordingResults.length === 0 && screenSearchContext.status === 'unavailable') {
-    return JSON.stringify({
-      success: false,
-      error: 'Screen history search is currently unavailable.',
-      hint: 'Make sure computer tracking is enabled and local screen indexing has produced data.',
-      warning: screenSearchContext.warning,
-      debug: buildScreenSearchDebug(screenSearchContext, screenRecordingResults),
-    });
-  }
-  
-  // Service is available but no results found
-  if (screenRecordingResults.length === 0) {
-    return JSON.stringify({
-      success: true,
-      query: params.query,
-      days_searched: resolvedDaysBack,
-      result_count: 0,
-      results: [],
-      status: screenSearchContext.status,
-      mode_used: screenSearchContext.modeUsed,
-      warning: screenSearchContext.warning,
-      debug: buildScreenSearchDebug(screenSearchContext, screenRecordingResults),
-      message: `No screen recordings found matching "${params.query}". Try different keywords or check if screen recording is enabled.`,
-    });
-  }
-  
-  const rankedResults = rerankScreenResultsByQuery(screenRecordingResults, params.query);
-
-  const filteredResults = rankedResults.slice(0, safeLimit);
-  if (filteredResults.length === 0) {
-    return JSON.stringify({
-      success: true,
-      query: params.query,
-      days_searched: resolvedDaysBack,
-      result_count: 0,
-      results: [],
-      status: screenSearchContext.status,
-      mode_used: screenSearchContext.modeUsed,
-      warning: screenSearchContext.warning,
-      debug: buildScreenSearchDebug(screenSearchContext, filteredResults),
-      message: `No screen recordings found matching "${params.query}" in the requested time range.`,
-    });
-  }
-
-  const confidenceLevel = screenSearchContext.confidence?.level || 'low';
-  const confidenceScore = Number(screenSearchContext.confidence?.score || 0);
-  const corroboratingChunks = Number(screenSearchContext.confidence?.corroborating_chunks || 0);
-  const substantiveEvidenceCount = filteredResults.filter((item) => hasSubstantiveOcrEvidence(item.ocr_text)).length;
-  const strongMatchCount = filteredResults.filter((item) => item.relevance_score >= 0.6).length;
-  const weakEvidenceOnly = (
-    confidenceLevel === 'low'
-    || confidenceScore < 0.6
-    || strongMatchCount === 0
-    || substantiveEvidenceCount === 0
-    || corroboratingChunks < 1
-  );
-
-  if (weakEvidenceOnly) {
-    const weakEvidenceWarning = [
-      'Only weak semantic evidence is currently available for this query.',
-      'Avoid topic-specific claims until stronger OCR citations are present.',
-      screenSearchContext.warning,
-    ]
-      .filter(Boolean)
-      .join(' ');
-
-    return JSON.stringify({
-      success: true,
-      query: params.query,
-      days_searched: resolvedDaysBack,
-      result_count: 0,
-      results: [],
-      status: 'text-fallback',
-      mode_used: screenSearchContext.modeUsed,
-      warning: weakEvidenceWarning,
-      freshness: screenSearchContext.freshness,
-      confidence: screenSearchContext.confidence,
-      debug: buildScreenSearchDebug(screenSearchContext, filteredResults),
-      message: 'Evidence is too weak for a reliable topic-specific answer right now.',
-    });
-  }
-  
-  // Format results for the AI
-  const formattedResults = filteredResults.map(r => ({
-    timestamp: new Date(r.timestamp).toISOString(),
-    app: r.app_name,
-    window: r.window_title || 'Unknown',
-    content_preview: r.ocr_text.substring(0, 300) + (r.ocr_text.length > 300 ? '...' : ''),
-    relevance: Math.round(r.relevance_score * 100) + '%',
-    source: r.source || 'text',
-    fts_matched: r.fts_matched || false,
-  }));
-  
-  console.log('🖥️ Returning', formattedResults.length, 'formatted results to AI');
-  
-  return JSON.stringify({
-    success: true,
-    query: params.query,
-    days_searched: resolvedDaysBack,
-    result_count: formattedResults.length,
-    status: screenSearchContext.status,
-    mode_used: screenSearchContext.modeUsed,
-    warning: screenSearchContext.warning,
-    freshness: screenSearchContext.freshness,
-    confidence: screenSearchContext.confidence,
-    debug: buildScreenSearchDebug(screenSearchContext, filteredResults),
-    results: formattedResults,
-  });
 }

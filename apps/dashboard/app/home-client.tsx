@@ -308,8 +308,8 @@ export function HomeClient() {
                   <SignUp
                     routing="virtual"
                     signInUrl="/?page=3&mode=signin"
-                    afterSignUpUrl="/auth/sso-callback"
-                    redirectUrl="/auth/sso-callback"
+                    forceRedirectUrl="/auth/sso-callback"
+                    fallbackRedirectUrl="/auth/sso-callback"
                     appearance={{
                       elements: {
                         socialButtonsBlockButton: {
@@ -324,8 +324,8 @@ export function HomeClient() {
                   <SignIn
                     routing="virtual"
                     signUpUrl="/?page=3&mode=signup"
-                    afterSignInUrl="/auth/sso-callback"
-                    redirectUrl="/auth/sso-callback"
+                    forceRedirectUrl="/auth/sso-callback"
+                    fallbackRedirectUrl="/auth/sso-callback"
                     appearance={{
                       elements: {
                         socialButtonsBlockButton: {

@@ -45,6 +45,16 @@ def _make_provider_doc_id(user_id: str, logical_chunk_id: str, content_hash: str
     return hashlib.sha1(raw).hexdigest()
 
 
+def _extract_parent_context(value: str) -> str:
+    text = " ".join(str(value or "").split())
+    if not text.lower().startswith("context:"):
+        return ""
+    context_text = text[len("Context:") :].strip()
+    if "|" in context_text:
+        context_text = context_text.split("|", 1)[0].strip()
+    return context_text[:240]
+
+
 async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
     """
     Process pending chunk embeddings and upsert into Turbopuffer.
@@ -101,8 +111,11 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
                 COALESCE(NULLIF(c.logical_chunk_id, ''), c.chunk_id) AS logical_chunk_id,
                 c.chunk_start_ts,
                 c.chunk_end_ts,
+                COALESCE(NULLIF(c.source_kind, ''), 'legacy_ocr_chunk') AS source_kind,
+                COALESCE(NULLIF(c.session_id, ''), '') AS session_id,
                 c.app_name,
                 c.window_title,
+                c.document_title,
                 c.browser_domain,
                 c.raw_text_compact,
                 c.contextual_text_compact,
@@ -112,6 +125,7 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
                 COALESCE(c.session_position, 0) AS session_position,
                 COALESCE(c.session_chunk_count, 1) AS session_chunk_count,
                 c.quality_score,
+                COALESCE(c.capture_quality, c.quality_score, 0.0) AS capture_quality,
                 c.content_hash,
                 c.source_frame_ids_json
             FROM memory_embedding_jobs j
@@ -242,17 +256,25 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
                         "logical_chunk_id": logical_chunk_id,
                         "chunk_start_ts": int(row.get("chunk_start_ts") or 0),
                         "chunk_end_ts": int(row.get("chunk_end_ts") or 0),
+                        "source_kind": str(row.get("source_kind") or "legacy_ocr_chunk"),
+                        "session_id": str(row.get("session_id") or ""),
                         "app_name": str(row.get("app_name") or ""),
                         "window_title": str(row.get("window_title") or ""),
+                        "document_title": str(row.get("document_title") or ""),
                         "browser_domain": str(row.get("browser_domain") or ""),
                         "text_compact": contextual_text_compact,
                         "raw_text_compact": raw_text_compact,
                         "contextual_text_compact": contextual_text_compact,
+                        "raw_visible_text": raw_text_compact,
+                        "contextual_retrieval_text": contextual_text_compact,
+                        "parent_context": _extract_parent_context(contextual_text_compact),
                         "context_version": int(row.get("context_version") or 1),
-                        "session_key": str(row.get("session_key") or ""),
+                        "session_key": str(row.get("session_key") or row.get("session_id") or ""),
                         "session_position": int(row.get("session_position") or 0),
                         "session_chunk_count": int(row.get("session_chunk_count") or 1),
+                        "session_count": int(row.get("session_chunk_count") or 1),
                         "quality_score": qs,
+                        "capture_quality": float(row.get("capture_quality") or qs),
                         "content_hash": str(row["content_hash"]),
                         "active": 1,
                     },
@@ -379,8 +401,20 @@ async def process_embedding_jobs_freshness_first(
                 j.id AS job_id, j.chunk_pk, j.retry_count,
                 c.user_id, c.device_id, c.chunk_id,
                 COALESCE(NULLIF(c.logical_chunk_id, ''), c.chunk_id) AS logical_chunk_id,
-                c.chunk_start_ts, c.chunk_end_ts, c.app_name, c.window_title,
-                c.browser_domain, c.text_compact, c.quality_score, c.content_hash,
+                c.chunk_start_ts, c.chunk_end_ts,
+                COALESCE(NULLIF(c.source_kind, ''), 'legacy_ocr_chunk') AS source_kind,
+                COALESCE(NULLIF(c.session_id, ''), '') AS session_id,
+                c.app_name, c.window_title, c.document_title,
+                c.browser_domain, c.text_compact,
+                COALESCE(c.raw_text_compact, '') AS raw_text_compact,
+                COALESCE(c.contextual_text_compact, c.text_compact, '') AS contextual_text_compact,
+                c.quality_score,
+                COALESCE(c.capture_quality, c.quality_score, 0.0) AS capture_quality,
+                c.content_hash,
+                COALESCE(c.context_version, 1) AS context_version,
+                COALESCE(c.session_key, '') AS session_key,
+                COALESCE(c.session_position, 0) AS session_position,
+                COALESCE(c.session_chunk_count, 1) AS session_chunk_count,
                 c.source_frame_ids_json
             FROM memory_embedding_jobs j
             JOIN memory_chunks c ON c.id = j.chunk_pk
@@ -418,7 +452,10 @@ async def process_embedding_jobs_freshness_first(
             [(now_ms, now_ms, jid) for jid in job_ids],
         )
 
-    texts = [str(r.get("text_compact") or "").strip() for r in rows]
+    texts = [
+        str(r.get("contextual_text_compact") or r.get("text_compact") or "").strip()
+        for r in rows
+    ]
     try:
         embeddings = await client.embeddings.create(model=_openai_embed_model(), input=texts)
     except Exception as exc:
@@ -438,7 +475,11 @@ async def process_embedding_jobs_freshness_first(
     with get_memory_db() as conn:
         for idx, row in enumerate(rows):
             jid = int(row["job_id"])
-            text_compact = str(row.get("text_compact") or "").strip()
+            contextual_text_compact = str(
+                row.get("contextual_text_compact") or row.get("text_compact") or ""
+            ).strip()
+            raw_text_compact = str(row.get("raw_text_compact") or "").strip()
+            text_compact = contextual_text_compact
             if not text_compact:
                 rc = int(row.get("retry_count") or 0) + 1
                 failed += 1
@@ -486,11 +527,25 @@ async def process_embedding_jobs_freshness_first(
                         "logical_chunk_id": logical_chunk_id,
                         "chunk_start_ts": int(row.get("chunk_start_ts") or 0),
                         "chunk_end_ts": int(row.get("chunk_end_ts") or 0),
+                        "source_kind": str(row.get("source_kind") or "legacy_ocr_chunk"),
+                        "session_id": str(row.get("session_id") or ""),
                         "app_name": str(row.get("app_name") or ""),
                         "window_title": str(row.get("window_title") or ""),
+                        "document_title": str(row.get("document_title") or ""),
                         "browser_domain": str(row.get("browser_domain") or ""),
                         "text_compact": text_compact,
+                        "raw_text_compact": raw_text_compact,
+                        "contextual_text_compact": contextual_text_compact,
+                        "raw_visible_text": raw_text_compact,
+                        "contextual_retrieval_text": contextual_text_compact,
+                        "parent_context": _extract_parent_context(contextual_text_compact),
+                        "context_version": int(row.get("context_version") or 1),
+                        "session_key": str(row.get("session_key") or row.get("session_id") or ""),
+                        "session_position": int(row.get("session_position") or 0),
+                        "session_chunk_count": int(row.get("session_chunk_count") or 1),
+                        "session_count": int(row.get("session_chunk_count") or 1),
                         "quality_score": float(row.get("quality_score") or 0.0),
+                        "capture_quality": float(row.get("capture_quality") or row.get("quality_score") or 0.0),
                         "content_hash": str(row["content_hash"]),
                         "active": 1,
                     },

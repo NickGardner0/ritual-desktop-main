@@ -15,6 +15,7 @@ export default function SignInPage() {
                     }}
                     signUpUrl="/sign-up"
                     forceRedirectUrl="/auth/sso-callback"
+                    fallbackRedirectUrl="/auth/sso-callback"
                 />
             </div>
         </div>

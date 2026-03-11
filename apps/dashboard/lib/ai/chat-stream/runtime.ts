@@ -20,4 +20,5 @@ export {
   buildScreenSearchDebug,
   fetchOnDemandScreenSearchContext,
   executeSearchScreenRecordings,
+  executeSearchContextMemory,
 } from './screen-search';

@@ -6,7 +6,8 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Mutex;
@@ -55,6 +56,17 @@ fn get_device_id_or_config() -> Option<String> {
     }
 }
 
+fn load_saved_watcher_config() -> Option<WatcherConfig> {
+    let home = dirs::home_dir()?;
+    let config_path = home.join(".ritual").join("watcher_config.json");
+    if !config_path.exists() {
+        return None;
+    }
+    std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<WatcherConfig>(&contents).ok())
+}
+
 /// Watcher configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatcherConfig {
@@ -71,6 +83,8 @@ pub struct WatcherConfig {
     pub url_mode: String, // off, domain, full
     #[serde(default)]
     pub track_incognito: bool,
+    #[serde(default = "default_browser_heartbeat_port")]
+    pub browser_heartbeat_port: u16,
 }
 
 fn default_afk_timeout() -> u64 {
@@ -78,6 +92,10 @@ fn default_afk_timeout() -> u64 {
 } // 15 minutes - better for coding/reading
 fn default_url_mode() -> String {
     "domain".to_string()
+}
+
+fn default_browser_heartbeat_port() -> u16 {
+    8766
 }
 
 const REQUIRED_WATCHER_HELP_FLAGS: [&str; 2] = ["--afk-timeout", "--url-mode"];
@@ -393,6 +411,8 @@ fn build_watcher_args(config: &WatcherConfig) -> Vec<String> {
         config.afk_timeout_seconds.to_string(),
         "--url-mode".to_string(),
         config.url_mode.clone(),
+        "--browser-heartbeat-port".to_string(),
+        config.browser_heartbeat_port.to_string(),
     ];
 
     if !config.excluded_bundle_ids.is_empty() {
@@ -408,12 +428,36 @@ fn build_watcher_args(config: &WatcherConfig) -> Vec<String> {
     args
 }
 
+fn log_existing_watcher_bindings(context: &str) {
+    let statuses = watcher_server_statuses();
+    if statuses.is_empty() {
+        return;
+    }
+    for status in statuses {
+        let listener_port = status.status.listener_port.unwrap_or(status.port);
+        watcher_info!(
+            "⚠️ {}: watcher heartbeat server already reachable at {} (pid={:?}, listener_port={}, uptime={}s, heartbeats={})",
+            context,
+            status.server_url,
+            status.status.process_id,
+            listener_port,
+            status.status.uptime_seconds,
+            status.status.total_heartbeats
+        );
+    }
+}
+
 /// Start the ritual-watcher sidecar
 #[tauri::command]
 pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, String> {
     watcher_info!("🚀 Starting Ritual Watcher...");
     watcher_info!("   Device ID: {}", config.device_id);
     watcher_info!("   Title Mode: {}", config.title_mode);
+    watcher_info!(
+        "   Browser heartbeat port: {}",
+        config.browser_heartbeat_port
+    );
+    log_existing_watcher_bindings("pre-start self-check");
 
     // Store device_id for later query use
     if let Ok(mut guard) = DEVICE_ID.lock() {
@@ -487,6 +531,11 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     watcher_info!("🚀 Starting Ritual Watcher (sync)...");
     watcher_info!("   Device ID: {}", config.device_id);
     watcher_info!("   Title Mode: {}", config.title_mode);
+    watcher_info!(
+        "   Browser heartbeat port: {}",
+        config.browser_heartbeat_port
+    );
+    log_existing_watcher_bindings("pre-start self-check");
 
     // Store device_id for later query use
     if let Ok(mut guard) = DEVICE_ID.lock() {
@@ -575,6 +624,12 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
         }
     } else {
         watcher_info!("ℹ️ No watcher process to stop");
+        #[cfg(target_os = "macos")]
+        {
+            let _ = Command::new("pkill")
+                .args(["-f", "ritual-watcher"])
+                .output();
+        }
     }
 
     Ok(WatcherStatus {
@@ -587,22 +642,35 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
 /// Get the current status of the watcher
 #[tauri::command]
 pub async fn get_watcher_status() -> WatcherStatus {
-    let guard = WATCHER_PROCESS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let managed_pid = {
+        let mut guard = WATCHER_PROCESS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(child) = guard.as_mut() {
+            match child.try_wait() {
+                Ok(None) => Some(child.id()),
+                Ok(Some(_)) | Err(_) => {
+                    *guard = None;
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
 
-    if let Some(ref child) = *guard {
-        WatcherStatus {
-            is_running: true, // We assume it's running if we have a handle
-            pid: Some(child.id()),
-            device_id: get_device_id(),
-        }
-    } else {
-        WatcherStatus {
-            is_running: false,
-            pid: None,
-            device_id: None,
-        }
+    let heartbeat_status = watcher_server_statuses()
+        .into_iter()
+        .find(|status| status.port == default_browser_heartbeat_port())
+        .or_else(|| watcher_server_statuses().into_iter().next());
+    let reachable_pid = heartbeat_status
+        .as_ref()
+        .and_then(|status| status.status.process_id);
+
+    WatcherStatus {
+        is_running: managed_pid.is_some() || heartbeat_status.is_some(),
+        pid: managed_pid.or(reachable_pid),
+        device_id: get_device_id_or_config(),
     }
 }
 
@@ -1148,41 +1216,153 @@ pub struct BrowserExtensionDiagnostics {
     pub watcher_reachable: bool,
     pub heartbeat_live: bool,
     pub watcher_server_url: Option<String>,
+    pub current_listener_port: Option<u16>,
+    pub watcher_pid: Option<u32>,
+    pub duplicate_watcher_detected: bool,
+    pub browser_heartbeat_port_mismatch: bool,
     pub last_browser_extension_heartbeat_ts: Option<i64>,
     pub seconds_since_browser_extension_heartbeat: Option<i64>,
+    pub context_enabled: bool,
+    pub context_quality: String,
+    pub recent_context_snapshot_count: i64,
+    pub recent_browser_snapshot_count: i64,
+    pub recent_accessibility_snapshot_count: i64,
+    pub recent_deep_accessibility_snapshot_count: i64,
+    pub recent_metadata_fallback_count: i64,
+    pub recent_event_triggered_snapshot_count: i64,
+    pub recent_polling_snapshot_count: i64,
+    pub recent_vision_fallback_snapshot_count: i64,
+    pub last_context_snapshot_ts: Option<i64>,
+    pub last_native_context_snapshot_ts: Option<i64>,
+    pub seconds_since_context_snapshot: Option<i64>,
+    pub native_capture_quality: String,
+    pub ax_observer_live: bool,
+    pub vision_fallback_apps: Vec<String>,
+    pub vision_fallback_rate: f64,
+    pub context_note: String,
     pub detection_note: String,
 }
 
-fn watcher_server_reachable() -> Option<String> {
-    for (url, host, port) in WATCHER_HEARTBEAT_ENDPOINTS {
-        let address = format!("{host}:{port}");
-        let socket_addr = match address
-            .to_socket_addrs()
-            .ok()
-            .and_then(|mut addrs| addrs.next())
-        {
-            Some(addr) => addr,
-            None => continue,
-        };
-
-        if can_connect(socket_addr, Duration::from_millis(250)) {
-            return Some(url.to_string());
-        }
-    }
-    None
+#[derive(Debug, Clone, Deserialize)]
+struct WatcherHeartbeatStatusResponse {
+    uptime_seconds: u64,
+    total_heartbeats: u64,
+    #[serde(default)]
+    process_id: Option<u32>,
+    #[serde(default)]
+    listener_port: Option<u16>,
+    #[serde(default)]
+    last_extension_heartbeat_ms: Option<u64>,
 }
 
-fn can_connect(addr: SocketAddr, timeout: Duration) -> bool {
-    TcpStream::connect_timeout(&addr, timeout).is_ok()
+#[derive(Debug, Clone)]
+struct WatcherHeartbeatEndpointStatus {
+    server_url: String,
+    port: u16,
+    status: WatcherHeartbeatStatusResponse,
+}
+
+fn watcher_server_statuses() -> Vec<WatcherHeartbeatEndpointStatus> {
+    let mut statuses = Vec::new();
+    for (url, host, port) in WATCHER_HEARTBEAT_ENDPOINTS {
+        if let Some(status) = fetch_watcher_server_status(url, host, port) {
+            statuses.push(status);
+        }
+    }
+    statuses
+}
+
+fn fetch_watcher_server_status(
+    url: &str,
+    host: &str,
+    port: u16,
+) -> Option<WatcherHeartbeatEndpointStatus> {
+    let address = format!("{host}:{port}");
+    let socket_addr = address.to_socket_addrs().ok()?.next()?;
+    let mut stream = TcpStream::connect_timeout(&socket_addr, Duration::from_millis(250)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(600)));
+
+    let request =
+        format!("GET /api/status HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).ok()?;
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).ok()?;
+    let body = response.split("\r\n\r\n").nth(1)?.trim();
+    let status: WatcherHeartbeatStatusResponse = serde_json::from_str(body).ok()?;
+
+    Some(WatcherHeartbeatEndpointStatus {
+        server_url: url.to_string(),
+        port,
+        status,
+    })
 }
 
 #[tauri::command]
 pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagnostics, String> {
-    let watcher_server_url = watcher_server_reachable();
-    let watcher_reachable = watcher_server_url.is_some();
+    let server_statuses = watcher_server_statuses();
+    let watcher_reachable = !server_statuses.is_empty();
+    let preferred_status = server_statuses
+        .iter()
+        .find(|status| status.port == default_browser_heartbeat_port())
+        .or_else(|| server_statuses.first());
+    let watcher_server_url = preferred_status.map(|status| status.server_url.clone());
+    let current_listener_port = preferred_status
+        .and_then(|status| status.status.listener_port)
+        .or_else(|| preferred_status.map(|status| status.port));
+    let managed_watcher_pid = {
+        let mut guard = WATCHER_PROCESS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.as_mut().and_then(|child| {
+            child
+                .try_wait()
+                .ok()
+                .and_then(|state| state.is_none().then_some(child.id()))
+        })
+    };
+    let watcher_pid = preferred_status
+        .and_then(|status| status.status.process_id)
+        .or(managed_watcher_pid);
+    let unique_pids: HashSet<u32> = server_statuses
+        .iter()
+        .filter_map(|status| status.status.process_id)
+        .collect();
+    let unique_ports: HashSet<u16> = server_statuses
+        .iter()
+        .filter_map(|status| status.status.listener_port.or(Some(status.port)))
+        .collect();
+    let duplicate_watcher_detected = unique_pids.len() > 1
+        || unique_ports.len() > 1
+        || managed_watcher_pid
+            .map(|pid| {
+                server_statuses
+                    .iter()
+                    .filter_map(|status| status.status.process_id)
+                    .any(|server_pid| server_pid != pid)
+            })
+            .unwrap_or(false);
     let device_id = get_device_id_or_config();
 
-    let mut last_browser_extension_heartbeat_ts: Option<i64> = None;
+    let mut last_browser_extension_heartbeat_ts: Option<i64> = preferred_status
+        .and_then(|status| status.status.last_extension_heartbeat_ms)
+        .map(|value| value as i64);
+    let mut recent_context_snapshot_count = 0i64;
+    let mut recent_browser_snapshot_count = 0i64;
+    let mut recent_accessibility_snapshot_count = 0i64;
+    let mut recent_deep_accessibility_snapshot_count = 0i64;
+    let mut recent_metadata_fallback_count = 0i64;
+    let mut recent_event_triggered_snapshot_count = 0i64;
+    let mut recent_polling_snapshot_count = 0i64;
+    let mut recent_vision_fallback_snapshot_count = 0i64;
+    let mut last_context_snapshot_ts: Option<i64> = None;
+    let mut last_native_context_snapshot_ts: Option<i64> = None;
+    let mut native_capture_quality_score = 0.0f64;
+    let mut native_capture_quality_count = 0i64;
+    let mut vision_fallback_apps = HashSet::new();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let recent_window_start = now_ms - (10 * 60 * 1000);
 
     if let Some(ref dev_id) = device_id {
         let guard = ACTIVITY_DB.read().await;
@@ -1199,25 +1379,164 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
                     );
                 }
             }
+
+            if let Ok(snapshots) = db
+                .get_recent_context_snapshots(recent_window_start, now_ms, 500)
+                .await
+            {
+                for snapshot in snapshots {
+                    recent_context_snapshot_count += 1;
+                    last_context_snapshot_ts = Some(
+                        last_context_snapshot_ts
+                            .map(|existing| existing.max(snapshot.ts))
+                            .unwrap_or(snapshot.ts),
+                    );
+                    let is_native = !matches!(snapshot.source_type.as_str(), "browser_extension");
+                    if is_native {
+                        last_native_context_snapshot_ts = Some(
+                            last_native_context_snapshot_ts
+                                .map(|existing| existing.max(snapshot.ts))
+                                .unwrap_or(snapshot.ts),
+                        );
+                        native_capture_quality_score += snapshot.capture_quality;
+                        native_capture_quality_count += 1;
+                    }
+                    match snapshot.source_type.as_str() {
+                        "browser_extension" => recent_browser_snapshot_count += 1,
+                        "macos_accessibility" => recent_accessibility_snapshot_count += 1,
+                        "macos_accessibility_deep" => {
+                            recent_accessibility_snapshot_count += 1;
+                            recent_deep_accessibility_snapshot_count += 1;
+                        }
+                        "window_metadata_fallback" => recent_metadata_fallback_count += 1,
+                        "vision_ui_fallback" => {
+                            recent_vision_fallback_snapshot_count += 1;
+                            recent_accessibility_snapshot_count += 1;
+                            if !snapshot.app_name.trim().is_empty() {
+                                vision_fallback_apps.insert(snapshot.app_name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                    match snapshot.capture_trigger.as_deref() {
+                        Some("ax_event") => recent_event_triggered_snapshot_count += 1,
+                        Some("polling") | Some("idle_fallback") => {
+                            recent_polling_snapshot_count += 1
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
     }
 
-    let now_ms = chrono::Utc::now().timestamp_millis();
     let seconds_since_browser_extension_heartbeat =
         last_browser_extension_heartbeat_ts.map(|ts| (now_ms - ts) / 1000);
+    let seconds_since_context_snapshot = last_context_snapshot_ts.map(|ts| (now_ms - ts) / 1000);
+    let avg_native_capture_quality = if native_capture_quality_count > 0 {
+        native_capture_quality_score / native_capture_quality_count as f64
+    } else {
+        0.0
+    };
+    let native_capture_quality =
+        if recent_deep_accessibility_snapshot_count >= 4 && avg_native_capture_quality >= 0.8 {
+            "high".to_string()
+        } else if recent_accessibility_snapshot_count > 0 && avg_native_capture_quality >= 0.55 {
+            "medium".to_string()
+        } else if last_native_context_snapshot_ts.is_some() {
+            "degraded".to_string()
+        } else {
+            "unavailable".to_string()
+        };
+    let ax_observer_live = recent_event_triggered_snapshot_count > 0
+        || (recent_accessibility_snapshot_count > 0
+            && seconds_since_context_snapshot
+                .map(|seconds| seconds <= 120)
+                .unwrap_or(false));
 
     let extension_installed = last_browser_extension_heartbeat_ts.is_some();
     let heartbeat_live = watcher_reachable
         && seconds_since_browser_extension_heartbeat
             .map(|seconds| seconds <= EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS)
             .unwrap_or(false);
+    let high_fidelity_count = recent_browser_snapshot_count + recent_accessibility_snapshot_count;
+    let context_enabled = watcher_reachable
+        && recent_context_snapshot_count >= 3
+        && high_fidelity_count >= 1
+        && seconds_since_context_snapshot
+            .map(|seconds| seconds <= 120)
+            .unwrap_or(false);
+    let context_quality = if context_enabled && high_fidelity_count >= 6 {
+        "high".to_string()
+    } else if context_enabled {
+        "medium".to_string()
+    } else if recent_context_snapshot_count > 0 {
+        "degraded".to_string()
+    } else {
+        "unavailable".to_string()
+    };
+    let browser_heartbeat_port_mismatch = duplicate_watcher_detected
+        || current_listener_port
+            .map(|port| port != default_browser_heartbeat_port())
+            .unwrap_or(false);
+    let vision_fallback_rate = if recent_context_snapshot_count > 0 {
+        recent_vision_fallback_snapshot_count as f64 / recent_context_snapshot_count as f64
+    } else {
+        0.0
+    };
 
-    let detection_note = if extension_installed {
+    let detection_note = if duplicate_watcher_detected {
+        let ports = server_statuses
+            .iter()
+            .map(|status| {
+                status
+                    .status
+                    .listener_port
+                    .unwrap_or(status.port)
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "Duplicate watcher listeners detected on {}. Browser/native capture may be split until only one watcher owns {}.",
+            ports,
+            default_browser_heartbeat_port()
+        )
+    } else if browser_heartbeat_port_mismatch {
+        format!(
+            "Watcher heartbeat server is reachable on port {} instead of the expected {}.",
+            current_listener_port.unwrap_or_default(),
+            default_browser_heartbeat_port()
+        )
+    } else if extension_installed {
         "Detected via browser_extension heartbeat events".to_string()
     } else if watcher_reachable {
         "Watcher is reachable, but no extension heartbeat has been observed yet".to_string()
     } else {
         "Watcher heartbeat server is not reachable".to_string()
+    };
+    let context_note = if context_enabled {
+        format!(
+            "Recent context capture is active (browser={}, accessibility={}, deep={}, fallback={}, vision={}, event_triggered={}).",
+            recent_browser_snapshot_count,
+            recent_accessibility_snapshot_count,
+            recent_deep_accessibility_snapshot_count,
+            recent_metadata_fallback_count,
+            recent_vision_fallback_snapshot_count,
+            recent_event_triggered_snapshot_count
+        )
+    } else if recent_context_snapshot_count > 0 {
+        format!(
+            "Context snapshots exist, but coverage is degraded (browser={}, accessibility={}, deep={}, fallback={}, vision={}, event_triggered={}).",
+            recent_browser_snapshot_count,
+            recent_accessibility_snapshot_count,
+            recent_deep_accessibility_snapshot_count,
+            recent_metadata_fallback_count,
+            recent_vision_fallback_snapshot_count,
+            recent_event_triggered_snapshot_count
+        )
+    } else {
+        "No recent context snapshots were detected.".to_string()
     };
 
     Ok(BrowserExtensionDiagnostics {
@@ -1225,8 +1544,30 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
         watcher_reachable,
         heartbeat_live,
         watcher_server_url,
+        current_listener_port,
+        watcher_pid,
+        duplicate_watcher_detected,
+        browser_heartbeat_port_mismatch,
         last_browser_extension_heartbeat_ts,
         seconds_since_browser_extension_heartbeat,
+        context_enabled,
+        context_quality,
+        recent_context_snapshot_count,
+        recent_browser_snapshot_count,
+        recent_accessibility_snapshot_count,
+        recent_deep_accessibility_snapshot_count,
+        recent_metadata_fallback_count,
+        recent_event_triggered_snapshot_count,
+        recent_polling_snapshot_count,
+        recent_vision_fallback_snapshot_count,
+        last_context_snapshot_ts,
+        last_native_context_snapshot_ts,
+        seconds_since_context_snapshot,
+        native_capture_quality,
+        ax_observer_live,
+        vision_fallback_apps: vision_fallback_apps.into_iter().collect(),
+        vision_fallback_rate,
+        context_note,
         detection_note,
     })
 }
@@ -1236,49 +1577,49 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
 #[tauri::command]
 pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result<bool, String> {
     let status = get_watcher_extended_status().await?;
+    let diagnostics = get_browser_extension_diagnostics().await.ok();
+    let watcher_reachable = diagnostics
+        .as_ref()
+        .map(|diag| diag.watcher_reachable)
+        .unwrap_or(false);
+    let context_stale = diagnostics
+        .as_ref()
+        .and_then(|diag| diag.seconds_since_context_snapshot)
+        .map(|seconds| seconds > max_stale_seconds)
+        .unwrap_or(false);
+    let heartbeat_stale = status
+        .seconds_since_heartbeat
+        .map(|seconds| seconds > max_stale_seconds)
+        .unwrap_or(false);
+    let should_restart = (!status.is_running && !watcher_reachable)
+        || (status.is_running && (heartbeat_stale || context_stale || !watcher_reachable));
 
-    // Check if watcher is supposedly running but heartbeat is stale
-    if status.is_running {
-        if let Some(seconds_stale) = status.seconds_since_heartbeat {
-            if seconds_stale > max_stale_seconds {
-                watcher_info!(
-                    "⚠️ Watcher hung detected! Heartbeat stale for {} seconds (threshold: {})",
-                    seconds_stale,
-                    max_stale_seconds
-                );
+    if should_restart {
+        watcher_info!(
+            "⚠️ Watcher unhealthy or missing (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={})",
+            status.is_running,
+            watcher_reachable,
+            heartbeat_stale,
+            context_stale
+        );
 
-                // Stop the hung watcher
-                if let Err(e) = stop_watcher().await {
-                    watcher_info!("   Failed to stop hung watcher: {}", e);
+        if let Err(e) = stop_watcher().await {
+            watcher_info!("   Failed to stop unhealthy watcher: {}", e);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        if let Some(config) = load_saved_watcher_config() {
+            match start_watcher_sync(config) {
+                Ok(_) => {
+                    watcher_info!("✅ Watcher auto-restarted after health-check failure");
+                    return Ok(true);
                 }
-
-                // Small delay to ensure process is terminated
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-                // Read existing config
-                let home = dirs::home_dir().ok_or("Could not find home directory")?;
-                let config_path = home.join(".ritual").join("watcher_config.json");
-
-                if config_path.exists() {
-                    let config_str = std::fs::read_to_string(&config_path)
-                        .map_err(|e| format!("Failed to read config: {}", e))?;
-                    let config: WatcherConfig = serde_json::from_str(&config_str)
-                        .map_err(|e| format!("Failed to parse config: {}", e))?;
-
-                    // Restart watcher
-                    match start_watcher_sync(config) {
-                        Ok(_) => {
-                            watcher_info!("✅ Watcher auto-restarted after hang detection");
-                            return Ok(true);
-                        }
-                        Err(e) => {
-                            return Err(format!("Failed to restart watcher: {}", e));
-                        }
-                    }
-                } else {
-                    return Err("No watcher config found for restart".to_string());
+                Err(e) => {
+                    return Err(format!("Failed to restart watcher: {}", e));
                 }
             }
+        } else {
+            return Err("No watcher config found for restart".to_string());
         }
     }
 

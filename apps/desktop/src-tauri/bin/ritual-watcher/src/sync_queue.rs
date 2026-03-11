@@ -99,10 +99,7 @@ impl SyncQueue {
 
     /// Create a new sync queue.
     pub fn new(path: &str) -> Result<Self, String> {
-        info!(
-            "Opening sync queue database (activity.db split): {}",
-            path
-        );
+        info!("Opening sync queue database (activity.db split): {}", path);
         let mut last_error: Option<String> = None;
         let mut db: Option<BlockingDatabase> = None;
         for attempt in 0..DB_LOCK_RETRY_ATTEMPTS {

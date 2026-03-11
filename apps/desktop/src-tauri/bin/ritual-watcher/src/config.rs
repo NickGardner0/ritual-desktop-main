@@ -53,6 +53,8 @@ pub struct WatcherConfig {
     pub url_mode: UrlMode,
     /// Whether to track incognito/private browsing
     pub track_incognito: bool,
+    /// Local port for browser heartbeat server
+    pub browser_heartbeat_port: u16,
     /// Pulsetime for event merging in seconds (default: poll_interval + 1)
     pub pulsetime_seconds: f64,
 }
@@ -70,6 +72,7 @@ impl Default for WatcherConfig {
             afk_timeout_seconds: 900.0, // 15 minutes - better for coding/reading
             url_mode: UrlMode::DomainOnly,
             track_incognito: false, // Privacy-preserving default
+            browser_heartbeat_port: 8766,
             pulsetime_seconds: 3.0, // poll_interval + 1 second buffer
         }
     }

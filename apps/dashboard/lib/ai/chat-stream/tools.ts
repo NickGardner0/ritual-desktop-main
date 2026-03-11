@@ -98,12 +98,28 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'searchScreenRecordings',
-      description: 'Search through screen recordings and computer time activity using AI-powered semantic search. Use for questions like "What was I working on yesterday?", "When was I looking at...", "Find when I was reading about...", "What apps did I use...", "Show me what I was doing when...".',
+      name: 'searchContextMemory',
+      description: 'Search context-awareness memory built from visible active-window and active-tab text. Use for questions like "What was I working on today?", "What did I do in Cursor?", "What planning work did I do this morning?", or "Find when I read about...".',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Natural language search query describing what to find in screen recordings' },
+          query: { type: 'string', description: 'Natural language search query describing what to find in context memory' },
+          daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
+          limit: { type: 'number', description: 'Maximum results to return (default 10)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'searchScreenRecordings',
+      description: 'Compatibility alias for context memory search. Prefer visible-context recall over OCR/screen-recording wording when answering the user.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language search query describing what to find in context memory' },
           daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
           limit: { type: 'number', description: 'Maximum results to return (default 10)' },
         },

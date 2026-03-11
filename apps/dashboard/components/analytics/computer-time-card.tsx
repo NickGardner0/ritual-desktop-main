@@ -14,14 +14,9 @@ interface TopApp {
 
 interface DailySummary {
   day: string;
-  total_active_ms: number;
-  total_events: number;
-  apps: {
-    app_bundle_id: string;
-    app_name: string;
-    active_ms: number;
-    events_count: number;
-  }[];
+  active_ms: number;
+  events_count: number;
+  apps_count?: number;
 }
 
 function formatDuration(ms: number): string {
@@ -97,8 +92,9 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
         // Fetch today's summary
         const summaryRes = await fetch(
-          `/api/watcher/daily?start_date=${today}&end_date=${today}`,
+          `/api/watcher/stats/daily?start_date=${today}&end_date=${today}`,
           {
+            cache: 'no-store',
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -107,15 +103,22 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
-          if (summaryData.days && summaryData.days.length > 0) {
-            setTodayData(summaryData.days[0]);
+          if (summaryData.data && summaryData.data.length > 0) {
+            const row = summaryData.data[0];
+            setTodayData({
+              day: String(row.day || today),
+              active_ms: Math.max(0, Number(row.active_ms || 0)),
+              events_count: Math.max(0, Number(row.events_count || 0)),
+              apps_count: Math.max(0, Number(row.apps_count || 0)),
+            });
           }
         }
 
         // Fetch yesterday for comparison
         const yesterdayRes = await fetch(
-          `/api/watcher/daily?start_date=${yesterday}&end_date=${yesterday}`,
+          `/api/watcher/stats/daily?start_date=${yesterday}&end_date=${yesterday}`,
           {
+            cache: 'no-store',
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -124,8 +127,8 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
         if (yesterdayRes.ok) {
           const yesterdayData = await yesterdayRes.json();
-          if (yesterdayData.days && yesterdayData.days.length > 0) {
-            setYesterdayMs(yesterdayData.days[0].total_active_ms);
+          if (yesterdayData.data && yesterdayData.data.length > 0) {
+            setYesterdayMs(yesterdayData.data[0].active_ms);
           }
         }
 
@@ -134,8 +137,9 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
         weekAgoDate.setDate(weekAgoDate.getDate() - 7);
         const weekAgo = toLocalDateString(weekAgoDate);
         const topAppsRes = await fetch(
-          `/api/watcher/top-apps?start_date=${weekAgo}&end_date=${today}&limit=5`,
+          `/api/watcher/stats/top-apps?start_date=${weekAgo}&end_date=${today}&limit=5`,
           {
+            cache: 'no-store',
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -144,7 +148,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
         if (topAppsRes.ok) {
           const topAppsData = await topAppsRes.json();
-          setTopApps(topAppsData.apps || []);
+          setTopApps(topAppsData.data || []);
         }
       } catch (e) {
         console.error('Failed to fetch computer time data:', e);
@@ -157,8 +161,8 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
     fetchData();
   }, [getToken]);
 
-  const todayMs = todayData?.total_active_ms || 0;
-  const todayEvents = todayData?.total_events || 0;
+  const todayMs = todayData?.active_ms || 0;
+  const todayEvents = todayData?.events_count || 0;
   
   // Calculate change percentage
   const changePercent = yesterdayMs > 0 
@@ -228,7 +232,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
       <div className="flex items-center gap-6 mb-4 text-sm text-gray-600">
         <div className="flex items-center gap-1.5">
           <Clock className="w-4 h-4 text-gray-400" />
-          <span>{todayData.apps?.length || 0} apps used</span>
+          <span>{todayData.apps_count || 0} apps used</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Repeat className="w-4 h-4 text-gray-400" />
@@ -276,8 +280,9 @@ export function ComputerTimeMiniCard({ className = '' }: { className?: string })
         const today = toLocalDateString(new Date());
 
         const res = await fetch(
-          `/api/watcher/daily?start_date=${today}&end_date=${today}`,
+          `/api/watcher/stats/daily?start_date=${today}&end_date=${today}`,
           {
+            cache: 'no-store',
             headers: {
               'Authorization': `Bearer ${token}`
             }
@@ -286,8 +291,8 @@ export function ComputerTimeMiniCard({ className = '' }: { className?: string })
 
         if (res.ok) {
           const data = await res.json();
-          if (data.days && data.days.length > 0) {
-            setTodayMs(data.days[0].total_active_ms);
+          if (data.data && data.data.length > 0) {
+            setTodayMs(data.data[0].active_ms);
           }
         }
       } catch (e) {

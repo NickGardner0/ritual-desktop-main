@@ -1516,8 +1516,125 @@ pub fn seed_memory_upload_outbox(
         let now = Utc::now().timestamp_millis();
         let fresh_cutoff = now.saturating_sub(2 * 60 * 60 * 1000);
         let safe_limit = limit.unwrap_or(500).clamp(1, 10_000) as i64;
+        let mut inserted: i64 = 0;
 
-        let inserted = conn.execute(
+        let mut session_doc_rows = conn
+            .query(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_retrieval_docs' LIMIT 1",
+                (),
+            )
+            .await
+            .map_err(|e| format!("Failed to check session_retrieval_docs existence: {}", e))?;
+        let has_session_retrieval_docs = session_doc_rows
+            .next()
+            .await
+            .map_err(|e| format!("Failed reading session_retrieval_docs existence: {}", e))?
+            .is_some();
+
+        if has_session_retrieval_docs {
+            inserted += conn.execute(
+                r#"
+                INSERT INTO memory_upload_outbox
+                (user_id, device_id, chunk_id, logical_chunk_id, content_hash, payload_json, status, retry_count, next_retry_at, last_error, created_at, updated_at)
+                SELECT
+                    COALESCE(NULLIF(src.user_id, ''), 'local-user'),
+                    COALESCE(NULLIF(src.device_id, ''), 'local-device'),
+                    -src.session_id,
+                    printf('context-session-%d', src.session_id),
+                    printf('context-session-%d-%d-%d-%d', src.session_id, src.chunk_start_ts, src.chunk_end_ts, COALESCE(src.updated_at, 0)),
+                    json_object(
+                        'chunk_id', printf('context-session-%d', src.session_id),
+                        'logical_chunk_id', printf('context-session-%d', src.session_id),
+                        'chunk_start_ts', src.chunk_start_ts,
+                        'chunk_end_ts', src.chunk_end_ts,
+                        'source_kind', COALESCE(NULLIF(src.source_kind, ''), 'context_session'),
+                        'session_id', CAST(src.session_id AS TEXT),
+                        'app_name', COALESCE(src.app_name, ''),
+                        'window_title', COALESCE(src.window_title, ''),
+                        'document_title', COALESCE(src.document_title, ''),
+                        'browser_domain', COALESCE(src.browser_domain, ''),
+                        'raw_visible_text', COALESCE(src.raw_visible_text, ''),
+                        'contextual_retrieval_text', COALESCE(src.contextual_retrieval_text, ''),
+                        'text_compact', COALESCE(src.contextual_retrieval_text, ''),
+                        'context_version', COALESCE(src.context_version, 1),
+                        'session_key', CAST(src.session_id AS TEXT),
+                        'session_position', COALESCE(src.session_position, 0),
+                        'session_count', COALESCE(src.session_count, 1),
+                        'quality_score', COALESCE(src.capture_quality, 0.0),
+                        'capture_quality', COALESCE(src.capture_quality, 0.0),
+                        'source_frame_ids', json('[]'),
+                        'content_hash', printf('context-session-%d-%d-%d-%d', src.session_id, src.chunk_start_ts, src.chunk_end_ts, COALESCE(src.updated_at, 0))
+                    ),
+                    'pending',
+                    0,
+                    NULL,
+                    NULL,
+                    ?,
+                    ?
+                FROM (
+                    SELECT
+                        session_id,
+                        device_id,
+                        user_id,
+                        chunk_start_ts,
+                        chunk_end_ts,
+                        'context_session' AS source_kind,
+                        app_name,
+                        window_title,
+                        document_title,
+                        browser_domain,
+                        raw_visible_text,
+                        contextual_retrieval_text,
+                        capture_quality,
+                        context_version,
+                        session_position,
+                        session_count,
+                        updated_at
+                    FROM session_retrieval_docs
+                    WHERE TRIM(COALESCE(contextual_retrieval_text, '')) != ''
+                    ORDER BY
+                        CASE
+                            WHEN chunk_end_ts >= ? THEN 0
+                            ELSE 1
+                        END ASC,
+                        chunk_end_ts DESC
+                    LIMIT ?
+                ) AS src
+                ON CONFLICT(user_id, device_id, logical_chunk_id) DO UPDATE SET
+                    chunk_id = excluded.chunk_id,
+                    content_hash = excluded.content_hash,
+                    payload_json = excluded.payload_json,
+                    status = CASE
+                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
+                        THEN 'pending'
+                        ELSE memory_upload_outbox.status
+                    END,
+                    retry_count = CASE
+                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
+                        THEN 0
+                        ELSE memory_upload_outbox.retry_count
+                    END,
+                    next_retry_at = CASE
+                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
+                        THEN NULL
+                        ELSE memory_upload_outbox.next_retry_at
+                    END,
+                    last_error = CASE
+                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
+                        THEN NULL
+                        ELSE memory_upload_outbox.last_error
+                    END,
+                    updated_at = CASE
+                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
+                        THEN excluded.updated_at
+                        ELSE memory_upload_outbox.updated_at
+                    END
+                "#,
+                libsql::params![now, now, fresh_cutoff, safe_limit],
+            ).await.map_err(|e| format!("Failed to seed context session docs into memory upload outbox: {}", e))? as i64;
+        }
+
+        inserted += conn.execute(
             r#"
             INSERT INTO memory_upload_outbox
             (user_id, device_id, chunk_id, logical_chunk_id, content_hash, payload_json, status, retry_count, next_retry_at, last_error, created_at, updated_at)
@@ -1532,17 +1649,24 @@ pub fn seed_memory_upload_outbox(
                     'logical_chunk_id', COALESCE(NULLIF(src.logical_chunk_id, ''), printf('local-search-chunk-%d', src.id)),
                     'chunk_start_ts', src.chunk_start_ts,
                     'chunk_end_ts', src.chunk_end_ts,
+                    'source_kind', 'legacy_ocr_chunk',
+                    'session_id', COALESCE(src.session_key, ''),
                     'app_name', COALESCE(src.app_name, ''),
                     'window_title', COALESCE(src.window_title_norm, ''),
+                    'document_title', '',
                     'browser_domain', COALESCE(src.browser_domain, ''),
+                    'raw_visible_text', COALESCE(src.raw_text_compact, ''),
+                    'contextual_retrieval_text', COALESCE(src.contextual_text_compact, COALESCE(src.text_compact, '')),
                     'raw_text_compact', COALESCE(src.raw_text_compact, ''),
                     'contextual_text_compact', COALESCE(src.contextual_text_compact, COALESCE(src.text_compact, '')),
                     'text_compact', COALESCE(src.text_compact, ''),
                     'context_version', COALESCE(src.context_version, 1),
                     'session_key', COALESCE(src.session_key, ''),
                     'session_position', COALESCE(src.session_position, 0),
+                    'session_count', COALESCE(src.session_chunk_count, 1),
                     'session_chunk_count', COALESCE(src.session_chunk_count, 1),
                     'quality_score', COALESCE(src.quality_score, 0.0),
+                    'capture_quality', COALESCE(src.quality_score, 0.0),
                     'source_frame_ids', json('[]'),
                     'content_hash', COALESCE(NULLIF(src.content_hash, ''), printf('legacy-%d-%d-%d', src.id, src.chunk_start_ts, src.chunk_end_ts))
                 ),
@@ -1608,7 +1732,7 @@ pub fn seed_memory_upload_outbox(
                 END
             "#,
             libsql::params![now, now, fresh_cutoff, safe_limit],
-        ).await.map_err(|e| format!("Failed to seed memory upload outbox: {}", e))?;
+        ).await.map_err(|e| format!("Failed to seed memory upload outbox: {}", e))? as i64;
 
         Ok(MemoryUploadOutboxSeedResult {
             inserted: inserted as i64,

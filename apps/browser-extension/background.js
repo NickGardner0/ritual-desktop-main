@@ -191,6 +191,251 @@ function getKnownTabCount() {
   return cachedTabCount > 0 ? cachedTabCount : 0;
 }
 
+function hashString(input) {
+  let hash = 2166136261;
+  const text = String(input || '');
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `h${(hash >>> 0).toString(16)}`;
+}
+
+async function captureVisibleContext(tab) {
+  if (!tab?.id) {
+    return {
+      documentTitle: tab?.title || null,
+      visibleTextRaw: '',
+      visibleTextNorm: '',
+      headings: [],
+      captureQuality: 0.25,
+      dedupKey: null,
+      isSensitiveRedacted: false,
+    };
+  }
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: () => {
+        const normalize = (value) =>
+          String(value || '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const MAX_TEXT_LENGTH = 12000;
+        const MAX_TEXT_NODES = 250;
+
+        const isVisibleElement = (element) => {
+          if (!element || typeof window.getComputedStyle !== 'function') {
+            return false;
+          }
+
+          const style = window.getComputedStyle(element);
+          if (!style || style.display === 'none' || style.visibility === 'hidden') {
+            return false;
+          }
+          if (Number(style.opacity || '1') === 0) {
+            return false;
+          }
+
+          const rect = typeof element.getBoundingClientRect === 'function'
+            ? element.getBoundingClientRect()
+            : null;
+          if (!rect) return true;
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const shouldSkipElement = (element) => {
+          if (!element?.tagName) return false;
+          const tag = element.tagName.toLowerCase();
+          return [
+            'script',
+            'style',
+            'noscript',
+            'svg',
+            'canvas',
+            'img',
+            'video',
+            'audio',
+            'iframe',
+          ].includes(tag);
+        };
+
+        const uniquePush = (target, seen, rawValue, maxLen = 320) => {
+          const value = normalize(rawValue).slice(0, maxLen);
+          if (!value) return;
+          const key = value.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          target.push(value);
+        };
+
+        const collectVisibleText = (root) => {
+          if (!root || typeof document.createTreeWalker !== 'function') {
+            return [];
+          }
+
+          const textChunks = [];
+          const seen = new Set();
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              const text = normalize(node?.textContent || '');
+              if (!text) return NodeFilter.FILTER_REJECT;
+              const parent = node.parentElement;
+              if (!parent || shouldSkipElement(parent) || !isVisibleElement(parent)) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              return NodeFilter.FILTER_ACCEPT;
+            },
+          });
+
+          let current;
+          while ((current = walker.nextNode()) && textChunks.length < MAX_TEXT_NODES) {
+            const text = normalize(current.textContent || '');
+            if (!text) continue;
+            const key = text.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            textChunks.push(text);
+          }
+          return textChunks;
+        };
+
+        const passwordFields = Array.from(
+          document.querySelectorAll('input[type="password"], [data-sensitive="true"]')
+        );
+        const headingsSeen = new Set();
+        const headings = Array.from(
+          document.querySelectorAll('h1, h2, h3, [role="heading"], main h4')
+        )
+          .map((node) => normalize(node.textContent))
+          .filter((value) => {
+            if (!value) return false;
+            const key = value.toLowerCase();
+            if (headingsSeen.has(key)) return false;
+            headingsSeen.add(key);
+            return true;
+          })
+          .slice(0, 12);
+
+        const fragments = [];
+        const fragmentSeen = new Set();
+        const selectionText = normalize(window.getSelection?.()?.toString?.() || '');
+        const activeValue = normalize(
+          document.activeElement?.value
+          || document.activeElement?.innerText
+          || document.activeElement?.textContent
+          || ''
+        );
+        const contentRoot = document.querySelector(
+          'main, article, [role="main"], [data-testid="primaryColumn"], ytd-watch-metadata, #content'
+        ) || document.body;
+
+        uniquePush(fragments, fragmentSeen, selectionText, 1200);
+        uniquePush(fragments, fragmentSeen, activeValue, 1600);
+        for (const heading of headings) {
+          uniquePush(fragments, fragmentSeen, heading, 220);
+        }
+        for (const chunk of collectVisibleText(contentRoot)) {
+          uniquePush(fragments, fragmentSeen, chunk, 360);
+          if (fragments.join(' ').length >= MAX_TEXT_LENGTH) {
+            break;
+          }
+        }
+
+        const bodyText = normalize(document.body?.innerText || '');
+        if (!fragments.length && bodyText) {
+          uniquePush(fragments, fragmentSeen, bodyText, MAX_TEXT_LENGTH);
+        }
+        if (!fragments.length) {
+          uniquePush(fragments, fragmentSeen, document.title, 220);
+        }
+
+        const visibleTextRaw = normalize(fragments.join(' | ')).slice(0, MAX_TEXT_LENGTH);
+        const visibleTextNorm = visibleTextRaw.toLowerCase();
+
+        return {
+          documentTitle: normalize(document.title) || null,
+          visibleTextRaw,
+          visibleTextNorm,
+          headings,
+          captureQuality: visibleTextNorm ? 0.98 : 0.35,
+          isSensitiveRedacted: passwordFields.length > 0,
+        };
+      },
+    });
+
+    const frameResults = Array.isArray(results)
+      ? results.map((entry) => entry?.result).filter(Boolean)
+      : [];
+    const headings = [];
+    const headingSeen = new Set();
+    const visibleChunks = [];
+    const chunkSeen = new Set();
+    let documentTitle = tab.title || null;
+    let captureQuality = 0.25;
+    let isSensitiveRedacted = false;
+
+    for (const extracted of frameResults) {
+      if (!documentTitle && extracted?.documentTitle) {
+        documentTitle = extracted.documentTitle;
+      }
+      if (typeof extracted?.captureQuality === 'number') {
+        captureQuality = Math.max(captureQuality, extracted.captureQuality);
+      }
+      isSensitiveRedacted = isSensitiveRedacted || Boolean(extracted?.isSensitiveRedacted);
+
+      for (const heading of Array.isArray(extracted?.headings) ? extracted.headings : []) {
+        const normalized = String(heading || '').trim();
+        if (!normalized) continue;
+        const key = normalized.toLowerCase();
+        if (headingSeen.has(key)) continue;
+        headingSeen.add(key);
+        headings.push(normalized);
+      }
+
+      const raw = String(extracted?.visibleTextRaw || '').trim();
+      if (!raw) continue;
+      const key = raw.toLowerCase();
+      if (chunkSeen.has(key)) continue;
+      chunkSeen.add(key);
+      visibleChunks.push(raw);
+    }
+
+    const visibleTextRaw = visibleChunks.join(' | ').slice(0, 12000);
+    const visibleTextNorm = visibleTextRaw.toLowerCase();
+    const dedupKey = hashString(
+      [
+        tab.url || '',
+        tab.title || '',
+        documentTitle || '',
+        visibleTextNorm.slice(0, 4000),
+      ].join('|')
+    );
+    return {
+      documentTitle,
+      visibleTextRaw,
+      visibleTextNorm,
+      headings,
+      captureQuality: visibleTextNorm ? Math.max(captureQuality, 0.92) : captureQuality,
+      dedupKey,
+      isSensitiveRedacted,
+    };
+  } catch (error) {
+    console.debug('Visible context capture failed:', error?.message || error);
+    return {
+      documentTitle: tab?.title || null,
+      visibleTextRaw: '',
+      visibleTextNorm: '',
+      headings: [],
+      captureQuality: 0.25,
+      dedupKey: hashString([tab?.url || '', tab?.title || '', Date.now() / 120000 | 0].join('|')),
+      isSensitiveRedacted: false,
+    };
+  }
+}
+
 // ============================================================
 // Network Helpers
 // ============================================================
@@ -274,10 +519,18 @@ async function sendHeartbeat(tab, options = {}) {
     return false;
   }
 
+  const visibleContext = await captureVisibleContext(tab);
   const heartbeat = {
     url: tab.url,
     domain,
     title: tab.title,
+    document_title: visibleContext.documentTitle,
+    visible_text_raw: visibleContext.visibleTextRaw,
+    visible_text_norm: visibleContext.visibleTextNorm,
+    headings: visibleContext.headings,
+    capture_quality: visibleContext.captureQuality,
+    dedup_key: visibleContext.dedupKey,
+    is_sensitive_redacted: visibleContext.isSensitiveRedacted,
     audible: tab.audible || false,
     incognito: tab.incognito || false,
     tab_count: getKnownTabCount(),

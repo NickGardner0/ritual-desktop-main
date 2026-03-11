@@ -220,7 +220,7 @@ const IntegrationCard = memo(({
   onDisconnect?: () => void
   onDetails?: () => void
 }) => (
-  <div className="bg-white border border-gray-300 p-4 flex flex-col h-[200px]">
+  <div className="bg-white border border-gray-300 p-4 flex flex-col h-[200px] rounded-sm">
     <div className="h-10 mb-2 flex items-start">
       {logo}
     </div>
@@ -249,7 +249,7 @@ const IntegrationCard = memo(({
             <button
               onClick={onSync}
               disabled={isSyncing}
-              className="px-3 py-1.5 text-sm whitespace-nowrap border border-gray-300 rounded-none hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
+              className="px-3 py-1.5 text-sm whitespace-nowrap border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
             >
               {isSyncing ? (
                 <>
@@ -263,19 +263,19 @@ const IntegrationCard = memo(({
           )}
           <button
             onClick={onDetails}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] text-gray-900"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900"
           >
             Details
           </button>
         </>
       ) : comingSoon ? (
         <>
-          <button className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]">
+          <button className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]">
             Connect
           </button>
           <button
             onClick={onDetails}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
           >
             Details
           </button>
@@ -287,8 +287,8 @@ const IntegrationCard = memo(({
             disabled={isConnecting}
             className={
               connectVariant === 'outline'
-                ? "px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
-                : "px-3 py-1.5 text-sm bg-black text-white rounded-none hover:bg-gray-800 disabled:opacity-50"
+                ? "px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
+                : "px-3 py-1.5 text-sm bg-black text-white rounded-sm hover:bg-gray-800 disabled:opacity-50"
             }
           >
             {isConnecting ? (
@@ -302,7 +302,7 @@ const IntegrationCard = memo(({
           </button>
           <button
             onClick={onDetails}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#EBEAE8]"
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
           >
             Details
           </button>
@@ -922,7 +922,7 @@ export function IntegrationsClient() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className={`border border-gray-300 p-4 h-[200px] ${shimmerClass}`} />
+            <div key={i} className={`border border-gray-300 p-4 h-[200px] rounded-sm ${shimmerClass}`} />
           ))}
         </div>
       </>
@@ -1102,7 +1102,7 @@ export function IntegrationsClient() {
                     </div>
                     <button
                       onClick={weatherConnected ? handleWeatherDisconnect : handleWeatherConnect}
-                      className={`px-3 py-1.5 text-sm rounded-none border ${
+                      className={`px-3 py-1.5 text-sm rounded-sm border ${
                         weatherConnected
                           ? 'border-gray-300 hover:bg-[#F3F3F3]'
                           : 'bg-black text-white border-black hover:bg-gray-800'
@@ -1149,13 +1149,13 @@ export function IntegrationsClient() {
                     <button
                       onClick={handleWeatherSync}
                       disabled={weatherSyncing || !weatherConnected}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] disabled:opacity-50"
                     >
                       {weatherSyncing ? 'Syncing...' : 'Sync Now'}
                     </button>
                     <button
                       onClick={handleDeleteWeatherData}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-none hover:bg-[#F3F3F3] inline-flex items-center gap-1.5"
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] inline-flex items-center gap-1.5"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Delete weather data

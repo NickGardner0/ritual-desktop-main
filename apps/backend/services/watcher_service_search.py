@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.watcher_service_local_db import (
     get_local_activity_db_path_impl,
     get_local_memory_db_path_impl,
+    get_local_watcher_db_path_impl,
 )
 from services.watcher_service_search_utils import (
     SCREEN_SEARCH_STOP_WORDS,
@@ -32,6 +33,12 @@ from services.memory_cloud_query_service import (
     memory_fail_closed,
     query_semantic_cloud,
 )
+from services.memory_query_expansion import expand_memory_query
+from services.memory_story_service import (
+    build_query_semantic_profile,
+    build_story_plan,
+    enrich_story_evidence,
+)
 from services.memory_embedding_service import (
     get_memory_index_health,
     process_embedding_jobs_with_guard,
@@ -44,6 +51,10 @@ logger = logging.getLogger(__name__)
 OVERVIEW_TIME_HINTS = (
     "today",
     "yesterday",
+    "this morning",
+    "this afternoon",
+    "this evening",
+    "tonight",
     "this week",
     "last week",
     "past week",
@@ -218,6 +229,348 @@ MEMORY_STATUS_FALLBACK = {
 
 _LAST_AUTO_BACKFILL_MS = 0
 
+LOW_SIGNAL_BROWSER_DOMAINS = {
+    "chat.openai.com",
+    "chatgpt.com",
+    "x.com",
+    "pinterest.com",
+    "www.pinterest.com",
+    "twitter.com",
+    "youtube.com",
+    "news.ycombinator.com",
+}
+
+LOW_SIGNAL_WINDOW_PATTERNS = (
+    "chatgpt - google chrome",
+    "notifications / x",
+    "pin on work",
+    "pinterest",
+    "search / x",
+    "quote, forecast, charts & news",
+    "home / x",
+)
+
+LOW_SIGNAL_SNIPPET_PATTERNS = (
+    "archive thread",
+    "ask for follow-up changes",
+    "chat history",
+    "dashboard | ritual",
+    "deep research",
+    "dictate",
+    "favorites",
+    "file explorer",
+    "new chat",
+    "posted in:",
+    "search chats",
+    "please try again",
+    "recents",
+    "refactor preview",
+    "skip to content",
+    "skip to main content",
+    "subscribe",
+    "to view keyboard shortcuts",
+    "verify",
+    "accessibility links skip to main content",
+    "window.__",
+    "placeholderresourcesuspensessrhandler",
+    "jump to position",
+    "prediction markets",
+    "create watchlist",
+    "caffeine consumption",
+    "sleep duration",
+    "nicotine consumption",
+    "morning workout",
+    "computer time",
+    "screen time",
+)
+
+LOW_SIGNAL_OVERVIEW_MARKERS = (
+    "accessibility links",
+    "add files and more",
+    "archive thread",
+    "ask for follow-up changes",
+    "dashboard ritual",
+    "dictate",
+    "file explorer",
+    "new chat",
+    "posted in",
+    "prediction markets",
+    "recents",
+    "screen time",
+    "sleep duration",
+    "computer time",
+    "caffeine consumption",
+    "nicotine consumption",
+    "morning workout",
+    "to view keyboard shortcuts",
+)
+
+
+def _normalized_semantic_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _query_mentions_daypart(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    return any(phrase in normalized for phrase in ("this morning", "this afternoon", "this evening", "tonight"))
+
+
+def _looks_like_work_recap_query(query: str) -> bool:
+    normalized = _normalized_match_text(query)
+    return any(
+        phrase in normalized
+        for phrase in (
+            "what did i work on",
+            "what was i working on",
+            "what work did i do",
+            "what did i do for work",
+            "worked on today",
+        )
+    )
+
+
+def _is_worklike_browser_candidate(
+    *,
+    window_title: str,
+    document_title: str,
+    browser_domain: str,
+    snippet: str,
+) -> bool:
+    focused_snippet = " ".join(str(snippet or "").split())[:280]
+    haystack = _normalized_match_text(" ".join([window_title, document_title, browser_domain, focused_snippet]))
+    positive_markers = (
+        "activity breakdown",
+        "calendar page",
+        "component",
+        "contribution graph",
+        "dashboard",
+        "design system",
+        "docs",
+        "github",
+        "kanban",
+        "kanbn",
+        "landing page",
+        "paper",
+        "repo",
+        "ritual",
+        "sparkline",
+        "trello",
+        "v0",
+    )
+    negative_markers = (
+        "ambient",
+        "comments",
+        "deep work music",
+        "home shorts subscriptions",
+        "ideas for you",
+        "liked videos",
+        "pinterest",
+        "prediction markets",
+        "recent searches",
+        "shorts",
+        "youtube",
+    )
+    consumer_domains = {"mail.google.com", "netflix.com", "pinterest.com", "reddit.com", "www.pinterest.com", "youtube.com"}
+    if str(browser_domain or "").strip().lower() in consumer_domains:
+        explicit_work_artifacts = ("component", "github.com/", "kanban", "kanbn", "paper.design", "repo", "ritual", "tailwind", "v0.app/")
+        return any(marker in haystack for marker in explicit_work_artifacts)
+    if any(marker in haystack for marker in positive_markers):
+        return True
+    if any(marker in haystack for marker in negative_markers):
+        return False
+    return False
+
+
+def _resolve_query_time_bounds(
+    *,
+    start_day: dt_date,
+    end_day: dt_date,
+    query: str,
+) -> Tuple[int, int]:
+    normalized = (query or "").strip().lower()
+    start_dt = datetime.combine(start_day, dt_time.min)
+    end_dt = datetime.combine(end_day, dt_time.max)
+
+    if "this morning" in normalized:
+        start_dt = datetime.combine(end_day, dt_time(hour=5))
+        end_dt = datetime.combine(end_day, dt_time(hour=11, minute=59, second=59, microsecond=999999))
+    elif "this afternoon" in normalized:
+        start_dt = datetime.combine(end_day, dt_time(hour=12))
+        end_dt = datetime.combine(end_day, dt_time(hour=17, minute=59, second=59, microsecond=999999))
+    elif "this evening" in normalized or "tonight" in normalized:
+        start_dt = datetime.combine(end_day, dt_time(hour=18))
+        end_dt = datetime.combine(end_day, dt_time.max)
+
+    return int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
+
+
+def _is_low_signal_overview_row(
+    *,
+    query: str,
+    app_name: str,
+    window_title: str,
+    document_title: str,
+    browser_domain: str,
+    snippet: str,
+    semantic_boost: float,
+) -> bool:
+    normalized_domain = str(browser_domain or "").strip().lower()
+    normalized_title = str(window_title or "").strip().lower()
+    normalized_document = str(document_title or "").strip().lower()
+    normalized_snippet = str(snippet or "").strip().lower()
+    normalized_app = str(app_name or "").strip().lower()
+    normalized_query = _normalized_match_text(query)
+    haystack = _normalized_match_text(" ".join([normalized_title, normalized_document, normalized_snippet]))
+    worklike_markers = (
+        "activity breakdown",
+        "calendar page",
+        "component",
+        "contribution graph",
+        "design system",
+        "docs",
+        "github",
+        "kanban",
+        "landing page",
+        "paper",
+        "repo",
+        "ritual",
+        "sparkline",
+        "trello",
+        "v0",
+    )
+    has_worklike_marker = any(marker in haystack for marker in worklike_markers)
+
+    if normalized_app in {"loginwindow", "ritual-desktop"} and any(marker in haystack for marker in LOW_SIGNAL_OVERVIEW_MARKERS):
+        return True
+    if normalized_app == "ritual-desktop" and any(pattern in normalized_snippet for pattern in LOW_SIGNAL_SNIPPET_PATTERNS):
+        return True
+    if normalized_app in {"codex", "chatgpt", "ritual-desktop"} and any(
+        pattern in normalized_snippet for pattern in LOW_SIGNAL_SNIPPET_PATTERNS
+    ):
+        return True
+    if normalized_query and len(normalized_query.split()) >= 4 and normalized_query in haystack:
+        return True
+    if any(pattern in normalized_title for pattern in LOW_SIGNAL_WINDOW_PATTERNS):
+        return True
+    if any(pattern in normalized_snippet for pattern in LOW_SIGNAL_SNIPPET_PATTERNS):
+        return True
+    if any(marker in haystack for marker in LOW_SIGNAL_OVERVIEW_MARKERS):
+        return True
+    if normalized_domain in {"pinterest.com", "www.pinterest.com"} and not has_worklike_marker:
+        return True
+    if "chatgpt - google chrome" in normalized_title and any(
+        phrase in normalized_snippet
+        for phrase in (
+            "can you write me",
+            "do you want to allow",
+            "ideally i would like you to",
+            "what did i work on today",
+        )
+    ):
+        return True
+    if semantic_boost >= 0.12:
+        return False
+
+    if normalized_app not in {"google chrome", "chrome", "safari", "arc", "firefox"} and not normalized_domain:
+        return False
+
+    if normalized_domain in LOW_SIGNAL_BROWSER_DOMAINS and not has_worklike_marker:
+        return True
+    return False
+
+
+def _select_diverse_context_results(
+    rows: List[Dict[str, Any]],
+    *,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    if len(rows) <= limit:
+        return rows
+
+    selected: List[Dict[str, Any]] = []
+    per_app: Dict[str, int] = {}
+    per_window: Dict[str, int] = {}
+    per_bucket: Dict[int, int] = {}
+    seen_semantic_keys: set[str] = set()
+
+    for row in rows:
+        app_key = str(row.get("app_name") or "Unknown")
+        window_key = str(row.get("window_title") or row.get("document_title") or app_key)
+        bucket_key = int(int(row.get("timestamp") or 0) / (15 * 60 * 1000))
+        snippet_key = _normalized_semantic_key(str(row.get("snippet") or ""))[:120]
+        semantic_key = "|".join(
+            part
+            for part in (
+                app_key.lower(),
+                _normalized_semantic_key(window_key),
+                snippet_key,
+            )
+            if part
+        )
+
+        if semantic_key and semantic_key in seen_semantic_keys:
+            continue
+        if per_app.get(app_key, 0) >= 3:
+            continue
+        if per_window.get(window_key, 0) >= 2:
+            continue
+        if per_bucket.get(bucket_key, 0) >= 3:
+            continue
+
+        selected.append(row)
+        if semantic_key:
+            seen_semantic_keys.add(semantic_key)
+        per_app[app_key] = per_app.get(app_key, 0) + 1
+        per_window[window_key] = per_window.get(window_key, 0) + 1
+        per_bucket[bucket_key] = per_bucket.get(bucket_key, 0) + 1
+
+        if len(selected) >= limit:
+            break
+
+    if len(selected) < limit:
+        seen_keys = {
+            (int(row.get("timestamp") or 0), str(row.get("app_name") or ""), str(row.get("window_title") or ""))
+            for row in selected
+        }
+        for row in rows:
+            key = (int(row.get("timestamp") or 0), str(row.get("app_name") or ""), str(row.get("window_title") or ""))
+            if key in seen_keys:
+                continue
+            selected.append(row)
+            seen_keys.add(key)
+            if len(selected) >= limit:
+                break
+
+    return selected
+
+
+def _semantic_overlap_score(query_profile: Dict[str, Any], candidate: Dict[str, Any]) -> Tuple[float, Dict[str, float]]:
+    candidate_enriched = enrich_story_evidence(candidate)
+    query_documents = {_normalized_semantic_key(value) for value in query_profile.get("document_refs") or [] if _normalized_semantic_key(value)}
+    query_entities = {_normalized_semantic_key(value) for value in query_profile.get("entity_refs") or [] if _normalized_semantic_key(value)}
+    query_tasks = {_normalized_semantic_key(value) for value in query_profile.get("task_phrases") or [] if _normalized_semantic_key(value)}
+    query_artifacts = {_normalized_semantic_key(value) for value in query_profile.get("artifact_refs") or [] if _normalized_semantic_key(value)}
+    query_tokens = set(query_profile.get("tokens") or [])
+
+    candidate_documents = {_normalized_semantic_key(value) for value in candidate_enriched.get("document_refs") or [] if _normalized_semantic_key(value)}
+    candidate_entities = {_normalized_semantic_key(value) for value in candidate_enriched.get("project_refs") or [] if _normalized_semantic_key(value)}
+    candidate_tasks = {_normalized_semantic_key(value) for value in candidate_enriched.get("task_phrases") or [] if _normalized_semantic_key(value)}
+    candidate_artifacts = {_normalized_semantic_key(value) for value in candidate_enriched.get("artifact_refs") or [] if _normalized_semantic_key(value)}
+
+    document_overlap = 1.0 if (query_documents & candidate_documents or query_artifacts & candidate_artifacts) else 0.0
+    entity_overlap = 1.0 if query_entities & candidate_entities else 0.0
+    task_overlap = 1.0 if query_tasks & candidate_tasks else 0.0
+    app_overlap = 1.0 if str(candidate.get("app_name") or "").lower() in query_tokens else 0.0
+    return (
+        (0.16 * document_overlap) + (0.08 * entity_overlap) + (0.08 * task_overlap) + (0.04 * app_overlap),
+        {
+            "document_overlap": document_overlap,
+            "entity_overlap": entity_overlap,
+            "task_overlap": task_overlap,
+            "app_overlap": app_overlap,
+        },
+    )
+
 
 def _memory_shadow_enabled() -> bool:
     return (os.getenv("RITUAL_MEMORY_SHADOW_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -346,6 +699,19 @@ def _attach_activity_view_if_needed(
     if not os.path.exists(activity_db_path):
         return
     try:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'activity_events'
+            LIMIT 1
+            """
+        )
+        if cursor.fetchone() is not None:
+            return
+    except Exception:
+        return
+    try:
         cursor.execute("ATTACH DATABASE ? AS activity_db", (activity_db_path,))
         cursor.execute("DROP VIEW IF EXISTS temp.activity_events")
         cursor.execute("CREATE TEMP VIEW activity_events AS SELECT * FROM activity_db.activity_events")
@@ -355,6 +721,751 @@ def _attach_activity_view_if_needed(
             activity_db_path,
             exc,
         )
+
+
+def _normalized_match_text(value: Any) -> str:
+    return " ".join(re.findall(r"[a-z0-9./:_-]+", str(value or "").lower()))
+
+
+def _exact_context_match_score(query: str, values: List[Any]) -> float:
+    normalized_query = _normalized_match_text(query)
+    if not normalized_query:
+        return 0.0
+    haystack = " ".join(_normalized_match_text(value) for value in values if value)
+    if not haystack:
+        return 0.0
+    if normalized_query in haystack:
+        return 1.0
+    query_tokens = [token for token in normalized_query.split() if token]
+    if not query_tokens:
+        return 0.0
+    hits = sum(1 for token in query_tokens if token in haystack)
+    if hits == len(query_tokens) and len(query_tokens) >= 2:
+        return 0.9
+    return 0.0
+
+
+def _looks_like_exact_lookup_query(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return False
+    if "://" in normalized or "/" in normalized:
+        return True
+    if re.search(r"\b[\w.-]+\.(py|ts|tsx|js|jsx|rs|md|json|toml|yml|yaml|swift|kt|go|rb|java|css|html)\b", normalized):
+        return True
+    if "." in normalized and len(normalized.split()) <= 4:
+        return True
+    return False
+
+
+def _looks_like_app_drilldown_query(query: str) -> bool:
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return False
+    if any(phrase in normalized for phrase in ("what happened in ", "what did i do in ", "what was i doing in ")):
+        return True
+    return any(token in normalized for token in (" in cursor", " in codex", " in slack", " in chrome", " in terminal"))
+
+
+APP_DRILLDOWN_SCOPES: Dict[str, Tuple[str, ...]] = {
+    "cursor": ("cursor", "cursor.sh", "cursor -", "com.todesktop.230313mzl4w4u92"),
+    "codex": ("codex",),
+    "slack": ("slack",),
+    "terminal": ("terminal", "iterm", "iterm2", "warp", "zsh", "bash", "fish"),
+    "chrome": ("chrome", "google chrome"),
+}
+
+
+def _extract_requested_app_scope(query: str) -> Optional[str]:
+    normalized = (query or "").strip().lower()
+    if not normalized:
+        return None
+    for app_key, aliases in APP_DRILLDOWN_SCOPES.items():
+        if any(
+            f" in {alias}" in normalized
+            or normalized.endswith(alias)
+            or normalized.startswith(alias)
+            or f" {alias} " in normalized
+            for alias in aliases
+        ):
+            return app_key
+    return None
+
+
+def _result_matches_app_scope(row: Dict[str, Any], app_scope: Optional[str]) -> bool:
+    if not app_scope:
+        return False
+    aliases = APP_DRILLDOWN_SCOPES.get(app_scope, (app_scope,))
+    haystack = " ".join(
+        [
+            str(row.get("app_name") or ""),
+            str(row.get("app_bundle_id") or ""),
+            str(row.get("window_title") or ""),
+            str(row.get("document_title") or ""),
+            str(row.get("document_path") or ""),
+            str(row.get("snippet") or row.get("ocr_text") or ""),
+        ]
+    ).lower()
+    return any(alias in haystack for alias in aliases)
+
+
+def _prioritize_app_scope_results(
+    rows: List[Dict[str, Any]],
+    app_scope: Optional[str],
+    *,
+    hard_filter: bool,
+) -> List[Dict[str, Any]]:
+    if not rows or not app_scope:
+        return rows
+    matching = [row for row in rows if _result_matches_app_scope(row, app_scope)]
+    if not matching:
+        return rows
+    if hard_filter:
+        return matching
+    nonmatching = [row for row in rows if not _result_matches_app_scope(row, app_scope)]
+    return matching + nonmatching
+
+
+def _build_local_context_budgets(query: str, intent: str, requested_limit: int) -> Dict[str, Any]:
+    if _looks_like_exact_lookup_query(query):
+        return {
+            "kind": "exact_lookup",
+            "allowed_query_types": {"original", "lex"},
+            "expanded_query_limit": 2,
+            "session_candidate_limit": min(max(requested_limit * 3, 40), 120),
+            "snapshot_candidate_limit": min(max(requested_limit * 4, 60), 180),
+            "final_limit": min(max(requested_limit, 1), 12),
+            "citation_limit": 12,
+        }
+    if _looks_like_app_drilldown_query(query):
+        return {
+            "kind": "app_drilldown",
+            "allowed_query_types": {"original", "lex", "vec"},
+            "expanded_query_limit": 3,
+            "session_candidate_limit": min(max(requested_limit * 4, 60), 180),
+            "snapshot_candidate_limit": min(max(requested_limit * 6, 90), 240),
+            "final_limit": min(max(requested_limit, 1), 20),
+            "citation_limit": 20,
+        }
+    if intent == "broad_overview" or _query_mentions_daypart(query):
+        return {
+            "kind": "broad_overview",
+            "allowed_query_types": {"original", "lex", "vec"},
+            "expanded_query_limit": 4,
+            "session_candidate_limit": min(max(requested_limit * 6, 120), 500),
+            "snapshot_candidate_limit": min(max(requested_limit * 12, 180), 800),
+            "final_limit": min(max(requested_limit, 1), 40),
+            "citation_limit": 40,
+        }
+    return {
+        "kind": "topic_lookup",
+        "allowed_query_types": {"original", "lex", "vec"},
+        "expanded_query_limit": 3,
+        "session_candidate_limit": min(max(requested_limit * 4, 60), 180),
+        "snapshot_candidate_limit": min(max(requested_limit * 6, 90), 260),
+        "final_limit": min(max(requested_limit, 1), 20),
+        "citation_limit": 20,
+    }
+
+
+def _derive_parent_context(
+    *,
+    app_name: str,
+    browser_domain: str,
+    document_title: Optional[str],
+    window_title: Optional[str],
+    contextual_retrieval_text: str = "",
+) -> Optional[str]:
+    contextual = " ".join(str(contextual_retrieval_text or "").split())
+    if contextual.lower().startswith("context:"):
+        context_text = contextual[len("Context:") :].strip()
+        if "|" in context_text:
+            context_text = context_text.split("|", 1)[0].strip()
+        if context_text:
+            return context_text[:240]
+    parts = [
+        str(app_name or "").strip(),
+        str(browser_domain or "").strip(),
+        str(document_title or "").strip() or str(window_title or "").strip(),
+    ]
+    parent_context = " / ".join(part for part in parts if part)
+    return parent_context[:240] if parent_context else None
+
+
+async def search_context_memory_impl(
+    service,
+    user_id: str,
+    query: str,
+    days_back: int = 7,
+    limit: int = 20,
+    allow_legacy_fallback: bool = True,
+) -> Dict[str, Any]:
+    normalized_query = (query or "").strip()
+    if not normalized_query:
+        return {
+            "success": False,
+            "error": "query is required",
+            "results": [],
+            "mode_used": "none",
+            "status": "unavailable",
+        }
+
+    start_day, end_day, safe_days_back = _resolve_query_window(
+        days_back=days_back,
+        start_date=None,
+        end_date=None,
+        query=normalized_query,
+    )
+    safe_limit = max(1, min(int(limit or 20), 50))
+    cutoff_ms, query_window_end_ms = _resolve_query_time_bounds(
+        start_day=start_day,
+        end_day=end_day,
+        query=normalized_query,
+    )
+    window_end_ms = query_window_end_ms
+    now_ms = int(time.time() * 1000)
+    window_end_ms = min(window_end_ms, now_ms)
+    resolved_intent = _detect_memory_intent(normalized_query, "auto")
+    local_budgets = _build_local_context_budgets(normalized_query, resolved_intent, safe_limit)
+    requested_app_scope = (
+        _extract_requested_app_scope(normalized_query)
+        if local_budgets["kind"] == "app_drilldown"
+        else None
+    )
+    expanded_queries = [
+        item
+        for item in expand_memory_query(normalized_query, include_hyde=False)
+        if str(item.get("type") or "") in local_budgets["allowed_query_types"]
+    ][: int(local_budgets["expanded_query_limit"])]
+    if not expanded_queries:
+        expanded_queries = [{"type": "original", "text": normalized_query, "weight": 2.0}]
+    tokens: List[str] = []
+    seen_tokens: set[str] = set()
+    for expanded in expanded_queries:
+        for token in expand_search_tokens_impl(str(expanded.get("text") or "")):
+            if token in seen_tokens:
+                continue
+            seen_tokens.add(token)
+            tokens.append(token)
+    query_profile = build_query_semantic_profile(normalized_query)
+    is_overview_query = _looks_like_activity_overview_query(normalized_query, tokens) or local_budgets["kind"] in {
+        "broad_overview",
+        "daypart_overview",
+        "time_breakdown",
+    }
+    is_work_recap_query = _looks_like_work_recap_query(normalized_query)
+    prefer_snapshot_evidence = local_budgets["kind"] in {"exact_lookup", "app_drilldown"}
+    final_limit = min(safe_limit, int(local_budgets["final_limit"]))
+
+    memory_db_path = get_local_watcher_db_path_impl()
+    activity_db_path = get_local_activity_db_path_impl()
+    if not os.path.exists(memory_db_path):
+        return {
+            "success": False,
+            "error": f"local memory database not found at {memory_db_path}",
+            "results": [],
+            "mode_used": "none",
+            "status": "unavailable",
+        }
+
+    conn = None
+    try:
+        conn = sqlite3.connect(f"file:{memory_db_path}?mode=ro", uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        _attach_activity_view_if_needed(
+            cursor,
+            memory_db_path=memory_db_path,
+            activity_db_path=activity_db_path,
+        )
+        cursor.execute("PRAGMA query_only = ON")
+
+        has_session_docs = table_exists_impl(cursor, "session_retrieval_docs")
+        has_snapshots = table_exists_impl(cursor, "context_snapshots")
+
+        results: List[Dict[str, Any]] = []
+        mode_used = "none"
+        status = "unavailable"
+        warning: Optional[str] = None
+
+        if has_session_docs:
+            candidate_limit = int(local_budgets["session_candidate_limit"])
+            cursor.execute(
+                """
+                SELECT
+                    id AS doc_id,
+                    session_id,
+                    chunk_start_ts,
+                    chunk_end_ts,
+                    COALESCE(app_name, 'Unknown') AS app_name,
+                    COALESCE(browser_domain, '') AS browser_domain,
+                    window_title,
+                    document_title,
+                    COALESCE(raw_visible_text, '') AS raw_visible_text,
+                    COALESCE(contextual_retrieval_text, '') AS contextual_retrieval_text,
+                    COALESCE(capture_quality, 0.0) AS capture_quality,
+                    COALESCE(source_kind, 'context_session') AS source_kind
+                FROM session_retrieval_docs
+                WHERE chunk_end_ts >= ?
+                  AND chunk_start_ts <= ?
+                ORDER BY chunk_end_ts DESC
+                LIMIT ?
+                """,
+                (cutoff_ms, window_end_ms, candidate_limit),
+            )
+            scored_rows: List[Dict[str, Any]] = []
+            for row in cursor.fetchall():
+                haystack = " ".join(
+                    [
+                        str(row["app_name"] or ""),
+                        str(row["window_title"] or ""),
+                        str(row["document_title"] or ""),
+                        str(row["browser_domain"] or ""),
+                        str(row["contextual_retrieval_text"] or ""),
+                        str(row["raw_visible_text"] or ""),
+                    ]
+                ).lower()
+                lexical_score = score_lexical_match_impl(haystack, tokens)
+                exact_match_score = _exact_context_match_score(
+                    normalized_query,
+                    [
+                        row["document_title"],
+                        row["window_title"],
+                        row["raw_visible_text"],
+                        row["contextual_retrieval_text"],
+                    ],
+                )
+                if is_overview_query:
+                    exact_match_score = 0.0
+                lexical_score = max(lexical_score, exact_match_score)
+                if is_overview_query and lexical_score <= 0:
+                    lexical_score = 0.35
+                if lexical_score <= 0:
+                    continue
+                age_hours = max(
+                    0.0,
+                    (now_ms - int(row["chunk_end_ts"] or 0)) / (1000.0 * 60.0 * 60.0),
+                )
+                recency_boost = max(0.0, 0.15 * (1.0 - min(age_hours / 72.0, 1.0)))
+                capture_quality = float(row["capture_quality"] or 0.0)
+                candidate = {
+                    "app_name": row["app_name"] or "Unknown",
+                    "window_title": row["window_title"] or row["document_title"],
+                    "document_title": row["document_title"],
+                    "browser_domain": row["browser_domain"],
+                    "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                    "contextual_retrieval_text": row["contextual_retrieval_text"] or "",
+                    "parent_context": _derive_parent_context(
+                        app_name=str(row["app_name"] or "Unknown"),
+                        browser_domain=str(row["browser_domain"] or ""),
+                        document_title=row["document_title"],
+                        window_title=row["window_title"],
+                        contextual_retrieval_text=str(row["contextual_retrieval_text"] or ""),
+                    ),
+                    "timestamp": int(row["chunk_end_ts"] or row["chunk_start_ts"] or 0),
+                    "session_key": row["session_id"],
+                    "capture_quality": capture_quality,
+                }
+                candidate_activity_class = str(
+                    enrich_story_evidence(candidate).get("activity_class") or "work"
+                )
+                normalized_app = str(row["app_name"] or "").strip().lower()
+                semantic_boost, _semantic_debug = _semantic_overlap_score(query_profile, candidate)
+                app_scope_match = _result_matches_app_scope(
+                    {
+                        "app_name": row["app_name"],
+                        "window_title": row["window_title"],
+                        "document_title": row["document_title"],
+                        "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                    },
+                    requested_app_scope,
+                )
+                if is_overview_query and _is_low_signal_overview_row(
+                    query=normalized_query,
+                    app_name=str(row["app_name"] or ""),
+                    window_title=str(row["window_title"] or row["document_title"] or ""),
+                    document_title=str(row["document_title"] or ""),
+                    browser_domain=str(row["browser_domain"] or ""),
+                    snippet=str(row["raw_visible_text"] or row["contextual_retrieval_text"] or ""),
+                    semantic_boost=semantic_boost,
+                ):
+                    continue
+                if (
+                    is_overview_query
+                    and is_work_recap_query
+                    and (
+                        candidate_activity_class in {"personal", "entertainment"}
+                        or (
+                            str(row["app_name"] or "").strip().lower() in {"google chrome", "chrome", "safari", "arc", "firefox"}
+                            and not _is_worklike_browser_candidate(
+                                window_title=str(row["window_title"] or ""),
+                                document_title=str(row["document_title"] or ""),
+                                browser_domain=str(row["browser_domain"] or ""),
+                                snippet=str(row["raw_visible_text"] or row["contextual_retrieval_text"] or ""),
+                            )
+                        )
+                    )
+                ):
+                    continue
+                relevance = max(
+                    0.05,
+                    min(
+                        1.0,
+                        lexical_score * 0.6
+                        + capture_quality * 0.15
+                        + recency_boost
+                        + semantic_boost
+                        + (0.2 if app_scope_match else 0.0)
+                        - (0.18 if requested_app_scope and not app_scope_match else 0.0)
+                        + (0.08 if candidate_activity_class in {"work", "admin"} else 0.0)
+                        - (0.12 if candidate_activity_class in {"personal", "entertainment"} else 0.0),
+                    ),
+                )
+                scored_rows.append(
+                    {
+                        "chunk_id": int(row["doc_id"]),
+                        "session_id": int(row["session_id"] or 0),
+                        "timestamp": int(row["chunk_end_ts"] or row["chunk_start_ts"] or 0),
+                        "app_bundle_id": "",
+                        "app_name": row["app_name"] or "Unknown",
+                        "window_title": row["window_title"] or row["document_title"],
+                        "document_title": row["document_title"],
+                        "browser_domain": row["browser_domain"],
+                        "ocr_text": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                        "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                        "contextual_retrieval_text": row["contextual_retrieval_text"] or "",
+                        "parent_context": candidate.get("parent_context"),
+                        "relevance_score": relevance,
+                        "capture_quality": capture_quality,
+                        "semantic_overlap_debug": _semantic_debug,
+                        "activity_class": candidate_activity_class,
+                        "exact_match_score": exact_match_score,
+                        "source_type": row["source_kind"] or "context_session",
+                        "source": "hybrid",
+                        "fts_matched": False,
+                    }
+                )
+            if scored_rows:
+                scored_rows.sort(
+                    key=lambda item: (item["relevance_score"], item["timestamp"]),
+                    reverse=True,
+                )
+                results = _prioritize_app_scope_results(
+                    scored_rows[:final_limit],
+                    requested_app_scope,
+                    hard_filter=local_budgets["kind"] == "app_drilldown",
+                )
+                mode_used = "context-session-docs"
+                status = "hybrid"
+
+        if (prefer_snapshot_evidence or not results) and has_snapshots:
+            candidate_limit = int(local_budgets["snapshot_candidate_limit"])
+            cursor.execute(
+                """
+                SELECT
+                    id AS snapshot_id,
+                    COALESCE(session_id, 0) AS session_id,
+                    ts,
+                    source_type,
+                    COALESCE(app_bundle_id, '') AS app_bundle_id,
+                    COALESCE(app_name, 'Unknown') AS app_name,
+                    window_title,
+                    browser_url,
+                    browser_domain,
+                    tab_title,
+                    document_title,
+                    document_path,
+                    COALESCE(visible_text_raw, '') AS visible_text_raw,
+                    COALESCE(visible_text_norm, '') AS visible_text_norm,
+                    COALESCE(capture_quality, 0.0) AS capture_quality,
+                    COALESCE(selected_text_present, 0) AS selected_text_present,
+                    capture_trigger
+                FROM context_snapshots
+                WHERE ts >= ?
+                  AND ts <= ?
+                ORDER BY ts DESC
+                LIMIT ?
+                """,
+                (cutoff_ms, window_end_ms, candidate_limit),
+            )
+            scored_rows = []
+            for row in cursor.fetchall():
+                haystack = " ".join(
+                    [
+                        str(row["app_name"] or ""),
+                        str(row["window_title"] or ""),
+                        str(row["document_title"] or ""),
+                        str(row["document_path"] or ""),
+                        str(row["tab_title"] or ""),
+                        str(row["browser_domain"] or ""),
+                        str(row["visible_text_norm"] or ""),
+                        str(row["visible_text_raw"] or ""),
+                    ]
+                ).lower()
+                lexical_score = score_lexical_match_impl(haystack, tokens)
+                exact_match_score = _exact_context_match_score(
+                    normalized_query,
+                    [
+                        row["document_title"],
+                        row["document_path"],
+                        row["window_title"],
+                        row["tab_title"],
+                        row["browser_url"],
+                        row["visible_text_raw"],
+                        row["visible_text_norm"],
+                    ],
+                )
+                if is_overview_query:
+                    exact_match_score = 0.0
+                lexical_score = max(lexical_score, exact_match_score)
+                if is_overview_query and lexical_score <= 0:
+                    lexical_score = 0.3
+                if lexical_score <= 0:
+                    continue
+                capture_quality = float(row["capture_quality"] or 0.0)
+                candidate = {
+                    "app_name": row["app_name"] or "Unknown",
+                    "window_title": row["window_title"] or row["document_title"] or row["tab_title"],
+                    "document_title": row["document_title"],
+                    "document_path": row["document_path"],
+                    "browser_domain": row["browser_domain"],
+                    "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                    "parent_context": _derive_parent_context(
+                        app_name=str(row["app_name"] or "Unknown"),
+                        browser_domain=str(row["browser_domain"] or ""),
+                        document_title=row["document_title"],
+                        window_title=row["window_title"] or row["tab_title"],
+                    ),
+                    "timestamp": int(row["ts"] or 0),
+                    "session_key": row["session_id"],
+                    "capture_quality": capture_quality,
+                }
+                candidate_activity_class = str(
+                    enrich_story_evidence(candidate).get("activity_class") or "work"
+                )
+                normalized_app = str(row["app_name"] or "").strip().lower()
+                semantic_boost, _semantic_debug = _semantic_overlap_score(query_profile, candidate)
+                app_scope_match = _result_matches_app_scope(
+                    {
+                        "app_name": row["app_name"],
+                        "app_bundle_id": row["app_bundle_id"],
+                        "window_title": row["window_title"] or row["tab_title"],
+                        "document_title": row["document_title"],
+                        "document_path": row["document_path"],
+                        "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                    },
+                    requested_app_scope,
+                )
+                if is_overview_query and _is_low_signal_overview_row(
+                    query=normalized_query,
+                    app_name=str(row["app_name"] or ""),
+                    window_title=str(row["window_title"] or row["document_title"] or row["tab_title"] or ""),
+                    document_title=str(row["document_title"] or row["tab_title"] or ""),
+                    browser_domain=str(row["browser_domain"] or ""),
+                    snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                    semantic_boost=semantic_boost,
+                ):
+                    continue
+                if (
+                    is_overview_query
+                    and is_work_recap_query
+                    and (
+                        candidate_activity_class in {"personal", "entertainment"}
+                        or (
+                            normalized_app in {"google chrome", "chrome", "safari", "arc", "firefox"}
+                            and not _is_worklike_browser_candidate(
+                                window_title=str(row["window_title"] or row["tab_title"] or ""),
+                                document_title=str(row["document_title"] or row["tab_title"] or ""),
+                                browser_domain=str(row["browser_domain"] or ""),
+                                snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                            )
+                        )
+                    )
+                ):
+                    continue
+
+                metadata_penalty = 0.08 if str(row["source_type"] or "") == "window_metadata_fallback" and semantic_boost < 0.08 else 0.0
+                recency_hours = max(0.0, (now_ms - int(row["ts"] or 0)) / (1000.0 * 60.0 * 60.0))
+                recency_boost = 0.06 * (1.0 - min(recency_hours / 24.0, 1.0))
+                text_length = len(str(row["visible_text_raw"] or row["visible_text_norm"] or ""))
+                richness_boost = min(0.14, text_length / 2400.0)
+                app_bonus = 0.0
+                selected_text_bonus = 0.06 if int(row["selected_text_present"] or 0) else 0.0
+                trigger_bonus = 0.04 if str(row["capture_trigger"] or "") == "ax_event" else 0.0
+                if normalized_app in {"cursor", "codex", "paper", "things 3", "things", "finder"}:
+                    app_bonus = 0.08
+                elif normalized_app == "google chrome" and str(row["browser_domain"] or "").strip().lower() not in LOW_SIGNAL_BROWSER_DOMAINS:
+                    app_bonus = 0.03
+
+                lexical_weight = 0.28 if prefer_snapshot_evidence else 0.62
+                relevance = max(
+                    0.05,
+                    min(
+                        1.0,
+                        lexical_score * lexical_weight
+                        + capture_quality * 0.2
+                        + semantic_boost
+                        + recency_boost
+                        + richness_boost
+                        + app_bonus
+                        + selected_text_bonus
+                        + trigger_bonus
+                        + (0.22 if app_scope_match else 0.0)
+                        - (0.2 if requested_app_scope and not app_scope_match else 0.0)
+                        + (0.08 if candidate_activity_class in {"work", "admin"} else 0.0)
+                        - (0.12 if candidate_activity_class in {"personal", "entertainment"} else 0.0)
+                        - metadata_penalty,
+                    ),
+                )
+                scored_rows.append(
+                    {
+                        "frame_id": int(row["snapshot_id"]),
+                        "session_id": int(row["session_id"] or 0),
+                        "timestamp": int(row["ts"] or 0),
+                        "app_bundle_id": row["app_bundle_id"] or "",
+                        "app_name": row["app_name"] or "Unknown",
+                        "window_title": row["window_title"] or row["document_title"] or row["tab_title"],
+                        "document_title": row["document_title"],
+                        "document_path": row["document_path"],
+                        "browser_domain": row["browser_domain"],
+                        "browser_url": row["browser_url"],
+                        "ocr_text": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                        "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                        "parent_context": candidate.get("parent_context"),
+                        "relevance_score": relevance,
+                        "capture_quality": capture_quality,
+                        "semantic_overlap_debug": _semantic_debug,
+                        "activity_class": candidate_activity_class,
+                        "exact_match_score": exact_match_score,
+                        "source_type": row["source_type"] or "context_snapshot",
+                        "source": "text",
+                        "fts_matched": False,
+                    }
+                )
+            if scored_rows:
+                scored_rows.sort(
+                    key=lambda item: (item["relevance_score"], item["timestamp"]),
+                    reverse=True,
+                )
+                selected_rows = _select_diverse_context_results(scored_rows, limit=final_limit) if prefer_snapshot_evidence else scored_rows[:final_limit]
+                results = _prioritize_app_scope_results(
+                    selected_rows,
+                    requested_app_scope,
+                    hard_filter=local_budgets["kind"] == "app_drilldown",
+                )
+                mode_used = "context-snapshots"
+                status = "text-only"
+
+        if not results and allow_legacy_fallback:
+            legacy = await search_screen_recordings_impl(
+                service=service,
+                user_id=user_id,
+                query=normalized_query,
+                days_back=safe_days_back,
+                limit=final_limit,
+                allow_activity_fallback=True,
+            )
+            legacy["warning"] = (
+                "Context snapshots were unavailable or empty; falling back to legacy OCR/activity search."
+                if legacy.get("success")
+                else legacy.get("warning")
+            )
+            return legacy
+
+        story_plan = None
+        renderer = None
+        debug = None
+        if results:
+            if local_budgets["kind"] == "app_drilldown":
+                results = _prioritize_app_scope_results(
+                    results,
+                    requested_app_scope,
+                    hard_filter=True,
+                )
+            citations = _build_citations(
+                results,
+                start_ms=cutoff_ms,
+                end_ms=window_end_ms,
+                limit=max(final_limit * 2, int(local_budgets["citation_limit"])),
+            )
+            if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
+                scoped_citations = [
+                    citation
+                    for citation in citations
+                    if _result_matches_app_scope(citation, requested_app_scope)
+                ]
+                if scoped_citations:
+                    citations = scoped_citations
+            top_score = float(results[0].get("relevance_score") or 0.0)
+            runner_up_score = float(results[1].get("relevance_score") or 0.0) if len(results) > 1 else 0.0
+            strong_signal = None
+            if local_budgets["kind"] not in {"broad_overview", "daypart_overview", "time_breakdown"} and (
+                float(results[0].get("exact_match_score") or 0.0) >= 0.95 or (
+                top_score >= 0.85 and (top_score - runner_up_score) >= 0.15
+                )
+            ):
+                strong_signal = {
+                    "exact_match": float(results[0].get("exact_match_score") or 0.0) >= 0.95,
+                    "top_score": round(top_score, 3),
+                    "runner_up_score": round(runner_up_score, 3),
+                    "source_type": results[0].get("source_type"),
+                }
+            story_plan = _build_story_semantics(
+                query=normalized_query,
+                intent=resolved_intent,
+                citations=citations,
+            )
+            if story_plan:
+                renderer = story_plan.get("renderer")
+                metrics = story_plan.get("metrics") or {}
+                debug = {
+                    "main_event_work_item_id": ((story_plan.get("main_event") or {}).get("id")),
+                    "work_items_considered": int(metrics.get("work_items_considered") or 0),
+                    "cross_app_stitches": int(metrics.get("cross_app_stitches") or 0),
+                    "claim_count": int(metrics.get("claim_count") or 0),
+                    "claim_grounding_rate": float(metrics.get("claim_grounding_rate") or 0.0),
+                    "generic_fallback_used": bool(metrics.get("generic_fallback_used")),
+                    "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
+                    "expanded_queries": expanded_queries,
+                    "strong_signal_short_circuit": strong_signal,
+                    "candidate_limit_applied": {
+                        "kind": local_budgets["kind"],
+                        "session_candidate_limit": int(local_budgets["session_candidate_limit"]),
+                        "snapshot_candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
+                        "final_limit": int(final_limit),
+                    },
+                    "retrieval_lists": [
+                        {
+                            "source": "context-session-docs",
+                            "query_types": [str(item.get("type") or "original") for item in expanded_queries],
+                            "candidate_limit": int(local_budgets["session_candidate_limit"]),
+                        },
+                        {
+                            "source": "context-snapshots",
+                            "query_types": [str(item.get("type") or "original") for item in expanded_queries],
+                            "candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
+                        },
+                    ],
+                    "rerank_cache_hit": False,
+                }
+
+        return {
+            "success": True,
+            "query": normalized_query,
+            "days_back": safe_days_back,
+            "result_count": len(results),
+            "results": results,
+            "mode_used": mode_used,
+            "status": status,
+            "warning": warning,
+            "story_plan": story_plan,
+            "renderer": renderer,
+            "debug": debug,
+            "source_db": os.path.basename(memory_db_path),
+        }
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 async def search_screen_recordings_impl(
@@ -422,7 +1533,7 @@ async def search_screen_recordings_impl(
     else:
         bridge_warning = "Hybrid bridge unavailable; using local lexical fallback."
 
-    memory_db_path = get_local_memory_db_path_impl()
+    memory_db_path = get_local_watcher_db_path_impl()
     activity_db_path = get_local_activity_db_path_impl()
     if not os.path.exists(memory_db_path):
         return {
@@ -640,6 +1751,8 @@ async def search_screen_recordings_impl(
                     f"{row['app_name']} {activity_text}"
                 ).lower()
                 lexical_score = score_lexical_match_impl(haystack, tokens)
+                if is_overview_query and lexical_score <= 0:
+                    lexical_score = 0.35
                 if normalized_contains and normalized_contains in haystack:
                     lexical_score = max(lexical_score, 0.75)
                 if lexical_score <= 0:
@@ -675,9 +1788,20 @@ async def search_screen_recordings_impl(
                 results = scored_events[:safe_limit]
                 mode_used = "activity-fallback"
                 status = "activity-only"
-                warning = warning or (
-                    "No OCR frame matches found; using activity-event fallback."
-                )
+                if is_overview_query:
+                    overview_warning = (
+                        "Showing recent activity overview for a broad query. "
+                        "Add app names or keywords to narrow results."
+                    )
+                    warning = (
+                        f"{warning} {overview_warning}".strip()
+                        if warning
+                        else overview_warning
+                    )
+                else:
+                    warning = warning or (
+                        "No OCR frame matches found; using activity-event fallback."
+                    )
 
         # 4) Broad activity overview fallback (for queries like "What did I do this week?")
         if allow_activity_fallback and not results and has_activity_events and is_overview_query:
@@ -852,6 +1976,9 @@ def _resolve_relative_window_from_query(
         return max(1, (end - start).days + 1)
 
     if "today" in normalized:
+        return today, today, 1
+
+    if any(phrase in normalized for phrase in ("this morning", "this afternoon", "this evening", "tonight")):
         return today, today, 1
 
     if "yesterday" in normalized:
@@ -1623,19 +2750,50 @@ def _build_citations(results: List[Dict[str, Any]], start_ms: int, end_ms: int, 
         chunk_id = int(timestamp // 90_000) if timestamp > 0 else None
         citations.append(
             {
+                "evidence_id": item.get("evidence_id")
+                or f"e:{item.get('session_key') or item.get('session_id') or app_name}:{timestamp}",
                 "chunk_id": chunk_id,
                 "frame_id": frame_id if frame_id > 0 else None,
                 "timestamp": timestamp,
                 "app_name": app_name,
                 "window_title": window_title,
+                "document_title": item.get("document_title"),
+                "browser_domain": item.get("browser_domain"),
+                "session_id": item.get("session_id"),
+                "session_key": item.get("session_key") or (f"session:{item.get('session_id')}" if item.get("session_id") else None),
                 "snippet": snippet,
+                "parent_context": item.get("parent_context"),
+                "contextual_retrieval_text": item.get("contextual_retrieval_text"),
                 "score": round(max(0.0, min(1.0, score)), 3),
                 "source": item.get("source") or "unknown",
+                "source_type": item.get("source_type"),
+                "capture_quality": item.get("capture_quality"),
             }
         )
         if len(citations) >= limit:
             break
     return citations
+
+
+def _build_story_semantics(
+    *,
+    query: str,
+    intent: str,
+    citations: List[Dict[str, Any]],
+    time_truth: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    if not citations:
+        return None
+    try:
+        return build_story_plan(
+            citations,
+            query=query,
+            intent=intent,
+            time_truth=time_truth,
+        )
+    except Exception as exc:
+        logger.debug("story planning failed: %s", exc)
+        return None
 
 
 def _clip_recap_text(value: str, max_len: int = 180) -> str:
@@ -1711,138 +2869,18 @@ def _build_recap_outline(
     citations: List[Dict[str, Any]],
     highlights: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    workstreams: Dict[str, Dict[str, Any]] = {}
-    app_counts: Dict[str, Dict[str, Any]] = {}
-    time_buckets: Dict[str, int] = {}
-
-    for item in citations:
-        app = str(item.get("app_name") or "Unknown").strip() or "Unknown"
-        window = str(item.get("window_title") or "Unknown").strip() or "Unknown"
-        snippet = _clip_recap_text(str(item.get("snippet") or ""))
-        session_key = item.get("session_key") or f"{app}::{window}"
-        label = _infer_recap_workstream(app, window, [snippet])
-
-        workstream = workstreams.setdefault(
-            label,
-            {
-                "label": label,
-                "evidence_count": 0,
-                "apps": set(),
-                "windows": {},
-                "supporting_snippets": [],
-                "session_keys": set(),
-                "topic_counts": {},
-            },
-        )
-        workstream["evidence_count"] += 1
-        workstream["apps"].add(app)
-        workstream["windows"][window] = int(workstream["windows"].get(window, 0)) + 1
-        workstream["session_keys"].add(session_key)
-        if snippet and len(workstream["supporting_snippets"]) < 3:
-            workstream["supporting_snippets"].append(snippet)
-        for token in _tokenize_recap_text(f"{window} {snippet}"):
-            workstream["topic_counts"][token] = int(workstream["topic_counts"].get(token, 0)) + 1
-
-        app_entry = app_counts.setdefault(app, {"app": app, "evidence_count": 0, "top_windows": {}})
-        app_entry["evidence_count"] += 1
-        app_entry["top_windows"][window] = int(app_entry["top_windows"].get(window, 0)) + 1
-
-        try:
-            timestamp = int(item.get("timestamp") or 0)
-        except Exception:
-            timestamp = 0
-        if timestamp > 0:
-            bucket_dt = datetime.fromtimestamp(timestamp / 1000)
-            bucket_key = f"{bucket_dt:%Y-%m-%d} {((bucket_dt.hour // 2) * 2):02d}:00"
-            time_buckets[bucket_key] = time_buckets.get(bucket_key, 0) + 1
-
-    strongest_evidence = []
-    for item in sorted(highlights, key=lambda row: float(row.get("score") or 0.0), reverse=True)[:8]:
-        app = str(item.get("app_name") or "Unknown").strip() or "Unknown"
-        window = str(item.get("window_title") or "Unknown").strip() or "Unknown"
-        snippet = _clip_recap_text(str(item.get("snippet") or ""))
-        strongest_evidence.append(
-            {
-                "timestamp": item.get("timestamp"),
-                "app": app,
-                "window": window,
-                "session_key": item.get("session_key"),
-                "snippet": snippet,
-                "score": item.get("score"),
-                "reason": _infer_recap_workstream(app, window, [snippet]),
-            }
-        )
-
-    uncertainty: List[str] = []
-    if len(workstreams) <= 1:
-        uncertainty.append("Evidence clusters into one dominant workstream, so secondary tasks may be underrepresented.")
-    if len(time_buckets) < 4:
-        uncertainty.append("Coverage spans relatively few time buckets, so parts of the day may be missing.")
-    if len([item for item in citations if len(str(item.get('snippet') or '').strip()) >= 40]) < 5:
-        uncertainty.append("Several chunks have short OCR snippets, so exact task names may still be incomplete.")
-    if any(app.lower() in {"things 3", "calendar", "notion"} for app in app_counts):
-        uncertainty.append("Planning tools are prominent in the evidence, so some items may reflect planning rather than completed execution.")
-
-    main_workstreams = []
-    for workstream in sorted(workstreams.values(), key=lambda row: int(row["evidence_count"]), reverse=True)[:6]:
-        topic_counts = workstream.pop("topic_counts")
-        main_workstreams.append(
-            {
-                "label": workstream["label"],
-                "evidence_count": workstream["evidence_count"],
-                "apps": sorted(workstream["apps"]),
-                "representative_windows": [
-                    window
-                    for window, _count in sorted(
-                        workstream["windows"].items(), key=lambda row: (-int(row[1]), row[0])
-                    )[:3]
-                ],
-                "supporting_snippets": workstream["supporting_snippets"],
-                "session_keys": list(workstream["session_keys"])[:4],
-                "topic_tokens": [
-                    token
-                    for token, _count in sorted(
-                        topic_counts.items(), key=lambda row: (-int(row[1]), row[0])
-                    )[:6]
-                ],
-                "specific_tasks": _extract_specific_task_phrases(
-                    workstream["supporting_snippets"] + list(workstream["windows"].keys()), 5
-                ),
-            }
-        )
-
-    apps_and_tools_used = [
-        {
-            "app": app_entry["app"],
-            "evidence_count": app_entry["evidence_count"],
-            "top_windows": [
-                {"window": window, "count": count}
-                for window, count in sorted(
-                    app_entry["top_windows"].items(), key=lambda row: (-int(row[1]), row[0])
-                )[:3]
-            ],
-        }
-        for app_entry in sorted(app_counts.values(), key=lambda row: int(row["evidence_count"]), reverse=True)[:6]
-    ]
-
-    specific_tasks = _extract_specific_task_phrases(
-        [
-            str(item.get("snippet") or "")
-            for item in citations
-        ]
-        + [
-            str(item.get("window_title") or "")
-            for item in citations
-        ],
-        12,
-    )
-
-    return {
-        "main_workstreams": main_workstreams,
-        "apps_and_tools_used": apps_and_tools_used,
-        "specific_tasks": specific_tasks,
-        "strongest_evidence": strongest_evidence,
-        "uncertainty_or_conflicts": uncertainty,
+    del highlights
+    return _build_story_semantics(
+        query="What did I do?",
+        intent="broad_overview",
+        citations=citations,
+    ) or {
+        "main_workstreams": [],
+        "apps_and_tools_used": [],
+        "specific_tasks": [],
+        "timeline_segments": [],
+        "strongest_evidence": [],
+        "uncertainty_or_conflicts": [],
     }
 
 
@@ -2024,15 +3062,25 @@ async def _load_semantic_truth(
     start_ms: int,
     end_ms: int,
     allow_activity_fallback: bool,
+    allow_legacy_ocr_fallback: bool = True,
 ) -> Dict[str, Any]:
-    semantic_result = await search_screen_recordings_impl(
+    semantic_result = await search_context_memory_impl(
         service=service,
         user_id=user_id,
         query=query,
         days_back=days_back,
         limit=max(limit * 4, 50),
-        allow_activity_fallback=allow_activity_fallback,
+        allow_legacy_fallback=allow_activity_fallback,
     )
+    if allow_legacy_ocr_fallback and not semantic_result.get("results"):
+        semantic_result = await search_screen_recordings_impl(
+            service=service,
+            user_id=user_id,
+            query=query,
+            days_back=days_back,
+            limit=max(limit * 4, 50),
+            allow_activity_fallback=allow_activity_fallback,
+        )
 
     raw_results = semantic_result.get("results") if isinstance(semantic_result, dict) else []
     if not isinstance(raw_results, list):
@@ -2056,10 +3104,6 @@ async def _load_semantic_truth(
     if specificity_warning:
         warning_parts.append(specificity_warning)
 
-    recap_outline = None
-    if intent == "broad_overview":
-        recap_outline = _build_recap_outline(filtered_citations, highlights)
-
     return {
         "query": query,
         "result_count": len(filtered_citations),
@@ -2068,7 +3112,6 @@ async def _load_semantic_truth(
         "highlights": highlights,
         "warning": " ".join(part for part in warning_parts if part).strip() or None,
         "topic_specificity": topic_metrics,
-        "recap_outline": recap_outline,
         "citations": filtered_citations,
     }
 
@@ -2227,7 +3270,84 @@ async def query_memory_impl(
         semantic_allowed = freshness.get("status") not in {"stale", "unavailable"}
         if should_include_semantic and semantic_allowed:
             if cloud_mode:
+                local_strong_signal = False
+                if resolved_intent == "broad_overview":
+                    local_context_truth = await _load_semantic_truth(
+                        service=service,
+                        user_id=user_id,
+                        query=normalized_query,
+                        intent=resolved_intent,
+                        days_back=resolved_days,
+                        limit=safe_limit,
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        allow_activity_fallback=False,
+                        allow_legacy_ocr_fallback=False,
+                    )
+                    local_context_citations = local_context_truth.pop("citations", [])
+                    if local_context_citations:
+                        semantic_truth = local_context_truth
+                        citations = local_context_citations
+                        confidence = _derive_confidence(
+                            citations,
+                            topic_metrics=semantic_truth.get("topic_specificity"),
+                            intent=resolved_intent,
+                        )
+                        if semantic_truth.get("warning"):
+                            warning_parts.append(str(semantic_truth["warning"]))
+                        provider_path = {
+                            "retrieval": "local_context",
+                            "rerank": "none",
+                            "answer": "openai",
+                        }
+                        local_strong_signal = bool((semantic_truth.get("debug") or {}).get("strong_signal_short_circuit"))
+                else:
+                    local_context_truth = await _load_semantic_truth(
+                        service=service,
+                        user_id=user_id,
+                        query=normalized_query,
+                        intent=resolved_intent,
+                        days_back=resolved_days,
+                        limit=safe_limit,
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        allow_activity_fallback=False,
+                        allow_legacy_ocr_fallback=False,
+                    )
+                    local_context_citations = local_context_truth.pop("citations", [])
+                    if local_context_citations:
+                        semantic_truth = local_context_truth
+                        citations = local_context_citations
+                        confidence = _derive_confidence(
+                            citations,
+                            topic_metrics=semantic_truth.get("topic_specificity"),
+                            intent=resolved_intent,
+                        )
+                        provider_path = {
+                            "retrieval": "local_context",
+                            "rerank": "none",
+                            "answer": "openai",
+                        }
+                        local_strong_signal = bool((semantic_truth.get("debug") or {}).get("strong_signal_short_circuit"))
+
+                if local_strong_signal:
+                    warning_parts = [
+                        part
+                        for part in warning_parts
+                        if part != "Semantic retrieval is degraded; using lexical-first fallback where needed."
+                    ]
                 try:
+                    if local_strong_signal:
+                        cloud_result = {"enabled": False}
+                    else:
+                        cloud_result = await query_semantic_cloud(
+                            user_id=user_id,
+                            query=normalized_query,
+                            intent=resolved_intent,
+                            start_ms=start_ms,
+                            end_ms=end_ms,
+                            limit=safe_limit,
+                        )
                     auto_backfill_warning = await _auto_backfill_cloud_if_needed(
                         user_id=user_id,
                         start_ms=start_ms,
@@ -2235,23 +3355,49 @@ async def query_memory_impl(
                     )
                     if auto_backfill_warning:
                         warning_parts.append(auto_backfill_warning)
-
-                    cloud_result = await query_semantic_cloud(
-                        user_id=user_id,
-                        query=normalized_query,
-                        intent=resolved_intent,
-                        start_ms=start_ms,
-                        end_ms=end_ms,
-                        limit=safe_limit,
-                    )
                     if cloud_result.get("enabled"):
-                        semantic_truth = cloud_result.get("semantic_truth")
-                        citations = cloud_result.get("citations") or []
-                        confidence = cloud_result.get("confidence") or confidence
-                        provider_path = cloud_result.get("provider_path")
+                        cloud_semantic_truth = cloud_result.get("semantic_truth")
+                        cloud_citations = cloud_result.get("citations") or []
+                        if citations and cloud_citations:
+                            citations = _fuse_citations_rrf(
+                                primary=citations,
+                                secondary=cloud_citations,
+                                limit=max(20, safe_limit),
+                            )
+                            semantic_truth = semantic_truth or cloud_semantic_truth
+                            if isinstance(semantic_truth, dict):
+                                semantic_truth["highlights"] = citations[: min(safe_limit, 12)]
+                                semantic_truth["result_count"] = len(citations)
+                                semantic_truth["mode_used"] = "local-context+cloud-hybrid"
+                                semantic_truth["status"] = "hybrid"
+                                semantic_truth["debug"] = (
+                                    cloud_semantic_truth.get("debug")
+                                    if isinstance(cloud_semantic_truth, dict)
+                                    else None
+                                )
+                            provider_path = cloud_result.get("provider_path")
+                            if not isinstance(provider_path, dict):
+                                provider_path = {}
+                            provider_path["retrieval"] = "local_context+turbopuffer"
+                            provider_path.setdefault("answer", "openai")
+                            confidence = _derive_confidence(
+                                citations,
+                                topic_metrics=(semantic_truth or {}).get("topic_specificity"),
+                                intent=resolved_intent,
+                            )
+                        elif cloud_citations:
+                            semantic_truth = cloud_semantic_truth
+                            citations = cloud_citations
+                            confidence = cloud_result.get("confidence") or confidence
+                            provider_path = cloud_result.get("provider_path")
+                        elif semantic_truth is None:
+                            semantic_truth = cloud_semantic_truth
+                            citations = []
+                            provider_path = cloud_result.get("provider_path")
                         if not isinstance(provider_path, dict):
                             provider_path = {}
-                        provider_path["retrieval"] = "turbopuffer"
+                        if provider_path.get("retrieval") != "local_context+turbopuffer":
+                            provider_path["retrieval"] = "turbopuffer"
                         provider_path.setdefault("answer", "openai")
                         if citations:
                             warning_parts = [
@@ -2409,6 +3555,37 @@ async def query_memory_impl(
                 "Semantic lookup blocked by freshness guard; returning activity-only context."
             )
 
+        if citations and isinstance(semantic_truth, dict):
+            story_plan = _build_story_semantics(
+                query=normalized_query,
+                intent=resolved_intent,
+                citations=citations,
+                time_truth=time_truth,
+            )
+            if story_plan:
+                semantic_truth["story_plan"] = story_plan
+                semantic_truth["renderer"] = story_plan.get("renderer")
+                semantic_truth["recap_outline"] = story_plan
+                semantic_truth["generation_mode"] = (
+                    (story_plan.get("renderer") or {}).get("generation_mode") or "default"
+                )
+                debug_payload = semantic_truth.get("debug")
+                if not isinstance(debug_payload, dict):
+                    debug_payload = {}
+                metrics = story_plan.get("metrics") or {}
+                debug_payload.update(
+                    {
+                        "main_event_work_item_id": ((story_plan.get("main_event") or {}).get("id")),
+                        "work_items_considered": int(metrics.get("work_items_considered") or 0),
+                        "cross_app_stitches": int(metrics.get("cross_app_stitches") or 0),
+                        "claim_count": int(metrics.get("claim_count") or 0),
+                        "claim_grounding_rate": float(metrics.get("claim_grounding_rate") or 0.0),
+                        "generic_fallback_used": bool(metrics.get("generic_fallback_used")),
+                        "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
+                    }
+                )
+                semantic_truth["debug"] = debug_payload
+
         if resolved_intent == "time_spent" and time_truth is None and _table_exists(cursor, "activity_events"):
             time_truth = _load_time_truth(
                 cursor=cursor,
@@ -2452,6 +3629,7 @@ async def query_memory_impl(
                 "final_evidence_count": int(retrieval_debug.get("final_evidence_count") or 0),
                 "distinct_sessions": int(retrieval_debug.get("distinct_sessions") or 0),
                 "distinct_apps": int(retrieval_debug.get("distinct_apps") or 0),
+                "distinct_domains": int(retrieval_debug.get("distinct_domains") or 0),
                 "distinct_time_buckets": int(retrieval_debug.get("distinct_time_buckets") or 0),
                 "context_version_mix": retrieval_debug.get("context_version_mix") or {},
                 "raw_vs_contextual_source": retrieval_debug.get("raw_vs_contextual_source"),
@@ -2459,6 +3637,13 @@ async def query_memory_impl(
                 "rerank_items_count": int(retrieval_debug.get("rerank_items_count") or 0),
                 "candidate_count_raw": int(retrieval_debug.get("candidate_count_raw") or 0),
                 "candidate_count_active": int(retrieval_debug.get("candidate_count_active") or 0),
+                "main_event_work_item_id": retrieval_debug.get("main_event_work_item_id"),
+                "work_items_considered": int(retrieval_debug.get("work_items_considered") or 0),
+                "cross_app_stitches": int(retrieval_debug.get("cross_app_stitches") or 0),
+                "claim_count": int(retrieval_debug.get("claim_count") or 0),
+                "claim_grounding_rate": float(retrieval_debug.get("claim_grounding_rate") or 0.0),
+                "generic_fallback_used": bool(retrieval_debug.get("generic_fallback_used")),
+                "planning_only_ratio": float(retrieval_debug.get("planning_only_ratio") or 0.0),
             }
 
         return {

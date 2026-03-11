@@ -102,7 +102,7 @@ def get_local_memory_db_path_impl() -> str:
     """Resolve the local memory DB path (OCR/chunks/embeddings/outbox)."""
     home = os.environ.get("HOME") or str(Path.home())
     ritual_dir = os.path.join(home, ".ritual")
-    return _resolve_db_path(
+    resolved = _resolve_db_path(
         override_env="RITUAL_MEMORY_DB_PATH",
         preferred_path=os.path.join(ritual_dir, "memory.db"),
         fallback_path=os.path.join(ritual_dir, "ritual.db"),
@@ -112,6 +112,9 @@ def get_local_memory_db_path_impl() -> str:
             os.path.join(ritual_dir, "frames.db.migrated"),
         ],
     )
+    if os.path.exists(resolved) and _has_table(resolved, "context_snapshots"):
+        return resolved
+    return resolved
 
 
 def get_local_watcher_db_path_impl() -> str:

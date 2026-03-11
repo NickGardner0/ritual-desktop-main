@@ -66,8 +66,10 @@ def _validate_chunk_for_turbopuffer(chunk: Dict[str, Any]) -> str | None:
     if not (0.0 <= qs <= 1.0):
         logger.debug("quality_score %.4f out of [0,1] for chunk_id=%s; will be clamped", qs, chunk_id)
 
-    contextual_text = _safe_text(chunk.get("contextual_text_compact"))
-    raw_text = _safe_text(chunk.get("raw_text_compact"))
+    contextual_text = _safe_text(
+        chunk.get("contextual_text_compact") or chunk.get("contextual_retrieval_text")
+    )
+    raw_text = _safe_text(chunk.get("raw_text_compact") or chunk.get("raw_visible_text"))
     text = contextual_text or _safe_text(chunk.get("text_compact"))
     app_name = _safe_text(chunk.get("app_name"))
     window_title = _safe_text(chunk.get("window_title"))
@@ -108,15 +110,26 @@ async def ingest_memory_chunks(
                 if end_ts < start_ts:
                     start_ts, end_ts = end_ts, start_ts
 
+                source_kind = _safe_text(chunk.get("source_kind")) or "legacy_ocr_chunk"
+                session_id = _safe_text(chunk.get("session_id"))
                 app_name = _safe_text(chunk.get("app_name"))
                 window_title = _safe_text(chunk.get("window_title"))
+                document_title = _safe_text(chunk.get("document_title"))
                 browser_domain = _safe_text(chunk.get("browser_domain"))
-                raw_text_compact = _safe_text(chunk.get("raw_text_compact"))
-                contextual_text_compact = _safe_text(chunk.get("contextual_text_compact"))
+                raw_text_compact = _safe_text(
+                    chunk.get("raw_text_compact") or chunk.get("raw_visible_text")
+                )
+                contextual_text_compact = _safe_text(
+                    chunk.get("contextual_text_compact")
+                    or chunk.get("contextual_retrieval_text")
+                )
                 text_compact = contextual_text_compact or _safe_text(chunk.get("text_compact"))
-                session_key = _safe_text(chunk.get("session_key"))
+                session_key = _safe_text(chunk.get("session_key")) or session_id
                 session_position = int(chunk.get("session_position") or 0)
-                session_chunk_count = max(1, int(chunk.get("session_chunk_count") or 1))
+                session_chunk_count = max(
+                    1,
+                    int(chunk.get("session_chunk_count") or chunk.get("session_count") or 1),
+                )
                 context_version = max(1, int(chunk.get("context_version") or 1))
 
                 if not text_compact:
@@ -134,6 +147,12 @@ async def ingest_memory_chunks(
 
                 quality_score = float(chunk.get("quality_score") or 0.0)
                 quality_score = max(0.0, min(1.0, quality_score))
+                capture_quality = float(
+                    chunk.get("capture_quality")
+                    if chunk.get("capture_quality") is not None
+                    else quality_score
+                )
+                capture_quality = max(0.0, min(1.0, capture_quality))
                 source_frame_ids = _coerce_source_frame_ids(chunk.get("source_frame_ids"))
 
                 hash_payload = {
@@ -143,8 +162,11 @@ async def ingest_memory_chunks(
                     "logical_chunk_id": logical_chunk_id,
                     "chunk_start_ts": start_ts,
                     "chunk_end_ts": end_ts,
+                    "source_kind": source_kind,
+                    "session_id": session_id,
                     "app_name": app_name,
                     "window_title": window_title,
+                    "document_title": document_title,
                     "browser_domain": browser_domain,
                     "raw_text_compact": raw_text_compact,
                     "contextual_text_compact": contextual_text_compact,
@@ -154,6 +176,7 @@ async def ingest_memory_chunks(
                     "session_position": session_position,
                     "session_chunk_count": session_chunk_count,
                     "quality_score": quality_score,
+                    "capture_quality": capture_quality,
                     "source_frame_ids": source_frame_ids,
                 }
                 content_hash = _safe_text(chunk.get("content_hash")) or _compute_content_hash(hash_payload)
@@ -223,8 +246,11 @@ async def ingest_memory_chunks(
                         logical_chunk_id,
                         chunk_start_ts,
                         chunk_end_ts,
+                        source_kind,
+                        session_id,
                         app_name,
                         window_title,
+                        document_title,
                         browser_domain,
                         text_compact,
                         raw_text_compact,
@@ -234,12 +260,17 @@ async def ingest_memory_chunks(
                         session_position,
                         session_chunk_count,
                         quality_score,
+                        capture_quality,
                         source_frame_ids_json,
                         content_hash,
                         embedding_status,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        'pending',
+                        ?, ?
+                    )
                     """,
                     (
                         user_id,
@@ -248,8 +279,11 @@ async def ingest_memory_chunks(
                         logical_chunk_id,
                         start_ts,
                         end_ts,
+                        source_kind,
+                        session_id or None,
                         app_name,
                         window_title,
+                        document_title,
                         browser_domain,
                         contextual_text_compact,
                         raw_text_compact,
@@ -259,6 +293,7 @@ async def ingest_memory_chunks(
                         session_position,
                         session_chunk_count,
                         quality_score,
+                        capture_quality,
                         json.dumps(source_frame_ids),
                         content_hash,
                         now_ms,

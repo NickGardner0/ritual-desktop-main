@@ -128,6 +128,14 @@ def _create_default_golden_db(path: str) -> None:
             "Weekly planning and time summary",
             "Summarized weekly time spent and planning notes",
         ),
+        (
+            4,
+            now_ms - 1_500_000,
+            "com.todesktop.230313mzl4w4u92",
+            "Cursor",
+            "Refine authentication redirect callback",
+            "Updated Cursor auth redirect callback handling and fixed signin session mismatch",
+        ),
     ]
     cur.executemany(
         """
@@ -182,6 +190,17 @@ def _create_default_golden_db(path: str) -> None:
                 "Weekly planning and time summary",
                 "https://chatgpt.com",
                 "chatgpt.com",
+                0,
+            ),
+            (
+                4,
+                now_ms - 1_500_000,
+                now_ms - 1_420_000,
+                "com.todesktop.230313mzl4w4u92",
+                "Cursor",
+                "Refine authentication redirect callback",
+                "",
+                "",
                 0,
             ),
         ],

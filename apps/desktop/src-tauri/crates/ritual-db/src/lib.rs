@@ -36,6 +36,7 @@ pub mod recorder;
 pub mod sync;
 pub mod vector;
 pub mod segments;
+pub mod context;
 pub mod error;
 pub mod types;
 pub mod blocking;
@@ -411,6 +412,31 @@ impl RitualDatabase {
         let conn = self.conn.read().await;
         activity::ActivityOps::new(&conn).delete_old_events(days).await
     }
+
+    /// Clamp stale browser-extension events to a maximum span.
+    pub async fn clamp_stale_browser_extension_events(
+        &self,
+        device_id: &str,
+        stale_before_ts: i64,
+        max_span_ms: i64,
+    ) -> Result<i64> {
+        let conn = self.conn.read().await;
+        activity::ActivityOps::new(&conn)
+            .clamp_stale_browser_extension_events(device_id, stale_before_ts, max_span_ms)
+            .await
+    }
+
+    /// Delete exact duplicate browser-extension events.
+    pub async fn delete_duplicate_browser_extension_events(
+        &self,
+        device_id: &str,
+        lookback_ts: i64,
+    ) -> Result<i64> {
+        let conn = self.conn.read().await;
+        activity::ActivityOps::new(&conn)
+            .delete_duplicate_browser_extension_events(device_id, lookback_ts)
+            .await
+    }
     
     /// Get the last heartbeat timestamp for a device
     pub async fn get_last_heartbeat(&self, device_id: &str) -> Result<Option<i64>> {
@@ -492,6 +518,47 @@ impl RitualDatabase {
     pub async fn get_frames_without_embeddings(&self, limit: usize) -> Result<Vec<OcrFrame>> {
         let conn = self.conn.read().await;
         recorder::RecorderOps::new(&conn).get_frames_without_embeddings(limit).await
+    }
+
+    // --------------------------------------------------------------------
+    // Context Memory Operations
+    // --------------------------------------------------------------------
+
+    /// Record a context snapshot and update its owning session/doc.
+    pub async fn record_context_snapshot(
+        &self,
+        snapshot: &ContextSnapshot,
+    ) -> Result<context::ContextRecordOutcome> {
+        let conn = self.conn.read().await;
+        context::ContextOps::new(&conn)
+            .record_context_snapshot(snapshot)
+            .await
+    }
+
+    /// Get recent context snapshots in a time range.
+    pub async fn get_recent_context_snapshots(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<ContextSnapshot>> {
+        let conn = self.conn.read().await;
+        context::ContextOps::new(&conn)
+            .get_recent_context_snapshots(start_ts, end_ts, limit)
+            .await
+    }
+
+    /// Get context-derived retrieval docs in a time range.
+    pub async fn get_session_retrieval_docs(
+        &self,
+        start_ts: i64,
+        end_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<SessionRetrievalDoc>> {
+        let conn = self.conn.read().await;
+        context::ContextOps::new(&conn)
+            .get_session_retrieval_docs(start_ts, end_ts, limit)
+            .await
     }
     
     // --------------------------------------------------------------------

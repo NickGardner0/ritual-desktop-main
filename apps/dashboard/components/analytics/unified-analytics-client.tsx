@@ -32,6 +32,7 @@ import { useUser, useAuth } from '@clerk/nextjs';
 import { getLocationPermissionStatus, requestCurrentLocation } from '@/lib/location-utils';
 // Import from separate file to avoid pulling in recharts (~500KB)
 import { AnalyticsViewToggle } from './analytics-view-toggle';
+import { cn } from '@/lib/utils';
 
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
@@ -344,6 +345,10 @@ function UnifiedAnalyticsContent() {
     typeof document !== 'undefined'
       ? document.getElementById('header-right-slot')
       : null;
+  const headerLeftSlot =
+    typeof document !== 'undefined'
+      ? document.getElementById('header-left-slot')
+      : null;
 
   return (
     <div className="space-y-3">
@@ -354,7 +359,7 @@ function UnifiedAnalyticsContent() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-none focus:outline-none"
+                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-sm focus:outline-none"
                   aria-label="Add"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -385,46 +390,45 @@ function UnifiedAnalyticsContent() {
         headerRightSlot
       )}
 
-      {/* Inline content-area controls (Spark/Bar, All) — metrics only */}
-      {!isFullScreenChat && viewMode === 'metrics' && (
-        <div className="flex items-center gap-2">
+      {/* Metrics-only controls live in the header beside search instead of floating above the cards. */}
+      {!isFullScreenChat && viewMode === 'metrics' && headerLeftSlot && createPortal(
+        <>
           <AnalyticsViewToggle
             currentView={chartViewMode}
             onViewChange={setChartViewMode}
             darkMode={false}
+            buttonClassName="text-gray-600 hover:text-black"
           />
-          <div className="relative">
-            <button
-              ref={habitDropdownButtonRef}
-              onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
-              className="flex items-center gap-2 px-3 h-8 bg-white border border-gray-200 text-[13px] text-gray-600 hover:bg-[#F7F7F7] transition-colors"
-            >
-              <span>
-                {selectedHabits.length === habits.length
-                  ? 'All'
-                  : `${selectedHabits.length} of ${habits.length}`
-                }
-              </span>
-              <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
+          <button
+            ref={habitDropdownButtonRef}
+            onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
+            className="flex h-8 items-center gap-2 border border-gray-300 bg-white px-3 text-[13px] text-gray-600 shadow-sm transition-colors hover:bg-[#F3F3F3] hover:text-black rounded-sm"
+          >
+            <span>
+              {selectedHabits.length === habits.length
+                ? 'All'
+                : `${selectedHabits.length} of ${habits.length}`
+              }
+            </span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
+          </button>
           <button
             onClick={() => setSummaryPanelOpen(prev => !prev)}
-            className={`flex items-center justify-center w-8 h-8 border text-sm transition-colors ${
-              summaryPanelOpen
-                ? 'bg-gray-900 border-gray-900 text-white'
-                : 'bg-white border-gray-200 text-gray-500 hover:bg-[#F7F7F7]'
-            }`}
-            title="Habit summary"
+            className={cn(
+              "flex h-8 w-8 items-center justify-center border border-gray-300 bg-white text-gray-500 shadow-sm transition-colors hover:bg-[#F3F3F3] hover:text-black rounded-sm",
+              summaryPanelOpen && "bg-[#F7F7F7] text-black",
+            )}
+            title="Show activity breakdown"
+            aria-label="Show activity breakdown"
           >
             <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M2 3.5h11M2 7.5h11M2 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
             </svg>
           </button>
-        </div>
+        </>,
+        headerLeftSlot
       )}
-      
-      
+
       {/* Habit Filter Dropdown Portal */}
       {habitDropdownOpen && typeof document !== 'undefined' && createPortal(
         <>
@@ -434,7 +438,7 @@ function UnifiedAnalyticsContent() {
             onClick={() => setHabitDropdownOpen(false)}
           />
           <div
-            className="fixed bg-white border border-gray-200 shadow-xl max-h-[400px] overflow-y-auto"
+            className="fixed bg-white border border-gray-200 shadow-xl max-h-[400px] overflow-y-auto rounded-sm"
             style={{
               zIndex: 9999,
               top: dropdownPosition.top,

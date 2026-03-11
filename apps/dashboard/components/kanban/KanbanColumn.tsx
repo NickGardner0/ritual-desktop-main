@@ -2,194 +2,208 @@
 
 import React, { useState } from 'react';
 import { Plus, MoreHorizontal } from 'lucide-react';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
-import { KanbanCard } from './KanbanCard';
 import { StatusIcon } from './StatusIcon';
+import { KanbanCard } from './KanbanCard';
 import { cn } from '@/lib/utils';
 import type {
-  KanbanColumn as KanbanColumnType,
   KanbanCard as KanbanCardType,
+  KanbanColumn as KanbanColumnType,
+  KanbanLabel,
 } from '@/types/kanban';
 import type { HabitOption } from './MetricLinker';
 
 interface KanbanColumnProps {
   column: KanbanColumnType;
   cards: KanbanCardType[];
+  labels: KanbanLabel[];
   habitMap: Map<string, HabitOption>;
   isDragOver: boolean;
-  isReflectColumn: boolean;
-  onEditCard: (card: KanbanCardType) => void;
+  onOpenCard: (card: KanbanCardType) => void;
   onDeleteCard: (card: KanbanCardType) => void;
   onAddCard: (columnId: string, data: { title: string }) => void;
   onColumnMenu: (column: KanbanColumnType, action: 'rename' | 'delete') => void;
-  onDragStart: (card: KanbanCardType) => void;
-  onDragOver: (columnId: string | null) => void;
-  onDragEnd: () => void;
-  onDrop: (columnId: string) => void;
 }
 
 export function KanbanColumn({
   column,
   cards,
+  labels,
   habitMap,
   isDragOver,
-  isReflectColumn,
-  onEditCard,
+  onOpenCard,
   onDeleteCard,
   onAddCard,
   onColumnMenu,
-  onDragStart,
-  onDragOver,
-  onDragEnd,
-  onDrop,
 }: KanbanColumnProps) {
   const [isAdding, setIsAdding] = useState(false);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const sortedCards = [...cards].sort((a, b) => a.order - b.order);
+  const [title, setTitle] = useState('');
 
-  const handleSubmit = () => {
-    const t = newTaskTitle.trim();
-    if (t) {
-      onAddCard(column.id, { title: t });
-      setNewTaskTitle('');
-      setIsAdding(false);
-    }
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: column.id,
+    data: {
+      type: 'column',
+      columnId: column.id,
+    },
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSubmit();
-    }
-    if (e.key === 'Escape') {
-      setIsAdding(false);
-      setNewTaskTitle('');
-    }
+  const sortedCards = [...cards].sort((a, b) => a.order - b.order);
+
+  const submit = () => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
+    onAddCard(column.id, { title: trimmedTitle });
+    setTitle('');
+    setIsAdding(false);
   };
 
   return (
-    <div
+    <section
+      ref={setNodeRef}
+      style={style}
       className={cn(
-        'flex min-w-[280px] flex-1 flex-col border-r border-border last:border-r-0',
-        isDragOver && 'bg-accent/50'
+        'flex h-full min-w-[320px] max-w-[320px] flex-col rounded-sm border border-border bg-[rgba(255,255,255,0.9)] shadow-[0_1px_0_rgba(39,37,30,0.04)]',
+        isDragOver && 'border-[#27251E] bg-[rgba(255,255,255,0.98)]',
+        isDragging && 'opacity-60'
       )}
-      onDragOver={(e) => {
-        e.preventDefault();
-        onDragOver(column.id);
-      }}
-      onDragLeave={() => onDragOver(null)}
-      onDrop={(e) => {
-        e.preventDefault();
-        onDrop(column.id);
-      }}
     >
-      {/* Column Header */}
-      <div className="flex items-center justify-between px-4 py-3">
+      <div
+        className="flex items-center justify-between border-b border-border px-4 py-3"
+        {...attributes}
+        {...listeners}
+      >
         <div className="flex items-center gap-2">
-          <StatusIcon columnId={column.id} className="h-4 w-4" />
-          <span className="text-sm font-medium text-foreground">{column.title}</span>
-          <span className="text-xs text-muted-foreground">{cards.length}</span>
+          <StatusIcon columnId={column.id} className="h-4 w-4 text-[rgba(39,37,30,0.56)]" />
+          <span className="text-[15px] font-medium text-[#111827]">{column.title}</span>
+          <span className="text-[13px] text-[rgba(39,37,30,0.42)]">{cards.length}</span>
         </div>
-        <div className="flex items-center gap-0.5">
+
+        <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={() => setIsAdding(true)}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label={`Add task to ${column.title}`}
+            className="rounded-sm p-1.5 text-[rgba(39,37,30,0.42)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
+            aria-label={`Add card to ${column.title}`}
           >
             <Plus className="h-4 w-4" />
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                type="button"
+                className="rounded-sm p-1.5 text-[rgba(39,37,30,0.42)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
                 aria-label={`${column.title} options`}
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="rounded-sm border-border">
               <DropdownMenuItem onClick={() => onColumnMenu(column, 'rename')}>
-                Rename
+                Rename list
               </DropdownMenuItem>
               <DropdownMenuItem
+                className="text-red-600"
                 onClick={() => onColumnMenu(column, 'delete')}
-                className="text-destructive"
               >
-                Delete column
+                Delete list
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {/* Tasks */}
-      <div className="flex flex-1 flex-col overflow-y-auto px-3 pb-3">
-        <div className="flex flex-col gap-1.5">
-          {/* Inline Add Task */}
-          {isAdding && !isReflectColumn && (
-            <div className="rounded-md border border-ring bg-card p-3 shadow-sm">
-              <input
-                type="text"
-                placeholder="Task title"
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onBlur={() => {
-                  if (!newTaskTitle.trim()) setIsAdding(false);
-                }}
-                autoFocus
-                className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              />
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  onClick={handleSubmit}
-                  className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  Create
-                </button>
-                <button
-                  onClick={() => {
-                    setIsAdding(false);
-                    setNewTaskTitle('');
-                  }}
-                  className="rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {sortedCards.map((card) => (
-            <KanbanCard
-              key={card.id}
-              card={card}
-              linkedMetricName={card.linkedMetricId ? habitMap.get(card.linkedMetricId)?.name : undefined}
-              onEdit={onEditCard}
-              onDelete={onDeleteCard}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        {isAdding ? (
+          <div className="rounded-sm border border-border bg-white p-3">
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  submit();
+                }
+                if (event.key === 'Escape') {
+                  setIsAdding(false);
+                  setTitle('');
+                }
+              }}
+              onBlur={() => {
+                if (!title.trim()) {
+                  setIsAdding(false);
+                }
+              }}
+              placeholder="Card title"
+              autoFocus
+              className="w-full bg-transparent text-[14px] text-[#111827] placeholder:text-[rgba(39,37,30,0.34)] focus:outline-none"
             />
-          ))}
-        </div>
-
-        {/* Add task button at the bottom */}
-        {!isAdding && !isReflectColumn && (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={submit}
+                className="rounded-sm bg-[#111827] px-2.5 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-[#27251E]"
+              >
+                Add card
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdding(false);
+                  setTitle('');
+                }}
+                className="rounded-sm px-2.5 py-1.5 text-[12px] text-[rgba(39,37,30,0.58)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
           <button
+            type="button"
             onClick={() => setIsAdding(true)}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-muted-foreground/60 transition-colors hover:bg-accent hover:text-muted-foreground"
+            className="flex items-center gap-2 rounded-sm border border-dashed border-border px-3 py-2 text-[13px] text-[rgba(39,37,30,0.46)] transition-colors hover:border-[rgba(39,37,30,0.24)] hover:bg-[#F8F8F5] hover:text-[#111827]"
           >
-            <Plus className="h-3.5 w-3.5" />
-            Add task
+            <Plus className="h-4 w-4" />
+            Add card
           </button>
         )}
+
+        <SortableContext items={sortedCards.map((card) => card.id)} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col gap-3">
+            {sortedCards.map((card) => (
+              <KanbanCard
+                key={card.id}
+                card={card}
+                labels={labels}
+                linkedMetricName={
+                  card.linkedMetricId ? habitMap.get(card.linkedMetricId)?.name : undefined
+                }
+                onOpen={onOpenCard}
+                onDelete={onDeleteCard}
+              />
+            ))}
+          </div>
+        </SortableContext>
       </div>
-    </div>
+    </section>
   );
 }

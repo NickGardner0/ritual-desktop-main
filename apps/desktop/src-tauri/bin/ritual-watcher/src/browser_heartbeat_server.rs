@@ -29,6 +29,9 @@ const MAX_BACKFILL_AGE_MS: u64 = 24 * 60 * 60 * 1000; // 24h
 /// Throttle write frequency when merging many heartbeats into the same session.
 /// We still keep the in-memory timestamp current and flush on close.
 const MERGE_DB_FLUSH_INTERVAL_MS: u64 = 12_000;
+/// Force-roll long-running browser sessions so a broken heartbeat stream cannot create
+/// a single giant interval spanning hours.
+const MAX_BROWSER_SESSION_MS: u64 = 15 * 60 * 1000;
 /// Guard against rapid duplicate "create session" bursts from extension callbacks.
 /// If the same domain/url arrives within this window, treat it as merge.
 const DUPLICATE_CREATE_GUARD_MS: u64 = 5_000;
@@ -45,6 +48,27 @@ pub struct BrowserHeartbeat {
     pub domain: Option<String>,
     /// Page title
     pub title: Option<String>,
+    /// Document title extracted from the page itself.
+    #[serde(default)]
+    pub document_title: Option<String>,
+    /// Normalized visible text from the active tab.
+    #[serde(default)]
+    pub visible_text_norm: Option<String>,
+    /// Raw visible text from the active tab.
+    #[serde(default)]
+    pub visible_text_raw: Option<String>,
+    /// Optional top headings/landmarks from the page.
+    #[serde(default)]
+    pub headings: Vec<String>,
+    /// Client-estimated capture quality in the range [0, 1].
+    #[serde(default)]
+    pub capture_quality: Option<f64>,
+    /// Client dedup key for this snapshot.
+    #[serde(default)]
+    pub dedup_key: Option<String>,
+    /// Whether any sensitive field was redacted before sending.
+    #[serde(default)]
+    pub is_sensitive_redacted: bool,
     /// Whether the tab is playing audio
     #[serde(default)]
     pub audible: bool,
@@ -99,12 +123,17 @@ struct StatusResponse {
     total_sessions: u64,
     deferred_writes: u64,
     duplicate_suppressed: u64,
+    process_id: u32,
+    listener_port: u16,
+    last_extension_heartbeat_ms: u64,
 }
 
 /// Current browser session state (for heartbeat merging)
 struct BrowserSession {
     /// Database event ID for updating ts_end
     event_id: i64,
+    /// Session start timestamp (ms)
+    session_start_ms: u64,
     /// Domain of the current session
     domain: Option<String>,
     /// URL of the current session (for change detection)
@@ -140,6 +169,26 @@ pub enum BrowserDbCommand {
         ts_end: u64,
         response: Sender<Result<(), String>>,
     },
+    InsertContextSnapshot {
+        device_id: String,
+        user_id: String,
+        activity_event_id: Option<i64>,
+        ts: u64,
+        source_type: String,
+        app_bundle_id: String,
+        app_name: String,
+        window_title: Option<String>,
+        browser_url: Option<String>,
+        browser_domain: Option<String>,
+        tab_title: Option<String>,
+        document_title: Option<String>,
+        visible_text_raw: String,
+        visible_text_norm: String,
+        capture_quality: f64,
+        dedup_key: String,
+        is_sensitive_redacted: bool,
+        response: Sender<Result<i64, String>>,
+    },
 }
 
 /// Shared state for the browser heartbeat server
@@ -147,6 +196,7 @@ struct ServerState {
     db_write_tx: Sender<BrowserDbCommand>,
     device_id: String,
     user_id: String,
+    listener_port: u16,
     current_session: Option<BrowserSession>,
     start_time: u64,
     total_heartbeats: u64,
@@ -254,8 +304,25 @@ fn normalize_heartbeat_timestamp(client_ts: Option<u64>, received_at: u64) -> u6
 }
 
 fn close_current_session(state: &mut ServerState, ts_end: u64, reason: &str) {
+    close_current_session_internal(state, ts_end, reason, false);
+}
+
+fn close_current_session_clamped(state: &mut ServerState, ts_end: u64, reason: &str) {
+    close_current_session_internal(state, ts_end, reason, true);
+}
+
+fn close_current_session_internal(
+    state: &mut ServerState,
+    ts_end: u64,
+    reason: &str,
+    clamp_to_target: bool,
+) {
     if let Some(session) = state.current_session.take() {
-        let final_ts = ts_end.max(session.last_heartbeat_ms);
+        let final_ts = if clamp_to_target {
+            ts_end
+        } else {
+            ts_end.max(session.last_heartbeat_ms)
+        };
         if let Err(e) = queue_update_event_end_time(&state.db_write_tx, session.event_id, final_ts)
         {
             error!(
@@ -288,6 +355,81 @@ fn queue_update_event_end_time(
     response_rx
         .recv_timeout(Duration::from_secs(15))
         .map_err(|e| format!("timed out waiting for update_event_end_time: {}", e))?
+}
+
+#[allow(clippy::too_many_arguments)]
+fn queue_insert_context_snapshot(
+    db_write_tx: &Sender<BrowserDbCommand>,
+    device_id: String,
+    user_id: String,
+    activity_event_id: Option<i64>,
+    ts: u64,
+    app_bundle_id: String,
+    app_name: String,
+    window_title: Option<String>,
+    browser_url: Option<String>,
+    browser_domain: Option<String>,
+    tab_title: Option<String>,
+    document_title: Option<String>,
+    visible_text_raw: String,
+    visible_text_norm: String,
+    capture_quality: f64,
+    dedup_key: String,
+    is_sensitive_redacted: bool,
+) -> Result<i64, String> {
+    let (response_tx, response_rx) = mpsc::channel();
+    db_write_tx
+        .send(BrowserDbCommand::InsertContextSnapshot {
+            device_id,
+            user_id,
+            activity_event_id,
+            ts,
+            source_type: "browser_extension".to_string(),
+            app_bundle_id,
+            app_name,
+            window_title,
+            browser_url,
+            browser_domain,
+            tab_title,
+            document_title,
+            visible_text_raw,
+            visible_text_norm,
+            capture_quality,
+            dedup_key,
+            is_sensitive_redacted,
+            response: response_tx,
+        })
+        .map_err(|e| format!("failed to send insert_context_snapshot command: {}", e))?;
+
+    response_rx
+        .recv_timeout(Duration::from_secs(15))
+        .map_err(|e| format!("timed out waiting for insert_context_snapshot: {}", e))?
+}
+
+fn sanitized_visible_text(heartbeat: &BrowserHeartbeat) -> (String, String) {
+    let raw = heartbeat.visible_text_raw.as_deref().unwrap_or("").trim();
+    let norm = heartbeat.visible_text_norm.as_deref().unwrap_or("").trim();
+    let headings = heartbeat
+        .headings
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" | ");
+
+    let raw_text = if !raw.is_empty() {
+        raw.to_string()
+    } else {
+        headings.clone()
+    };
+    let norm_text = if !norm.is_empty() {
+        norm.to_string()
+    } else if !raw_text.is_empty() {
+        raw_text.to_lowercase()
+    } else {
+        String::new()
+    };
+    (raw_text, norm_text)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -419,18 +561,32 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
         }
     }
 
-    // Check if we should merge with existing session or start a new one
-    let should_merge = if let Some(ref session) = state.current_session {
-        should_merge_with_session(
-            session,
-            &domain,
-            &heartbeat.url,
-            &state.url_mode,
-            received_at,
+    let forced_rollover_ts = state.current_session.as_ref().and_then(|session| {
+        let session_span_ms = event_ts.saturating_sub(session.session_start_ms);
+        (session_span_ms >= MAX_BROWSER_SESSION_MS).then_some(
+            session
+                .session_start_ms
+                .saturating_add(MAX_BROWSER_SESSION_MS),
         )
-    } else {
-        false
-    };
+    });
+    if let Some(forced_end) = forced_rollover_ts {
+        close_current_session_clamped(state, forced_end, "max browser session span reached");
+    }
+
+    // Check if we should merge with existing session or start a new one
+    let should_merge = state
+        .current_session
+        .as_ref()
+        .map(|session| {
+            should_merge_with_session(
+                session,
+                &domain,
+                &heartbeat.url,
+                &state.url_mode,
+                received_at,
+            )
+        })
+        .unwrap_or(false);
 
     if should_merge {
         // Extend existing session
@@ -481,6 +637,51 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
             "Extended browser session {} (domain: {:?}, audible: {})",
             session.event_id, domain, heartbeat.audible
         );
+        let (visible_text_raw, visible_text_norm) = sanitized_visible_text(&heartbeat);
+        let dedup_key = heartbeat.dedup_key.clone().unwrap_or_else(|| {
+            format!(
+                "browser:{}:{}:{}",
+                domain.clone().unwrap_or_default(),
+                heartbeat.title.clone().unwrap_or_default(),
+                event_ts / 120_000
+            )
+        });
+        if let Err(err) = queue_insert_context_snapshot(
+            &state.db_write_tx,
+            state.device_id.clone(),
+            state.user_id.clone(),
+            Some(session.event_id),
+            event_ts,
+            browser_bundle_id(&heartbeat.browser).to_string(),
+            browser_display_name(&heartbeat.browser).to_string(),
+            heartbeat.title.clone(),
+            if state.url_mode == "full" {
+                heartbeat.url.clone()
+            } else {
+                None
+            },
+            domain.clone(),
+            heartbeat.title.clone(),
+            heartbeat.document_title.clone(),
+            visible_text_raw,
+            visible_text_norm,
+            heartbeat.capture_quality.unwrap_or(
+                if heartbeat
+                    .visible_text_norm
+                    .as_deref()
+                    .unwrap_or("")
+                    .is_empty()
+                {
+                    0.35
+                } else {
+                    0.95
+                },
+            ),
+            dedup_key,
+            heartbeat.is_sensitive_redacted,
+        ) {
+            debug!("Failed to persist browser context snapshot: {}", err);
+        }
 
         HeartbeatResponse {
             status: "merged".to_string(),
@@ -570,6 +771,7 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
 
                 state.current_session = Some(BrowserSession {
                     event_id,
+                    session_start_ms: event_ts,
                     domain: domain.clone(),
                     url: tracked_url.map(|s| s.to_string()),
                     audible: heartbeat.audible,
@@ -577,6 +779,47 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                     last_received_ms: received_at,
                     last_db_flush_ms: event_ts,
                 });
+                let (visible_text_raw, visible_text_norm) = sanitized_visible_text(&heartbeat);
+                let dedup_key = heartbeat.dedup_key.clone().unwrap_or_else(|| {
+                    format!(
+                        "browser:{}:{}:{}",
+                        domain.clone().unwrap_or_default(),
+                        heartbeat.title.clone().unwrap_or_default(),
+                        event_ts / 120_000
+                    )
+                });
+                if let Err(err) = queue_insert_context_snapshot(
+                    &state.db_write_tx,
+                    state.device_id.clone(),
+                    state.user_id.clone(),
+                    Some(event_id),
+                    event_ts,
+                    bundle_id.to_string(),
+                    app_name.to_string(),
+                    heartbeat.title.clone(),
+                    tracked_url.map(|value| value.to_string()),
+                    domain.clone(),
+                    heartbeat.title.clone(),
+                    heartbeat.document_title.clone(),
+                    visible_text_raw,
+                    visible_text_norm,
+                    heartbeat.capture_quality.unwrap_or(
+                        if heartbeat
+                            .visible_text_norm
+                            .as_deref()
+                            .unwrap_or("")
+                            .is_empty()
+                        {
+                            0.35
+                        } else {
+                            0.95
+                        },
+                    ),
+                    dedup_key,
+                    heartbeat.is_sensitive_redacted,
+                ) {
+                    debug!("Failed to persist browser context snapshot: {}", err);
+                }
 
                 HeartbeatResponse {
                     status: "created".to_string(),
@@ -655,6 +898,11 @@ fn handle_request(state: &Arc<Mutex<ServerState>>, request: tiny_http::Request) 
                 total_sessions: state_guard.total_sessions,
                 deferred_writes: state_guard.deferred_writes,
                 duplicate_suppressed: state_guard.duplicate_suppressed,
+                process_id: std::process::id(),
+                listener_port: state_guard.listener_port,
+                last_extension_heartbeat_ms: state_guard
+                    .last_extension_heartbeat_ms
+                    .load(Ordering::Relaxed),
             };
 
             let body = serde_json::to_string(&status).unwrap_or_default();
@@ -748,10 +996,12 @@ pub fn start_server(
     info!("Starting browser heartbeat server on localhost:{}", port);
 
     std::thread::spawn(move || {
+        let mut listener_port = port;
         let state = Arc::new(Mutex::new(ServerState {
             db_write_tx,
             device_id,
             user_id,
+            listener_port,
             current_session: None,
             start_time: now_ms(),
             total_heartbeats: 0,
@@ -779,6 +1029,10 @@ pub fn start_server(
                 let alt_addr = format!("127.0.0.1:{}", port + 1);
                 match tiny_http::Server::http(&alt_addr) {
                     Ok(server) => {
+                        listener_port = port + 1;
+                        if let Ok(mut state_guard) = state.lock() {
+                            state_guard.listener_port = listener_port;
+                        }
                         info!(
                             "Browser heartbeat server listening on {} (alternate port)",
                             alt_addr
@@ -841,6 +1095,7 @@ mod tests {
     ) -> BrowserSession {
         BrowserSession {
             event_id: 1,
+            session_start_ms: last_heartbeat_ms.saturating_sub(1_000),
             domain: domain.map(|d| d.to_string()),
             url: url.map(|u| u.to_string()),
             audible: false,

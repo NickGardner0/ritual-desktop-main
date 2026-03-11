@@ -417,7 +417,7 @@ export function DateRangePicker({
             id="date"
             variant={"outline"}
             className={cn(
-              "w-[120px] justify-between text-left font-normal text-[13px] px-3 py-1.5 h-8 border-gray-300 bg-white text-black hover:bg-[#F3F3F3] hover:border-gray-300 rounded-none",
+              "w-[120px] justify-between text-left font-normal text-[13px] px-3 py-1.5 h-8 border-gray-300 bg-white text-black hover:bg-[#F3F3F3] hover:border-gray-300 rounded-sm",
               !date && "text-black",
               className
             )}
@@ -428,7 +428,7 @@ export function DateRangePicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[580px] p-0 border-gray-300 shadow-lg rounded-none"
+          className="w-[580px] p-0 border-gray-300 shadow-lg rounded-sm"
           align="end"
           side="bottom"
           sideOffset={8}
@@ -442,10 +442,10 @@ export function DateRangePicker({
                   handlePresetClick(preset)
                 }
               }}>
-                <SelectTrigger className="w-[200px] h-9 text-sm border-gray-300 hover:border-gray-300 hover:bg-[#F3F3F3] rounded-none focus:ring-0 focus:ring-offset-0 focus:border-gray-300">
+                <SelectTrigger className="w-[200px] h-9 text-sm border-gray-300 hover:border-gray-300 hover:bg-[#F3F3F3] rounded-sm focus:ring-0 focus:ring-offset-0 focus:border-gray-300">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="border-gray-300 rounded-none">
+                <SelectContent className="border-gray-300 rounded-sm">
                   {presetRanges.map((preset) => (
                     <SelectItem key={preset.value} value={preset.value} className="text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]">
                       {preset.label}
@@ -490,4 +490,3 @@ export function DateRangePicker({
     </div>
   )
 }
-

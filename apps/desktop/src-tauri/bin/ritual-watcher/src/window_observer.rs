@@ -1,7 +1,7 @@
 //! Window Title Change Observer using Accessibility API
 //!
-//! Uses AXObserver with kAXMainWindowChangedNotification and kAXTitleChangedNotification
-//! to detect window title changes within the same application.
+//! Uses AXObserver with kAXMainWindowChangedNotification, kAXTitleChangedNotification,
+//! and kAXFocusedUIElementChangedNotification to detect in-app context shifts.
 //!
 //! Inspired by Cronus's activeWindowObserver.mm implementation.
 
@@ -344,6 +344,15 @@ pub fn observe_app(pid: i32) {
             refcon,
         );
 
+        // Focused UI element changed
+        let focused_ui_notif = k_ax_focused_ui_element_changed_notification();
+        AXObserverAddNotification(
+            observer,
+            app_element,
+            focused_ui_notif.as_concrete_TypeRef(),
+            refcon,
+        );
+
         // Add to run loop
         let run_loop_source = AXObserverGetRunLoopSource(observer);
         if !run_loop_source.is_null() {
@@ -389,6 +398,13 @@ fn cleanup_observer(state: &mut WindowObserverState) {
                     title_notif.as_concrete_TypeRef(),
                 );
 
+                let focused_ui_notif = k_ax_focused_ui_element_changed_notification();
+                AXObserverRemoveNotification(
+                    observer,
+                    app_element,
+                    focused_ui_notif.as_concrete_TypeRef(),
+                );
+
                 CFRelease(app_element as _);
             }
             CFRelease(observer as _);
@@ -414,6 +430,17 @@ pub fn set_observation_enabled(enabled: bool) {
     }
 }
 
+pub fn observer_is_live() -> bool {
+    if !unsafe { AXIsProcessTrusted() } {
+        return false;
+    }
+    get_window_state()
+        .lock()
+        .ok()
+        .map(|state| state.enabled && state.current_pid.is_some() && state.observer.is_some())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,5 +452,9 @@ mod tests {
             "main_window_changed"
         );
         assert_eq!(WindowChangeType::TitleChanged.to_string(), "title_changed");
+        assert_eq!(
+            WindowChangeType::FocusedUIElementChanged.to_string(),
+            "focused_ui_changed"
+        );
     }
 }

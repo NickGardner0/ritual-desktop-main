@@ -191,12 +191,21 @@ class MemoryIngestSupersedeTests(unittest.IsolatedAsyncioTestCase):
             "logical_chunk_id": "logical-ctx-1",
             "chunk_start_ts": now_ms - 10_000,
             "chunk_end_ts": now_ms,
+            "source_kind": "context_session",
+            "session_id": "session-123",
             "app_name": "Things 3",
             "window_title": "Inbox",
+            "document_title": "Sprint planning",
             "browser_domain": "",
             "text_compact": "fallback contextual text",
+            "raw_visible_text": "buy groceries\nplan sprint",
             "raw_text_compact": "buy groceries\nplan sprint",
             "contextual_text_compact": (
+                "Session: task planning session in Things 3\n"
+                "Primary app: Things 3\n"
+                "Observed content: buy groceries\nplan sprint"
+            ),
+            "contextual_retrieval_text": (
                 "Session: task planning session in Things 3\n"
                 "Primary app: Things 3\n"
                 "Observed content: buy groceries\nplan sprint"
@@ -204,8 +213,9 @@ class MemoryIngestSupersedeTests(unittest.IsolatedAsyncioTestCase):
             "context_version": 3,
             "session_key": "session-123",
             "session_position": 2,
-            "session_chunk_count": 5,
+            "session_count": 5,
             "quality_score": 0.8,
+            "capture_quality": 0.92,
             "source_frame_ids": [1, 2, 3],
             "content_hash": "hash-contextual",
         }
@@ -222,8 +232,9 @@ class MemoryIngestSupersedeTests(unittest.IsolatedAsyncioTestCase):
         with get_memory_db() as conn:
             row = conn.execute(
                 """
-                SELECT raw_text_compact, contextual_text_compact, text_compact,
-                       context_version, session_key, session_position, session_chunk_count
+                SELECT source_kind, session_id, raw_text_compact, contextual_text_compact, text_compact,
+                       context_version, session_key, session_position, session_chunk_count,
+                       document_title, capture_quality
                 FROM memory_chunks
                 WHERE user_id = ? AND device_id = ? AND logical_chunk_id = ? AND deleted_at IS NULL
                 """,
@@ -231,13 +242,17 @@ class MemoryIngestSupersedeTests(unittest.IsolatedAsyncioTestCase):
             ).fetchone()
 
         self.assertIsNotNone(row)
-        self.assertEqual(row[0], "buy groceries\nplan sprint")
-        self.assertIn("task planning session", row[1])
-        self.assertEqual(row[2], row[1])
-        self.assertEqual(int(row[3]), 3)
-        self.assertEqual(row[4], "session-123")
-        self.assertEqual(int(row[5]), 2)
-        self.assertEqual(int(row[6]), 5)
+        self.assertEqual(row[0], "context_session")
+        self.assertEqual(row[1], "session-123")
+        self.assertEqual(row[2], "buy groceries\nplan sprint")
+        self.assertIn("task planning session", row[3])
+        self.assertEqual(row[4], row[3])
+        self.assertEqual(int(row[5]), 3)
+        self.assertEqual(row[6], "session-123")
+        self.assertEqual(int(row[7]), 2)
+        self.assertEqual(int(row[8]), 5)
+        self.assertEqual(row[9], "Sprint planning")
+        self.assertAlmostEqual(float(row[10]), 0.92, places=3)
 
 
 if __name__ == "__main__":

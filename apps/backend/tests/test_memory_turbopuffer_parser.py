@@ -23,7 +23,12 @@ class TurbopufferParserTests(unittest.TestCase):
                             "$dist": 0.2,
                             "chunk_id": "chunk-1",
                             "logical_chunk_id": "logical-1",
+                            "source_kind": "context_session",
+                            "session_id": "77",
                             "text_compact": "hello world",
+                            "raw_visible_text": "hello world raw",
+                            "contextual_retrieval_text": "hello world contextual",
+                            "parent_context": "Cursor / watcher_service_search.py",
                             "app_name": "Cursor",
                         }
                     ]
@@ -31,11 +36,16 @@ class TurbopufferParserTests(unittest.TestCase):
             ]
         }
 
-        rows = service._parse_query_results(payload)
+        parsed = service._parse_query_results(payload, list_meta=[{"source": "fts", "query_type": "original", "query_text": "hello", "weight": 2.0}])
+        rows = parsed["lists"][0]["items"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["doc_id"], "doc-1")
         self.assertEqual(rows[0]["chunk_id"], "chunk-1")
         self.assertEqual(rows[0]["logical_chunk_id"], "logical-1")
+        self.assertEqual(rows[0]["source_kind"], "context_session")
+        self.assertEqual(rows[0]["session_id"], "77")
+        self.assertEqual(rows[0]["raw_visible_text"], "hello world raw")
+        self.assertEqual(rows[0]["parent_context"], "Cursor / watcher_service_search.py")
         self.assertGreater(rows[0]["score"], 0.0)
 
     def test_parse_rows_with_nested_attributes_and_multi_query(self):
@@ -79,10 +89,17 @@ class TurbopufferParserTests(unittest.TestCase):
             ]
         }
 
-        rows = service._parse_query_results(payload)
-        self.assertEqual([row["doc_id"] for row in rows], ["doc-1", "doc-2"])
-        self.assertEqual(rows[0]["score"], 0.9)
-        self.assertEqual(rows[1]["logical_chunk_id"], "logical-2")
+        parsed = service._parse_query_results(
+            payload,
+            list_meta=[
+                {"source": "fts", "query_type": "original", "query_text": "alpha", "weight": 2.0},
+                {"source": "vec", "query_type": "vec", "query_text": "beta", "weight": 1.0},
+            ],
+        )
+        self.assertEqual(len(parsed["lists"]), 2)
+        self.assertEqual([row["doc_id"] for row in parsed["lists"][0]["items"]], ["doc-1"])
+        self.assertEqual(parsed["lists"][0]["items"][0]["score"], 0.9)
+        self.assertEqual(parsed["lists"][1]["items"][0]["logical_chunk_id"], "logical-2")
 
 
 class _FakeResponse:

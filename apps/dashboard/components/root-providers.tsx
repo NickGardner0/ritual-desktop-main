@@ -81,8 +81,10 @@ export function RootProviders({ children }: { children: ReactNode }) {
         <TransparencyProbe />
       ) : (
         <ClerkProvider
-          signInUrl="/auth"
-          signUpUrl="/auth"
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          signInForceRedirectUrl="/auth/sso-callback"
+          signUpForceRedirectUrl="/auth/sso-callback"
           afterSignOutUrl="/"
         >
           <OpenPanelProvider>

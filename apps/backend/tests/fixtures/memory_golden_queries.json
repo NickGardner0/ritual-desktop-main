@@ -13,6 +13,14 @@
       "forbid_tokens": []
     },
     {
+      "id": "broad_today",
+      "query": "What did I do today on my computer?",
+      "intent": "broad_overview",
+      "days_back": 7,
+      "expect_any_tokens": ["auth", "planning", "login", "signin"],
+      "forbid_tokens": []
+    },
+    {
       "id": "time_spent_last_week",
       "query": "What did I spend my time on last week on my computer?",
       "intent": "time_spent",

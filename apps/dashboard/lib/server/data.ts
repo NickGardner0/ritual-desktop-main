@@ -40,8 +40,8 @@ export async function getAuthenticatedUserId(): Promise<string> {
     const { userId } = await auth();
     
     if (!userId) {
-      console.log('❌ [Server] No user ID found, redirecting to auth');
-      redirect('/auth');
+      console.log('❌ [Server] No user ID found, redirecting to sign-in');
+      redirect('/sign-in');
     }
     
     console.log('✅ [Server] Authenticated user ID:', userId);

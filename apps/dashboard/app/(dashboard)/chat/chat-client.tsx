@@ -998,12 +998,16 @@ export function ChatClient() {
         ? cleanContentForDisplay(fullResponse)
         : fullResponse;
       
+      const replyChips = voiceStyleEnabled
+        ? (toolData as { reply_chips?: string[] } | null)?.reply_chips
+        : undefined;
+
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: displayContent || 'I was unable to process your request.',
         canvasData: extractedCanvas,
-        replyChips: voiceStyleEnabled ? toolData?.reply_chips : undefined,  // Phase 4A
+        replyChips: replyChips,  // Phase 4A
       };
       
       setMessages([...newMessages, assistantMessage]);

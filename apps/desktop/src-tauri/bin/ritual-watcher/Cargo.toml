@@ -9,6 +9,10 @@ authors = ["Ritual"]
 name = "ritual-watcher"
 path = "src/main.rs"
 
+[[bin]]
+name = "ritual-ax-dump"
+path = "src/ax_dump.rs"
+
 [dependencies]
 # Core
 serde = { version = "1.0", features = ["derive"] }
@@ -53,4 +57,3 @@ ctrlc = "3.4"
 
 # Path expansion
 shellexpand = "3.1"
-

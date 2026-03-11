@@ -25,7 +25,7 @@ export default function IntegrationsLoading() {
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div 
               key={i} 
-              className="bg-white border border-gray-200 p-4 h-[200px]"
+              className="bg-white border border-gray-200 p-4 h-[200px] rounded-sm"
             >
               {/* Logo */}
               <div className="h-10 mb-2">
@@ -53,7 +53,7 @@ export default function IntegrationsLoading() {
         </div>
 
         {/* Loading indicator */}
-        <div className="fixed bottom-4 right-4 bg-white border border-gray-300 px-4 py-2 rounded-none shadow-lg">
+        <div className="fixed bottom-4 right-4 bg-white border border-gray-300 px-4 py-2 rounded-sm shadow-lg">
           <div className="flex items-center gap-2">
             <BrailleSpinner className="text-sm text-gray-600" />
             <span className="text-sm text-gray-600">Loading integrations...</span>
@@ -63,4 +63,3 @@ export default function IntegrationsLoading() {
     </div>
   );
 }
-

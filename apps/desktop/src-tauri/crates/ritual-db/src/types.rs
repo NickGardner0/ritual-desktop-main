@@ -59,7 +59,7 @@ impl ActivityEvent {
             created_at: chrono::Utc::now().timestamp_millis(),
         }
     }
-    
+
     /// Get the duration in milliseconds
     pub fn duration_ms(&self) -> i64 {
         self.ts_end.saturating_sub(self.ts_start)
@@ -74,7 +74,7 @@ pub struct AfkEvent {
     pub user_id: String,
     pub ts_start: i64,
     pub ts_end: i64,
-    pub status: String,  // "afk" or "not-afk"
+    pub status: String, // "afk" or "not-afk"
     pub created_at: i64,
 }
 
@@ -132,6 +132,192 @@ pub struct FocusMetrics {
 }
 
 // ============================================================
+// CONTEXT MEMORY TYPES
+// ============================================================
+
+/// Structured snapshot of the active foreground context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSnapshot {
+    pub id: Option<i64>,
+    pub device_id: String,
+    pub user_id: String,
+    pub activity_event_id: Option<i64>,
+    pub session_id: Option<i64>,
+    pub ts: i64,
+    pub source_type: String,
+    pub app_bundle_id: String,
+    pub app_name: String,
+    pub window_title: Option<String>,
+    pub browser_url: Option<String>,
+    pub browser_domain: Option<String>,
+    pub tab_title: Option<String>,
+    pub document_title: Option<String>,
+    pub visible_text_raw: String,
+    pub visible_text_norm: String,
+    pub capture_quality: f64,
+    pub capture_components_json: Option<String>,
+    pub ax_richness_score: f64,
+    pub selected_text_present: bool,
+    pub document_path: Option<String>,
+    pub ax_source: Option<String>,
+    pub capture_trigger: Option<String>,
+    pub trigger_to_snapshot_ms: Option<i64>,
+    pub ui_elements_json: Option<String>,
+    pub dedup_key: String,
+    pub is_sensitive_redacted: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl ContextSnapshot {
+    pub fn new(
+        device_id: impl Into<String>,
+        user_id: impl Into<String>,
+        ts: i64,
+        source_type: impl Into<String>,
+        app_bundle_id: impl Into<String>,
+        app_name: impl Into<String>,
+        dedup_key: impl Into<String>,
+    ) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        Self {
+            id: None,
+            device_id: device_id.into(),
+            user_id: user_id.into(),
+            activity_event_id: None,
+            session_id: None,
+            ts,
+            source_type: source_type.into(),
+            app_bundle_id: app_bundle_id.into(),
+            app_name: app_name.into(),
+            window_title: None,
+            browser_url: None,
+            browser_domain: None,
+            tab_title: None,
+            document_title: None,
+            visible_text_raw: String::new(),
+            visible_text_norm: String::new(),
+            capture_quality: 0.0,
+            capture_components_json: None,
+            ax_richness_score: 0.0,
+            selected_text_present: false,
+            document_path: None,
+            ax_source: None,
+            capture_trigger: None,
+            trigger_to_snapshot_ms: None,
+            ui_elements_json: None,
+            dedup_key: dedup_key.into(),
+            is_sensitive_redacted: false,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+/// Session built from contiguous context snapshots.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSession {
+    pub id: Option<i64>,
+    pub device_id: String,
+    pub user_id: String,
+    pub start_ts: i64,
+    pub end_ts: i64,
+    pub primary_app_bundle_id: Option<String>,
+    pub primary_app_name: Option<String>,
+    pub primary_domain: Option<String>,
+    pub dominant_title: Option<String>,
+    pub representative_text: Option<String>,
+    pub coverage_score: f64,
+    pub snapshot_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl ContextSession {
+    pub fn new(
+        device_id: impl Into<String>,
+        user_id: impl Into<String>,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        Self {
+            id: None,
+            device_id: device_id.into(),
+            user_id: user_id.into(),
+            start_ts,
+            end_ts,
+            primary_app_bundle_id: None,
+            primary_app_name: None,
+            primary_domain: None,
+            dominant_title: None,
+            representative_text: None,
+            coverage_score: 0.0,
+            snapshot_count: 0,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+/// Retrieval-oriented document derived from a context session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionRetrievalDoc {
+    pub id: Option<i64>,
+    pub session_id: i64,
+    pub device_id: String,
+    pub user_id: String,
+    pub source_kind: String,
+    pub chunk_start_ts: i64,
+    pub chunk_end_ts: i64,
+    pub app_name: Option<String>,
+    pub browser_domain: Option<String>,
+    pub window_title: Option<String>,
+    pub document_title: Option<String>,
+    pub raw_visible_text: String,
+    pub contextual_retrieval_text: String,
+    pub capture_quality: f64,
+    pub context_version: i64,
+    pub session_position: i64,
+    pub session_count: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl SessionRetrievalDoc {
+    pub fn new(
+        session_id: i64,
+        device_id: impl Into<String>,
+        user_id: impl Into<String>,
+        chunk_start_ts: i64,
+        chunk_end_ts: i64,
+    ) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        Self {
+            id: None,
+            session_id,
+            device_id: device_id.into(),
+            user_id: user_id.into(),
+            source_kind: "context_session".to_string(),
+            chunk_start_ts,
+            chunk_end_ts,
+            app_name: None,
+            browser_domain: None,
+            window_title: None,
+            document_title: None,
+            raw_visible_text: String::new(),
+            contextual_retrieval_text: String::new(),
+            capture_quality: 0.0,
+            context_version: 1,
+            session_position: 0,
+            session_count: 1,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+// ============================================================
 // RECORDER TYPES (OCR frames, video chunks)
 // ============================================================
 
@@ -155,7 +341,7 @@ impl StorageTier {
             StorageTier::Cold => "cold",
         }
     }
-    
+
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "warm" => StorageTier::Warm,
@@ -232,15 +418,18 @@ impl OcrFrame {
             text_quality: None,
         }
     }
-    
+
     /// Get the activity type as enum (if set)
     pub fn get_activity_type(&self) -> Option<crate::activity_classifier::ActivityType> {
-        self.activity_type.as_ref().map(|s| crate::activity_classifier::ActivityType::from_str(s))
+        self.activity_type
+            .as_ref()
+            .map(|s| crate::activity_classifier::ActivityType::from_str(s))
     }
-    
+
     /// Get keywords as a vector (if set)
     pub fn get_keywords(&self) -> Vec<String> {
-        self.keywords.as_ref()
+        self.keywords
+            .as_ref()
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or_default()
     }
@@ -390,7 +579,7 @@ impl SyncStatus {
             SyncStatus::Failed => "failed",
         }
     }
-    
+
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "synced" => SyncStatus::Synced,
@@ -421,8 +610,8 @@ pub struct DailyRollup {
     pub user_id: String,
     pub total_active_ms: i64,
     pub total_afk_ms: i64,
-    pub app_summaries: Option<String>,  // JSON
-    pub domain_summaries: Option<String>,  // JSON
+    pub app_summaries: Option<String>,    // JSON
+    pub domain_summaries: Option<String>, // JSON
     pub updated_at: i64,
 }
 
@@ -445,7 +634,7 @@ pub struct OcrEmbedding {
 pub struct SearchResult {
     pub frame: OcrFrame,
     pub distance: f32,
-    pub relevance_score: f32,  // 1.0 - distance (higher is better)
+    pub relevance_score: f32, // 1.0 - distance (higher is better)
 }
 
 /// Semantic search options
@@ -474,28 +663,28 @@ impl SearchOptions {
             ..Default::default()
         }
     }
-    
+
     pub fn with_time_range(mut self, start: i64, end: i64) -> Self {
         self.time_range = Some((start, end));
         self
     }
-    
+
     pub fn with_min_relevance(mut self, min: f32) -> Self {
         self.min_relevance = Some(min);
         self
     }
-    
+
     pub fn with_apps(mut self, apps: Vec<String>) -> Self {
         self.app_filter = Some(apps);
         self
     }
-    
+
     /// Filter by activity types (coding, browsing, messaging, etc.)
     pub fn with_activity_types(mut self, types: Vec<String>) -> Self {
         self.activity_type_filter = Some(types);
         self
     }
-    
+
     /// Set minimum text quality score
     pub fn with_min_text_quality(mut self, min: f64) -> Self {
         self.min_text_quality = Some(min);
@@ -523,7 +712,7 @@ impl MigrationResult {
     pub fn is_success(&self) -> bool {
         self.errors.is_empty()
     }
-    
+
     pub fn total_migrated(&self) -> i64 {
         self.activity_events_migrated
             + self.afk_events_migrated
@@ -536,20 +725,13 @@ impl MigrationResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_activity_event_duration() {
-        let event = ActivityEvent::new(
-            "device1",
-            "user1",
-            1000,
-            2000,
-            "com.test.app",
-            "Test App",
-        );
+        let event = ActivityEvent::new("device1", "user1", 1000, 2000, "com.test.app", "Test App");
         assert_eq!(event.duration_ms(), 1000);
     }
-    
+
     #[test]
     fn test_storage_tier_serde() {
         assert_eq!(StorageTier::Hot.as_str(), "hot");
@@ -557,20 +739,20 @@ mod tests {
         assert_eq!(StorageTier::from_str("COLD"), StorageTier::Cold);
         assert_eq!(StorageTier::from_str("unknown"), StorageTier::Hot);
     }
-    
+
     #[test]
     fn test_sync_status_serde() {
         assert_eq!(SyncStatus::Pending.as_str(), "pending");
         assert_eq!(SyncStatus::from_str("synced"), SyncStatus::Synced);
         assert_eq!(SyncStatus::from_str("FAILED"), SyncStatus::Failed);
     }
-    
+
     #[test]
     fn test_search_options_builder() {
         let opts = SearchOptions::new(10)
             .with_time_range(1000, 2000)
             .with_min_relevance(0.5);
-        
+
         assert_eq!(opts.limit, 10);
         assert_eq!(opts.time_range, Some((1000, 2000)));
         assert_eq!(opts.min_relevance, Some(0.5));

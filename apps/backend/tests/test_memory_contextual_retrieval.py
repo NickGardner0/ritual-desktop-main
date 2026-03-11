@@ -12,7 +12,8 @@ from services.memory_cloud_query_service import (
     _build_recap_diversity_metrics,
     _select_diverse_recap_evidence,
 )
-from services.watcher_service_search import query_memory_impl
+from services.memory_story_service import build_story_plan, detect_story_renderer_kind
+from services.watcher_service_search import query_memory_impl, search_context_memory_impl
 
 
 class _DummyWatcherService:
@@ -78,7 +79,770 @@ def _create_empty_memory_db(path: str) -> None:
     conn.close()
 
 
+def _create_context_memory_db(path: str, now_ms: int) -> None:
+    conn = sqlite3.connect(path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE context_snapshots (
+            id INTEGER PRIMARY KEY,
+            device_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            activity_event_id INTEGER,
+            session_id INTEGER,
+            ts INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            app_bundle_id TEXT NOT NULL,
+            app_name TEXT NOT NULL,
+            window_title TEXT,
+            browser_url TEXT,
+            browser_domain TEXT,
+            tab_title TEXT,
+            document_title TEXT,
+            visible_text_raw TEXT NOT NULL DEFAULT '',
+            visible_text_norm TEXT NOT NULL DEFAULT '',
+            capture_quality REAL NOT NULL DEFAULT 0.0,
+            capture_components_json TEXT,
+            ax_richness_score REAL NOT NULL DEFAULT 0.0,
+            selected_text_present INTEGER NOT NULL DEFAULT 0,
+            document_path TEXT,
+            ax_source TEXT,
+            capture_trigger TEXT,
+            trigger_to_snapshot_ms INTEGER,
+            ui_elements_json TEXT,
+            dedup_key TEXT NOT NULL,
+            is_sensitive_redacted INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE session_retrieval_docs (
+            id INTEGER PRIMARY KEY,
+            session_id INTEGER NOT NULL UNIQUE,
+            device_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'context_session',
+            chunk_start_ts INTEGER NOT NULL,
+            chunk_end_ts INTEGER NOT NULL,
+            app_name TEXT,
+            browser_domain TEXT,
+            window_title TEXT,
+            document_title TEXT,
+            raw_visible_text TEXT NOT NULL DEFAULT '',
+            contextual_retrieval_text TEXT NOT NULL DEFAULT '',
+            capture_quality REAL NOT NULL DEFAULT 0.0,
+            context_version INTEGER NOT NULL DEFAULT 1,
+            session_position INTEGER NOT NULL DEFAULT 0,
+            session_count INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO session_retrieval_docs (
+            id, session_id, device_id, user_id, source_kind, chunk_start_ts, chunk_end_ts,
+            app_name, browser_domain, window_title, document_title, raw_visible_text,
+            contextual_retrieval_text, capture_quality, context_version, session_position,
+            session_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            1,
+            77,
+            "device-1",
+            "user-1",
+            "context_session",
+            now_ms - 120_000,
+            now_ms - 60_000,
+            "Google Chrome",
+            "app.ritual.so",
+            "Ritual dashboard",
+            "Chat",
+            "Ritual dashboard visible chat context and implementation notes",
+            "App: Google Chrome | Domain: app.ritual.so | Title: Ritual dashboard | Visible content: Ritual dashboard visible chat context and implementation notes",
+            0.97,
+            1,
+            0,
+            2,
+            now_ms - 120_000,
+            now_ms - 60_000,
+        ),
+    )
+    cursor.execute(
+        """
+        INSERT INTO context_snapshots (
+            id, device_id, user_id, activity_event_id, session_id, ts, source_type,
+            app_bundle_id, app_name, window_title, browser_url, browser_domain, tab_title,
+            document_title, visible_text_raw, visible_text_norm, capture_quality,
+            capture_components_json, ax_richness_score, selected_text_present, document_path,
+            ax_source, capture_trigger, trigger_to_snapshot_ms, ui_elements_json, dedup_key,
+            is_sensitive_redacted, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            10,
+            "device-1",
+            "user-1",
+            None,
+            77,
+            now_ms - 70_000,
+            "browser_extension",
+            "com.google.Chrome",
+            "Google Chrome",
+            "Ritual dashboard",
+            "https://app.ritual.so/chat",
+            "app.ritual.so",
+            "Chat",
+            "Chat",
+            "A lower-priority raw snapshot body",
+            "a lower-priority raw snapshot body",
+            0.55,
+            "[\"document_title\",\"browser_tab\",\"visible_text\"]",
+            0.0,
+            0,
+            None,
+            None,
+            "browser_heartbeat",
+            None,
+            None,
+            "snapshot-dedup-1",
+            0,
+            now_ms - 70_000,
+            now_ms - 70_000,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
 class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
+    def test_detect_story_renderer_prefers_app_drilldown_over_daypart(self):
+        renderer = detect_story_renderer_kind(
+            "What was I doing in Cursor this morning?",
+            "semantic_lookup",
+        )
+        self.assertEqual(renderer, "app_drilldown")
+
+    def test_story_plan_extracts_work_items_claims_and_renderer(self):
+        now_ms = int(time.time() * 1000)
+        citations = [
+            {
+                "evidence_id": "e1",
+                "timestamp": now_ms - 40_000,
+                "app_name": "Cursor",
+                "window_title": "ritual-desktop-main | apps/backend/services/watcher_service_search.py",
+                "document_title": "watcher_service_search.py",
+                "browser_domain": "",
+                "session_key": "session-cursor",
+                "snippet": "Implement search_context_memory renderer and fix recap claim cards in watcher_service_search.py",
+                "parent_context": "Cursor / ritual-desktop-main / watcher_service_search.py",
+                "score": 0.91,
+                "source": "context_session",
+            },
+            {
+                "evidence_id": "e2",
+                "timestamp": now_ms - 30_000,
+                "app_name": "Google Chrome",
+                "window_title": "Anthropic contextual retrieval article",
+                "document_title": "Anthropic contextual retrieval",
+                "browser_domain": "anthropic.com",
+                "session_key": "session-browser",
+                "snippet": "Read Anthropic contextual retrieval article and compare retrieval diversity metrics for Ritual search",
+                "score": 0.82,
+                "source": "context_session",
+            },
+            {
+                "evidence_id": "e3",
+                "timestamp": now_ms - 20_000,
+                "app_name": "Things 3",
+                "window_title": "Today",
+                "document_title": "Today",
+                "browser_domain": "",
+                "session_key": "session-things",
+                "snippet": "Finalize Ritual landing page and ship vector search overhaul for launch day",
+                "score": 0.79,
+                "source": "context_session",
+            },
+        ]
+
+        story_plan = build_story_plan(
+            citations,
+            query="What did I work on this morning?",
+            intent="broad_overview",
+        )
+
+        self.assertIsInstance(story_plan, dict)
+        self.assertIsInstance(story_plan.get("main_event"), dict)
+        self.assertGreater(len(story_plan.get("work_items") or []), 0)
+        self.assertGreater(len(story_plan.get("document_items") or []), 0)
+        self.assertGreater(len(story_plan.get("claim_cards") or []), 0)
+        self.assertGreater(len(story_plan.get("timeline_segments") or []), 0)
+        self.assertIn("renderer", story_plan)
+
+    def test_story_plan_separates_personal_and_research_from_work(self):
+        now_ms = int(time.time() * 1000)
+        citations = [
+            {
+                "evidence_id": "w1",
+                "timestamp": now_ms - 60_000,
+                "app_name": "Codex",
+                "window_title": "ritual-desktop-main",
+                "document_title": "watcher_service_search.py",
+                "browser_domain": "",
+                "session_key": "session-work",
+                "snippet": "Implement context memory recap renderer and fix sessionization in watcher_service_search.py",
+                "parent_context": "Codex / ritual-desktop-main / watcher_service_search.py",
+                "score": 0.95,
+                "source": "context_session",
+            },
+            {
+                "evidence_id": "r1",
+                "timestamp": now_ms - 40_000,
+                "app_name": "Google Chrome",
+                "window_title": "Mobbin - dashboard inspiration - Google Chrome - Nick",
+                "document_title": "Mobbin dashboard inspiration",
+                "browser_domain": "mobbin.com",
+                "session_key": "session-research",
+                "snippet": "Browsing dashboard inspiration and UI patterns for the activity breakdown redesign",
+                "score": 0.82,
+                "source": "context_session",
+            },
+            {
+                "evidence_id": "p1",
+                "timestamp": now_ms - 20_000,
+                "app_name": "Perplexity",
+                "window_title": "Perplexity",
+                "document_title": "Perplexity",
+                "browser_domain": "",
+                "session_key": "session-personal",
+                "snippet": "What benefits does glycine provide for the body/brain and how soon can they be felt/noticed?",
+                "score": 0.87,
+                "source": "context_session",
+            },
+        ]
+
+        story_plan = build_story_plan(
+            citations,
+            query="What did I work on today?",
+            intent="broad_overview",
+        )
+
+        self.assertEqual((story_plan.get("main_event") or {}).get("activity_class"), "work")
+        self.assertTrue(any(item.get("activity_class") == "design_inspiration" for item in story_plan.get("research_browsing") or []))
+        self.assertTrue(any(item.get("activity_class") in {"personal", "entertainment"} for item in story_plan.get("personal_activity") or []))
+        self.assertEqual((story_plan.get("renderer") or {}).get("kind"), "broad_overview")
+        self.assertTrue(any(item.get("parent_contexts") for item in (story_plan.get("document_items") or [])))
+        self.assertGreater((story_plan.get("metrics") or {}).get("claim_grounding_rate", 0.0), 0.0)
+        self.assertIn("specific_tasks", story_plan)
+        self.assertTrue(any("ritual" in task.lower() for task in (story_plan.get("specific_tasks") or [])))
+        claim_kinds = {str(card.get("claim_kind")) for card in (story_plan.get("claim_cards") or [])}
+        self.assertIn("document_worked_on", claim_kinds)
+        self.assertIn("main_event", claim_kinds)
+
+    def test_story_plan_prefers_grounded_task_titles_over_window_shell_noise(self):
+        now_ms = int(time.time() * 1000)
+        citations = [
+            {
+                "evidence_id": "paper-1",
+                "timestamp": now_ms - 30_000,
+                "app_name": "Paper",
+                "window_title": "Scratchpad · Paper",
+                "document_title": "Scratchpad · Paper",
+                "browser_domain": "",
+                "session_key": "session-paper",
+                "snippet": "Can you help me redesign this Activity Breakdown card that shows app/browser usage statistics? Make the design look polished and sharp.",
+                "score": 0.96,
+                "source": "context_snapshot",
+            },
+            {
+                "evidence_id": "codex-1",
+                "timestamp": now_ms - 20_000,
+                "app_name": "Codex",
+                "window_title": "Codex",
+                "document_title": "Codex",
+                "browser_domain": "",
+                "session_key": "session-codex",
+                "snippet": "Add files and more. Ask for follow-up changes. Implement the screen activity recap formatter and route broad overview queries to context memory instead of habit analytics.",
+                "score": 0.94,
+                "source": "context_snapshot",
+            },
+            {
+                "evidence_id": "x-noise",
+                "timestamp": now_ms - 10_000,
+                "app_name": "Google Chrome",
+                "window_title": "Notifications / X",
+                "document_title": "Notifications / X",
+                "browser_domain": "x.com",
+                "session_key": "session-x",
+                "snippet": "To view keyboard shortcuts, press question mark. Notifications / X.",
+                "score": 0.9,
+                "source": "context_snapshot",
+            },
+        ]
+
+        story_plan = build_story_plan(
+            citations,
+            query="What did I work on today?",
+            intent="broad_overview",
+        )
+
+        main_event_title = str((story_plan.get("main_event") or {}).get("title") or "").lower()
+        tasks = [str(task).lower() for task in (story_plan.get("concrete_tasks_completed") or [])]
+        self.assertNotIn("quick look", main_event_title)
+        self.assertNotIn("notifications / x", main_event_title)
+        self.assertNotIn("add files and more", " ".join(tasks))
+        self.assertNotIn("ask for follow-up changes", " ".join(tasks))
+        self.assertTrue(
+            "activity breakdown card" in main_event_title
+            or any("activity breakdown card" in task for task in tasks)
+            or any("context memory" in task for task in tasks)
+        )
+
+    async def test_search_context_memory_prefers_session_retrieval_docs(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            memory_db_path = f"{tmp}/memory.db"
+            _create_context_memory_db(memory_db_path, now_ms)
+
+            with patch(
+                "services.watcher_service_search.get_local_watcher_db_path_impl",
+                return_value=memory_db_path,
+            ), patch(
+                "services.watcher_service_search.get_local_activity_db_path_impl",
+                return_value=memory_db_path,
+            ):
+                result = await search_context_memory_impl(
+                    service=_DummyWatcherService(),
+                    user_id="user-1",
+                    query="ritual dashboard implementation notes",
+                    days_back=1,
+                    limit=5,
+                    allow_legacy_fallback=False,
+                )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["mode_used"], "context-session-docs")
+        self.assertEqual(result["result_count"], 1)
+        first = result["results"][0]
+        self.assertEqual(first["session_id"], 77)
+        self.assertEqual(first["source_type"], "context_session")
+        self.assertGreater(first["capture_quality"], 0.9)
+        self.assertIn("implementation notes", first["snippet"].lower())
+        self.assertIsInstance(result.get("story_plan"), dict)
+        self.assertIsInstance(result.get("renderer"), dict)
+        self.assertGreater((result.get("debug") or {}).get("claim_count", 0), 0)
+        self.assertGreater(len((result.get("story_plan") or {}).get("document_items") or []), 0)
+
+    async def test_search_context_memory_overview_prefers_snapshots_and_filters_browser_noise(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            memory_db_path = f"{tmp}/memory.db"
+            conn = sqlite3.connect(memory_db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE context_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    activity_event_id INTEGER,
+                    session_id INTEGER,
+                    ts INTEGER NOT NULL,
+                    source_type TEXT NOT NULL,
+                    app_bundle_id TEXT NOT NULL,
+                    app_name TEXT NOT NULL,
+                    window_title TEXT,
+                    browser_url TEXT,
+                    browser_domain TEXT,
+                    tab_title TEXT,
+                    document_title TEXT,
+                    visible_text_raw TEXT NOT NULL DEFAULT '',
+                    visible_text_norm TEXT NOT NULL DEFAULT '',
+                    capture_quality REAL NOT NULL DEFAULT 0.0,
+                    capture_components_json TEXT,
+                    ax_richness_score REAL NOT NULL DEFAULT 0.0,
+                    selected_text_present INTEGER NOT NULL DEFAULT 0,
+                    document_path TEXT,
+                    ax_source TEXT,
+                    capture_trigger TEXT,
+                    trigger_to_snapshot_ms INTEGER,
+                    ui_elements_json TEXT,
+                    dedup_key TEXT NOT NULL,
+                    is_sensitive_redacted INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE session_retrieval_docs (
+                    id INTEGER PRIMARY KEY,
+                    session_id INTEGER NOT NULL UNIQUE,
+                    device_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    source_kind TEXT NOT NULL DEFAULT 'context_session',
+                    chunk_start_ts INTEGER NOT NULL,
+                    chunk_end_ts INTEGER NOT NULL,
+                    app_name TEXT,
+                    browser_domain TEXT,
+                    window_title TEXT,
+                    document_title TEXT,
+                    raw_visible_text TEXT NOT NULL DEFAULT '',
+                    contextual_retrieval_text TEXT NOT NULL DEFAULT '',
+                    capture_quality REAL NOT NULL DEFAULT 0.0,
+                    context_version INTEGER NOT NULL DEFAULT 1,
+                    session_position INTEGER NOT NULL DEFAULT 0,
+                    session_count INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO session_retrieval_docs (
+                    id, session_id, device_id, user_id, source_kind, chunk_start_ts, chunk_end_ts,
+                    app_name, browser_domain, window_title, document_title, raw_visible_text,
+                    contextual_retrieval_text, capture_quality, context_version, session_position,
+                    session_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    1,
+                    7,
+                    "device-1",
+                    "user-1",
+                    "context_session",
+                    now_ms - 30 * 60_000,
+                    now_ms - 5 * 60_000,
+                    "ritual-desktop",
+                    "paper.design",
+                    "Quick Look",
+                    "Quick Look",
+                    "Quick Look\nMCP • Paper - Google Chrome - Nick\nCodex | Ask for follow-up changes",
+                    "Quick Look Paper Google Chrome Codex",
+                    0.55,
+                    1,
+                    0,
+                    1,
+                    now_ms - 30 * 60_000,
+                    now_ms - 5 * 60_000,
+                ),
+            )
+            snapshot_rows = [
+                (
+                    10,
+                    "device-1",
+                    "user-1",
+                    None,
+                    7,
+                    now_ms - 10 * 60_000,
+                    "browser_extension",
+                    "com.google.Chrome",
+                    "Google Chrome",
+                    "Notifications / X",
+                    "https://x.com/notifications",
+                    "x.com",
+                    "Notifications / X",
+                    "Notifications / X",
+                    "To view keyboard shortcuts, press question mark. Notifications / X.",
+                    "to view keyboard shortcuts notifications x",
+                    0.98,
+                    "[\"document_title\",\"browser_tab\",\"visible_text\"]",
+                    0.0,
+                    0,
+                    None,
+                    None,
+                    "browser_heartbeat",
+                    None,
+                    None,
+                    "noise-1",
+                    0,
+                    now_ms - 10 * 60_000,
+                    now_ms - 10 * 60_000,
+                ),
+                (
+                    11,
+                    "device-1",
+                    "user-1",
+                    None,
+                    7,
+                    now_ms - 11 * 60_000,
+                    "macos_accessibility",
+                    "app.paper",
+                    "Paper",
+                    "Scratchpad · Paper",
+                    "",
+                    "",
+                    "",
+                    "Scratchpad · Paper",
+                    "Can you help me redesign this Activity Breakdown card that shows app/browser usage statistics? Make the design look polished and sharp.",
+                    "can you help me redesign this activity breakdown card that shows app browser usage statistics make the design look polished and sharp",
+                    0.98,
+                    "[\"document_identity\",\"focused_node_text\",\"nearby_structural_text\"]",
+                    0.91,
+                    1,
+                    "/Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/components/analytics/activity-breakdown-card.tsx",
+                    "focused",
+                    "ax_event",
+                    420,
+                    None,
+                    "paper-1",
+                    0,
+                    now_ms - 11 * 60_000,
+                    now_ms - 11 * 60_000,
+                ),
+                (
+                    12,
+                    "device-1",
+                    "user-1",
+                    None,
+                    7,
+                    now_ms - 12 * 60_000,
+                    "macos_accessibility",
+                    "app.codex",
+                    "Codex",
+                    "Codex",
+                    "",
+                    "",
+                    "",
+                    "Codex",
+                    "Implement the screen activity recap formatter and route broad overview queries to context memory instead of habit analytics.",
+                    "implement the screen activity recap formatter and route broad overview queries to context memory instead of habit analytics",
+                    0.96,
+                    "[\"focused_node_text\",\"nearby_structural_text\"]",
+                    0.88,
+                    0,
+                    None,
+                    "focused",
+                    "ax_event",
+                    650,
+                    None,
+                    "codex-1",
+                    0,
+                    now_ms - 12 * 60_000,
+                    now_ms - 12 * 60_000,
+                ),
+            ]
+            cursor.executemany(
+                """
+                INSERT INTO context_snapshots (
+                    id, device_id, user_id, activity_event_id, session_id, ts, source_type,
+                    app_bundle_id, app_name, window_title, browser_url, browser_domain, tab_title,
+                    document_title, visible_text_raw, visible_text_norm, capture_quality,
+                    capture_components_json, ax_richness_score, selected_text_present, document_path,
+                    ax_source, capture_trigger, trigger_to_snapshot_ms, ui_elements_json, dedup_key,
+                    is_sensitive_redacted, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                snapshot_rows,
+            )
+            conn.commit()
+            conn.close()
+
+            with patch(
+                "services.watcher_service_search.get_local_watcher_db_path_impl",
+                return_value=memory_db_path,
+            ), patch(
+                "services.watcher_service_search.get_local_activity_db_path_impl",
+                return_value=memory_db_path,
+            ):
+                result = await search_context_memory_impl(
+                    service=_DummyWatcherService(),
+                    user_id="user-1",
+                    query="What did I work on today?",
+                    days_back=7,
+                    limit=5,
+                    allow_legacy_fallback=False,
+                )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["days_back"], 1)
+        self.assertIn(result["mode_used"], {"context-session-docs", "context-snapshots"})
+        self.assertGreaterEqual(result["result_count"], 1)
+        top_windows = [str(item.get("window_title") or "") for item in (result.get("results") or [])]
+        self.assertFalse(any("Notifications / X" == window for window in top_windows))
+        tasks = (result.get("story_plan") or {}).get("concrete_tasks_completed") or []
+        self.assertTrue(any("activity breakdown card" in str(task).lower() or "context memory" in str(task).lower() for task in tasks))
+        main_event_title = str(((result.get("story_plan") or {}).get("main_event") or {}).get("title") or "").lower()
+        self.assertNotIn("quick look", main_event_title)
+        self.assertNotIn("notifications / x", main_event_title)
+
+    async def test_search_context_memory_app_drilldown_hard_filters_to_requested_app(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            memory_db_path = f"{tmp}/memory.db"
+            conn = sqlite3.connect(memory_db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE context_snapshots (
+                    id INTEGER PRIMARY KEY,
+                    device_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    activity_event_id INTEGER,
+                    session_id INTEGER,
+                    ts INTEGER NOT NULL,
+                    source_type TEXT NOT NULL,
+                    app_bundle_id TEXT NOT NULL,
+                    app_name TEXT NOT NULL,
+                    window_title TEXT,
+                    browser_url TEXT,
+                    browser_domain TEXT,
+                    tab_title TEXT,
+                    document_title TEXT,
+                    visible_text_raw TEXT NOT NULL DEFAULT '',
+                    visible_text_norm TEXT NOT NULL DEFAULT '',
+                    capture_quality REAL NOT NULL DEFAULT 0.0,
+                    capture_components_json TEXT,
+                    ax_richness_score REAL NOT NULL DEFAULT 0.0,
+                    selected_text_present INTEGER NOT NULL DEFAULT 0,
+                    document_path TEXT,
+                    ax_source TEXT,
+                    capture_trigger TEXT,
+                    trigger_to_snapshot_ms INTEGER,
+                    ui_elements_json TEXT,
+                    dedup_key TEXT NOT NULL,
+                    is_sensitive_redacted INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE session_retrieval_docs (
+                    id INTEGER PRIMARY KEY,
+                    session_id INTEGER NOT NULL UNIQUE,
+                    device_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    source_kind TEXT NOT NULL DEFAULT 'context_session',
+                    chunk_start_ts INTEGER NOT NULL,
+                    chunk_end_ts INTEGER NOT NULL,
+                    app_name TEXT,
+                    browser_domain TEXT,
+                    window_title TEXT,
+                    document_title TEXT,
+                    raw_visible_text TEXT NOT NULL DEFAULT '',
+                    contextual_retrieval_text TEXT NOT NULL DEFAULT '',
+                    capture_quality REAL NOT NULL DEFAULT 0.0,
+                    context_version INTEGER NOT NULL DEFAULT 1,
+                    session_position INTEGER NOT NULL DEFAULT 0,
+                    session_count INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """
+            )
+            cursor.executemany(
+                """
+                INSERT INTO context_snapshots (
+                    id, device_id, user_id, activity_event_id, session_id, ts, source_type,
+                    app_bundle_id, app_name, window_title, browser_url, browser_domain, tab_title,
+                    document_title, visible_text_raw, visible_text_norm, capture_quality,
+                    capture_components_json, ax_richness_score, selected_text_present, document_path,
+                    ax_source, capture_trigger, trigger_to_snapshot_ms, ui_elements_json, dedup_key,
+                    is_sensitive_redacted, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        21,
+                        "device-1",
+                        "user-1",
+                        None,
+                        9,
+                        now_ms - 45_000,
+                        "macos_accessibility_deep",
+                        "com.todesktop.230313mzl4w4u92",
+                        "Cursor",
+                        "ritual-desktop-main",
+                        "",
+                        "",
+                        "",
+                        "watcher_service_search.py",
+                        "Implement app drilldown result scoping and fix Cursor recap quality in watcher_service_search.py",
+                        "implement app drilldown result scoping and fix cursor recap quality in watcher_service_search.py",
+                        0.98,
+                        "[\"document_identity\",\"selected_text\",\"focused_node_text\"]",
+                        0.94,
+                        1,
+                        "/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/watcher_service_search.py",
+                        "focused",
+                        "ax_event",
+                        210,
+                        None,
+                        "cursor-1",
+                        0,
+                        now_ms - 45_000,
+                        now_ms - 45_000,
+                    ),
+                    (
+                        22,
+                        "device-1",
+                        "user-1",
+                        None,
+                        10,
+                        now_ms - 40_000,
+                        "browser_extension",
+                        "com.google.Chrome",
+                        "Google Chrome",
+                        "OpenWearables docs",
+                        "https://docs.openwearables.io/sdk",
+                        "docs.openwearables.io",
+                        "iOS SDK",
+                        "iOS SDK",
+                        "OpenWearables iOS SDK reference and system overview docs.",
+                        "openwearables ios sdk reference and system overview docs",
+                        0.97,
+                        "[\"browser_tab\",\"visible_text\"]",
+                        0.0,
+                        0,
+                        None,
+                        None,
+                        "browser_heartbeat",
+                        None,
+                        None,
+                        "chrome-1",
+                        0,
+                        now_ms - 40_000,
+                        now_ms - 40_000,
+                    ),
+                ],
+            )
+            conn.commit()
+            conn.close()
+
+            with patch(
+                "services.watcher_service_search.get_local_watcher_db_path_impl",
+                return_value=memory_db_path,
+            ), patch(
+                "services.watcher_service_search.get_local_activity_db_path_impl",
+                return_value=memory_db_path,
+            ):
+                result = await search_context_memory_impl(
+                    service=_DummyWatcherService(),
+                    user_id="user-1",
+                    query="What was I doing in Cursor this morning?",
+                    days_back=1,
+                    limit=10,
+                    allow_legacy_fallback=False,
+                )
+
+        self.assertTrue(result["success"])
+        self.assertEqual((result.get("renderer") or {}).get("kind"), "app_drilldown")
+        self.assertGreaterEqual(result["result_count"], 1)
+        self.assertTrue(all(str(item.get("app_name") or "").lower() == "cursor" for item in (result.get("results") or [])))
+        self.assertTrue(all(str(item.get("app_name") or "").lower() == "cursor" for item in (result.get("citations") or [])))
+        top_snippets = " ".join(str(item.get("snippet") or "") for item in (result.get("results") or []))
+        self.assertIn("cursor recap quality", top_snippets.lower())
+
     def test_diverse_recap_selector_limits_sessions_apps_and_prefers_bucket_coverage(self):
         base = 1_700_000_000_000
         apps = ["Cursor", "Things 3", "Google Chrome", "Finder", "Calendar"]
@@ -92,6 +856,7 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
                     "chunk_id": f"chunk-{idx}",
                     "session_key": f"session-{session_idx}",
                     "app_name": apps[idx % len(apps)],
+                    "browser_domain": f"domain-{idx % 4}.example",
                     "chunk_end_ts": base + (bucket_offset * 2 * 60 * 60 * 1000),
                     "chunk_start_ts": base + (bucket_offset * 2 * 60 * 60 * 1000) - 30_000,
                     "context_version": 3,
@@ -113,6 +878,7 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(count <= 4 for count in session_counts.values()))
         self.assertTrue(all(count <= 5 for count in app_counts.values()))
         self.assertGreaterEqual(metrics["distinct_time_buckets"], 4)
+        self.assertEqual(metrics["distinct_domains"], 4)
         self.assertEqual(metrics["context_version_mix"].get("3"), 20)
 
     async def test_broad_overview_cloud_query_exposes_recap_debug_contract(self):
@@ -148,6 +914,7 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
                         "final_evidence_count": 20,
                         "distinct_sessions": 6,
                         "distinct_apps": 4,
+                        "distinct_domains": 3,
                         "distinct_time_buckets": 5,
                         "context_version_mix": {"3": 20},
                         "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=raw_text_compact",
@@ -219,15 +986,24 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result.get("recap_debug"), dict)
         self.assertEqual(result["recap_debug"]["distinct_sessions"], 6)
         self.assertEqual(result["recap_debug"]["distinct_apps"], 4)
+        self.assertEqual(result["recap_debug"]["distinct_domains"], 3)
         self.assertEqual(result["recap_debug"]["distinct_time_buckets"], 5)
         self.assertEqual(result["recap_debug"]["candidate_count_raw"], 168)
         self.assertEqual(result["recap_debug"]["candidate_count_active"], 165)
         self.assertIsInstance((result.get("semantic_truth") or {}).get("recap_outline"), dict)
+        self.assertIsInstance((result.get("semantic_truth") or {}).get("story_plan"), dict)
+        self.assertIsInstance((result.get("semantic_truth") or {}).get("renderer"), dict)
         self.assertIn("main_workstreams", result["semantic_truth"]["recap_outline"])
         self.assertIn("apps_and_tools_used", result["semantic_truth"]["recap_outline"])
         self.assertIn("specific_tasks", result["semantic_truth"]["recap_outline"])
+        self.assertIn("document_items", result["semantic_truth"]["recap_outline"])
+        self.assertIn("timeline_segments", result["semantic_truth"]["recap_outline"])
         self.assertIn("strongest_evidence", result["semantic_truth"]["recap_outline"])
         self.assertIn("uncertainty_or_conflicts", result["semantic_truth"]["recap_outline"])
+        self.assertIn("main_event", result["semantic_truth"]["recap_outline"])
+        self.assertIn("claim_cards", result["semantic_truth"]["recap_outline"])
+        self.assertGreater((result.get("recap_debug") or {}).get("claim_count", 0), 0)
+        self.assertIn("main_event_work_item_id", result["recap_debug"])
 
     async def test_recap_eval_queries_require_grounded_hybrid_metrics(self):
         now_ms = int(time.time() * 1000)
@@ -328,6 +1104,8 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(result["retrieval_tier"], "cloud_hybrid")
                         self.assertGreater((result.get("retrieval_debug") or {}).get("candidate_count_raw", 0), 0)
                         self.assertGreater((result.get("retrieval_debug") or {}).get("rerank_items_count", 0), 0)
+                        self.assertIsInstance((result.get("semantic_truth") or {}).get("renderer"), dict)
+                        self.assertGreater((result.get("retrieval_debug") or {}).get("claim_count", 0), 0)
                         if intent == "broad_overview":
                             self.assertGreaterEqual((result.get("recap_debug") or {}).get("distinct_time_buckets", 0), 4)
 

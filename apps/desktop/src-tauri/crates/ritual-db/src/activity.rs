@@ -198,6 +198,65 @@ impl<'a> ActivityOps<'a> {
         
         Ok(result as i64)
     }
+
+    /// Clamp stale browser-extension events so a broken open interval cannot span for hours.
+    pub async fn clamp_stale_browser_extension_events(
+        &self,
+        device_id: &str,
+        stale_before_ts: i64,
+        max_span_ms: i64,
+    ) -> Result<i64> {
+        let result = self.conn.execute(
+            r#"
+            UPDATE activity_events
+            SET ts_end = ts_start + ?
+            WHERE device_id = ?
+              AND source = 'browser_extension'
+              AND ts_end > ts_start
+              AND (ts_end - ts_start) > ?
+              AND ts_end <= ?
+            "#,
+            libsql::params![max_span_ms, device_id, max_span_ms, stale_before_ts],
+        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(result as i64)
+    }
+
+    /// Delete exact duplicate browser-extension events, keeping the earliest row.
+    pub async fn delete_duplicate_browser_extension_events(
+        &self,
+        device_id: &str,
+        lookback_ts: i64,
+    ) -> Result<i64> {
+        let result = self.conn.execute(
+            r#"
+            DELETE FROM activity_events
+            WHERE id IN (
+                SELECT newer.id
+                FROM activity_events AS newer
+                JOIN activity_events AS older
+                  ON older.id < newer.id
+                 AND older.device_id = newer.device_id
+                 AND older.user_id = newer.user_id
+                 AND older.source = 'browser_extension'
+                 AND newer.source = 'browser_extension'
+                 AND older.ts_start = newer.ts_start
+                 AND older.ts_end = newer.ts_end
+                 AND COALESCE(older.app_bundle_id, '') = COALESCE(newer.app_bundle_id, '')
+                 AND COALESCE(older.app_name, '') = COALESCE(newer.app_name, '')
+                 AND COALESCE(older.window_title, '') = COALESCE(newer.window_title, '')
+                 AND COALESCE(older.browser_url, '') = COALESCE(newer.browser_url, '')
+                 AND COALESCE(older.browser_domain, '') = COALESCE(newer.browser_domain, '')
+                 AND COALESCE(older.is_incognito, 0) = COALESCE(newer.is_incognito, 0)
+                WHERE newer.device_id = ?
+                  AND newer.ts_start >= ?
+            )
+            "#,
+            libsql::params![device_id, lookback_ts],
+        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(result as i64)
+    }
     
     // ========================================================================
     // AFK EVENT OPERATIONS
@@ -785,5 +844,61 @@ mod tests {
         assert!(!summary.is_empty());
         assert_eq!(summary[0].bundle_id, "com.test.app");
         assert_eq!(summary[0].event_count, 5);
+    }
+
+    #[tokio::test]
+    async fn test_clamp_stale_browser_extension_events() {
+        let (_db, conn, _temp) = create_test_db().await;
+        let ops = ActivityOps::new(&conn);
+
+        let mut event = ActivityEvent::new(
+            "device1",
+            "user1",
+            1_000,
+            91_000,
+            "com.google.Chrome",
+            "Google Chrome",
+        );
+        event.source = "browser_extension".to_string();
+        let id = ops.insert_activity_event(&event).await.unwrap();
+
+        let clamped = ops
+            .clamp_stale_browser_extension_events("device1", 120_000, 15_000)
+            .await
+            .unwrap();
+        assert_eq!(clamped, 1);
+
+        let repaired = ops.get_activity_event(id).await.unwrap().unwrap();
+        assert_eq!(repaired.ts_end, 16_000);
+    }
+
+    #[tokio::test]
+    async fn test_delete_duplicate_browser_extension_events() {
+        let (_db, conn, _temp) = create_test_db().await;
+        let ops = ActivityOps::new(&conn);
+
+        let mut first = ActivityEvent::new(
+            "device1",
+            "user1",
+            1_000,
+            2_000,
+            "com.google.Chrome",
+            "Google Chrome",
+        );
+        first.source = "browser_extension".to_string();
+        first.browser_domain = Some("example.com".to_string());
+        first.window_title = Some("Example".to_string());
+        ops.insert_activity_event(&first).await.unwrap();
+
+        let mut duplicate = first.clone();
+        duplicate.created_at += 1;
+        ops.insert_activity_event(&duplicate).await.unwrap();
+
+        let deleted = ops
+            .delete_duplicate_browser_extension_events("device1", 0)
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(ops.get_event_count("device1").await.unwrap(), 1);
     }
 }

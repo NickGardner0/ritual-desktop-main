@@ -83,7 +83,7 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
 
   return (
     <div
-      className="mx-auto grid w-full max-w-[920px] grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"
+      className="mx-auto grid w-full max-w-[888px] grid-cols-1 gap-[5px] sm:grid-cols-2 lg:grid-cols-4"
     >
       {validHabits.map((habit, index) => {
         const currentValue = Number.isFinite(habit.display_value)

@@ -103,6 +103,9 @@ class ScreenSearchResponse(BaseModel):
     warning: Optional[str] = None
     freshness: Optional[Dict] = None
     confidence: Optional[Dict] = None
+    story_plan: Optional[Dict] = None
+    renderer: Optional[Dict] = None
+    debug: Optional[Dict] = None
     source_db: Optional[str] = None
     error: Optional[str] = None
 
@@ -143,11 +146,23 @@ class MemoryChunkIngestItem(BaseModel):
     logical_chunk_id: Optional[str] = None
     chunk_start_ts: int
     chunk_end_ts: int
+    source_kind: Optional[str] = None
+    session_id: Optional[str] = None
     app_name: Optional[str] = None
     window_title: Optional[str] = None
+    document_title: Optional[str] = None
     browser_domain: Optional[str] = None
     text_compact: Optional[str] = None
+    raw_text_compact: Optional[str] = None
+    contextual_text_compact: Optional[str] = None
+    raw_visible_text: Optional[str] = None
+    contextual_retrieval_text: Optional[str] = None
+    context_version: Optional[int] = None
+    session_position: Optional[int] = None
+    session_count: Optional[int] = None
+    session_key: Optional[str] = None
     quality_score: Optional[float] = 0.0
+    capture_quality: Optional[float] = None
     source_frame_ids: Optional[List[int]] = None
     content_hash: Optional[str] = None
 

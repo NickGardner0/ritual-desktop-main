@@ -83,6 +83,30 @@ interface ScreenRecordingsDebug {
   status: string;
   retrieval_tier?: string;
   warning?: string;
+  strong_signal_short_circuit?: {
+    exact_match?: boolean;
+    top_score?: number;
+    runner_up_score?: number;
+    source_type?: string;
+    provider_doc_id?: string;
+  } | null;
+  rerank_cache_hit?: boolean;
+  candidate_limit_applied?: number | Record<string, unknown>;
+  rerank_candidates_considered?: number;
+  retrieval_lists?: Array<{
+    source?: string;
+    query_type?: string;
+    query_types?: string[];
+    result_count?: number;
+    candidate_count?: number;
+    candidate_limit?: number;
+  }>;
+  rrf_trace?: Array<{
+    doc_id?: string;
+    top_rank?: number;
+    top_rank_bonus?: number;
+    total_score?: number;
+  }>;
   source_counts?: {
     hybrid?: number;
     text?: number;
@@ -689,7 +713,41 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
                 sources h:{debug.source_counts.hybrid || 0} t:{debug.source_counts.text || 0} a:{debug.source_counts.activity || 0}
               </span>
             )}
+            {typeof debug.rerank_cache_hit === 'boolean' && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                rerank cache: {debug.rerank_cache_hit ? 'hit' : 'miss'}
+              </span>
+            )}
+            {debug.rerank_candidates_considered !== undefined && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                rerank candidates: {debug.rerank_candidates_considered}
+              </span>
+            )}
+            {debug.strong_signal_short_circuit && (
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+                short-circuit: {debug.strong_signal_short_circuit.exact_match ? 'exact' : 'dominant lexical'}
+              </span>
+            )}
           </div>
+          {debug.retrieval_lists && debug.retrieval_lists.length > 0 && (
+            <div className="mt-2 text-[10px] text-[#707070] space-y-1">
+              <div>
+                retrieval lanes: {debug.retrieval_lists.map((item) => `${item.source || 'unknown'}(${item.result_count ?? item.candidate_count ?? item.candidate_limit ?? 0})`).join(', ')}
+              </div>
+            </div>
+          )}
+          {debug.rrf_trace && debug.rrf_trace.length > 0 && (
+            <div className="mt-1 text-[10px] text-[#707070]">
+              top fused docs: {debug.rrf_trace.slice(0, 3).map((item) => `${item.doc_id || 'unknown'}@${item.top_rank || 0}`).join(', ')}
+            </div>
+          )}
+          {debug.candidate_limit_applied !== undefined && (
+            <div className="mt-1 text-[10px] text-[#707070]">
+              candidate limits: {typeof debug.candidate_limit_applied === 'number'
+                ? debug.candidate_limit_applied
+                : JSON.stringify(debug.candidate_limit_applied)}
+            </div>
+          )}
           {debug.warning && (
             <div className="text-[10px] text-amber-700 mt-2">
               {debug.warning}

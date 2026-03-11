@@ -53,8 +53,11 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
             logical_chunk_id TEXT,
             chunk_start_ts INTEGER NOT NULL,
             chunk_end_ts INTEGER NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'legacy_ocr_chunk',
+            session_id TEXT,
             app_name TEXT,
             window_title TEXT,
+            document_title TEXT,
             browser_domain TEXT,
             text_compact TEXT NOT NULL,
             raw_text_compact TEXT NOT NULL DEFAULT '',
@@ -64,6 +67,7 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
             session_position INTEGER NOT NULL DEFAULT 0,
             session_chunk_count INTEGER NOT NULL DEFAULT 1,
             quality_score REAL NOT NULL DEFAULT 0.0,
+            capture_quality REAL NOT NULL DEFAULT 0.0,
             source_frame_ids_json TEXT,
             content_hash TEXT NOT NULL,
             provider_doc_id TEXT,
@@ -139,6 +143,19 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_memory_provider_deletes_status_next
         ON memory_provider_deletes(status, next_retry_at, updated_at);
+
+        CREATE TABLE IF NOT EXISTS memory_rerank_cache (
+            cache_key TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            score REAL NOT NULL,
+            expires_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_rerank_cache_expires
+        ON memory_rerank_cache(expires_at);
         """
     )
 
@@ -147,9 +164,13 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "memory_chunks", "raw_text_compact", "TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(conn, "memory_chunks", "contextual_text_compact", "TEXT NOT NULL DEFAULT ''")
     _add_column_if_missing(conn, "memory_chunks", "context_version", "INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(conn, "memory_chunks", "source_kind", "TEXT NOT NULL DEFAULT 'legacy_ocr_chunk'")
+    _add_column_if_missing(conn, "memory_chunks", "session_id", "TEXT")
+    _add_column_if_missing(conn, "memory_chunks", "document_title", "TEXT")
     _add_column_if_missing(conn, "memory_chunks", "session_key", "TEXT")
     _add_column_if_missing(conn, "memory_chunks", "session_position", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "memory_chunks", "session_chunk_count", "INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(conn, "memory_chunks", "capture_quality", "REAL NOT NULL DEFAULT 0.0")
 
     # These indexes depend on logical_chunk_id and must be created after the
     # column migration for pre-existing local DBs.
@@ -185,6 +206,21 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
         WHERE COALESCE(TRIM(contextual_text_compact), '') = ''
         """
     )
+    conn.execute(
+        """
+        UPDATE memory_chunks
+        SET source_kind = 'legacy_ocr_chunk'
+        WHERE COALESCE(TRIM(source_kind), '') = ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE memory_chunks
+        SET capture_quality = quality_score
+        WHERE COALESCE(capture_quality, 0.0) <= 0.0
+          AND COALESCE(quality_score, 0.0) > 0.0
+        """
+    )
 
     now_ms = _now_ms()
     conn.execute(
@@ -193,6 +229,14 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
             (id, pending_jobs, failed_jobs, updated_at)
         VALUES
             (1, 0, 0, ?)
+        """,
+        (now_ms,),
+    )
+
+    conn.execute(
+        """
+        DELETE FROM memory_rerank_cache
+        WHERE expires_at <= ?
         """,
         (now_ms,),
     )
@@ -344,3 +388,69 @@ def get_memory_query_observability(window_minutes: int = 60) -> Dict[str, Any]:
             "max": int(latencies[-1]) if latencies else 0,
         },
     }
+
+
+def get_rerank_cache_score(cache_key: str) -> float | None:
+    if not cache_key:
+        return None
+    now_ms = _now_ms()
+    with get_memory_db() as conn:
+        row = conn.execute(
+            """
+            SELECT score
+            FROM memory_rerank_cache
+            WHERE cache_key = ?
+              AND expires_at > ?
+            LIMIT 1
+            """,
+            (cache_key, now_ms),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return float(row["score"])
+    except Exception:
+        return None
+
+
+def set_rerank_cache_score(
+    *,
+    cache_key: str,
+    provider: str,
+    model: str,
+    score: float,
+    ttl_ms: int,
+) -> None:
+    if not cache_key:
+        return
+    now_ms = _now_ms()
+    expires_at = now_ms + max(1, int(ttl_ms))
+    with get_memory_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO memory_rerank_cache (
+                cache_key,
+                provider,
+                model,
+                score,
+                expires_at,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                provider = excluded.provider,
+                model = excluded.model,
+                score = excluded.score,
+                expires_at = excluded.expires_at,
+                updated_at = excluded.updated_at
+            """,
+            (
+                cache_key,
+                str(provider or "unknown"),
+                str(model or "unknown"),
+                float(score),
+                expires_at,
+                now_ms,
+                now_ms,
+            ),
+        )

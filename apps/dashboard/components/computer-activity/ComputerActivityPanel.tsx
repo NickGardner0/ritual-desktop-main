@@ -8,7 +8,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Monitor, BarChart3, Globe, RefreshCw, X } from 'lucide-react'
+import { Monitor, RefreshCw, X } from 'lucide-react'
 import { TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
 import { useComputerActivity } from '@/lib/computerActivity/useComputerActivity'
 import { RankedBars } from './RankedBars'
@@ -27,8 +27,6 @@ function formatActiveTime(ms: number): { value: string; unit: string } {
   const minutes = ms / 1000 / 60
   return { value: Math.round(minutes).toString(), unit: 'm' }
 }
-
-type ViewTab = 'overview' | 'apps' | 'websites'
 
 const TIME_RANGES: TimeRangePreset[] = ['6H', '12H', '1D', '7D', '30D', '90D', 'ALL']
 
@@ -72,7 +70,6 @@ export function ComputerActivityPanel({
   className = '',
   onDismiss,
 }: ComputerActivityPanelProps) {
-  const [activeTab, setActiveTab] = useState<ViewTab>('overview')
   const [usageSelection, setUsageSelection] = useState<UsageBreakdownSelection>(null)
   const [isUsageExpanded, setIsUsageExpanded] = useState(false)
   const appCardRef = useRef<HTMLDivElement | null>(null)
@@ -178,11 +175,9 @@ export function ComputerActivityPanel({
   
   // Format active time for display
   const activeTime = formatActiveTime(header.primaryValueMs)
-  const rangeDurationMs = Math.max(1, viewModel.range.end - viewModel.range.start)
-  const activePercent = Math.round((header.primaryValueMs / rangeDurationMs) * 100)
   
   return (
-    <div className={`bg-white border border-gray-200 ${className}`}>
+    <div className={`bg-white border border-gray-200 rounded-sm ${className}`}>
       {/* Header */}
       <div className="px-5 pt-4 pb-3">
         <div className="flex items-center justify-between mb-4">
@@ -209,9 +204,9 @@ export function ComputerActivityPanel({
         </div>
 
         {/* Filters Row */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* Time Range Selector */}
-          <div className="flex items-center border border-gray-200">
+          <div className="flex items-center border border-gray-200 rounded-sm overflow-hidden">
             {TIME_RANGES.map((r, index) => (
               <button
                 key={r}
@@ -223,28 +218,6 @@ export function ComputerActivityPanel({
                 } ${index !== 0 ? 'border-l border-gray-200' : ''}`}
               >
                 {r}
-              </button>
-            ))}
-          </div>
-
-          {/* View Tabs */}
-          <div className="flex items-center border border-gray-200">
-            {([
-              { id: 'overview', label: 'Overview', icon: BarChart3 },
-              { id: 'apps', label: 'Apps', icon: Monitor },
-              { id: 'websites', label: 'Websites', icon: Globe },
-            ] as const).map((tab, index) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-[#F3F3F3] text-gray-900 font-medium'
-                    : 'bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3]'
-                } ${index !== 0 ? 'border-l border-gray-200' : ''}`}
-              >
-                <tab.icon className="w-3.5 h-3.5" />
-                {tab.label}
               </button>
             ))}
           </div>
@@ -286,100 +259,99 @@ export function ComputerActivityPanel({
       {!error && hasData && (
         <div className="px-5 pb-5 space-y-4">
           {/* Active Time Summary Card */}
-          <div className="p-4 border border-gray-200 bg-white">
-            <div className="flex items-end gap-2">
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-semibold text-gray-900 tabular-nums">
-                  {activeTime.value}{activeTime.unit}
+          <div className="rounded-sm border border-gray-200 bg-white px-4 py-3">
+            <div className="flex min-w-0 items-baseline gap-2.5">
+              <span className="text-[26px] font-semibold leading-none tracking-[-0.04em] text-[#111827] tabular-nums">
+                {activeTime.value}
+                <span className="ml-[1px] text-[16px] font-medium text-[rgba(39,37,30,0.7)]">
+                  {activeTime.unit}
                 </span>
-                <span className="text-sm text-gray-400">Active Time</span>
-              </div>
+              </span>
+              <span className="text-[13px] font-medium tracking-[-0.02em] text-[rgba(39,37,30,0.56)]">
+                Active time
+              </span>
             </div>
 
-            <div className="mt-2 text-sm text-gray-500 tabular-nums">
-              {activePercent}% of selected range · {apps.length} apps · {domains.length} sites
+            <div className="mt-2 text-[12px] font-medium tracking-[-0.02em] text-[rgba(39,37,30,0.46)]">
+              Across the selected range
             </div>
           </div>
 
           {/* App Usage Section - Two Cards */}
           <div className="grid md:grid-cols-2 gap-4">
             {/* TOP APPS Card */}
-            {(activeTab === 'overview' || activeTab === 'apps') && (
-              <div className="p-4 border border-gray-200 bg-white" ref={appCardRef}>
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                  Top Apps
-                </h3>
-                <RankedBars 
-                  items={apps} 
-                  maxVisible={Infinity} 
-                  type="apps"
-                  selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
-                  onSelect={(item) => handleUsageSelect('app', item.key, item.label)}
-                />
-                {usageSelection?.kind === 'app' && (
-                  <div
-                    className={`transition-all duration-200 ease-out overflow-hidden ${
-                      isUsageExpanded ? 'max-h-[420px] opacity-100 mt-3' : 'max-h-0 opacity-0 pointer-events-none'
-                    }`}
-                    aria-hidden={!isUsageExpanded}
-                  >
-                    <UsageBreakdownCard
-                      kind="app"
-                      label={usageSelection.label}
-                      itemKey={usageSelection.key}
-                      rangeLabel={breakdownRange.rangeLabel}
-                      startDate={breakdownRange.start}
-                      endDate={breakdownRange.end}
-                      points={breakdownData?.points || []}
-                      totalSeconds={breakdownData?.totalSeconds || 0}
-                      isLoading={isBreakdownLoading}
-                      error={breakdownError instanceof Error ? breakdownError.message : null}
-                      hint={breakdownRange.hint}
-                      onClose={() => setIsUsageExpanded(false)}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="p-4 border border-gray-200 bg-white rounded-sm" ref={appCardRef}>
+              <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+                Top Apps
+              </h3>
+              <RankedBars 
+                items={apps} 
+                maxVisible={Infinity} 
+                type="apps"
+                selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
+                onSelect={(item) => handleUsageSelect('app', item.key, item.label)}
+              />
+              {usageSelection?.kind === 'app' && (
+                <div
+                  className={`transition-all duration-200 ease-out overflow-hidden ${
+                    isUsageExpanded ? 'max-h-[420px] opacity-100 mt-3' : 'max-h-0 opacity-0 pointer-events-none'
+                  }`}
+                  aria-hidden={!isUsageExpanded}
+                >
+                  <UsageBreakdownCard
+                    kind="app"
+                    label={usageSelection.label}
+                    itemKey={usageSelection.key}
+                    rangeLabel={breakdownRange.rangeLabel}
+                    startDate={breakdownRange.start}
+                    endDate={breakdownRange.end}
+                    points={breakdownData?.points || []}
+                    totalSeconds={breakdownData?.totalSeconds || 0}
+                    isLoading={isBreakdownLoading}
+                    error={breakdownError instanceof Error ? breakdownError.message : null}
+                    hint={breakdownRange.hint}
+                    onClose={() => setIsUsageExpanded(false)}
+                  />
+                </div>
+              )}
+            </div>
             
             {/* TOP WEBSITES Card */}
-            {(activeTab === 'overview' || activeTab === 'websites') && (
-              <div className="p-4 border border-gray-200 bg-white" ref={websiteCardRef}>
-                <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
-                  Top Websites
-                </h3>
-                <RankedBars 
-                  items={domains} 
-                  maxVisible={Infinity} 
-                  type="domains"
-                  selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
-                  onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
-                />
-                {usageSelection?.kind === 'website' && (
-                  <div
-                    className={`transition-all duration-200 ease-out overflow-hidden ${
-                      isUsageExpanded ? 'max-h-[420px] opacity-100 mt-3' : 'max-h-0 opacity-0 pointer-events-none'
-                    }`}
-                    aria-hidden={!isUsageExpanded}
-                  >
-                    <UsageBreakdownCard
-                      kind="website"
-                      label={usageSelection.label}
-                      itemKey={usageSelection.key}
-                      rangeLabel={breakdownRange.rangeLabel}
-                      startDate={breakdownRange.start}
-                      endDate={breakdownRange.end}
-                      points={breakdownData?.points || []}
-                      totalSeconds={breakdownData?.totalSeconds || 0}
-                      isLoading={isBreakdownLoading}
-                      error={breakdownError instanceof Error ? breakdownError.message : null}
-                      hint={breakdownRange.hint}
-                      onClose={() => setIsUsageExpanded(false)}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="p-4 border border-gray-200 bg-white rounded-sm" ref={websiteCardRef}>
+              <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+                Top Websites
+              </h3>
+              <RankedBars 
+                items={domains} 
+                maxVisible={Infinity} 
+                type="domains"
+                selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
+                onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
+              />
+              {usageSelection?.kind === 'website' && (
+                <div
+                  className={`transition-all duration-200 ease-out overflow-hidden ${
+                    isUsageExpanded ? 'max-h-[420px] opacity-100 mt-3' : 'max-h-0 opacity-0 pointer-events-none'
+                  }`}
+                  aria-hidden={!isUsageExpanded}
+                >
+                  <UsageBreakdownCard
+                    kind="website"
+                    label={usageSelection.label}
+                    itemKey={usageSelection.key}
+                    rangeLabel={breakdownRange.rangeLabel}
+                    startDate={breakdownRange.start}
+                    endDate={breakdownRange.end}
+                    points={breakdownData?.points || []}
+                    totalSeconds={breakdownData?.totalSeconds || 0}
+                    isLoading={isBreakdownLoading}
+                    error={breakdownError instanceof Error ? breakdownError.message : null}
+                    hint={breakdownRange.hint}
+                    onClose={() => setIsUsageExpanded(false)}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

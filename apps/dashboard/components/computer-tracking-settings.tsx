@@ -30,6 +30,7 @@ interface WatcherConfig {
   afk_timeout_seconds?: number;
   url_mode?: string;
   track_incognito?: boolean;
+  browser_heartbeat_port?: number;
 }
 
 interface WatcherStatus {
@@ -43,8 +44,21 @@ interface BrowserExtensionDiagnostics {
   watcher_reachable: boolean;
   heartbeat_live: boolean;
   watcher_server_url: string | null;
+  current_listener_port: number | null;
+  watcher_pid: number | null;
+  duplicate_watcher_detected: boolean;
+  browser_heartbeat_port_mismatch: boolean;
   last_browser_extension_heartbeat_ts: number | null;
   seconds_since_browser_extension_heartbeat: number | null;
+  context_enabled: boolean;
+  context_quality: string;
+  recent_context_snapshot_count: number;
+  recent_browser_snapshot_count: number;
+  recent_accessibility_snapshot_count: number;
+  recent_metadata_fallback_count: number;
+  last_context_snapshot_ts: number | null;
+  seconds_since_context_snapshot: number | null;
+  context_note: string;
   detection_note: string;
 }
 
@@ -443,7 +457,8 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           // V2 settings
           afk_timeout_seconds: afkTimeout,
           url_mode: 'domain',
-          track_incognito: false
+          track_incognito: false,
+          browser_heartbeat_port: 8766,
         };
         
         await invoke('start_watcher', { config });
@@ -511,7 +526,8 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           excluded_bundle_ids: excludedApps,
           afk_timeout_seconds: afkTimeout,
           url_mode: 'domain',
-          track_incognito: false
+          track_incognito: false,
+          browser_heartbeat_port: 8766,
         };
         await invoke('start_watcher', { config });
         
@@ -628,6 +644,14 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
               </span>
             </div>
             <div className="flex items-center justify-between">
+              <span>Listener port / PID</span>
+              <span className="text-gray-700">
+                {browserDiagnostics?.current_listener_port ?? '-'}
+                {' / '}
+                {browserDiagnostics?.watcher_pid ?? '-'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
               <span>Heartbeat live</span>
               <span className={browserDiagnostics?.heartbeat_live ? 'text-green-700' : 'text-red-700'}>
                 {browserDiagnostics?.heartbeat_live
@@ -635,8 +659,47 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
                   : 'No'}
               </span>
             </div>
+            <div className="flex items-center justify-between">
+              <span>Duplicate watcher</span>
+              <span className={browserDiagnostics?.duplicate_watcher_detected ? 'text-red-700' : 'text-green-700'}>
+                {browserDiagnostics?.duplicate_watcher_detected ? 'Detected' : 'No'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Port mismatch</span>
+              <span className={browserDiagnostics?.browser_heartbeat_port_mismatch ? 'text-amber-700' : 'text-green-700'}>
+                {browserDiagnostics?.browser_heartbeat_port_mismatch ? 'Detected' : 'No'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Context enabled</span>
+              <span className={browserDiagnostics?.context_enabled ? 'text-green-700' : 'text-amber-700'}>
+                {browserDiagnostics?.context_enabled
+                  ? `Yes (${browserDiagnostics.context_quality})`
+                  : browserDiagnostics?.context_quality || 'Unknown'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Recent snapshots</span>
+              <span className="text-gray-700">
+                {browserDiagnostics?.recent_context_snapshot_count ?? 0}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Browser / native / fallback</span>
+              <span className="text-gray-700">
+                {(browserDiagnostics?.recent_browser_snapshot_count ?? 0)}
+                {' / '}
+                {(browserDiagnostics?.recent_accessibility_snapshot_count ?? 0)}
+                {' / '}
+                {(browserDiagnostics?.recent_metadata_fallback_count ?? 0)}
+              </span>
+            </div>
             {browserDiagnostics?.detection_note && (
               <p className="text-[11px] text-gray-500">{browserDiagnostics.detection_note}</p>
+            )}
+            {browserDiagnostics?.context_note && (
+              <p className="text-[11px] text-gray-500">{browserDiagnostics.context_note}</p>
             )}
           </div>
         </div>
@@ -662,7 +725,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
           <button
             onClick={syncToHabit}
             disabled={isSyncing}
-            className="px-2.5 py-1 text-xs text-gray-700 border border-gray-300 hover:bg-gray-100 transition-colors disabled:opacity-50"
+            className="px-2.5 py-1 text-xs text-gray-700 border border-gray-300 rounded-sm hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             {isSyncing ? 'Syncing...' : 'Sync Now'}
           </button>
@@ -686,7 +749,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
             <button
               key={option.value}
               onClick={() => setTitleMode(option.value)}
-              className={`py-1.5 px-2 text-xs text-center border transition-colors ${
+              className={`py-1.5 px-2 text-xs text-center border rounded-sm transition-colors ${
                 titleMode === option.value
                   ? 'border-gray-900 bg-gray-100 text-gray-900'
                   : 'border-gray-200 text-gray-600 hover:border-gray-300'

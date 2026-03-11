@@ -14,6 +14,7 @@
 #![allow(dead_code)] // Some fields are kept for future use and debugging
 
 use std::collections::HashSet;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -22,7 +23,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
-use ritual_db::{OcrFrame as RitualOcrFrame, StorageTier as RitualStorageTier};
+use ritual_db::{
+    ContextSnapshot as RitualContextSnapshot, OcrFrame as RitualOcrFrame,
+    StorageTier as RitualStorageTier,
+};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::{debug, error, info, warn};
@@ -52,7 +56,7 @@ use browser::{get_browser_info, is_browser};
 use browser_heartbeat_server::BrowserDbCommand;
 use config::{TitleMode, UrlMode, WatcherConfig};
 use database::WatcherDatabase;
-use macos::get_active_window_info;
+use macos::{dump_accessibility_context, get_active_window_info, get_focused_text_info};
 use sync_queue::SyncQueue;
 
 #[cfg(target_os = "macos")]
@@ -60,7 +64,7 @@ use browser_tracker::{set_active_browser, BrowserTabTracker};
 #[cfg(target_os = "macos")]
 use screen_events::{ScreenEventListener, ScreenEventType};
 #[cfg(target_os = "macos")]
-use window_observer::{observe_app, WindowChangeListener};
+use window_observer::{observe_app, WindowChangeEvent, WindowChangeListener};
 
 /// Ritual Watcher CLI
 #[derive(Parser, Debug)]
@@ -107,9 +111,25 @@ struct Args {
     #[arg(long, default_value = "false")]
     track_incognito: bool,
 
+    /// Local port for the browser heartbeat HTTP server
+    #[arg(long, default_value = "8766")]
+    browser_heartbeat_port: u16,
+
     /// Run in foreground (don't daemonize)
     #[arg(long)]
     foreground: bool,
+
+    /// Dump the macOS accessibility structure for a target pid and exit.
+    #[arg(long)]
+    ax_dump_pid: Option<i32>,
+
+    /// Max descendant depth for AX dump mode.
+    #[arg(long, default_value = "2")]
+    ax_dump_depth: usize,
+
+    /// Max children/siblings per node for AX dump mode.
+    #[arg(long, default_value = "8")]
+    ax_dump_max_children: usize,
 }
 
 /// Activity signature for detecting changes (used for event merging)
@@ -394,6 +414,339 @@ fn normalize_title(title: &str, mode: &TitleMode, truncate_length: usize) -> Str
     }
 }
 
+fn normalize_visible_text(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_lowercase()
+}
+
+fn context_capture_quality(
+    visible_text_norm: &str,
+    source_type: &str,
+    accessibility_quality: Option<f64>,
+) -> f64 {
+    if let Some(score) = accessibility_quality {
+        if !visible_text_norm.trim().is_empty() {
+            return score.clamp(0.0, 0.99);
+        }
+    }
+    if !visible_text_norm.trim().is_empty() {
+        if source_type == "browser_extension" {
+            0.98
+        } else if source_type == "vision_ui_fallback" {
+            accessibility_quality.unwrap_or(0.84).clamp(0.0, 0.99)
+        } else {
+            0.72
+        }
+    } else if source_type == "window_metadata_fallback" {
+        0.25
+    } else {
+        0.4
+    }
+}
+
+fn build_context_dedup_key(
+    ts_ms: u64,
+    source_type: &str,
+    app_bundle_id: &str,
+    browser_domain: Option<&str>,
+    window_title: Option<&str>,
+    document_title: Option<&str>,
+    visible_text_norm: &str,
+) -> String {
+    let bucket = ts_ms / 120_000;
+    let raw = format!(
+        "{}|{}|{}|{}|{}|{}|{}",
+        bucket,
+        source_type.trim().to_lowercase(),
+        app_bundle_id.trim().to_lowercase(),
+        browser_domain.unwrap_or("").trim().to_lowercase(),
+        window_title.unwrap_or("").trim().to_lowercase(),
+        document_title.unwrap_or("").trim().to_lowercase(),
+        visible_text_norm.trim()
+    );
+    format!("ctx-{}", hash_title(&raw))
+}
+
+#[derive(Debug, Clone)]
+struct NativeCaptureTrigger {
+    kind: String,
+    latency_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct VisionUiFallbackResult {
+    #[serde(default)]
+    document_title: Option<String>,
+    #[serde(default)]
+    visible_text_raw: Option<String>,
+    #[serde(default)]
+    visible_text_norm: Option<String>,
+    #[serde(default)]
+    artifact_refs: Vec<String>,
+    #[serde(default)]
+    task_phrases: Vec<String>,
+    #[serde(default)]
+    entities: Vec<String>,
+    #[serde(default)]
+    ui_elements_json: Option<String>,
+}
+
+fn vision_ui_fallback_command() -> Option<String> {
+    env::var("RITUAL_VISION_UI_FALLBACK_COMMAND")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn app_allows_vision_fallback(app_bundle_id: &str, app_name: &str) -> bool {
+    let bundle = app_bundle_id.to_ascii_lowercase();
+    let app = app_name.to_ascii_lowercase();
+    bundle.contains("cursor")
+        || bundle.contains("codex")
+        || bundle.contains("code")
+        || app.contains("cursor")
+        || app.contains("codex")
+}
+
+fn compose_vision_retrieval_text(result: &VisionUiFallbackResult) -> String {
+    let mut parts = Vec::new();
+    if let Some(value) = result.visible_text_raw.as_deref() {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            parts.push(trimmed.to_string());
+        }
+    }
+    if !result.artifact_refs.is_empty() {
+        parts.push(format!("Artifacts: {}", result.artifact_refs.join(", ")));
+    }
+    if !result.task_phrases.is_empty() {
+        parts.push(format!("Tasks: {}", result.task_phrases.join(" | ")));
+    }
+    if !result.entities.is_empty() {
+        parts.push(format!("Entities: {}", result.entities.join(", ")));
+    }
+    parts.join(" | ")
+}
+
+fn merge_visible_text(primary: &str, secondary: &str) -> String {
+    let primary_trimmed = primary.trim();
+    let secondary_trimmed = secondary.trim();
+    if primary_trimmed.is_empty() {
+        return secondary_trimmed.to_string();
+    }
+    if secondary_trimmed.is_empty() {
+        return primary_trimmed.to_string();
+    }
+    let primary_lower = primary_trimmed.to_ascii_lowercase();
+    if primary_lower.contains(&secondary_trimmed.to_ascii_lowercase()) {
+        primary_trimmed.to_string()
+    } else {
+        format!("{primary_trimmed} | {secondary_trimmed}")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn maybe_run_vision_ui_fallback(
+    app_bundle_id: &str,
+    app_name: &str,
+    focused_text_info: &macos::FocusedTextInfo,
+) -> Option<VisionUiFallbackResult> {
+    if focused_text_info.is_sensitive
+        || !app_allows_vision_fallback(app_bundle_id, app_name)
+        || focused_text_info.ax_richness_score >= 0.55
+        || focused_text_info.quality_score >= 0.65
+    {
+        return None;
+    }
+    let command = vision_ui_fallback_command()?;
+    let screenshot_path = env::temp_dir().join(format!(
+        "ritual-vision-fallback-{}-{}.png",
+        std::process::id(),
+        now_ms()
+    ));
+    let capture_status = std::process::Command::new("screencapture")
+        .args(["-x", screenshot_path.to_string_lossy().as_ref()])
+        .status()
+        .ok()?;
+    if !capture_status.success() {
+        let _ = fs::remove_file(&screenshot_path);
+        return None;
+    }
+    let output = std::process::Command::new("/bin/sh")
+        .arg("-lc")
+        .arg(&command)
+        .env("RITUAL_SCREENSHOT_PATH", &screenshot_path)
+        .env("RITUAL_APP_BUNDLE_ID", app_bundle_id)
+        .env("RITUAL_APP_NAME", app_name)
+        .output()
+        .ok()?;
+    let _ = fs::remove_file(&screenshot_path);
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        return None;
+    }
+    serde_json::from_str::<VisionUiFallbackResult>(&stdout).ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn maybe_run_vision_ui_fallback(
+    _app_bundle_id: &str,
+    _app_name: &str,
+    _focused_text_info: &macos::FocusedTextInfo,
+) -> Option<VisionUiFallbackResult> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn derive_native_capture_trigger(
+    active_pid: Option<i32>,
+    now_ms: u64,
+    recent_event: Option<&WindowChangeEvent>,
+) -> NativeCaptureTrigger {
+    if let (Some(pid), Some(event)) = (active_pid, recent_event) {
+        if pid == event.pid {
+            let latency = now_ms.saturating_sub(event.timestamp_ms) as i64;
+            if latency <= 2_500 {
+                return NativeCaptureTrigger {
+                    kind: "ax_event".to_string(),
+                    latency_ms: Some(latency),
+                };
+            }
+        }
+    }
+    NativeCaptureTrigger {
+        kind: "polling".to_string(),
+        latency_ms: None,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn derive_native_capture_trigger(
+    _active_pid: Option<i32>,
+    _now_ms: u64,
+    _recent_event: Option<&()>,
+) -> NativeCaptureTrigger {
+    NativeCaptureTrigger {
+        kind: "polling".to_string(),
+        latency_ms: None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_native_context_snapshot(
+    db: &WatcherDatabase,
+    config: &WatcherConfig,
+    ts_ms: u64,
+    activity_event_id: Option<i64>,
+    app_bundle_id: &str,
+    app_name: &str,
+    window_title: Option<String>,
+    browser_url: Option<String>,
+    browser_domain: Option<String>,
+    document_title: Option<String>,
+    focused_text_info: &macos::FocusedTextInfo,
+    capture_trigger: &NativeCaptureTrigger,
+) {
+    let vision_fallback = maybe_run_vision_ui_fallback(app_bundle_id, app_name, focused_text_info);
+    let vision_text = vision_fallback
+        .as_ref()
+        .map(compose_vision_retrieval_text)
+        .unwrap_or_default();
+    let mut visible_text_raw = merge_visible_text(
+        focused_text_info.text.as_deref().unwrap_or_default(),
+        &vision_text,
+    );
+    let mut visible_text_norm = normalize_visible_text(&visible_text_raw);
+    let mut source_type = if visible_text_norm.is_empty() {
+        "window_metadata_fallback"
+    } else {
+        "macos_accessibility_deep"
+    };
+    if vision_fallback.is_some() && focused_text_info.ax_richness_score < 0.55 {
+        source_type = "vision_ui_fallback";
+    }
+    if visible_text_norm.is_empty() && vision_fallback.is_some() {
+        visible_text_raw = vision_text;
+        visible_text_norm = normalize_visible_text(&visible_text_raw);
+    }
+    let dedup_key = build_context_dedup_key(
+        ts_ms,
+        source_type,
+        app_bundle_id,
+        browser_domain.as_deref(),
+        window_title.as_deref(),
+        document_title.as_deref(),
+        &visible_text_norm,
+    );
+
+    let mut snapshot = RitualContextSnapshot::new(
+        config.device_id.clone(),
+        config.user_id.clone(),
+        ts_ms as i64,
+        source_type,
+        app_bundle_id.to_string(),
+        app_name.to_string(),
+        dedup_key,
+    );
+    snapshot.activity_event_id = activity_event_id;
+    snapshot.window_title = window_title;
+    snapshot.browser_url = browser_url;
+    snapshot.browser_domain = browser_domain;
+    snapshot.document_title = document_title;
+    snapshot.visible_text_raw = visible_text_raw;
+    snapshot.visible_text_norm = visible_text_norm;
+    snapshot.capture_quality = context_capture_quality(
+        &snapshot.visible_text_norm,
+        source_type,
+        Some(focused_text_info.quality_score),
+    );
+    if !focused_text_info.capture_components.is_empty() {
+        snapshot.capture_components_json =
+            serde_json::to_string(&focused_text_info.capture_components).ok();
+    }
+    snapshot.ax_richness_score = focused_text_info.ax_richness_score;
+    snapshot.selected_text_present = focused_text_info.selected_text_present;
+    snapshot.document_path = focused_text_info.document_path.clone();
+    snapshot.ax_source = focused_text_info.ax_source.clone();
+    snapshot.capture_trigger = Some(
+        if source_type == "window_metadata_fallback" && capture_trigger.kind == "polling" {
+            "idle_fallback".to_string()
+        } else {
+            capture_trigger.kind.clone()
+        },
+    );
+    snapshot.trigger_to_snapshot_ms = capture_trigger.latency_ms;
+    if let Some(result) = vision_fallback {
+        if snapshot
+            .document_title
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        {
+            snapshot.document_title = result.document_title;
+        }
+        snapshot.ui_elements_json = result.ui_elements_json;
+        let mut components = focused_text_info.capture_components.clone();
+        components.push("vision_ui_fallback".to_string());
+        snapshot.capture_components_json = serde_json::to_string(&components).ok();
+    }
+    snapshot.is_sensitive_redacted = focused_text_info.is_sensitive;
+
+    if let Err(err) = db.record_context_snapshot(&snapshot) {
+        if !is_db_lock_error(&err) {
+            debug!("Failed to persist native context snapshot: {}", err);
+        }
+    }
+}
+
 fn main() {
     // Initialize logging
     tracing_subscriber::fmt()
@@ -411,6 +764,37 @@ fn main() {
     info!("   Title mode: {}", args.title_mode);
     info!("   URL mode: {}", args.url_mode);
     info!("   AFK timeout: {}s", args.afk_timeout);
+
+    if let Some(pid) = args.ax_dump_pid {
+        let active = get_active_window_info().ok().flatten();
+        let bundle_id = active
+            .as_ref()
+            .and_then(|info| (info.pid == Some(pid)).then_some(info.bundle_id.as_str()));
+        let window_title = active
+            .as_ref()
+            .and_then(|info| (info.pid == Some(pid)).then_some(info.window_title.as_deref()))
+            .flatten();
+
+        match dump_accessibility_context(
+            pid,
+            bundle_id,
+            window_title,
+            args.ax_dump_depth,
+            args.ax_dump_max_children,
+        ) {
+            Ok(dump) => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&dump).unwrap_or_else(|_| "{}".to_string())
+                );
+                return;
+            }
+            Err(err) => {
+                error!("AX dump failed for pid {}: {}", pid, err);
+                std::process::exit(1);
+            }
+        }
+    }
 
     // Parse configuration
     let config = WatcherConfig {
@@ -438,6 +822,7 @@ fn main() {
             _ => UrlMode::DomainOnly,
         },
         track_incognito: args.track_incognito,
+        browser_heartbeat_port: args.browser_heartbeat_port,
         pulsetime_seconds: (args.poll_interval as f64 / 1000.0) + 1.0,
     };
 
@@ -805,6 +1190,8 @@ fn run_watcher_loop(
     let window_change_listener = Some(WindowChangeListener::new());
     #[cfg(not(target_os = "macos"))]
     let window_change_listener: Option<()> = None;
+    #[cfg(target_os = "macos")]
+    let mut last_window_change_event: Option<WindowChangeEvent> = None;
 
     // Track screen lock state
     let mut is_screen_locked = false;
@@ -832,6 +1219,38 @@ fn run_watcher_loop(
         );
     }
 
+    let stale_browser_cutoff_ms = now_ms().saturating_sub(90_000);
+    let browser_duplicate_lookback_ms = now_ms().saturating_sub(14 * 24 * 60 * 60 * 1000);
+    match db.clamp_stale_browser_extension_events(
+        &config.device_id,
+        stale_browser_cutoff_ms,
+        15 * 60 * 1000,
+    ) {
+        Ok(repaired) if repaired > 0 => {
+            info!(
+                "🧹 Repaired {} stale browser-extension activity rows on startup",
+                repaired
+            );
+        }
+        Ok(_) => {}
+        Err(err) => warn!("Failed stale browser session repair on startup: {}", err),
+    }
+    match db
+        .delete_duplicate_browser_extension_events(&config.device_id, browser_duplicate_lookback_ms)
+    {
+        Ok(deleted) if deleted > 0 => {
+            info!(
+                "🧹 Removed {} duplicate browser-extension activity rows on startup",
+                deleted
+            );
+        }
+        Ok(_) => {}
+        Err(err) => warn!(
+            "Failed duplicate browser session cleanup on startup: {}",
+            err
+        ),
+    }
+
     while running.load(Ordering::SeqCst) {
         let loop_now = now_ms();
         if sync_queue.is_none() && loop_now >= sync_queue_retry_not_before_ms {
@@ -856,7 +1275,8 @@ fn run_watcher_loop(
                     }
                     sync_queue_retry_not_before_ms =
                         loop_now.saturating_add(sync_queue_retry_delay_ms);
-                    sync_queue_retry_delay_ms = (sync_queue_retry_delay_ms.saturating_mul(2)).min(30_000);
+                    sync_queue_retry_delay_ms =
+                        (sync_queue_retry_delay_ms.saturating_mul(2)).min(30_000);
                 }
             }
         }
@@ -1009,6 +1429,7 @@ fn run_watcher_loop(
             if let Some(ref listener) = window_change_listener {
                 for event in listener.drain() {
                     if !is_screen_locked {
+                        last_window_change_event = Some(event.clone());
                         debug!(
                             "🪟 Window change detected: PID {} - {:?} ({})",
                             event.pid,
@@ -1227,6 +1648,24 @@ fn run_watcher_loop(
                     UrlMode::DomainOnly => (None, browser_info.domain.clone()),
                     UrlMode::Full => (browser_info.url.clone(), browser_info.domain.clone()),
                 };
+                let focused_text_info = info
+                    .pid
+                    .map(|pid| {
+                        get_focused_text_info(
+                            pid,
+                            Some(info.bundle_id.as_str()),
+                            info.window_title.as_deref(),
+                        )
+                    })
+                    .unwrap_or_default();
+                let capture_bundle_id = info.bundle_id.clone();
+                let capture_app_name = info.app_name.clone();
+                let capture_window_title = info.window_title.clone();
+                let capture_document_title = if is_browser(&capture_bundle_id) {
+                    info.window_title.clone()
+                } else {
+                    None
+                };
 
                 // Normalize title based on privacy mode
                 let title_normalized = info
@@ -1338,8 +1777,8 @@ fn run_watcher_loop(
                             last_seen_ts: now,
                             app_name: info.app_name,
                             window_title: info.window_title,
-                            browser_url: tracked_url,
-                            browser_domain: tracked_domain,
+                            browser_url: tracked_url.clone(),
+                            browser_domain: tracked_domain.clone(),
                             is_incognito: browser_info.is_incognito,
                             pid: info.pid,
                         };
@@ -1364,8 +1803,8 @@ fn run_watcher_loop(
                             last_seen_ts: now,
                             app_name: info.app_name,
                             window_title: info.window_title,
-                            browser_url: tracked_url,
-                            browser_domain: tracked_domain,
+                            browser_url: tracked_url.clone(),
+                            browser_domain: tracked_domain.clone(),
                             is_incognito: browser_info.is_incognito,
                             pid: info.pid,
                         };
@@ -1380,6 +1819,34 @@ fn run_watcher_loop(
                         );
                         current_session = Some(new_session);
                     }
+                }
+
+                if !is_afk {
+                    let activity_event_id = current_session
+                        .as_ref()
+                        .and_then(|session| session.event_id);
+                    #[cfg(target_os = "macos")]
+                    let capture_trigger = derive_native_capture_trigger(
+                        info.pid,
+                        now,
+                        last_window_change_event.as_ref(),
+                    );
+                    #[cfg(not(target_os = "macos"))]
+                    let capture_trigger = derive_native_capture_trigger(info.pid, now, None);
+                    record_native_context_snapshot(
+                        db,
+                        config,
+                        now,
+                        activity_event_id,
+                        &capture_bundle_id,
+                        &capture_app_name,
+                        capture_window_title,
+                        tracked_url,
+                        tracked_domain,
+                        capture_document_title,
+                        &focused_text_info,
+                        &capture_trigger,
+                    );
                 }
             }
             Ok(None) => {
@@ -1442,7 +1909,7 @@ fn run_watcher_loop(
                             config.user_id.clone(),
                             config.track_incognito,
                             url_mode,
-                            browser_heartbeat_server::DEFAULT_PORT,
+                            config.browser_heartbeat_port,
                             browser_extension_last_seen.clone(),
                             browser_db_tx.clone(),
                         ));
@@ -1623,6 +2090,62 @@ fn process_browser_db_commands(
                         } else {
                             let _ = response.send(Err(err));
                         }
+                    }
+                }
+            }
+            Ok(BrowserDbCommand::InsertContextSnapshot {
+                device_id,
+                user_id,
+                activity_event_id,
+                ts,
+                source_type,
+                app_bundle_id,
+                app_name,
+                window_title,
+                browser_url,
+                browser_domain,
+                tab_title,
+                document_title,
+                visible_text_raw,
+                visible_text_norm,
+                capture_quality,
+                dedup_key,
+                is_sensitive_redacted,
+                response,
+            }) => {
+                let mut snapshot = RitualContextSnapshot::new(
+                    device_id,
+                    user_id,
+                    ts as i64,
+                    source_type,
+                    app_bundle_id,
+                    app_name,
+                    dedup_key,
+                );
+                snapshot.activity_event_id = activity_event_id;
+                snapshot.window_title = window_title;
+                snapshot.browser_url = browser_url;
+                snapshot.browser_domain = browser_domain;
+                snapshot.tab_title = tab_title;
+                snapshot.document_title = document_title;
+                snapshot.visible_text_raw = visible_text_raw;
+                snapshot.visible_text_norm = visible_text_norm;
+                snapshot.capture_quality = capture_quality;
+                snapshot.capture_trigger = Some("browser_heartbeat".to_string());
+                snapshot.capture_components_json =
+                    serde_json::to_string(&vec!["document_title", "browser_tab", "visible_text"])
+                        .ok();
+                snapshot.is_sensitive_redacted = is_sensitive_redacted;
+
+                match db.record_context_snapshot(&snapshot) {
+                    Ok(snapshot_id) => {
+                        let _ = response.send(Ok(snapshot_id));
+                    }
+                    Err(err) => {
+                        if is_db_lock_error(&err) {
+                            BROWSER_DB_LOCK_ERRORS.fetch_add(1, Ordering::Relaxed);
+                        }
+                        let _ = response.send(Err(err));
                     }
                 }
             }

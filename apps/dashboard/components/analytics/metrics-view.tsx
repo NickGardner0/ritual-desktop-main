@@ -1940,7 +1940,7 @@ export function MetricsView({
 
       {/* Activity Breakdown panel (timeline + app/website horizontal bars) */}
       {showComputerActivity ? (
-        <div className="mt-8">
+        <div className="mx-auto mt-8 w-full max-w-[888px]">
           <ComputerActivitySection
             startDate={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined}
             endDate={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : undefined}
@@ -1966,7 +1966,7 @@ export function MetricsView({
             className="absolute inset-0 bg-transparent"
             onClick={closeShareModal}
           />
-          <div className="relative z-10 w-[min(92vw,680px)] max-h-[86vh] overflow-hidden rounded-none border border-[rgba(39,37,30,0.12)] bg-white p-3 sm:p-4 shadow-[0_16px_36px_rgba(15,23,42,0.12)]">
+          <div className="relative z-10 w-[min(92vw,680px)] max-h-[86vh] overflow-hidden rounded-sm border border-[rgba(39,37,30,0.12)] bg-white p-3 sm:p-4 shadow-[0_16px_36px_rgba(15,23,42,0.12)]">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-[26px] font-medium leading-[1.02] tracking-[-0.7px] text-[#27251E]">
                 Share screenshot
@@ -1974,7 +1974,7 @@ export function MetricsView({
               <button
                 type="button"
                 onClick={closeShareModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-none border border-[rgba(39,37,30,0.12)] bg-white/80 text-[rgba(39,37,30,0.56)] transition-colors hover:bg-white hover:text-[#27251E]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.12)] bg-white/80 text-[rgba(39,37,30,0.56)] transition-colors hover:bg-white hover:text-[#27251E]"
                 aria-label="Close share screenshot modal"
               >
                 <X className="h-4 w-4" />
@@ -1994,7 +1994,7 @@ export function MetricsView({
                   <img
                     src={shareImageUrl}
                     alt={`${shareLabel} chart screenshot preview`}
-                    className="block h-auto w-full rounded-none object-contain"
+                    className="block h-auto w-full rounded-sm object-contain"
                   />
                 </div>
               ) : (
@@ -2009,7 +2009,7 @@ export function MetricsView({
                 type="button"
                 onClick={copyShareImage}
                 disabled={!shareImageUrl || isCapturing}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-none border border-[rgba(39,37,30,0.1)] bg-[rgba(39,37,30,0.04)] px-2.5 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-colors hover:bg-[rgba(39,37,30,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-border bg-[rgba(39,37,30,0.04)] px-2.5 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-colors hover:bg-[rgba(39,37,30,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Copy className="h-3.5 w-3.5" />
                 {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy Failed' : 'Copy Image'}
@@ -2019,7 +2019,7 @@ export function MetricsView({
                 type="button"
                 onClick={downloadShareImage}
                 disabled={!shareImageUrl || isCapturing}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-none border border-[rgba(39,37,30,0.1)] bg-[rgba(39,37,30,0.04)] px-2.5 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-colors hover:bg-[rgba(39,37,30,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-border bg-[rgba(39,37,30,0.04)] px-2.5 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-colors hover:bg-[rgba(39,37,30,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Download className="h-3.5 w-3.5" />
                 {downloadState === 'done' ? 'Downloaded' : downloadState === 'failed' ? 'Download Failed' : 'Download Image'}

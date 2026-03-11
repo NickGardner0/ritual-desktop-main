@@ -20,6 +20,7 @@ import { HistoryScrubber } from '@/components/history-scrubber';
 import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
+import { isComputerHabitName } from '@/lib/computer-time-habit';
 
 const DateRangePicker = dynamic(
   () => import("@/components/date-range-picker").then(m => ({ default: m.DateRangePicker })),
@@ -68,6 +69,13 @@ interface WeatherTodayPayload {
 interface WeatherTrendPoint {
   observed_at: string;
   temperature_c: number;
+}
+
+interface ComputerDailyRow {
+  day: string;
+  active_hours: number;
+  active_ms: number;
+  events_count: number;
 }
 
 function conditionIcon(conditionCode: string | null | undefined) {
@@ -192,6 +200,7 @@ export function OverviewView({
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
   const [scrubberHoveredValues, setScrubberHoveredValues] = useState<Record<string, number> | null>(null);
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
+  const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
 
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
     setScrubberHoveredDate(date);
@@ -375,6 +384,53 @@ export function OverviewView({
     fetchStats();
   }, [habits, habitLogs.length, dateRange, getToken]);
 
+  useEffect(() => {
+    if (!userLoaded || !isSignedIn || !user) return;
+
+    const controller = new AbortController();
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+    const fetchComputerActivity = async () => {
+      try {
+        const now = new Date();
+        const startDate = format(dateRange?.from || now, 'yyyy-MM-dd');
+        const endDate = format(dateRange?.to || dateRange?.from || now, 'yyyy-MM-dd');
+        const query = `start_date=${startDate}&end_date=${endDate}`;
+        const res = await fetch(`/api/watcher/stats/daily?${query}`, {
+          signal: controller.signal,
+          cache: 'no-store',
+        });
+        if (!res.ok) {
+          throw new Error('Failed to load computer activity');
+        }
+        const payload = await res.json();
+        if (controller.signal.aborted) return;
+        const rows = (payload?.data || [])
+          .map((row: any) => ({
+            day: String(row.day || ''),
+            active_hours: Math.max(0, Number(row.active_hours || 0)),
+            active_ms: Math.max(0, Number(row.active_ms || 0)),
+            events_count: Math.max(0, Number(row.events_count || 0)),
+          }))
+          .filter((row: ComputerDailyRow) => row.day);
+        setComputerActivityDaily(rows);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error('❌ Failed loading overview computer activity:', error);
+        setComputerActivityDaily([]);
+      }
+    };
+
+    fetchComputerActivity();
+    refreshTimer = setInterval(fetchComputerActivity, 60_000);
+    return () => {
+      controller.abort();
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+    };
+  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), userLoaded, isSignedIn, user]);
+
   // Initialize ordered habits
   useEffect(() => {
     if (habits.length > 0) {
@@ -452,6 +508,14 @@ export function OverviewView({
   // Get display text for habit metrics
   const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
     const unitType = habit.unit_type || 'sessions';
+    const isComputerHabit = isComputerHabitName(habit.name);
+
+    if (isComputerHabit && !scrubberHoveredDate) {
+      const totalHours = Math.round(
+        computerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0) * 100
+      ) / 100;
+      return `${totalHours} Hours`;
+    }
     
     if (previewValue !== undefined && previewValue !== null) {
       if (unitType.toLowerCase().includes('hour')) {
@@ -549,7 +613,7 @@ export function OverviewView({
     }
     
     return `${formattedAmount} ${unitType}`;
-  }, [displayLogs, dateRange]);
+  }, [displayLogs, dateRange, computerActivityDaily, scrubberHoveredDate]);
 
   // Detailed stats for tooltip
   const getHabitMetricStats = useCallback((habit: Habit) => {
@@ -557,6 +621,27 @@ export function OverviewView({
       const rounded = Math.round(n * 100) / 100;
       return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
     };
+
+    if (isComputerHabitName(habit.name)) {
+      const rows = computerActivityDaily;
+      const values = rows.map(row => Number(row.active_hours || 0)).filter(value => Number.isFinite(value) && value >= 0);
+      const total = values.reduce((sum, value) => sum + value, 0);
+      const average = values.length ? total / values.length : 0;
+      const min = values.length ? Math.min(...values) : 0;
+      const max = values.length ? Math.max(...values) : 0;
+      const variance = values.length
+        ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
+        : 0;
+      return {
+        unitLabel: 'Hours',
+        sumFormatted: `${formatNum(total)} Hours`,
+        avgFormatted: `${formatNum(average)} Hours`,
+        minFormatted: `${formatNum(min)} Hours`,
+        maxFormatted: `${formatNum(max)} Hours`,
+        stdDevFormatted: `${formatNum(Math.sqrt(variance))} Hours`,
+        daysWithData: values.filter(value => value > 0).length,
+      };
+    }
 
     const stats = cachedStats[habit.id || ''];
 
@@ -593,7 +678,7 @@ export function OverviewView({
       maxFormatted: `0 ${unitLabel}`,
       stdDevFormatted: `0 ${unitLabel}`,
     };
-  }, [cachedStats, statsLoading]);
+  }, [cachedStats, statsLoading, computerActivityDaily]);
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {
@@ -661,7 +746,7 @@ export function OverviewView({
             <div className="relative group">
               <button
                 onClick={() => setShowSelectionModal(true)}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
                 aria-label="Add Habit"
               >
                 <Plus className="w-4 h-4" />
@@ -675,7 +760,7 @@ export function OverviewView({
             <div className="relative group">
               <button
                 onClick={() => setShowImportModal(true)}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-none flex items-center justify-center"
+                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
                 aria-label="Import Data"
               >
                 <Download className="w-4 h-4" />
@@ -697,7 +782,7 @@ export function OverviewView({
 
       {weatherEnabled && (
         <div className="pt-4">
-          <div className="max-w-[500px] mx-auto w-full border border-gray-200 bg-white p-3">
+          <div className="max-w-[500px] mx-auto w-full border border-gray-200 bg-white p-3 rounded-sm">
             {weatherLoading && !weatherCurrent ? (
               <div className="space-y-2 animate-pulse">
                 <div className="h-4 w-40 bg-gray-200" />
@@ -835,7 +920,7 @@ export function OverviewView({
       {/* Delete Confirmation Modal */}
       {habitToDelete && (
         <div className="fixed inset-0 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-none max-w-md w-full mx-4 shadow-lg border border-gray-300">
+          <div className="bg-white p-6 rounded-sm max-w-md w-full mx-4 shadow-lg border border-gray-300">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Delete Habit</h3>
             <p className="text-gray-600 mb-6">
               Are you sure you want to delete this habit? This action cannot be undone.
@@ -844,14 +929,14 @@ export function OverviewView({
               <Button
                 variant="outline"
                 onClick={cancelDelete}
-                className="rounded-none px-3 py-1.5 text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]"
+                className="rounded-sm px-3 py-1.5 text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]"
               >
                 Cancel
               </Button>
               <Button
                 onClick={() => handleDeleteHabit(habitToDelete)}
                 disabled={deletingHabit === habitToDelete}
-                className="rounded-none bg-black hover:bg-gray-800 text-white px-3 py-1.5 text-sm"
+                className="rounded-sm bg-black hover:bg-gray-800 text-white px-3 py-1.5 text-sm"
               >
                 {deletingHabit === habitToDelete ? (
                   <Spinner className="w-4 h-4" />

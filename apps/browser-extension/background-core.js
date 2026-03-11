@@ -24,6 +24,8 @@ export function isSameHeartbeat(a, b) {
     a.url === b.url &&
     a.domain === b.domain &&
     a.title === b.title &&
+    a.document_title === b.document_title &&
+    a.visible_text_norm === b.visible_text_norm &&
     a.audible === b.audible &&
     a.incognito === b.incognito &&
     a.browser_focused === b.browser_focused &&

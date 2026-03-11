@@ -212,8 +212,8 @@
   --accent-foreground: 222.2 47.4% 11.2%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
+  --border: 45 5% 85%;
+  --input: 45 5% 85%;
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
 
@@ -243,8 +243,8 @@
   --accent-foreground: 210 40% 98%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 210 40% 98%;
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
+  --border: 0 0% 11%;
+  --input: 0 0% 11%;
   --ring: 212.7 26.8% 83.9%;
 
   /* macOS sidebar vibrancy tuning knobs (dark mode) */
@@ -262,6 +262,21 @@
   body {
     @apply bg-background text-foreground;
     -webkit-app-region: no-drag;
+  }
+
+  .border-gray-200,
+  .border-gray-300 {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  .hover\:border-gray-300:hover,
+  .focus\:border-gray-300:focus {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  /* Ritual app-wide small-radius treatment for legacy square surfaces. */
+  .rounded-none {
+    border-radius: 0.125rem !important;
   }
 
 

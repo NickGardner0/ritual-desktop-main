@@ -17,6 +17,7 @@ from .watcher_common import (
     MemoryIngestResponse,
     MemoryQueryRequest,
     MemoryQueryResponse,
+    ScreenSearchResponse,
     get_current_user,
 )
 from services.memory_backfill_service import backfill_cloud_from_local_chunks
@@ -278,6 +279,27 @@ async def query_memory(
         raise
     except Exception:
         raise HTTPException(status_code=500, detail="Unable to process memory query.")
+
+
+@router.post("/search-context", response_model=ScreenSearchResponse)
+async def search_context_memory(
+    request: MemoryQueryRequest,
+    current_user=Depends(get_current_user),
+):
+    if not request.query or not request.query.strip():
+        raise HTTPException(status_code=400, detail="query is required")
+
+    try:
+        return await watcher_service.search_context_memory(
+            user_id=current_user["id"],
+            query=request.query,
+            days_back=request.days_back or 7,
+            limit=request.limit or 20,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="Unable to process context memory search.")
 
 
 @router.post("/ingest-chunks", response_model=MemoryIngestResponse)

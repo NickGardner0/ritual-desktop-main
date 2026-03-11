@@ -47,11 +47,23 @@ type MemoryIngestChunk = {
   logical_chunk_id?: string;
   chunk_start_ts: number;
   chunk_end_ts: number;
+  source_kind?: string;
+  session_id?: string;
   app_name?: string;
   window_title?: string;
+  document_title?: string;
   browser_domain?: string;
   text_compact?: string;
+  raw_text_compact?: string;
+  contextual_text_compact?: string;
+  raw_visible_text?: string;
+  contextual_retrieval_text?: string;
+  context_version?: number;
+  session_position?: number;
+  session_count?: number;
+  session_key?: string;
   quality_score?: number;
+  capture_quality?: number;
   source_frame_ids?: number[];
   content_hash?: string;
 };
@@ -96,11 +108,31 @@ function normalizeChunkPayload(raw: unknown): MemoryIngestChunk | null {
     logical_chunk_id: String(value.logical_chunk_id ?? chunkId),
     chunk_start_ts: Math.trunc(startTs),
     chunk_end_ts: Math.trunc(endTs),
+    source_kind: String(value.source_kind ?? ''),
+    session_id: value.session_id != null ? String(value.session_id) : undefined,
     app_name: String(value.app_name ?? ''),
     window_title: String(value.window_title ?? ''),
+    document_title: String(value.document_title ?? ''),
     browser_domain: String(value.browser_domain ?? ''),
     text_compact: String(value.text_compact ?? ''),
+    raw_text_compact: String(value.raw_text_compact ?? value.raw_visible_text ?? ''),
+    contextual_text_compact: String(value.contextual_text_compact ?? value.contextual_retrieval_text ?? value.text_compact ?? ''),
+    raw_visible_text: String(value.raw_visible_text ?? value.raw_text_compact ?? ''),
+    contextual_retrieval_text: String(value.contextual_retrieval_text ?? value.contextual_text_compact ?? value.text_compact ?? ''),
+    context_version: Number.isFinite(Number(value.context_version ?? 0))
+      ? Math.max(1, Math.trunc(Number(value.context_version ?? 1)))
+      : 1,
+    session_position: Number.isFinite(Number(value.session_position ?? 0))
+      ? Math.max(0, Math.trunc(Number(value.session_position ?? 0)))
+      : 0,
+    session_count: Number.isFinite(Number(value.session_count ?? 0))
+      ? Math.max(1, Math.trunc(Number(value.session_count ?? 1)))
+      : 1,
+    session_key: String(value.session_key ?? value.session_id ?? ''),
     quality_score: qualityScore,
+    capture_quality: Number.isFinite(Number(value.capture_quality ?? qualityScore))
+      ? Math.max(0, Math.min(1, Number(value.capture_quality ?? qualityScore)))
+      : qualityScore,
     source_frame_ids: sourceFrameIds,
     content_hash: value.content_hash ? String(value.content_hash) : undefined,
   };

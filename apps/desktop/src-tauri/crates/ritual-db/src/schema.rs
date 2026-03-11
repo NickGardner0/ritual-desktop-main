@@ -13,12 +13,12 @@ use tracing::{debug, info};
 use crate::error::{DatabaseError, Result};
 
 /// Current schema version - increment when making breaking changes
-pub const SCHEMA_VERSION: i32 = 4;
+pub const SCHEMA_VERSION: i32 = 6;
 
 /// Initialize the complete database schema
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     info!("Initializing Ritual database schema v{}", SCHEMA_VERSION);
-    
+
     // Create tables in dependency order
     create_metadata_tables(conn).await?;
     create_activity_tables(conn).await?;
@@ -30,16 +30,16 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     // Apply migrations before indexes so older DBs get new columns (e.g. logical_chunk_id)
     // before we create indexes that reference them.
     apply_migrations(conn).await?;
-    
+
     // Create indexes
     create_indexes(conn).await?;
-    
+
     // Create FTS tables and triggers
     create_fts_tables(conn).await?;
-    
+
     // Record schema version
     record_schema_version(conn, SCHEMA_VERSION).await?;
-    
+
     info!("Schema initialization complete");
     Ok(())
 }
@@ -157,8 +157,157 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_search_chunk_frames_frame
             ON search_chunk_frames(frame_id);
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+        CREATE TABLE IF NOT EXISTS context_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            primary_app_bundle_id TEXT,
+            primary_app_name TEXT,
+            primary_domain TEXT,
+            dominant_title TEXT,
+            representative_text TEXT,
+            coverage_score REAL NOT NULL DEFAULT 0.0,
+            snapshot_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS context_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            activity_event_id INTEGER,
+            session_id INTEGER,
+            ts INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            app_bundle_id TEXT NOT NULL,
+            app_name TEXT NOT NULL,
+            window_title TEXT,
+            browser_url TEXT,
+            browser_domain TEXT,
+            tab_title TEXT,
+            document_title TEXT,
+            visible_text_raw TEXT NOT NULL DEFAULT '',
+            visible_text_norm TEXT NOT NULL DEFAULT '',
+            capture_quality REAL NOT NULL DEFAULT 0.0,
+            capture_components_json TEXT,
+            ax_richness_score REAL NOT NULL DEFAULT 0.0,
+            selected_text_present INTEGER NOT NULL DEFAULT 0,
+            document_path TEXT,
+            ax_source TEXT,
+            capture_trigger TEXT,
+            trigger_to_snapshot_ms INTEGER,
+            ui_elements_json TEXT,
+            dedup_key TEXT NOT NULL,
+            is_sensitive_redacted INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES context_sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY (activity_event_id) REFERENCES activity_events(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS session_retrieval_docs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL UNIQUE,
+            device_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'context_session',
+            chunk_start_ts INTEGER NOT NULL,
+            chunk_end_ts INTEGER NOT NULL,
+            app_name TEXT,
+            browser_domain TEXT,
+            window_title TEXT,
+            document_title TEXT,
+            raw_visible_text TEXT NOT NULL DEFAULT '',
+            contextual_retrieval_text TEXT NOT NULL DEFAULT '',
+            capture_quality REAL NOT NULL DEFAULT 0.0,
+            context_version INTEGER NOT NULL DEFAULT 1,
+            session_position INTEGER NOT NULL DEFAULT 0,
+            session_count INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES context_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL DEFAULT 'project',
+            canonical_name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL,
+            first_seen_ts INTEGER,
+            last_seen_ts INTEGER,
+            salience REAL NOT NULL DEFAULT 0.0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS entity_aliases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_id INTEGER NOT NULL,
+            alias TEXT NOT NULL,
+            normalized_alias TEXT NOT NULL,
+            match_score REAL NOT NULL DEFAULT 0.0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS work_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            normalized_title TEXT NOT NULL,
+            story_kind TEXT NOT NULL DEFAULT 'general',
+            status_hint TEXT,
+            primary_entity_id INTEGER,
+            primary_app TEXT,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            score_main_event REAL NOT NULL DEFAULT 0.0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (primary_entity_id) REFERENCES entities(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS work_item_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            work_item_id INTEGER NOT NULL,
+            session_id INTEGER,
+            snapshot_id INTEGER,
+            evidence_kind TEXT NOT NULL,
+            excerpt TEXT,
+            artifact_key TEXT,
+            timestamp INTEGER NOT NULL,
+            score REAL NOT NULL DEFAULT 0.0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (work_item_id) REFERENCES work_items(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_id) REFERENCES context_sessions(id) ON DELETE SET NULL,
+            FOREIGN KEY (snapshot_id) REFERENCES context_snapshots(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS temporal_segments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            day_key TEXT NOT NULL,
+            segment_type TEXT NOT NULL,
+            start_ts INTEGER NOT NULL,
+            end_ts INTEGER NOT NULL,
+            dominant_work_item_id INTEGER,
+            evidence_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (dominant_work_item_id) REFERENCES work_items(id) ON DELETE SET NULL
+        );
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
     Ok(())
 }
@@ -166,7 +315,7 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
 /// Create metadata and migration tracking tables
 async fn create_metadata_tables(conn: &Connection) -> Result<()> {
     debug!("Creating metadata tables");
-    
+
     conn.execute_batch(
         r#"
         -- Schema version tracking
@@ -175,16 +324,18 @@ async fn create_metadata_tables(conn: &Connection) -> Result<()> {
             applied_at INTEGER NOT NULL,
             description TEXT
         );
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
 /// Create activity tracking tables (from watcher)
 async fn create_activity_tables(conn: &Connection) -> Result<()> {
     debug!("Creating activity tables");
-    
+
     conn.execute_batch(
         r#"
         -- Activity events table
@@ -223,16 +374,18 @@ async fn create_activity_tables(conn: &Connection) -> Result<()> {
             device_id TEXT PRIMARY KEY,
             last_seen_ts INTEGER NOT NULL
         );
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
 /// Create recorder tables (OCR frames, video chunks)
 async fn create_recorder_tables(conn: &Connection) -> Result<()> {
     debug!("Creating recorder tables");
-    
+
     conn.execute_batch(
         r#"
         -- Video chunks table
@@ -280,16 +433,18 @@ async fn create_recorder_tables(conn: &Connection) -> Result<()> {
 
         -- Initialize stats row if not exists
         INSERT OR IGNORE INTO recorder_stats (id) VALUES (1);
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
 /// Create sync queue tables
 async fn create_sync_tables(conn: &Connection) -> Result<()> {
     debug!("Creating sync tables");
-    
+
     conn.execute_batch(
         r#"
         -- Sync queue for backend reliability
@@ -345,16 +500,18 @@ async fn create_sync_tables(conn: &Connection) -> Result<()> {
             FOREIGN KEY (segment_id) REFERENCES activity_segments(id) ON DELETE CASCADE,
             FOREIGN KEY (frame_id) REFERENCES ocr_frames(id) ON DELETE CASCADE
         );
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
 /// Create vector embedding tables
 async fn create_vector_tables(conn: &Connection) -> Result<()> {
     debug!("Creating vector tables");
-    
+
     conn.execute_batch(
         r#"
         -- OCR embeddings for semantic search
@@ -383,16 +540,18 @@ async fn create_vector_tables(conn: &Connection) -> Result<()> {
         
         -- Initialize worker state row if not exists
         INSERT OR IGNORE INTO embedding_worker_state (id, updated_at) VALUES (1, 0);
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
 /// Create all indexes for efficient querying
 async fn create_indexes(conn: &Connection) -> Result<()> {
     debug!("Creating indexes");
-    
+
     conn.execute_batch(
         r#"
         -- Activity event indexes
@@ -478,6 +637,45 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_pipeline_watermarks_updated
             ON pipeline_watermarks(updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts
+            ON context_snapshots(ts);
+
+        CREATE INDEX IF NOT EXISTS idx_context_snapshots_app_ts
+            ON context_snapshots(app_bundle_id, ts);
+
+        CREATE INDEX IF NOT EXISTS idx_context_snapshots_domain_ts
+            ON context_snapshots(browser_domain, ts);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_snapshots_dedup
+            ON context_snapshots(dedup_key);
+
+        CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_ts
+            ON context_snapshots(session_id, ts);
+
+        CREATE INDEX IF NOT EXISTS idx_context_sessions_time
+            ON context_sessions(start_ts, end_ts);
+
+        CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time
+            ON session_retrieval_docs(chunk_start_ts, chunk_end_ts);
+
+        CREATE INDEX IF NOT EXISTS idx_entities_user_norm
+            ON entities(user_id, normalized_name);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_aliases_entity_alias
+            ON entity_aliases(entity_id, normalized_alias);
+
+        CREATE INDEX IF NOT EXISTS idx_work_items_user_time
+            ON work_items(user_id, start_ts, end_ts);
+
+        CREATE INDEX IF NOT EXISTS idx_work_items_entity
+            ON work_items(primary_entity_id, score_main_event DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_work_item_evidence_work_item_ts
+            ON work_item_evidence(work_item_id, timestamp);
+
+        CREATE INDEX IF NOT EXISTS idx_temporal_segments_user_day
+            ON temporal_segments(user_id, day_key, start_ts);
         
         -- Activity segment indexes
         CREATE INDEX IF NOT EXISTS idx_segments_device_ts 
@@ -497,16 +695,18 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
         
         CREATE INDEX IF NOT EXISTS idx_segment_frames_frame 
             ON segment_frames(frame_id);
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     Ok(())
 }
 
 /// Create FTS5 tables and triggers for full-text search
 async fn create_fts_tables(conn: &Connection) -> Result<()> {
     debug!("Creating FTS tables");
-    
+
     // Create FTS virtual table
     conn.execute(
         r#"
@@ -518,33 +718,40 @@ async fn create_fts_tables(conn: &Connection) -> Result<()> {
             content_rowid='id'
         )
         "#,
-        ()
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        (),
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     // Create triggers to keep FTS in sync
     // Note: These may fail if triggers already exist, which is fine
-    let _ = conn.execute(
-        r#"
+    let _ = conn
+        .execute(
+            r#"
         CREATE TRIGGER IF NOT EXISTS ocr_frames_ai AFTER INSERT ON ocr_frames BEGIN
             INSERT INTO ocr_frames_fts(rowid, ocr_text, app_name, window_title)
             VALUES (new.id, new.ocr_text, new.app_name, new.window_title);
         END
         "#,
-        ()
-    ).await;
-    
-    let _ = conn.execute(
-        r#"
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
         CREATE TRIGGER IF NOT EXISTS ocr_frames_ad AFTER DELETE ON ocr_frames BEGIN
             INSERT INTO ocr_frames_fts(ocr_frames_fts, rowid, ocr_text, app_name, window_title)
             VALUES ('delete', old.id, old.ocr_text, old.app_name, old.window_title);
         END
         "#,
-        ()
-    ).await;
-    
-    let _ = conn.execute(
-        r#"
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
         CREATE TRIGGER IF NOT EXISTS ocr_frames_au AFTER UPDATE ON ocr_frames BEGIN
             INSERT INTO ocr_frames_fts(ocr_frames_fts, rowid, ocr_text, app_name, window_title)
             VALUES ('delete', old.id, old.ocr_text, old.app_name, old.window_title);
@@ -552,13 +759,14 @@ async fn create_fts_tables(conn: &Connection) -> Result<()> {
             VALUES (new.id, new.ocr_text, new.app_name, new.window_title);
         END
         "#,
-        ()
-    ).await;
+            (),
+        )
+        .await;
 
     // Existing databases may already have rows in ocr_frames before FTS triggers existed.
     // Rebuild once when the FTS index is empty so historical rows become searchable.
     backfill_fts_if_needed(conn).await?;
-    
+
     Ok(())
 }
 
@@ -575,8 +783,10 @@ async fn backfill_fts_if_needed(conn: &Connection) -> Result<()> {
         );
         conn.execute(
             "INSERT INTO ocr_frames_fts(ocr_frames_fts) VALUES('rebuild')",
-            ()
-        ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
+            (),
+        )
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?;
     }
 
     Ok(())
@@ -588,7 +798,11 @@ async fn needs_fts_rebuild(conn: &Connection) -> Result<bool> {
         ()
     ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
-    if let Some(row) = probe_rows.next().await.map_err(|e| DatabaseError::Schema(e.to_string()))? {
+    if let Some(row) = probe_rows
+        .next()
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?
+    {
         let row_id: i64 = row.get(0).unwrap_or(0);
         let text: String = row.get(1).unwrap_or_default();
         if let Some(token) = extract_probe_token(&text) {
@@ -597,7 +811,11 @@ async fn needs_fts_rebuild(conn: &Connection) -> Result<bool> {
                 libsql::params![row_id, token]
             ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
-            return Ok(match_rows.next().await.map_err(|e| DatabaseError::Schema(e.to_string()))?.is_none());
+            return Ok(match_rows
+                .next()
+                .await
+                .map_err(|e| DatabaseError::Schema(e.to_string()))?
+                .is_none());
         }
     }
 
@@ -617,7 +835,8 @@ async fn count_rows(conn: &Connection, table: &str) -> Result<i64> {
         .await
         .map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
-    let count = rows.next()
+    let count = rows
+        .next()
         .await
         .map_err(|e| DatabaseError::Schema(e.to_string()))?
         .map(|row| row.get::<i64>(0).unwrap_or(0))
@@ -629,12 +848,12 @@ async fn count_rows(conn: &Connection, table: &str) -> Result<i64> {
 /// Record the schema version in the migrations table
 async fn record_schema_version(conn: &Connection, version: i32) -> Result<()> {
     let now = chrono::Utc::now().timestamp_millis();
-    
+
     conn.execute(
         "INSERT OR REPLACE INTO schema_migrations (version, applied_at, description) VALUES (?, ?, ?)",
         libsql::params![version, now, format!("Schema v{}", version)]
     ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+
     Ok(())
 }
 
@@ -642,30 +861,15 @@ async fn record_schema_version(conn: &Connection, version: i32) -> Result<()> {
 /// This adds columns that may be missing from older schema versions
 async fn apply_migrations(conn: &Connection) -> Result<()> {
     debug!("Applying schema migrations...");
-    
+
     // Migration: Add status, error_message, retry_count to ocr_embeddings
     // These columns were added in schema v2
-    let _ = add_column_if_missing(
-        conn, 
-        "ocr_embeddings", 
-        "status", 
-        "TEXT DEFAULT 'ok'"
-    ).await;
-    
-    let _ = add_column_if_missing(
-        conn, 
-        "ocr_embeddings", 
-        "error_message", 
-        "TEXT"
-    ).await;
-    
-    let _ = add_column_if_missing(
-        conn, 
-        "ocr_embeddings", 
-        "retry_count", 
-        "INTEGER DEFAULT 0"
-    ).await;
-    
+    let _ = add_column_if_missing(conn, "ocr_embeddings", "status", "TEXT DEFAULT 'ok'").await;
+
+    let _ = add_column_if_missing(conn, "ocr_embeddings", "error_message", "TEXT").await;
+
+    let _ = add_column_if_missing(conn, "ocr_embeddings", "retry_count", "INTEGER DEFAULT 0").await;
+
     // Migration: Add embedding_worker_state table if missing
     conn.execute_batch(
         r#"
@@ -677,9 +881,11 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
             frames_failed INTEGER DEFAULT 0,
             updated_at INTEGER NOT NULL
         );
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     // Migration: Add activity_segments table if missing
     conn.execute_batch(
         r#"
@@ -708,119 +914,85 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
             FOREIGN KEY (segment_id) REFERENCES activity_segments(id) ON DELETE CASCADE,
             FOREIGN KEY (frame_id) REFERENCES ocr_frames(id) ON DELETE CASCADE
         );
-        "#
-    ).await.map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
     // Migration v3: Add text processing columns to ocr_frames
     // summary - extractive summary of OCR text
-    let _ = add_column_if_missing(
-        conn,
-        "ocr_frames",
-        "summary",
-        "TEXT"
-    ).await;
-    
+    let _ = add_column_if_missing(conn, "ocr_frames", "summary", "TEXT").await;
+
     // activity_type - classified activity type (coding, browsing, etc.)
-    let _ = add_column_if_missing(
-        conn,
-        "ocr_frames",
-        "activity_type",
-        "TEXT"
-    ).await;
-    
+    let _ = add_column_if_missing(conn, "ocr_frames", "activity_type", "TEXT").await;
+
     // keywords - JSON array of extracted keywords
-    let _ = add_column_if_missing(
-        conn,
-        "ocr_frames",
-        "keywords",
-        "TEXT"
-    ).await;
-    
+    let _ = add_column_if_missing(conn, "ocr_frames", "keywords", "TEXT").await;
+
     // text_quality - quality score (0.0-1.0) for filtering
-    let _ = add_column_if_missing(
-        conn,
-        "ocr_frames",
-        "text_quality",
-        "REAL DEFAULT 0.0"
-    ).await;
-    
+    let _ = add_column_if_missing(conn, "ocr_frames", "text_quality", "REAL DEFAULT 0.0").await;
+
     // Create index on activity_type for filtering
-    let _ = conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ocr_frames_activity_type ON ocr_frames(activity_type)",
-        ()
-    ).await;
+    let _ = conn
+        .execute(
+            "CREATE INDEX IF NOT EXISTS idx_ocr_frames_activity_type ON ocr_frames(activity_type)",
+            (),
+        )
+        .await;
 
     // Migration v4: memory query pipeline tables/indexes
     create_memory_pipeline_tables(conn).await?;
-    add_column_if_missing(
-        conn,
-        "search_chunks",
-        "logical_chunk_id",
-        "TEXT"
-    ).await?;
-    add_column_if_missing(
-        conn,
-        "search_chunks",
-        "content_hash",
-        "TEXT"
-    ).await?;
+    add_column_if_missing(conn, "search_chunks", "logical_chunk_id", "TEXT").await?;
+    add_column_if_missing(conn, "search_chunks", "content_hash", "TEXT").await?;
     add_column_if_missing(
         conn,
         "search_chunks",
         "raw_text_compact",
-        "TEXT NOT NULL DEFAULT ''"
-    ).await?;
+        "TEXT NOT NULL DEFAULT ''",
+    )
+    .await?;
     add_column_if_missing(
         conn,
         "search_chunks",
         "contextual_text_compact",
-        "TEXT NOT NULL DEFAULT ''"
-    ).await?;
+        "TEXT NOT NULL DEFAULT ''",
+    )
+    .await?;
     add_column_if_missing(
         conn,
         "search_chunks",
         "context_version",
-        "INTEGER NOT NULL DEFAULT 1"
-    ).await?;
-    add_column_if_missing(
-        conn,
-        "search_chunks",
-        "session_key",
-        "TEXT"
-    ).await?;
+        "INTEGER NOT NULL DEFAULT 1",
+    )
+    .await?;
+    add_column_if_missing(conn, "search_chunks", "session_key", "TEXT").await?;
     add_column_if_missing(
         conn,
         "search_chunks",
         "session_position",
-        "INTEGER NOT NULL DEFAULT 0"
-    ).await?;
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
     add_column_if_missing(
         conn,
         "search_chunks",
         "session_chunk_count",
-        "INTEGER NOT NULL DEFAULT 1"
-    ).await?;
-    add_column_if_missing(
-        conn,
-        "memory_upload_outbox",
-        "logical_chunk_id",
-        "TEXT"
-    ).await?;
-    add_column_if_missing(
-        conn,
-        "memory_upload_outbox",
-        "content_hash",
-        "TEXT"
-    ).await?;
+        "INTEGER NOT NULL DEFAULT 1",
+    )
+    .await?;
+    add_column_if_missing(conn, "memory_upload_outbox", "logical_chunk_id", "TEXT").await?;
+    add_column_if_missing(conn, "memory_upload_outbox", "content_hash", "TEXT").await?;
     let _ = backfill_search_chunk_identity(conn).await;
-    let _ = conn.execute(
-        r#"
+    let _ = conn
+        .execute(
+            r#"
         UPDATE search_chunks
         SET raw_text_compact = COALESCE(NULLIF(raw_text_compact, ''), COALESCE(text_compact, ''))
         WHERE COALESCE(NULLIF(raw_text_compact, ''), '') = ''
         "#,
-        ()
-    ).await;
+            (),
+        )
+        .await;
     let _ = conn.execute(
         r#"
         UPDATE search_chunks
@@ -837,24 +1009,29 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         "#,
         ()
     ).await;
-    let _ = conn.execute(
-        r#"
+    let _ = conn
+        .execute(
+            r#"
         UPDATE search_chunks
         SET logical_chunk_id = printf('local-search-chunk-%d', id)
         WHERE logical_chunk_id IS NULL OR TRIM(logical_chunk_id) = ''
         "#,
-        ()
-    ).await;
-    let _ = conn.execute(
-        r#"
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            r#"
         UPDATE search_chunks
         SET content_hash = printf('legacy-%d-%d-%d', id, chunk_start_ts, chunk_end_ts)
         WHERE content_hash IS NULL OR TRIM(content_hash) = ''
         "#,
-        ()
-    ).await;
-    let _ = conn.execute(
-        r#"
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            r#"
         UPDATE memory_upload_outbox
         SET logical_chunk_id = COALESCE(
             NULLIF(logical_chunk_id, ''),
@@ -863,10 +1040,12 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         )
         WHERE logical_chunk_id IS NULL OR TRIM(logical_chunk_id) = ''
         "#,
-        ()
-    ).await;
-    let _ = conn.execute(
-        r#"
+            (),
+        )
+        .await;
+    let _ = conn
+        .execute(
+            r#"
         UPDATE memory_upload_outbox
         SET content_hash = COALESCE(
             NULLIF(content_hash, ''),
@@ -874,8 +1053,35 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         )
         WHERE content_hash IS NULL OR TRIM(content_hash) = ''
         "#,
-        ()
-    ).await;
+            (),
+        )
+        .await;
+    add_column_if_missing(conn, "context_snapshots", "capture_components_json", "TEXT").await?;
+    add_column_if_missing(
+        conn,
+        "context_snapshots",
+        "ax_richness_score",
+        "REAL NOT NULL DEFAULT 0.0",
+    )
+    .await?;
+    add_column_if_missing(
+        conn,
+        "context_snapshots",
+        "selected_text_present",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
+    add_column_if_missing(conn, "context_snapshots", "document_path", "TEXT").await?;
+    add_column_if_missing(conn, "context_snapshots", "ax_source", "TEXT").await?;
+    add_column_if_missing(conn, "context_snapshots", "capture_trigger", "TEXT").await?;
+    add_column_if_missing(
+        conn,
+        "context_snapshots",
+        "trigger_to_snapshot_ms",
+        "INTEGER",
+    )
+    .await?;
+    add_column_if_missing(conn, "context_snapshots", "ui_elements_json", "TEXT").await?;
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_capture_events_raw_status_ts ON capture_events_raw(ingest_status, ts_event DESC)",
         ()
@@ -904,10 +1110,9 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_upload_outbox_logical ON memory_upload_outbox(user_id, device_id, logical_chunk_id)",
         ()
     ).await;
-    let _ = conn.execute(
-        "DROP INDEX IF EXISTS idx_memory_upload_outbox_chunk",
-        ()
-    ).await;
+    let _ = conn
+        .execute("DROP INDEX IF EXISTS idx_memory_upload_outbox_chunk", ())
+        .await;
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_memory_upload_outbox_chunk_lookup ON memory_upload_outbox(user_id, device_id, chunk_id)",
         ()
@@ -916,7 +1121,37 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_pipeline_watermarks_updated ON pipeline_watermarks(updated_at DESC)",
         ()
     ).await;
-    
+    let _ = conn
+        .execute(
+            "CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts ON context_snapshots(ts)",
+            (),
+        )
+        .await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_context_snapshots_app_ts ON context_snapshots(app_bundle_id, ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_context_snapshots_domain_ts ON context_snapshots(browser_domain, ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_snapshots_dedup ON context_snapshots(dedup_key)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_ts ON context_snapshots(session_id, ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_context_sessions_time ON context_sessions(start_ts, end_ts)",
+        ()
+    ).await;
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time ON session_retrieval_docs(chunk_start_ts, chunk_end_ts)",
+        ()
+    ).await;
+
     debug!("Schema migrations complete");
     Ok(())
 }
@@ -965,7 +1200,11 @@ async fn backfill_search_chunk_identity(conn: &Connection) -> Result<()> {
         .map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
     let mut updates: Vec<(i64, String, String)> = Vec::new();
-    while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Schema(e.to_string()))? {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?
+    {
         let id: i64 = row.get(0).unwrap_or(0);
         if id <= 0 {
             continue;
@@ -1037,32 +1276,39 @@ async fn backfill_search_chunk_identity(conn: &Connection) -> Result<()> {
 
 /// Helper to add a column if it doesn't exist
 async fn add_column_if_missing(
-    conn: &Connection, 
-    table: &str, 
-    column: &str, 
-    definition: &str
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
 ) -> Result<()> {
     // Check if column exists by querying table_info
     let query = format!("PRAGMA table_info({})", table);
-    let mut rows = conn.query(&query, ()).await
+    let mut rows = conn
+        .query(&query, ())
+        .await
         .map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
+
     let mut column_exists = false;
-    while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Schema(e.to_string()))? {
+    while let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?
+    {
         let col_name: String = row.get(1).unwrap_or_default();
         if col_name == column {
             column_exists = true;
             break;
         }
     }
-    
+
     if !column_exists {
         let alter_sql = format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition);
         info!("Adding missing column: {}.{}", table, column);
-        conn.execute(&alter_sql, ()).await
+        conn.execute(&alter_sql, ())
+            .await
             .map_err(|e| DatabaseError::Schema(e.to_string()))?;
     }
-    
+
     Ok(())
 }
 
@@ -1072,8 +1318,12 @@ pub async fn get_schema_version(conn: &Connection) -> Result<Option<i32>> {
         .query("SELECT MAX(version) FROM schema_migrations", ())
         .await
         .map_err(|e| DatabaseError::Schema(e.to_string()))?;
-    
-    if let Some(row) = rows.next().await.map_err(|e| DatabaseError::Schema(e.to_string()))? {
+
+    if let Some(row) = rows
+        .next()
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?
+    {
         let version: Option<i32> = row.get(0).ok();
         Ok(version)
     } else {
@@ -1092,63 +1342,66 @@ mod tests {
     use super::*;
     use libsql::Builder;
     use tempfile::TempDir;
-    
+
     async fn create_test_db() -> (Connection, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let db = Builder::new_local(db_path.to_str().unwrap())
             .build()
             .await
             .unwrap();
-        
+
         let conn = db.connect().unwrap();
         (conn, temp_dir)
     }
-    
+
     #[tokio::test]
     async fn test_schema_initialization() {
         let (conn, _temp) = create_test_db().await;
-        
+
         initialize_schema(&conn).await.unwrap();
-        
+
         // Verify tables exist
-        let mut rows = conn.query(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
-            ()
-        ).await.unwrap();
-        
+        let mut rows = conn
+            .query(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+                (),
+            )
+            .await
+            .unwrap();
+
         let mut tables = Vec::new();
         while let Some(row) = rows.next().await.unwrap() {
             let name: String = row.get(0).unwrap();
             tables.push(name);
         }
-        
+
         assert!(tables.contains(&"activity_events".to_string()));
         assert!(tables.contains(&"ocr_frames".to_string()));
         assert!(tables.contains(&"video_chunks".to_string()));
         assert!(tables.contains(&"sync_queue".to_string()));
         assert!(tables.contains(&"ocr_embeddings".to_string()));
     }
-    
+
     #[tokio::test]
     async fn test_schema_version() {
         let (conn, _temp) = create_test_db().await;
-        
+
         initialize_schema(&conn).await.unwrap();
-        
+
         let version = get_schema_version(&conn).await.unwrap();
         assert_eq!(version, Some(SCHEMA_VERSION));
     }
-    
+
     #[tokio::test]
     async fn test_schema_idempotent() {
         let (conn, _temp) = create_test_db().await;
-        
+
         // Initialize twice - should not fail
         initialize_schema(&conn).await.unwrap();
         initialize_schema(&conn).await.unwrap();
-        
+
         let version = get_schema_version(&conn).await.unwrap();
         assert_eq!(version, Some(SCHEMA_VERSION));
     }
@@ -1164,22 +1417,35 @@ mod tests {
                 timestamp, app_bundle_id, app_name, ocr_text, image_hash
             ) VALUES (?, ?, ?, ?, ?)
             "#,
-            libsql::params![1234i64, "com.test.app", "Test App", "backfill search term", "hash-backfill"]
-        ).await.unwrap();
+            libsql::params![
+                1234i64,
+                "com.test.app",
+                "Test App",
+                "backfill search term",
+                "hash-backfill"
+            ],
+        )
+        .await
+        .unwrap();
 
         // Simulate a legacy DB with missing FTS index content.
         conn.execute(
             "INSERT INTO ocr_frames_fts(ocr_frames_fts) VALUES('delete-all')",
-            ()
-        ).await.unwrap();
+            (),
+        )
+        .await
+        .unwrap();
 
         // Re-running initialization should trigger backfill rebuild.
         initialize_schema(&conn).await.unwrap();
 
-        let mut rows = conn.query(
-            "SELECT COUNT(*) FROM ocr_frames_fts WHERE ocr_frames_fts MATCH ?",
-            libsql::params!["backfill"]
-        ).await.unwrap();
+        let mut rows = conn
+            .query(
+                "SELECT COUNT(*) FROM ocr_frames_fts WHERE ocr_frames_fts MATCH ?",
+                libsql::params!["backfill"],
+            )
+            .await
+            .unwrap();
         let matched = rows
             .next()
             .await

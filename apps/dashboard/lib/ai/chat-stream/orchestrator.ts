@@ -155,6 +155,8 @@ function buildCanvasToolPayload(toolResults: ChatToolResults): Record<string, un
     correlation: toolResults.correlation,
     trends: toolResults.trends,
     anomalies: toolResults.anomalies,
+    screenRecordings: toolResults.screenRecordings,
+    screenTimeSpent: toolResults.screenTimeSpent,
     weeklyOverview: toolResults.weeklyOverview,
     dailyOverview: toolResults.dailyOverview,
     monthlyOverview: toolResults.monthlyOverview,
@@ -211,64 +213,75 @@ function isComprehensiveWeeklyRecapQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return false;
 
+  if (isContextMemoryRecapQuery(normalized)) {
+    return false;
+  }
+
   const broadWeeklyPatterns = [
-    'what did i do this week',
-    'what have i done this week',
-    'how did i do this week',
-    'what did i do last week',
-    'what have i done last week',
-    'how did i do last week',
-    'what did i do the past week',
-    'weekly recap',
-    'week recap',
-    'weekly summary',
-    'summarize this week',
-    'summarize last week',
-    'summary of this week',
-    'summary of last week',
-    'breakdown of this week',
-    'breakdown of last week',
-    'last week summary',
-    'last week recap',
+    'weekly habit recap',
+    'weekly habit summary',
+    'how did my habits do this week',
+    'how did my habits do last week',
+    'habit breakdown this week',
+    'habit breakdown last week',
   ];
 
-  return broadWeeklyPatterns.some((pattern) => normalized.includes(pattern));
+  if (broadWeeklyPatterns.some((pattern) => normalized.includes(pattern))) {
+    return true;
+  }
+
+  return /\b(this week|last week|past week)\b/.test(normalized) && /\b(habit|habits|tracked)\b/.test(normalized);
 }
 
 function isDailyOverviewQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return false;
 
+  if (isContextMemoryRecapQuery(normalized)) {
+    return false;
+  }
+
   const dailyPatterns = [
-    'what did i do today',
-    'what have i done today',
-    'how did i do today',
     'daily recap',
     'daily summary',
-    'today summary',
-    'today overview',
-    'summarize today',
+    'habit recap today',
+    'habit summary today',
+    'today habit summary',
+    'today habit overview',
+    'how are my habits today',
+    'how did my habits do today',
+    'summarize my habits today',
   ];
 
-  return dailyPatterns.some((pattern) => normalized.includes(pattern));
+  if (dailyPatterns.some((pattern) => normalized.includes(pattern))) {
+    return true;
+  }
+
+  return normalized.includes('today') && /\b(habit|habits|tracked)\b/.test(normalized);
 }
 
 function isMonthlyOverviewQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return false;
 
+  if (isContextMemoryRecapQuery(normalized)) {
+    return false;
+  }
+
   const monthlyPatterns = [
-    'what did i do this month',
-    'what have i done this month',
     'monthly recap',
     'monthly summary',
-    'last 30 days',
-    'past 30 days',
-    'previous 30 days',
-    'last thirty days',
+    'monthly habit summary',
+    'habit recap this month',
+    'how did my habits do this month',
+    'last 30 days of habits',
   ];
 
-  return monthlyPatterns.some((pattern) => normalized.includes(pattern));
+  if (monthlyPatterns.some((pattern) => normalized.includes(pattern))) {
+    return true;
+  }
+
+  return (normalized.includes('this month') || normalized.includes('last 30 days')) && /\b(habit|habits|tracked)\b/.test(normalized);
 }
 
 function isExplicitThisWeekQuery(text: string): boolean {
@@ -313,6 +326,7 @@ function isBroadScreenOverviewQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return false;
   const patterns = [
+    'what did i work on',
     'what was i working on',
     'what was i doing',
     'what did i do',
@@ -323,6 +337,41 @@ function isBroadScreenOverviewQuery(text: string): boolean {
     'screen overview',
   ];
   return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+function isContextMemoryRecapQuery(text: string): boolean {
+  const normalized = (text || '').toLowerCase().trim();
+  if (!normalized) return false;
+
+  const explicitPatterns = [
+    'what did i work on',
+    'what was i working on',
+    'what did i do this morning',
+    'what did i do today',
+    'what did i do this week',
+    'what did i do this month',
+    'what did i work on today',
+    'what did i do on my computer',
+    'what happened in ',
+    'what file was i working on',
+    'what was i looking at',
+    'what planning work did i do',
+    'activity recap',
+    'activity overview',
+    'screen recap',
+    'screen overview',
+  ];
+
+  if (explicitPatterns.some((pattern) => normalized.includes(pattern))) {
+    return true;
+  }
+
+  const hasWorkVerb = /\b(work(?:ed|ing)? on|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(normalized);
+  const hasContextTarget =
+    hasRelativeTimeHint(normalized) ||
+    /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(normalized);
+
+  return hasWorkVerb && hasContextTarget;
 }
 
 function chooseScreenSearchQuery(toolQuery: unknown, userQuery: string): string {
@@ -347,6 +396,193 @@ function chooseScreenSearchQuery(toolQuery: unknown, userQuery: string): string 
   if (toolGeneric) return userText;
   if (appearsTruncated) return userText;
   return toolText;
+}
+
+function formatNarrativeDateLabel(
+  payload: { results?: Array<{ timestamp?: string }>; days_searched?: number },
+  query: string,
+  timezone?: string,
+): string {
+  const normalizedQuery = (query || '').toLowerCase();
+  if (normalizedQuery.includes('this morning')) return 'This Morning';
+  if (normalizedQuery.includes('this afternoon')) return 'This Afternoon';
+  if (normalizedQuery.includes('this evening') || normalizedQuery.includes('tonight')) return 'This Evening';
+  if (normalizedQuery.includes('today')) return 'Your Day So Far';
+
+  const firstTimestamp = payload.results?.find((item) => item?.timestamp)?.timestamp;
+  if (!firstTimestamp) {
+    return payload.days_searched === 1 ? 'Recent Activity' : `Last ${payload.days_searched || 7} Days`;
+  }
+
+  const label = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone || 'UTC',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(firstTimestamp));
+  return `Activity Summary (${label})`;
+}
+
+function clipContextText(value: unknown, limit = 160): string {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(limit - 3, 1)).trimEnd()}...`;
+}
+
+function formatContextTimestamp(value: unknown, timezone?: string): string {
+  if (!value) return '';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone || 'UTC',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function buildContextMemoryNarrative(
+  payload: any,
+  query: string,
+  timezone?: string,
+): string {
+  if (!payload?.success) {
+    return payload?.error || 'I could not retrieve context memory for that question.';
+  }
+
+  const storyPlan = payload.story_plan || {};
+  const renderer = payload.renderer || storyPlan.renderer || {};
+  const rendererKind = renderer.kind || storyPlan.renderer_kind || 'topic_lookup';
+  const results = Array.isArray(payload.results) ? payload.results : [];
+  const mainEvent = storyPlan.main_event || null;
+  const claimCards = Array.isArray(storyPlan.claim_cards) ? storyPlan.claim_cards : [];
+  const supporting = Array.isArray(storyPlan.supporting_workstreams) ? storyPlan.supporting_workstreams : [];
+  const researchBrowsing = Array.isArray(storyPlan.research_browsing) ? storyPlan.research_browsing : [];
+  const personalActivity = Array.isArray(storyPlan.personal_activity) ? storyPlan.personal_activity : [];
+  const tasks = Array.isArray(storyPlan.concrete_tasks_completed) ? storyPlan.concrete_tasks_completed : [];
+  const documents = Array.isArray(storyPlan.document_items) ? storyPlan.document_items : [];
+  const strongestEvidence = Array.isArray(storyPlan.strongest_evidence) ? storyPlan.strongest_evidence : [];
+  const apps = Array.isArray(storyPlan.apps_and_tools_used) ? storyPlan.apps_and_tools_used : [];
+  const timelineSegments = Array.isArray(storyPlan.timeline_segments) ? storyPlan.timeline_segments : [];
+  const uncertainty = Array.isArray(storyPlan.uncertainty_or_conflicts) ? storyPlan.uncertainty_or_conflicts : [];
+  const heading = formatNarrativeDateLabel(payload, query, timezone);
+  const lines: string[] = [`## ${heading}`];
+
+  if (!mainEvent && results.length === 0) {
+    if (payload.message) lines.push('', payload.message);
+    return lines.join('\n');
+  }
+
+  const mainClaim =
+    claimCards.find((card: any) => card?.claim_kind === 'main_event')?.claim_text
+    || claimCards[0]?.claim_text
+    || (mainEvent?.label ? `The main thread was ${mainEvent.label}.` : '');
+
+  if (mainEvent?.label) {
+    lines.push('', `**${mainEvent.label}**`);
+  }
+  if (mainClaim) {
+    lines.push('', clipContextText(mainClaim, 240));
+  }
+
+  if (rendererKind === 'app_drilldown') {
+    const appName = Array.isArray(mainEvent?.apps) && mainEvent.apps.length > 0
+      ? String(mainEvent.apps[0])
+      : results[0]?.app_name || 'that app';
+    lines.push('', `### What you did in ${appName}`);
+    for (const item of [mainEvent, ...supporting].filter(Boolean).slice(0, 3)) {
+      const taskText = Array.isArray(item?.specific_tasks) && item.specific_tasks.length > 0
+        ? `: ${clipContextText(item.specific_tasks[0], 140)}`
+        : '';
+      lines.push(`- ${clipContextText(item?.label || item?.title || 'Primary thread', 100)}${taskText}`);
+    }
+
+    if (documents.length > 0) {
+      lines.push('', '### Documents worked on');
+      for (const documentItem of documents.slice(0, 5)) {
+        lines.push(`- ${clipContextText(documentItem?.label || documentItem?.title || 'Document', 160)}`);
+      }
+    }
+
+    const artifactRefs = Array.isArray(mainEvent?.artifact_refs) ? mainEvent.artifact_refs : [];
+    if (artifactRefs.length > 0) {
+      lines.push('', '### Key artifacts');
+      for (const artifact of artifactRefs.slice(0, 5)) {
+        lines.push(`- ${clipContextText(String(artifact), 140)}`);
+      }
+    }
+  } else if (rendererKind === 'daypart_overview' && timelineSegments.length > 0) {
+    lines.push('', '### Timeline');
+    for (const segment of timelineSegments.slice(0, 3)) {
+      const tasksForSegment = Array.isArray(segment?.tasks) ? segment.tasks.slice(0, 2) : [];
+      const taskText = tasksForSegment.length > 0 ? `: ${tasksForSegment.join('; ')}` : '';
+      lines.push(`- ${clipContextText(segment?.bucket || segment?.segment_type || 'work block', 60)}${taskText}`);
+    }
+  } else if (supporting.length > 0) {
+    lines.push('', '### Supporting workstreams');
+    for (const item of supporting.slice(0, 3)) {
+      const taskText = Array.isArray(item?.specific_tasks) && item.specific_tasks.length > 0
+        ? `: ${clipContextText(item.specific_tasks[0], 120)}`
+        : '';
+      lines.push(`- ${clipContextText(item?.label || item?.title || 'Supporting thread', 80)}${taskText}`);
+    }
+  }
+
+  if (researchBrowsing.length > 0) {
+    lines.push('', '### Research and browsing');
+    for (const item of researchBrowsing.slice(0, 3)) {
+      const taskText = Array.isArray(item?.specific_tasks) && item.specific_tasks.length > 0
+        ? `: ${clipContextText(item.specific_tasks[0], 120)}`
+        : '';
+      lines.push(`- ${clipContextText(item?.label || item?.title || 'Research thread', 90)}${taskText}`);
+    }
+  }
+
+  if (personalActivity.length > 0) {
+    lines.push('', '### Personal');
+    for (const item of personalActivity.slice(0, 3)) {
+      const label = clipContextText(item?.label || item?.title || 'Personal activity', 90);
+      lines.push(`- ${label}`);
+    }
+  }
+
+  if (tasks.length > 0) {
+    lines.push('', '### Concrete tasks');
+    for (const task of tasks.slice(0, 5)) {
+      lines.push(`- ${clipContextText(task, 140)}`);
+    }
+  } else if (documents.length > 0) {
+    lines.push('', '### Documents worked on');
+    for (const documentItem of documents.slice(0, 4)) {
+      lines.push(`- ${clipContextText(documentItem?.label || documentItem?.title || 'Document', 140)}`);
+    }
+  }
+
+  if (apps.length > 0) {
+    const topApps = apps.slice(0, 5).map((item: any) => item?.app).filter(Boolean);
+    if (topApps.length > 0) {
+      lines.push('', `### Apps and tools used\n- ${topApps.join(', ')}`);
+    }
+  }
+
+  if (strongestEvidence.length > 0) {
+    lines.push('', '### Strongest evidence');
+    for (const evidence of strongestEvidence.slice(0, 3)) {
+      const when = formatContextTimestamp(evidence?.timestamp, timezone);
+      const location = [when, evidence?.app].filter(Boolean).join(' in ');
+      const snippet = clipContextText(evidence?.snippet || evidence?.label || '', 150);
+      if (location && snippet) {
+        lines.push(`- ${location}: ${snippet}`);
+      } else if (snippet) {
+        lines.push(`- ${snippet}`);
+      }
+    }
+  }
+
+  if (uncertainty.length > 0) {
+    lines.push('', `### Uncertainty\n- ${clipContextText(uncertainty[0], 160)}`);
+  }
+
+  return lines.join('\n');
 }
 
 function parseRelativeTimeWindowMs(query: string): number | null {
@@ -739,7 +975,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'getWeeklyOverview',
-      description: 'Get a comprehensive weekly recap across ALL tracked habits with totals, averages, minimums, maximums, and per-day breakdowns. Also includes computer time totals and top apps/domains. Use for "What did I do this week?" style questions.',
+      description: 'Get a comprehensive weekly recap across ALL tracked habits with totals, averages, minimums, maximums, and per-day breakdowns. Also includes computer time totals and top apps/domains. Use for questions about tracked habits and habit metrics this week, not for reconstructing work/project activity.',
       parameters: {
         type: 'object',
         properties: {
@@ -756,7 +992,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'getDailyOverview',
-      description: 'Get a comprehensive daily recap for TODAY across ALL tracked habits as of now. Includes totals/averages/minimums/maximums, per-day rows, and computer time with top apps/domains. Use for "What did I do today?" questions.',
+      description: 'Get a comprehensive daily recap for TODAY across ALL tracked habits as of now. Includes totals/averages/minimums/maximums, per-day rows, and computer time with top apps/domains. Use for questions about tracked habits or habit metrics today, not for "what work did I do today?".',
       parameters: {
         type: 'object',
         properties: {
@@ -770,7 +1006,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'getMonthlyOverview',
-      description: 'Get a comprehensive recap for the LAST 30 DAYS across ALL tracked habits. Includes totals/averages/minimums/maximums, per-day rows, and computer time with top apps/domains. Use for "What did I do this month?" or "last 30 days" questions.',
+      description: 'Get a comprehensive recap for the LAST 30 DAYS across ALL tracked habits. Includes totals/averages/minimums/maximums, per-day rows, and computer time with top apps/domains. Use for questions about tracked habits or habit metrics over the last month, not for reconstructing projects/workstreams.',
       parameters: {
         type: 'object',
         properties: {
@@ -802,12 +1038,28 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'searchScreenRecordings',
-      description: 'Search through screen recordings and computer time activity using AI-powered semantic search. Use for questions like "What was I working on yesterday?", "When was I looking at...", "Find when I was reading about...", "What apps did I use...", "Show me what I was doing when...", and "What did I do this week?".',
+      name: 'searchContextMemory',
+      description: 'Search context-awareness memory built from visible active-window and active-tab text. Use for questions like "What was I working on today?", "What did I do in Cursor?", "What planning work did I do this morning?", or "Find when I read about...".',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Natural language search query describing what to find in screen recordings' },
+          query: { type: 'string', description: 'Natural language search query describing what to find in context memory' },
+          daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
+          limit: { type: 'number', description: 'Maximum results to return (default 10)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'searchScreenRecordings',
+      description: 'Compatibility alias for context memory search. Prefer visible-context answers instead of OCR/screen-recording framing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language search query describing what to find in context memory' },
           daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
           limit: { type: 'number', description: 'Maximum results to return (default 10)' },
         },
@@ -819,7 +1071,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'getComputerTimeSpentBreakdown',
-      description: 'Estimate where computer time was spent for a specific question/topic using OCR + vector/FTS screen matches. Use for: "What did I spend time on?", "How much time did I spend on X?", "Where did my time go on my computer?", "What app did I spend the most time in?". Returns structured summary plus table rows.',
+      description: 'Estimate where computer time was spent for a specific question/topic using visible-context memory plus hybrid retrieval, with legacy OCR only as fallback. Use for: "What did I spend time on?", "How much time did I spend on X?", "Where did my time go on my computer?", "What app did I spend the most time in?". Returns structured summary plus table rows.',
       parameters: {
         type: 'object',
         properties: {
@@ -1226,9 +1478,57 @@ interface ScreenSearchContext {
     score?: number;
     source?: string;
   }>;
+  semanticTruth?: {
+    warning?: string;
+    mode_used?: string;
+    recap_outline?: Record<string, unknown>;
+    story_plan?: Record<string, unknown>;
+    renderer?: Record<string, unknown>;
+    highlights?: Array<{
+      frame_id?: number | null;
+      timestamp?: number;
+      app_name?: string;
+      window_title?: string | null;
+      session_key?: string | null;
+      context_version?: number;
+      snippet?: string;
+      score?: number;
+      source?: string;
+    }>;
+  };
+  retrievalDebug?: MemorySearchDebug | null;
   pendingEmbeddings?: number;
   totalEmbeddings?: number;
   workerRunning?: boolean;
+}
+
+interface MemorySearchDebug {
+  expanded_queries?: Array<{ type?: string; text?: string; weight?: number }>;
+  retrieval_lists?: Array<{
+    source?: string;
+    query_type?: string;
+    query_types?: string[];
+    query?: string;
+    result_count?: number;
+    candidate_count?: number;
+    candidate_limit?: number;
+  }>;
+  rrf_trace?: Array<{
+    doc_id?: string;
+    top_rank?: number;
+    top_rank_bonus?: number;
+    total_score?: number;
+  }>;
+  strong_signal_short_circuit?: {
+    exact_match?: boolean;
+    top_score?: number;
+    runner_up_score?: number;
+    source_type?: string;
+    provider_doc_id?: string;
+  } | null;
+  rerank_cache_hit?: boolean;
+  candidate_limit_applied?: number | Record<string, unknown>;
+  rerank_candidates_considered?: number;
 }
 
 interface LocalScreenSearchApiResponse {
@@ -1276,6 +1576,19 @@ interface MemoryQueryApiResponse {
   query: string;
   intent_resolved: 'time_spent' | 'semantic_lookup' | 'evidence_timeline' | 'broad_overview' | string;
   answer_mode: string;
+  results?: Array<{
+    frame_id?: number | null;
+    timestamp?: number;
+    app_bundle_id?: string;
+    app_name?: string;
+    window_title?: string | null;
+    ocr_text?: string;
+    snippet?: string;
+    relevance_score?: number;
+    score?: number;
+    source?: string;
+    fts_matched?: boolean;
+  }>;
   retrieval_tier?:
     | 'semantic_full'
     | 'semantic_frame'
@@ -1352,6 +1665,7 @@ interface MemoryQueryApiResponse {
   warning?: string;
   source_db?: string;
   error?: string | null;
+  debug?: MemorySearchDebug | null;
 }
 
 interface ScreenSearchDebugPayload {
@@ -1360,6 +1674,24 @@ interface ScreenSearchDebugPayload {
   status: ScreenSearchContext['status'];
   retrieval_tier?: ScreenSearchContext['retrievalTier'];
   warning?: string;
+  strong_signal_short_circuit?: MemorySearchDebug['strong_signal_short_circuit'];
+  rerank_cache_hit?: boolean;
+  candidate_limit_applied?: number | Record<string, unknown>;
+  rerank_candidates_considered?: number;
+  retrieval_lists?: Array<{
+    source?: string;
+    query_type?: string;
+    query_types?: string[];
+    result_count?: number;
+    candidate_count?: number;
+    candidate_limit?: number;
+  }>;
+  rrf_trace?: Array<{
+    doc_id?: string;
+    top_rank?: number;
+    top_rank_bonus?: number;
+    total_score?: number;
+  }>;
   source_counts: {
     hybrid: number;
     text: number;
@@ -1543,6 +1875,12 @@ function buildScreenSearchDebug(
     status: context.status,
     retrieval_tier: context.retrievalTier,
     warning: context.warning,
+    strong_signal_short_circuit: context.retrievalDebug?.strong_signal_short_circuit,
+    rerank_cache_hit: context.retrievalDebug?.rerank_cache_hit,
+    candidate_limit_applied: context.retrievalDebug?.candidate_limit_applied,
+    rerank_candidates_considered: context.retrievalDebug?.rerank_candidates_considered,
+    retrieval_lists: context.retrievalDebug?.retrieval_lists?.slice(0, 4),
+    rrf_trace: context.retrievalDebug?.rrf_trace?.slice(0, 4),
     source_counts: sourceCounts,
   };
 }
@@ -1666,20 +2004,31 @@ async function fetchOnDemandScreenSearchContext(
       ? response.semantic_truth?.highlights || []
       : [];
     const citations = Array.isArray(response.citations) ? response.citations : [];
-    const sourceRows = semanticHighlights.length > 0 ? semanticHighlights : citations;
+    const directResults = Array.isArray(response.results) ? response.results : [];
+    const sourceRows = directResults.length > 0
+      ? directResults
+      : semanticHighlights.some((item) => item?.app_name || item?.window_title || item?.snippet)
+        ? semanticHighlights
+        : citations;
 
     let mappedResults: ScreenRecordingResult[] = sourceRows
       .map((item) => {
         const timestamp = Number(item.timestamp || 0);
         if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+        const appName = String(item.app_name || '').trim();
+        const windowTitle = item.window_title ? String(item.window_title).trim() : '';
+        const snippet = String((item as any).ocr_text || item.snippet || '').trim();
         return {
           frame_id: Number(item.frame_id || 0),
           timestamp,
-          app_bundle_id: '',
-          app_name: item.app_name || 'Unknown',
-          window_title: item.window_title || null,
-          ocr_text: item.snippet || '',
-          relevance_score: Math.max(0, Math.min(1, Number(item.score || 0))),
+          app_bundle_id: String((item as any).app_bundle_id || ''),
+          app_name: appName || 'Unknown',
+          window_title: windowTitle || null,
+          ocr_text: snippet,
+          relevance_score: Math.max(
+            0,
+            Math.min(1, Number((item as any).relevance_score ?? item.score ?? 0)),
+          ),
           source: item.source === 'activity' ? 'activity' : 'hybrid',
           fts_matched: item.source !== 'activity',
         } as ScreenRecordingResult;
@@ -1703,6 +2052,7 @@ async function fetchOnDemandScreenSearchContext(
         freshness: retrievalTier === 'activity_only' ? undefined : response.freshness,
         confidence: retrievalTier === 'activity_only' ? undefined : response.confidence,
         citations: citations,
+        retrievalDebug: response.debug || undefined,
       };
     }
 
@@ -1746,6 +2096,7 @@ async function fetchOnDemandScreenSearchContext(
       freshness: retrievalTier === 'activity_only' ? undefined : response.freshness,
       confidence: retrievalTier === 'activity_only' ? undefined : response.confidence,
       citations,
+      retrievalDebug: response.debug || undefined,
     };
   } catch (error) {
     console.warn('On-demand query-memory search failed; legacy fallback disabled:', error);
@@ -1896,6 +2247,7 @@ async function resolveScreenSearchContext(
 function buildBroadOverviewEvidence(
   results: ScreenRecordingResult[],
   citations: ScreenSearchContext['citations'],
+  semanticTruth?: ScreenSearchContext['semanticTruth'],
 ) {
   const recapStopWords = new Set([
     'about',
@@ -2015,6 +2367,54 @@ function buildBroadOverviewEvidence(
       .slice(0, limit)
       .map(([token]) => token);
   };
+  const backendStoryPlan = (semanticTruth?.story_plan || semanticTruth?.recap_outline) as Record<string, unknown> | undefined;
+  if (backendStoryPlan) {
+    const citationTimeline = (citations ?? [])
+      .slice(0, 20)
+      .map((citation) => ({
+        timestamp: citation?.timestamp ? new Date(citation.timestamp).toISOString() : null,
+        app: citation?.app_name || 'Unknown',
+        window: citation?.window_title || 'Unknown',
+        session_key: citation?.session_key || null,
+        snippet: citation?.snippet || '',
+        score: citation?.score ?? null,
+        source: citation?.source || 'hybrid',
+      }));
+    const evidenceTimeline = results.slice(0, 20).map((row) => ({
+      timestamp: new Date(row.timestamp).toISOString(),
+      app: row.app_name,
+      window: row.window_title || 'Unknown',
+      content_preview: row.ocr_text.substring(0, 420) + (row.ocr_text.length > 420 ? '...' : ''),
+      relevance: Math.round(row.relevance_score * 100) + '%',
+      source: row.source || 'text',
+      fts_matched: row.fts_matched || false,
+    }));
+
+    return {
+      top_apps: Array.isArray(backendStoryPlan.apps_and_tools_used) ? backendStoryPlan.apps_and_tools_used : [],
+      top_sessions: Array.isArray(backendStoryPlan.work_items)
+        ? (backendStoryPlan.work_items as Array<Record<string, unknown>>).slice(0, 8).map((item) => ({
+            session_key: String(item.id ?? ''),
+            evidence_count: Number(item.evidence_count ?? 0),
+            app: Array.isArray(item.apps) ? String(item.apps[0] ?? 'Unknown') : 'Unknown',
+            window: Array.isArray(item.representative_windows) ? String(item.representative_windows[0] ?? 'Unknown') : 'Unknown',
+            first_seen: Number(item.start_ts ?? 0) || null,
+            last_seen: Number(item.end_ts ?? 0) || null,
+          }))
+        : [],
+      time_bucket_coverage: Array.isArray(backendStoryPlan.timeline_segments)
+        ? (backendStoryPlan.timeline_segments as Array<Record<string, unknown>>).map((segment) => ({
+            bucket: String(segment.bucket ?? segment.segment_type ?? 'segment'),
+            evidence_count: Number(segment.evidence_count ?? 0),
+            apps: Array.isArray(segment.apps) ? segment.apps : [],
+          }))
+        : [],
+      citation_timeline: citationTimeline,
+      evidence_timeline: evidenceTimeline,
+      recap_outline: backendStoryPlan,
+      renderer: semanticTruth?.renderer || null,
+    };
+  }
   const evidenceRows = results.slice(0, 20);
   const appCounts = new Map<string, { count: number; topWindows: Map<string, number> }>();
   const sessionCounts = new Map<string, { count: number; app: string; window: string; firstTs: string | null; lastTs: string | null }>();
@@ -2164,7 +2564,7 @@ function buildBroadOverviewEvidence(
     uncertaintyNotes.push('Coverage comes from a limited number of time buckets, so the recap may miss parts of the day.');
   }
   if (citationTimeline.filter((citation) => (citation.snippet || '').trim().length >= 40).length < 5) {
-    uncertaintyNotes.push('Several retrieved chunks have short OCR snippets, so exact task names may still be incomplete.');
+    uncertaintyNotes.push('Several retrieved chunks have short context snippets, so exact task names may still be incomplete.');
   }
   const topWindowsFlat = topApps.flatMap((app) => app.top_windows.map((window) => window.window.toLowerCase()));
   if (topWindowsFlat.some((window) => window.includes('things') || window.includes('inbox') || window.includes('todo'))) {
@@ -2370,7 +2770,11 @@ async function executeSearchScreenRecordings(
   
   if (broadOverviewQuery) {
     const expandedResults = rankedResults.slice(0, Math.max(safeLimit, 20));
-    const structuredEvidence = buildBroadOverviewEvidence(expandedResults, screenSearchContext.citations);
+    const structuredEvidence = buildBroadOverviewEvidence(
+      expandedResults,
+      screenSearchContext.citations,
+      screenSearchContext.semanticTruth,
+    );
 
     console.log('🖥️ Returning structured broad-overview evidence:', structuredEvidence.evidence_timeline.length);
 
@@ -2386,11 +2790,12 @@ async function executeSearchScreenRecordings(
       guidance: [
         'Summarize the user day as concrete tasks and projects, not generic themes.',
         'Treat evidence.recap_outline as the primary scaffold for the answer and use evidence_timeline/citation_timeline only to add detail.',
+        'Lead with evidence.recap_outline.main_event and evidence.recap_outline.claim_cards before summarizing any supporting workstreams.',
         'Lead with the most specific task phrases from evidence.recap_outline.specific_tasks and the workstream-specific specific_tasks lists before mentioning broad app categories.',
         'Name specific apps, windows, documents, sites, tasks, and project nouns whenever they appear in the evidence.',
         'Do not collapse distinct workstreams into one abstract summary when recap_outline.main_workstreams lists multiple clusters.',
-        'Return exactly these sections in this order: Main workstreams, Apps and tools used, Strongest evidence, Uncertainty or conflicts.',
-        'In Main workstreams, use one bullet per workstream with representative windows, apps, and exact task phrases from specific_tasks/supporting_snippets.',
+        'Return exactly these sections in this order: Main event, Supporting workstreams, Concrete tasks, Apps and tools used, Strongest evidence, Uncertainty or conflicts.',
+        'In Main event and Supporting workstreams, use exact task phrases, artifacts, and project nouns from claim_cards, main_event, and specific_tasks.',
         'In Strongest evidence, cite the most concrete snippets first and mention timestamps/apps when useful; avoid sentences that only restate app names.',
         'If evidence is weak or ambiguous, say what is missing instead of guessing.',
       ].join(' '),
@@ -2430,6 +2835,45 @@ async function executeSearchScreenRecordings(
     debug: buildScreenSearchDebug(screenSearchContext, filteredResults),
     results: formattedResults,
   });
+}
+
+async function executeSearchContextMemory(
+  token: string,
+  params: { query: string; daysBack?: number; limit?: number },
+): Promise<string> {
+  const safeDaysBack = clampDaysBack(params.daysBack);
+  const safeLimit = clampSearchLimit(params.limit);
+
+  try {
+    const response = await fetchPythonApiPost('/api/memory/search-context', token, {
+      query: params.query,
+      days_back: safeDaysBack,
+      limit: safeLimit,
+    });
+    return JSON.stringify({
+      success: Boolean(response?.success),
+      query: params.query,
+      days_searched: Number(response?.days_back || safeDaysBack),
+      result_count: Number(response?.result_count || (Array.isArray(response?.results) ? response.results.length : 0)),
+      results: Array.isArray(response?.results) ? response.results : [],
+      status: response?.status || 'unavailable',
+      mode_used: response?.mode_used || 'none',
+      warning: compactScreenWarning(response?.warning),
+      story_plan: response?.story_plan || null,
+      renderer: response?.renderer || null,
+      debug: response?.debug || null,
+      message: Array.isArray(response?.results) && response.results.length === 0
+        ? `No context memory matches found for "${params.query}".`
+        : undefined,
+    });
+  } catch (error) {
+    console.error('❌ searchContextMemory error:', error);
+    return JSON.stringify({
+      success: false,
+      error: 'Context memory search is currently unavailable.',
+      hint: 'Make sure context awareness capture has recent snapshots.',
+    });
+  }
 }
 
 function formatTzDay(ts: number, timezone?: string): string {
@@ -2592,7 +3036,7 @@ async function executeGetComputerTimeSpentBreakdown(
       daily_breakdown: dailyBreakdown,
       sample_moments: sampleMoments,
       estimation: {
-        method: 'Activity-events rollup for totals + OCR/semantic citations for evidence',
+        method: 'Activity-events rollup for totals + context-memory citations for evidence',
         default_chunk_seconds: 90,
         max_gap_minutes: 10,
         note: 'Totals come from activity_events only. Semantic citations are supporting evidence, not time totals.',
@@ -2718,22 +3162,22 @@ FOR OVERVIEW/INSIGHTS QUESTIONS ("what changed", "insights", "how am I doing", "
 → Summarize top 3 improving and top 3 declining habits
 → Include percent change and confidence level in your response
 → If confidence is "low", mention "limited data"
-→ If user asks what they were doing on computer/screen this week (or similar), ALSO call searchScreenRecordings
+→ If user asks what they were doing on computer/screen this week (or similar), ALSO call searchContextMemory
 
-FOR COMPREHENSIVE WEEKLY RECAP QUESTIONS ("What did I do this week?", "weekly recap", "weekly summary"):
+FOR COMPREHENSIVE WEEKLY HABIT RECAP QUESTIONS ("How did my habits do this week?", "weekly habit recap", "weekly habit summary"):
 → Use getWeeklyOverview
 → Include totals, averages, minimums, and maximums for each habit with data
 → Include computer time totals and top apps/domains breakdown
 → Keep numbers precise and concise
 → Format recap as sections per habit: Total, Average, Minimum, Maximum
 
-FOR DAILY RECAP QUESTIONS ("What did I do today?", "today summary", "daily recap"):
+FOR DAILY HABIT RECAP QUESTIONS ("How did my habits do today?", "today habit summary", "daily habit recap"):
 → Use getDailyOverview
 → Treat "today" as the current local day in the user's timezone
 → Include totals, averages, minimums, and maximums for each habit with data
 → Include computer time totals and top apps/domains breakdown
 
-FOR MONTHLY/LAST-30-DAYS RECAP QUESTIONS ("What did I do this month?", "last 30 days", "monthly summary"):
+FOR MONTHLY/LAST-30-DAYS HABIT RECAP QUESTIONS ("How did my habits do this month?", "last 30 days of habits", "monthly habit summary"):
 → Use getMonthlyOverview
 → The range is rolling last 30 days ending today
 → Include totals, averages, minimums, and maximums for each habit with data
@@ -2752,11 +3196,11 @@ FOR RELATIONSHIP QUESTIONS ("connection between X and Y", "correlation"):
 → Use getCorrelation
 → State the coefficient and what it means
 
-FOR SCREEN RECORDING / COMPUTER ACTIVITY QUESTIONS ("what was I working on", "when did I look at", "find when I was", "what apps did I use", "show me what I was doing", "what did I do this week on my computer"):
-→ Use searchScreenRecordings with a natural language query
-→ The search uses AI to find relevant moments from screen recordings
+FOR CONTEXT MEMORY / COMPUTER ACTIVITY QUESTIONS ("what did I work on today", "what did I do this morning", "what was I working on", "when did I look at", "find when I was", "what apps did I use", "show me what I was doing", "what did I do this week on my computer"):
+→ Use searchContextMemory with a natural language query
+→ The search uses visible context from active apps/tabs, with legacy OCR only as fallback
 → Summarize what was found: apps used, content viewed, approximate times
-→ If results include OCR text (content from screen), mention key details
+→ If results include visible text/content, mention key details
 → For "what was I working on/doing" requests, infer tasks from snippets/windows and chronology, not total app-hour metrics
 → Only discuss total app time if the user explicitly asks a time-spent question
 → Time is returned as ISO timestamp - convert to readable format
@@ -2772,7 +3216,7 @@ FOR COMPUTER TIME-SPENT BREAKDOWN QUESTIONS ("what did I spend my time on", "whe
 → Default groupBy to "app" unless user asks for website/domain/window breakdown
 → Present the returned summary as clean prose and bullets (no markdown tables unless explicitly requested)
 → Treat this as an executive summary, not a telemetry dump
-→ Clarify estimates are from OCR/vector/FTS matched moments (not exact timers)
+→ Clarify estimates are from visible-context/hybrid matched moments (not exact timers)
 
 === RESPONSE FORMAT ===
 1. Brief intro (1-2 sentences)
@@ -2821,14 +3265,18 @@ Keep total response under 500 characters when possible.`;
     const fullSystemPrompt = isVoiceMode ? systemPrompt + voiceStylePrompt : systemPrompt;
     const latestUserContent = latestUserMessage?.content || '';
     const forceScreenTimeBreakdown = isScreenTimeSpentQuery(latestUserContent);
+    const forceContextRecap = !forceScreenTimeBreakdown && isContextMemoryRecapQuery(latestUserContent);
     const forceDailyOverview = isDailyOverviewQuery(latestUserContent);
     const forceMonthlyOverview = !forceDailyOverview && isMonthlyOverviewQuery(latestUserContent);
     const forceWeeklyOverview =
+      !forceContextRecap &&
       !forceDailyOverview &&
       !forceMonthlyOverview &&
       isComprehensiveWeeklyRecapQuery(latestUserContent);
     const forcedToolName = forceScreenTimeBreakdown
       ? 'getComputerTimeSpentBreakdown'
+      : forceContextRecap
+        ? 'searchContextMemory'
       : forceDailyOverview
         ? 'getDailyOverview'
         : forceMonthlyOverview
@@ -2838,16 +3286,14 @@ Keep total response under 500 characters when possible.`;
             : null;
     const strictThisWeekForWeeklyOverview = isExplicitThisWeekQuery(latestUserContent);
 
-    // Fast path: for forced overview tools in text mode, both OpenAI calls are
-    // wasted because the final text is always replaced by a deterministic
-    // narrative from buildWeeklyOverviewNarrative. Skip straight to tool
-    // execution to eliminate ~6-8s of OpenAI latency.
-    const overviewFastPath =
+    // Fast path: for deterministic recap tools in text mode, skip OpenAI and
+    // render directly from the tool payload so routing and structure stay stable.
+    const deterministicFastPath =
       !isVoiceMode &&
       forcedToolName &&
-      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview'].includes(forcedToolName);
+      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'searchContextMemory'].includes(forcedToolName);
 
-    if (overviewFastPath) {
+    if (deterministicFastPath) {
       console.log(`⚡ Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
 
       const toolResults: ChatToolResults = { allStats: [], allBreakdowns: [] };
@@ -2868,6 +3314,16 @@ Keep total response under 500 characters when possible.`;
         case 'getMonthlyOverview':
           toolResultJson = await executeGetMonthlyOverview(token, {}, timezone);
           break;
+        case 'searchContextMemory':
+          toolResultJson = await executeSearchContextMemory(
+            token,
+            {
+              query: latestUserContent,
+              daysBack: inferScreenDaysBackFromQuery(latestUserContent, 7),
+              limit: 12,
+            },
+          );
+          break;
         default:
           toolResultJson = JSON.stringify({ success: false, error: 'Unknown overview tool' });
       }
@@ -2877,6 +3333,7 @@ Keep total response under 500 characters when possible.`;
         if (parsed.success) {
           if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
           else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
+          else if (forcedToolName === 'searchContextMemory') toolResults.screenRecordings = parsed;
           else toolResults.monthlyOverview = parsed;
 
           if (parsed.suggested_followups) {
@@ -2888,15 +3345,19 @@ Keep total response under 500 characters when possible.`;
       const title =
         forcedToolName === 'getDailyOverview'
           ? 'Daily Activity Overview'
+          : forcedToolName === 'searchContextMemory'
+            ? formatNarrativeDateLabel(toolResults.screenRecordings || {}, latestUserContent, timezone)
           : forcedToolName === 'getMonthlyOverview'
             ? 'Monthly Activity Overview'
             : 'Weekly Activity Overview';
 
       const overviewPayload =
-        toolResults.weeklyOverview || toolResults.dailyOverview || toolResults.monthlyOverview;
+        toolResults.weeklyOverview || toolResults.dailyOverview || toolResults.monthlyOverview || toolResults.screenRecordings;
 
       const finalText = overviewPayload?.success
-        ? buildWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
+        ? forcedToolName === 'searchContextMemory'
+          ? buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone)
+          : buildWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
         : 'I was unable to retrieve your data. Please try again.';
 
       const canvasToolPayload = buildCanvasToolPayload(toolResults);
@@ -3117,7 +3578,7 @@ Keep total response under 500 characters when possible.`;
                   ...args,
                   query: chooseScreenSearchQuery(args?.query, latestUserContent),
                 };
-                result = await executeSearchScreenRecordings(token, normalizedArgs, normalizedScreenSearchContext);
+                result = await executeSearchContextMemory(token, normalizedArgs);
               }
               // Store screen recording results for canvas
               try {
@@ -3128,6 +3589,21 @@ Keep total response under 500 characters when possible.`;
                   status: parsed?.status,
                   mode_used: parsed?.mode_used,
                 });
+                if (parsed.success && parsed.results) {
+                  toolResults.screenRecordings = parsed;
+                }
+              } catch {}
+              break;
+            case 'searchContextMemory':
+              {
+                const normalizedArgs = {
+                  ...args,
+                  query: chooseScreenSearchQuery(args?.query, latestUserContent),
+                };
+                result = await executeSearchContextMemory(token, normalizedArgs);
+              }
+              try {
+                const parsed = JSON.parse(result);
                 if (parsed.success && parsed.results) {
                   toolResults.screenRecordings = parsed;
                 }
@@ -3193,6 +3669,12 @@ Keep total response under 500 characters when possible.`;
       finalText = buildWeeklyOverviewNarrative(
         toolResults.dailyOverview as WeeklyOverviewPayload,
         'Daily Activity Overview',
+      );
+    } else if (!isVoiceMode && toolResults.screenRecordings?.success && forceContextRecap) {
+      finalText = buildContextMemoryNarrative(
+        toolResults.screenRecordings,
+        latestUserContent,
+        timezone,
       );
     } else if (!isVoiceMode && toolResults.monthlyOverview?.success) {
       finalText = buildWeeklyOverviewNarrative(

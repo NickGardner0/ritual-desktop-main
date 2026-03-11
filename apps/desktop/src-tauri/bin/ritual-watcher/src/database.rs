@@ -6,7 +6,9 @@
 #![allow(dead_code)] // Public API - methods used by Tauri commands
 
 use ritual_db::blocking::BlockingDatabase;
-use ritual_db::{ActivityEvent, OcrFrame as RitualOcrFrame};
+use ritual_db::{
+    ActivityEvent, ContextSnapshot as RitualContextSnapshot, OcrFrame as RitualOcrFrame,
+};
 use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -220,6 +222,19 @@ impl WatcherDatabase {
         })
     }
 
+    /// Record a context snapshot and update its owning session/doc.
+    pub fn record_context_snapshot(
+        &self,
+        snapshot: &RitualContextSnapshot,
+    ) -> std::result::Result<i64, String> {
+        self.with_write_retry("record_context_snapshot", || {
+            self.db
+                .record_context_snapshot(snapshot)
+                .map(|outcome| outcome.snapshot_id)
+                .map_err(|e| e.to_string())
+        })
+    }
+
     /// Get the count of events for a device
     pub fn get_event_count(&self, device_id: &str) -> std::result::Result<i64, String> {
         self.db
@@ -311,6 +326,37 @@ impl WatcherDatabase {
     /// Delete events older than the specified number of days
     pub fn delete_old_events(&self, days: i64) -> std::result::Result<i64, String> {
         self.db.delete_old_events(days).map_err(|e| e.to_string())
+    }
+
+    /// Clamp stale browser-extension rows so a broken session cannot remain open indefinitely.
+    pub fn clamp_stale_browser_extension_events(
+        &self,
+        device_id: &str,
+        stale_before_ts: u64,
+        max_span_ms: u64,
+    ) -> std::result::Result<i64, String> {
+        self.with_write_retry("clamp_stale_browser_extension_events", || {
+            self.db
+                .clamp_stale_browser_extension_events(
+                    device_id,
+                    stale_before_ts as i64,
+                    max_span_ms as i64,
+                )
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    /// Delete exact duplicate browser-extension rows, keeping the earliest copy.
+    pub fn delete_duplicate_browser_extension_events(
+        &self,
+        device_id: &str,
+        lookback_ts: u64,
+    ) -> std::result::Result<i64, String> {
+        self.with_write_retry("delete_duplicate_browser_extension_events", || {
+            self.db
+                .delete_duplicate_browser_extension_events(device_id, lookback_ts as i64)
+                .map_err(|e| e.to_string())
+        })
     }
 
     /// Get database statistics for diagnostics
