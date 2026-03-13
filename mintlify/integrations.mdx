@@ -1,140 +1,248 @@
 ---
 title: "Integrations"
-description: "API endpoints and automatic tracking for Whoop, Apple Watch, Oura Ring, and Ritual Watcher."
+description: "Unified wearables API, Apple Health ingest, and automatic tracking for Whoop, Oura, Garmin, Ritual Watcher, and weather context."
 ---
 
-Ritual connects to wearables and devices via OAuth and native APIs. Below is a tabular breakdown of each integration’s endpoints and what is tracked automatically.
+Ritual now routes wearable integrations through a unified API under `/api/wearables`. Instead of each provider exposing a separate storage model, Ritual keeps a shared connection layer, canonical samples/events, and sync run history, then projects matched data back into habits and analytics.
+
+Legacy Whoop-specific routes still exist for older clients, but new integrations should use the unified wearable endpoints below.
+
+---
+
+## Unified wearables API
+
+### Core endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/wearables/providers` | List provider capabilities and connection requirements |
+| GET | `/api/wearables/connections` | List the current user's wearable connections |
+| POST | `/api/wearables/connections/{provider}/authorize` | Start provider auth or return provider-specific guidance |
+| POST | `/api/wearables/connections/{provider}/disconnect` | Revoke a connection in Ritual |
+| POST | `/api/wearables/connections/{provider}/sync` | Trigger a manual sync or account refresh |
+| GET | `/api/wearables/samples` | Query canonical numeric samples across providers |
+| GET | `/api/wearables/events` | Query canonical interval events such as sleep and workouts |
+| GET | `/api/wearables/sync-runs` | Inspect recent sync runs, status, and item counts |
+| GET | `/api/wearables/metrics` | Compatibility query route that returns samples as `metrics` |
+
+### OAuth, callback, and webhook endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/wearables/oauth/{provider}/callback` | OAuth callback for Whoop, Oura, and Garmin |
+| POST | `/api/wearables/webhooks/garmin` | Garmin server-to-server webhook ingest |
+
+### Canonical model
+
+| Resource | What it stores |
+|----------|----------------|
+| Connection | Provider, auth method, status, provider user id, last sync state, tracked metrics, source count |
+| Sample | Numeric wearable values such as steps, HRV, readiness score, or resting heart rate |
+| Event | Time-bounded records such as sleep sessions and workouts |
+| Sync run | A single auth refresh, manual sync, webhook ingest, or background ingest status record |
+
+When a canonical sample or event matches a habit with the same `integration_source` and `metric_type`, Ritual automatically projects it into `habit_logs` and forwards the compatible record to Tinybird when enabled.
+
+---
+
+## Provider matrix
+
+| Provider | Auth method | Status in current build | Sync model | Notes |
+|----------|-------------|-------------------------|------------|-------|
+| Apple Health | SDK | Live | iOS companion registers a device and pushes signed ingest requests | Supports import fallback; no OAuth |
+| Whoop | OAuth | Live | Manual/background cloud sync via `/connections/whoop/sync` | Uses provider-specific fetch logic behind the unified API |
+| Oura | OAuth | Live | Manual/background cloud sync via `/connections/oura/sync` | Normalized into shared samples/events |
+| Garmin | OAuth | Live | OAuth account setup plus webhook-driven ingestion | Manual sync refreshes permissions; data delivery is webhook-based |
+| Fitbit | OAuth placeholder | Not enabled | Not available in this build | Present in contracts/provider enum, but auth is disabled |
+
+---
+
+## Apple Health (HealthKit via iOS Companion)
+
+Apple Health uses the Ritual iOS companion app, not OAuth. The device registers once, stores a device secret in Keychain, and signs every ingest request with HMAC-SHA256. The backend enforces idempotency with `client_event_id`.
+
+### Apple Health endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/wearables/apple/register_device` | Create `device_id` and `device_secret` for the iOS companion |
+| GET | `/api/wearables/apple/devices` | List registered Apple Health devices |
+| DELETE | `/api/wearables/apple/devices/{device_id}` | Deactivate a device |
+| GET | `/api/wearables/apple/tracked_metrics` | Return the Apple-linked habit metric types the client should sync |
+| POST | `/api/wearables/apple/ingest` | Legacy signed ingest endpoint |
+| POST | `/api/wearables/apple/ingest/v2` | Incremental ingest with `added`, `deleted`, `modified`, and anchor confirmation |
+| GET | `/api/wearables/apple/devices/{device_id}/status` | Per-device sync health |
+| GET | `/api/wearables/apple/sync-status` | Sync health for all Apple devices |
+
+### Incremental sync behavior
+
+`/api/wearables/apple/ingest/v2` is the current path for HealthKit sync. The client sends:
+
+| Field | Meaning |
+|-------|---------|
+| `added` | New HealthKit samples since the last anchor |
+| `modified` | Existing HealthKit samples whose values changed |
+| `deleted` | HealthKit UUIDs that should be soft-deleted in Ritual |
+| `anchors` | Per-metric anchor tokens that are only committed client-side after server confirmation |
+
+### Apple Health metric mapping
+
+The iOS app syncs provider metric types such as `steps`, `hr`, `hrv`, `sleep_session`, and `workout`. Ritual stores provider-neutral canonical names where possible.
+
+| Apple metric type | Stored as |
+|-------------------|-----------|
+| `steps` | `steps` |
+| `active_energy` | `active_energy` |
+| `basal_energy` | `basal_energy` |
+| `distance` | `distance` |
+| `flights_climbed` | `flights_climbed` |
+| `exercise_time` | `exercise_time` |
+| `stand_time` | `stand_time` |
+| `hr` | `heart_rate` |
+| `hrv` | `hrv` |
+| `resting_hr` | `resting_heart_rate` |
+| `walking_hr` | `walking_heart_rate` |
+| `respiratory_rate` | `respiratory_rate` |
+| `oxygen_saturation` | `oxygen_saturation` |
+| `sleep_session` | `sleep_total` |
+| `sleep_asleep` | `sleep_asleep` |
+| `sleep_awake` | `sleep_awake` |
+| `sleep_rem` | `sleep_rem` |
+| `sleep_deep` | `sleep_deep` |
+| `sleep_core` | `sleep_light` |
+| `workout` | `workout` |
+| `mindful_minutes` | `mindful_minutes` |
 
 ---
 
 ## Whoop
 
-Whoop uses OAuth 2.0. Ritual stores tokens encrypted (AES) and polls the Whoop API in the background.
+Whoop is connected through the unified wearables connection flow, but the actual sync still uses the provider-specific Whoop service under the hood.
 
-### OAuth 2.0
+### OAuth scopes
 
-| Step | Endpoint / action |
-|------|-------------------|
-| Authorization | User is sent to `https://api.prod.whoop.com/oauth/oauth2/auth` with `client_id`, `redirect_uri`, `scope`, `state` |
-| Token exchange | `POST https://api.prod.whoop.com/oauth/oauth2/token` with `grant_type=authorization_code`, `code`, `client_id`, `client_secret`, `redirect_uri` |
-| Token refresh | Same token URL with `grant_type=refresh_token` and `refresh_token` |
-| Connect in Ritual | Dashboard → Settings → Integrations → Connect Whoop → Authorize |
+`offline read:recovery read:sleep read:workout read:cycles read:profile`
 
-### Whoop API endpoints (Ritual uses)
+### Whoop endpoints Ritual calls
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/developer/v1/user/profile/basic` | User profile (after OAuth) |
-| GET | `/developer/v1/recovery` | Recovery scores (query: `start`, `end`, `limit`, `nextToken`) |
-| GET | `/developer/v1/cycle` | Daily cycles (query: `start`, `end`, `limit`, `nextToken`) |
-| GET | `/developer/v2/cycle/{cycleId}/sleep` | Sleep for a given cycle |
-| GET | `/developer/v1/activity/workout` | Workouts (query: `start`, `end`, `limit`, `nextToken`) |
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `https://api.prod.whoop.com/oauth/oauth2/auth` | OAuth authorization |
+| POST | `https://api.prod.whoop.com/oauth/oauth2/token` | Token exchange and refresh |
+| GET | `/developer/v1/user/profile/basic` | Resolve the Whoop user id after OAuth |
+| GET | `/developer/v1/recovery` | Recovery data with pagination |
+| GET | `/developer/v1/cycle` | Cycle/day records with pagination |
+| GET | `/developer/v2/cycle/{cycleId}/sleep` | Sleep session for a cycle |
+| GET | `/developer/v1/activity/workout` | Workout data with pagination |
 
-### Automatically tracked (Whoop → habits)
+### Whoop sync behavior
 
-| Whoop data | Maps to habit | Unit |
-|------------|----------------|------|
-| Sleep (REM + slow wave + light, excl. awake) | Sleep duration / sleep | hours |
-| Recovery score | Recovery score / recovery | % (0–100) |
-| Daily strain (from workouts) | Daily strain / strain | strain score |
+| Behavior | Current implementation |
+|----------|------------------------|
+| First sync | Pulls the last 30 days |
+| Incremental sync | Pulls from last sync time with a 2-day overlap |
+| Token refresh | Refreshes when expiry is within 5 minutes |
+| Metric gating | Recovery and workout fetches are skipped if the user has no matching Whoop-linked habits |
 
----
+### Canonical Whoop data Ritual stores
 
-## Apple Watch (HealthKit via iOS Companion)
-
-The Ritual iOS companion app reads HealthKit and sends normalized metrics to the Ritual backend. Sign in with the same account and grant HealthKit permissions.
-
-### HealthKit metrics Ritual can track
-
-| Metric type | Description | Unit |
-|-------------|-------------|------|
-| steps | Step count | count |
-| active_energy | Active energy burned | kcal |
-| basal_energy | Basal energy burned | kcal |
-| distance | Walking/running distance | meters / km / miles |
-| flights_climbed | Flights climbed | count |
-| exercise_time | Exercise minutes | minutes |
-| stand_time | Stand hours | hours |
-| hr | Heart rate | bpm |
-| hrv | Heart rate variability | ms |
-| resting_hr | Resting heart rate | bpm |
-| walking_hr | Walking heart rate | bpm |
-| respiratory_rate | Respiratory rate | breaths_per_minute |
-| oxygen_saturation | SpO2 | percent |
-| sleep_session | Sleep session (in bed) | minutes |
-| sleep_asleep | Time asleep | minutes |
-| sleep_awake | Time awake in bed | minutes |
-| sleep_rem | REM sleep | minutes |
-| sleep_deep | Deep sleep | minutes |
-| sleep_core | Core sleep | minutes |
-| workout | Workout sessions | — |
-| mindful_minutes | Mindfulness minutes | minutes |
-
-Data is sent to the backend via the ingest API (device registration, HMAC-signed requests, optional incremental sync with HealthKit anchors).
+| Kind | Stored as | Source fields |
+|------|-----------|---------------|
+| Sample | `recovery_score` | Recovery score |
+| Sample | `hrv` | `hrv_rmssd_milli` |
+| Sample | `resting_heart_rate` | Resting heart rate |
+| Sample | `oxygen_saturation` | SpO2 percentage |
+| Sample | `temperature_delta` | Skin temperature delta |
+| Event | `sleep_total` | Sleep session with stage summary details |
+| Event | `workout` | Workout window with strain, distance, and HR details |
 
 ---
 
 ## Oura Ring
 
-Oura uses OAuth 2.0. The following is the standard API surface; Ritual’s Oura integration may be in development.
+Oura is now part of the unified cloud wearable flow. Ritual exchanges OAuth tokens, refreshes them automatically, fetches recent collections, and normalizes the results into shared samples and events.
 
-### OAuth 2.0
+### OAuth scopes
 
-| Step | Endpoint / action |
-|------|-------------------|
-| Authorization | User is sent to `https://cloud.ouraring.com/oauth/authorize` with `client_id`, `redirect_uri`, `scope`, `state` |
-| Token exchange | `POST https://api.ouraring.com/oauth/token` with authorization code |
-| Requests | `Authorization: Bearer <access_token>` on all API calls |
+`email personal daily heartrate session workout tag`
 
-### Oura API v2 endpoints (usercollection)
+### Oura endpoints Ritual calls
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /v2/usercollection/personal_info` | Demographics, height, weight (scope: `personal`) |
-| `GET /v2/usercollection/daily_sleep` | Sleep scores, stages, duration, quality (scope: `daily` or sleep) |
-| `GET /v2/usercollection/daily_activity` | Steps, calories, activity score (scope: `daily`) |
-| `GET /v2/usercollection/daily_readiness` | Readiness score, HRV, RHR, recovery (scope: `daily`) |
-| `GET /v2/usercollection/heartrate` | Time-series heart rate, e.g. Gen 3 (scope: `heartrate`) |
-| `GET /v2/usercollection/spo2` | Daily SpO2 average during sleep (scope: `spo2`) |
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `https://cloud.ouraring.com/oauth/authorize` | OAuth authorization |
+| POST | `https://api.ouraring.com/oauth/token` | Token exchange and refresh |
+| GET | `/v2/usercollection/personal_info` | Resolve the Oura identity/profile |
+| GET | `/v2/usercollection/daily_sleep` | Daily sleep summary |
+| GET | `/v2/usercollection/sleep` | Sleep sessions |
+| GET | `/v2/usercollection/daily_readiness` | Readiness summary |
+| GET | `/v2/usercollection/daily_activity` | Activity summary |
+| GET | `/v2/usercollection/workout` | Workout sessions |
+| GET | `/v2/usercollection/heartrate` | Heart-rate series when available for the token/scope |
 
-Scopes: `daily` (sleep, activity, readiness), `personal`, `heartrate`, `spo2`. HRV and readiness are available via daily summaries.
+### Oura sync behavior
+
+| Behavior | Current implementation |
+|----------|------------------------|
+| First sync | Pulls the last 30 days |
+| Incremental sync | Uses last sync time with a minimum 2-day overlap and maximum 30-day lookback |
+| Scope tolerance | `403` and `404` collection responses are treated as unavailable scope/data, not fatal |
+
+### Canonical Oura data Ritual stores
+
+| Kind | Stored as |
+|------|-----------|
+| Sample | `steps`, `active_energy`, `distance`, `activity_score` |
+| Sample | `readiness_score`, `temperature_delta` |
+| Sample | `sleep_score`, `sleep_deep`, `sleep_rem`, `sleep_light` |
+| Sample | `hrv`, `resting_heart_rate`, `heart_rate` |
+| Event | `sleep_total` |
+| Event | `workout` |
+
+---
+
+## Garmin
+
+Garmin is connected through unified OAuth plus a webhook ingest path. The manual sync endpoint is mainly an account refresh step that loads the provider user id and permissions; actual activity data is expected to arrive through Garmin webhooks.
+
+### OAuth and webhook flow
+
+| Step | Current implementation |
+|------|------------------------|
+| Authorization | PKCE OAuth via `/api/wearables/connections/garmin/authorize` |
+| Callback | `/api/wearables/oauth/garmin/callback` validates `state`, exchanges `code`, stores tokens, and records permissions |
+| Manual sync | `/api/wearables/connections/garmin/sync` refreshes account metadata and permissions |
+| Webhook ingest | `/api/wearables/webhooks/garmin` accepts Garmin payloads and maps them to the linked Ritual user |
+
+If `GARMIN_WEBHOOK_SECRET` is configured, the webhook requires the `x-garmin-webhook-secret` header.
+
+### Canonical Garmin data Ritual stores
+
+| Kind | Stored as |
+|------|-----------|
+| Sample | `steps`, `distance`, `active_energy`, `resting_heart_rate` |
+| Sample | `stress_score`, `body_battery` |
+| Event | `sleep_total` |
+| Event | `workout` |
 
 ---
 
 ## Ritual Watcher
 
-The Ritual Watcher is a background process that runs when the desktop app is open. It writes to a local SQLite database; rollups can be synced to the cloud if enabled.
-
-### Automatically tracked (Ritual Watcher)
-
-| Data | Description |
-|------|-------------|
-| App usage | Active app (bundle ID, app name) and duration per segment; rolls up into daily Computer Use habit |
-| Window title | Current window title (optional; privacy modes: off, full, truncate, hash) |
-| Browser domains / URLs | Domains (and optionally URLs) from the active browser tab; from native watcher and/or browser extension heartbeat |
-| Browser tab changes | Tab/URL changes when a supported browser is in focus (polling) |
-| AFK | Away-from-keyboard detection so idle time does not count as active computer time |
-| Screen lock / unlock | Lock and unlock events for session boundaries |
-| Sleep / wake | System sleep and wake for session boundaries |
-| Session timing | Start/end timestamps per activity segment and daily rollups (active_ms, event count) |
-
-Exclusions (apps or domains not tracked) can be set in Settings → Computer Tracking → Exclusions. Computer tracking data is stored locally first and only synced to the cloud (e.g. Tinybird) if cloud sync is enabled.
+Ritual Watcher is separate from the unified wearables API. It runs locally in the desktop app and tracks computer activity, app usage, browser context, AFK time, and session boundaries. Data is stored locally first and only synced to the cloud if the user enables cloud sync.
 
 ---
 
 ## Weather
 
-Weather context (e.g. temperature and conditions) is attached to log entries by location. No separate setup; it is applied automatically where supported.
+Weather context is also outside the unified wearables API. Ritual attaches local conditions and temperature context to logs automatically where location support is available.
 
 ---
 
-## Planned integrations
+## Not yet enabled
 
-| Source | Planned data |
-|--------|----------------|
-| Apple Screen Time | Weekly app usage, phone pickup (screenshot import supported today) |
-| Fitbit | Steps, active minutes, sleep |
-| Garmin | Workouts, VO2 max, training load |
-| Google Calendar | Schedule context with habit data |
-
-Screenshot import (any source): the screenshot analyzer can extract habits and values from images (e.g. fitness or sleep reports) using the existing pipeline when an API is not available.
+| Integration | Current state |
+|-------------|---------------|
+| Fitbit | Included in provider enums/contracts, but auth is disabled in this build |
+| Apple Screen Time cloud ingest | Metric types exist in shared Apple schemas, but there is no live unified provider flow yet |
+| Google Calendar | Still planned |
