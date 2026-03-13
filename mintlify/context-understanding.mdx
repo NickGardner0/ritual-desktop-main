@@ -3,7 +3,7 @@ title: "Context Understanding"
 description: "How Ritual Watcher, Ritual Recorder, local search, and optional cloud memory work together to understand what you were doing."
 ---
 
-Ritual's context understanding is not a single feature. It is a stack made up of local activity tracking, browser heartbeats, OCR-based screen understanding, searchable memory, and optional cloud indexing.
+Ritual's context understanding is not a single feature. It is a stack made up of local activity tracking, browser heartbeats, macOS accessibility capture, OCR-based screen understanding, searchable memory, and optional cloud indexing.
 
 This is how Ritual answers questions like "What was I working on?", "Where did my time go?", and "When was I designing that settings screen?" with more than just manual notes.
 
@@ -17,6 +17,8 @@ Ritual combines multiple layers instead of relying on one signal.
 |-------|---------------|----------------|
 | Ritual Watcher | Tracks focused apps, session timing, browser activity, AFK, lock/unlock, and sleep/wake | Computer activity events and rollups |
 | Browser extension heartbeat | Sends active tab context to the local watcher server | Browser domain, tab/url context, extension health |
+| Accessibility capture | Reads focused UI state and visible app context from macOS accessibility APIs | Native context snapshots with visible text, titles, document hints, and quality scores |
+| Vision/OCR capture | Supplements thin native capture by reading visible screen text | OCR text and fallback context when native app capture is weak |
 | Ritual Recorder | Captures periodic screen frames, deduplicates them, runs OCR, and stores thumbnails + extracted text | OCR frames and searchable text |
 | Local search pipeline | Builds full-text and vector-searchable chunks from recent OCR/context data | Local hybrid retrieval |
 | Optional cloud memory pipeline | Uploads local search chunks to cloud memory when enabled | Cross-device/cloud-backed memory query support |
@@ -27,7 +29,17 @@ The result is a local-first activity memory that can power analytics, search, an
 
 ## What Ritual Watcher captures
 
-Ritual Watcher is the structured activity layer. It is different from the recorder: it focuses on app/browser usage, session boundaries, and current context rather than OCR text.
+Ritual Watcher is the structured activity layer. It is different from the recorder: it focuses on app/browser usage, session boundaries, and current context rather than just OCR text.
+
+### Primary context path
+
+For rich desktop context, the main capture path is:
+
+1. Browser extension heartbeats for browser/tab context
+2. macOS accessibility snapshots for native app context
+3. Vision-based fallback when accessibility capture is unavailable or too thin
+
+That means your mental model is mostly right: Ritual does not rely on the recorder first for rich context. The watcher's browser + accessibility snapshot system is the primary path, and OCR is used to supplement or recover context when native capture quality is weak.
 
 ### Watcher data
 
@@ -54,6 +66,25 @@ Ritual Watcher is the structured activity layer. It is different from the record
 
 The desktop settings UI also surfaces watcher diagnostics such as extension detection, heartbeat health, duplicate watcher listeners, and recent context snapshot quality.
 
+### Accessibility trees and visible app context
+
+On macOS, Ritual uses the Accessibility API to inspect the focused UI element, parents, siblings, window context, and visible descendants. In practice this lets Ritual capture richer context than simple app tracking alone, including:
+
+| Accessibility-derived signal | Example |
+|------------------------------|---------|
+| Focused/selected text | Selected code, active editor text, highlighted content |
+| Document identity | File path, document name, or filename hints when available |
+| Window and UI labels | Current panel, section, or tool context |
+| Visible descendant text | Nearby visible UI text in editors and app windows |
+
+The watcher also has event-driven AX observers for focused UI changes, main-window changes, and title changes, so context capture is not just coarse polling.
+
+### When Ritual falls back
+
+Accessibility capture is not equally rich in every app. Electron editors, secure fields, and some apps expose weak or privacy-restricted AX trees. In those cases Ritual can degrade to metadata-only context or supplement native capture with Vision-based text extraction.
+
+This is why the app exposes diagnostics like `recent_accessibility_snapshot_count`, `recent_deep_accessibility_snapshot_count`, `recent_vision_fallback_snapshot_count`, and `context_quality`.
+
 ---
 
 ## What Ritual Recorder adds
@@ -72,7 +103,7 @@ Ritual Recorder is the visible-content layer. It captures periodic screen frames
 
 ### Why this matters
 
-Watcher tells Ritual **where** your time went. Recorder helps explain **what was actually on screen** during that time.
+Watcher tells Ritual **where** your time went and often captures the richest native context directly through browser and accessibility snapshots. Recorder helps explain **what was actually on screen** during that time when OCR-based evidence is needed, and it can backstop weak native capture.
 
 That combination is what makes queries like "What was I doing in Figma yesterday?" or "When was I editing the integrations page?" much more grounded than simple app-time tracking.
 
@@ -159,4 +190,3 @@ If context quality drops, Ritual can still fall back to weaker signals like acti
 
 - Use [Integrations](/integrations) for external providers like Apple Health, Whoop, Oura, and Garmin.
 - Use this page for first-party context capture, local memory, recorder/search behavior, and privacy controls.
-
