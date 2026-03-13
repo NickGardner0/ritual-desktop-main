@@ -1,0 +1,162 @@
+---
+title: "Context Understanding"
+description: "How Ritual Watcher, Ritual Recorder, local search, and optional cloud memory work together to understand what you were doing."
+---
+
+Ritual's context understanding is not a single feature. It is a stack made up of local activity tracking, browser heartbeats, OCR-based screen understanding, searchable memory, and optional cloud indexing.
+
+This is how Ritual answers questions like "What was I working on?", "Where did my time go?", and "When was I designing that settings screen?" with more than just manual notes.
+
+---
+
+## How Ritual builds context
+
+Ritual combines multiple layers instead of relying on one signal.
+
+| Layer | What it does | Primary output |
+|-------|---------------|----------------|
+| Ritual Watcher | Tracks focused apps, session timing, browser activity, AFK, lock/unlock, and sleep/wake | Computer activity events and rollups |
+| Browser extension heartbeat | Sends active tab context to the local watcher server | Browser domain, tab/url context, extension health |
+| Ritual Recorder | Captures periodic screen frames, deduplicates them, runs OCR, and stores thumbnails + extracted text | OCR frames and searchable text |
+| Local search pipeline | Builds full-text and vector-searchable chunks from recent OCR/context data | Local hybrid retrieval |
+| Optional cloud memory pipeline | Uploads local search chunks to cloud memory when enabled | Cross-device/cloud-backed memory query support |
+
+The result is a local-first activity memory that can power analytics, search, and AI answers.
+
+---
+
+## What Ritual Watcher captures
+
+Ritual Watcher is the structured activity layer. It is different from the recorder: it focuses on app/browser usage, session boundaries, and current context rather than OCR text.
+
+### Watcher data
+
+| Signal | What Ritual stores |
+|--------|--------------------|
+| Active app | Bundle id, app name, process, and timing for the focused app |
+| Window title | Off, truncated, hashed, or full title depending on privacy mode |
+| Browser context | Domain by default, or full URL when enabled |
+| Browser tab changes | Heartbeat updates from the browser extension |
+| AFK state | Idle detection so inactive time does not count as active usage |
+| Session boundaries | Lock/unlock, sleep/wake, app switches, and active segments |
+| Daily rollups | Aggregated app usage that can sync to analytics and habits |
+
+### Watcher defaults and controls
+
+| Setting | Current behavior |
+|---------|------------------|
+| Poll interval | Roughly every 2 seconds by default |
+| Title mode | `off`, `truncate`, `hash`, or `full` |
+| URL mode | Domain-only by default |
+| Incognito | Off by default |
+| AFK timeout | 15 minutes by default |
+| Exclusions | Per-app exclusions for sensitive tools or apps you do not want tracked |
+
+The desktop settings UI also surfaces watcher diagnostics such as extension detection, heartbeat health, duplicate watcher listeners, and recent context snapshot quality.
+
+---
+
+## What Ritual Recorder adds
+
+Ritual Recorder is the visible-content layer. It captures periodic screen frames, skips near-duplicates, runs Apple Vision OCR locally, and stores thumbnails plus extracted text in the local database.
+
+### Recorder pipeline
+
+| Stage | What happens |
+|-------|--------------|
+| Capture | Grab the current screen plus active-window metadata |
+| Dedup | Skip frames that are visually and textually too similar to the last stored frame |
+| OCR | Extract visible text on-device using Apple's Vision framework |
+| Thumbnailing | Save a lightweight image preview instead of full video |
+| Storage | Write OCR text, quality score, metadata, and thumbnail path to local libSQL |
+
+### Why this matters
+
+Watcher tells Ritual **where** your time went. Recorder helps explain **what was actually on screen** during that time.
+
+That combination is what makes queries like "What was I doing in Figma yesterday?" or "When was I editing the integrations page?" much more grounded than simple app-time tracking.
+
+---
+
+## Search and memory
+
+Ritual turns local context into searchable memory in two stages: local retrieval first, optional cloud memory second.
+
+### Local search modes
+
+| Mode | How it works | Best for |
+|------|--------------|----------|
+| Text search | FTS over OCR text and metadata | Exact matches like app names, localhost URLs, or specific terms |
+| Semantic search | Vector similarity over embedded OCR/search chunks | Natural-language queries |
+| Hybrid search | Combines lexical + vector signals | Best default for most screen/context questions |
+| Activity fallback | Uses watcher activity when semantic evidence is weak or unavailable | Time-spent and app-usage questions |
+
+Ritual's local hybrid bridge runs on localhost and lets backend/query paths call into the local vector + FTS index without sending raw context off-device first.
+
+### Optional cloud memory
+
+When cloud memory is enabled, Ritual can upload local `search_chunks` to the cloud memory pipeline. Those chunks are deduplicated, embedded, retained, and queried through the canonical memory API.
+
+| Route | Purpose |
+|-------|---------|
+| `POST /api/memory/ingest-chunks` | Ingest memory chunks from the local outbox |
+| `POST /api/memory/query` | Query cloud-backed memory |
+| `GET /api/memory/health` | Inspect pipeline freshness and indexing health |
+
+Older watcher-memory routes still exist as temporary compatibility aliases, but the canonical path is now `/api/memory/*`.
+
+---
+
+## What Ritual can answer from context
+
+This system is designed for several different question types.
+
+| Question type | Backing signal |
+|---------------|----------------|
+| "What app did I spend the most time in?" | Watcher rollups and activity segments |
+| "Where did my computer time go today?" | Watcher activity plus sync-to-habit rollups |
+| "When was I working on the settings page?" | Recorder OCR + local hybrid search |
+| "What was on screen when I was in Figma?" | Recorder OCR + watcher app/window context |
+| "Summarize what I was doing this afternoon" | Hybrid retrieval over chunks plus activity context |
+| "What did I work on recently across devices?" | Cloud memory, when enabled |
+
+---
+
+## Privacy and control
+
+Ritual is not "just" app tracking and it is not "just" a screen recorder either. The important privacy distinction is that these layers have separate controls and different storage characteristics.
+
+| Control | What it does |
+|---------|--------------|
+| App exclusions | Stop tracking for selected apps |
+| Title mode | Disable titles or reduce sensitivity with truncation or hashing |
+| URL mode | Limit browser capture to domains instead of full URLs |
+| Incognito off by default | Browser heartbeat ignores incognito tabs unless explicitly enabled |
+| Local-first storage | Raw watcher data and recorder output are stored locally first |
+| Optional cloud memory | Cloud indexing is a separate pipeline, not an automatic requirement for local context capture |
+
+Ritual Recorder stores deduplicated thumbnails plus OCR text, not continuous desktop video. Ritual Watcher stores structured activity metadata rather than full screen imagery.
+
+---
+
+## Health and quality signals
+
+The current app exposes several quality signals so users can tell whether context understanding is working well.
+
+| Signal | Meaning |
+|--------|---------|
+| `context_enabled` | Ritual is receiving enough recent high-fidelity context to treat capture as active |
+| `context_quality` | `high`, `medium`, `degraded`, or `unavailable` depending on recent browser/accessibility coverage |
+| Browser heartbeat live | The extension is reaching the watcher listener |
+| Duplicate watcher detection | Multiple local watcher listeners may be splitting context and degrading capture |
+| Freshness | Memory/search responses can report stale or degraded OCR/semantic state |
+
+If context quality drops, Ritual can still fall back to weaker signals like activity-only summaries, but screen-grounded answers may become less precise.
+
+---
+
+## Where this fits in the docs
+
+- Use [Integrations](/integrations) for external providers like Apple Health, Whoop, Oura, and Garmin.
+- Use this page for first-party context capture, local memory, recorder/search behavior, and privacy controls.
+

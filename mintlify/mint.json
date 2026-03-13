@@ -30,6 +30,7 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
+        "context-understanding",
         "integrations"
       ]
     },

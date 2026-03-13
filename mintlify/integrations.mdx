@@ -1,6 +1,6 @@
 ---
 title: "Integrations"
-description: "Unified wearables API, Apple Health ingest, and automatic tracking for Whoop, Oura, Garmin, Ritual Watcher, and weather context."
+description: "Unified wearables API, Apple Health ingest, and external provider connections for Whoop, Oura, Garmin, and related data sources."
 ---
 
 Ritual now routes wearable integrations through a unified API under `/api/wearables`. Instead of each provider exposing a separate storage model, Ritual keeps a shared connection layer, canonical samples/events, and sync run history, then projects matched data back into habits and analytics.
@@ -227,9 +227,11 @@ If `GARMIN_WEBHOOK_SECRET` is configured, the webhook requires the `x-garmin-web
 
 ---
 
-## Ritual Watcher
+## Desktop context
 
-Ritual Watcher is separate from the unified wearables API. It runs locally in the desktop app and tracks computer activity, app usage, browser context, AFK time, and session boundaries. Data is stored locally first and only synced to the cloud if the user enables cloud sync.
+Ritual Watcher and Ritual Recorder are separate from the unified wearables API. They are first-party desktop context features, not third-party integrations.
+
+For detailed docs on computer tracking, OCR capture, memory indexing, and hybrid search, see [Context Understanding](/context-understanding).
 
 ---
 
