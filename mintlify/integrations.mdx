@@ -1,11 +1,13 @@
 ---
 title: "Integrations"
-description: "Unified wearables API, Apple Health ingest, and external provider connections for Whoop, Oura, Garmin, and related data sources."
+description: "Wearable, health, desktop, and Plaid-backed financial integrations used to bring behavior and spending data into Ritual."
 ---
 
 Ritual now routes wearable integrations through a unified API under `/api/wearables`. Instead of each provider exposing a separate storage model, Ritual keeps a shared connection layer, canonical samples/events, and sync run history, then projects matched data back into habits and analytics.
 
 Legacy Whoop-specific routes still exist for older clients, but new integrations should use the unified wearable endpoints below.
+
+Financial integrations currently use a separate API under `/api/financial`. Plaid-backed spending sync is not modeled as a wearable feed. Instead, Ritual ingests connection, account, and transaction data, computes daily spending totals, and projects those totals into a managed `Spending` habit.
 
 ---
 
@@ -54,6 +56,86 @@ When a canonical sample or event matches a habit with the same `integration_sour
 | Oura | OAuth | Live | Manual/background cloud sync via `/connections/oura/sync` | Normalized into shared samples/events |
 | Garmin | OAuth | Live | OAuth account setup plus webhook-driven ingestion | Manual sync refreshes permissions; data delivery is webhook-based |
 | Fitbit | OAuth placeholder | Not enabled | Not available in this build | Present in contracts/provider enum, but auth is disabled |
+
+---
+
+## Plaid (bank connections for spending tracking)
+
+Plaid is the first financial integration in Ritual. It is used to help users track spending behavior, not to provide a full banking or budgeting product.
+
+In the current build, Ritual:
+
+- creates a Plaid Link token on the backend
+- exchanges the public token for an access token server-side
+- stores financial connections, accounts, and normalized transactions
+- backfills available transaction history
+- computes one positive daily spending total per day
+- projects that total into a managed `Spending` habit
+
+### Financial integration API
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/financial/plaid/link-token` | Create a Plaid Link token for first-time connect or update-mode reconnect |
+| POST | `/api/financial/plaid/exchange-public-token` | Exchange Plaid `public_token`, create the Ritual connection, and optionally auto-backfill history |
+| POST | `/api/financial/plaid/webhook` | Receive Plaid webhooks for transaction and Item status changes |
+| GET | `/api/financial/connections` | List the current user's financial connections, accounts, and sync state |
+| POST | `/api/financial/connections/{connection_id}/backfill` | Import available Plaid history and rebuild daily spending totals |
+| POST | `/api/financial/connections/{connection_id}/sync` | Pull the latest transactions and refresh daily spending totals |
+| PUT | `/api/financial/connections/{connection_id}/sync-settings` | Update auto-sync and preferred sync hour |
+| PUT | `/api/financial/connections/{connection_id}/accounts/{account_id}` | Include or exclude an account from spending rollups |
+| DELETE | `/api/financial/connections/{connection_id}` | Disconnect Plaid inside Ritual |
+| POST | `/api/financial/sync-all` | Internal scheduled sync entrypoint for active Plaid connections |
+
+### Current spending rules
+
+Plaid-backed spending is intentionally narrow in scope. In the current build, Ritual counts:
+
+- posted outflows on **depository** accounts
+- positive daily spending totals only
+
+And excludes:
+
+- pending transactions
+- transfers
+- loan-like and credit-card payment transactions
+- non-depository accounts from the daily spending rollup
+
+This means the integration is optimized for tracking daily spending behavior inside Ritual rather than reproducing a full transaction ledger.
+
+### Current connect and sync behavior
+
+| Behavior | Current implementation |
+|----------|------------------------|
+| Security gate | Users must enable MFA before Plaid Link can be used |
+| Initial connect | Creates the Plaid connection, stores account metadata, and can auto-backfill history |
+| Backfill | Imports available Plaid transaction history and recomputes daily totals |
+| Incremental sync | Uses Plaid transaction sync plus a stored cursor |
+| Reconnect | Uses Plaid update mode when an Item requires re-authentication |
+| Account controls | Users can include or exclude individual accounts from spending totals |
+| Scheduled sync | Active connections can be refreshed through the internal `sync-all` endpoint |
+
+### Data Ritual stores from Plaid
+
+Ritual stores:
+
+- connection status and institution metadata
+- account metadata such as name, mask, type, and subtype
+- normalized transactions including date, amount, merchant/transaction name, direction, pending state, and provider category/code metadata
+- derived daily spending habit logs and sync metadata
+
+Plaid access tokens remain server-side. The product purpose for this data is to support spending-tracking features selected by the user.
+
+### Current scope and limitations
+
+The current Plaid integration should be documented as:
+
+- Plaid-only financial connectivity
+- spending tracking, not budgeting or accounting
+- daily rollups into a `Spending` habit
+- best suited for supported Plaid institutions and available transaction history
+
+If the production Plaid rollout is still pending approval, present this section as beta or coming soon rather than as a generally available banking feature.
 
 ---
 
