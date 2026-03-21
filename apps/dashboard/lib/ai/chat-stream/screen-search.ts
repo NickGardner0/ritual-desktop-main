@@ -460,10 +460,12 @@ export async function fetchOnDemandScreenSearchContext(
   params: { query: string; daysBack?: number; limit?: number },
 ): Promise<ScreenSearchContext | null> {
   try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
     const response = await fetchPythonApiPost('/api/memory/query', token, {
       query: params.query,
       intent: 'semantic_lookup',
       days_back: clampDaysBack(params.daysBack),
+      timezone,
       limit: clampSearchLimit(params.limit ?? 20),
     }) as MemoryQueryApiResponse;
 

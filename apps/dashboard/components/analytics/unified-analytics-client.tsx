@@ -29,15 +29,9 @@ import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { habitLogKeys } from '@/hooks/use-habits-query';
 import { useUser, useAuth } from '@clerk/nextjs';
-import { getLocationPermissionStatus, requestCurrentLocation } from '@/lib/location-utils';
 // Import from separate file to avoid pulling in recharts (~500KB)
-import { AnalyticsViewToggle } from './analytics-view-toggle';
-import { cn } from '@/lib/utils';
-
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
-const WEATHER_AUTO_SYNC_INTERVAL_MS = 45 * 60 * 1000;
-const WEATHER_AUTO_SYNC_LAST_KEY = 'ritual:weather-auto-sync:last';
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 // Dynamic imports with ssr:false — Turbopack skips these modules during
@@ -99,9 +93,6 @@ function UnifiedAnalyticsContent() {
   
   // Overflow menu is handled by Radix DropdownMenu (no manual state needed)
   
-  // Metrics view controls
-  const [chartViewMode, setChartViewMode] = useState<'chart' | 'ticker'>('ticker');
-  const [summaryPanelOpen, setSummaryPanelOpen] = useState(false);
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const habitDropdownButtonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -167,126 +158,6 @@ function UnifiedAnalyticsContent() {
     };
   }, [userLoaded, isSignedIn]);
 
-  // Optional Weather background sync while app is active.
-  // This never prompts for location; it runs only if permission is already granted.
-  useEffect(() => {
-    if (!userLoaded || !isSignedIn) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const runWeatherAutoSync = async () => {
-      if (cancelled) return;
-
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        return;
-      }
-
-      if (typeof window !== 'undefined') {
-        const inFlight = Boolean((window as any).__ritualWeatherSyncInFlight);
-        if (inFlight) return;
-        (window as any).__ritualWeatherSyncInFlight = true;
-      }
-
-      try {
-        const token = await getToken();
-        if (!token) return;
-
-        const now = Date.now();
-        const lastLocalSync = typeof window !== 'undefined'
-          ? Number(sessionStorage.getItem(WEATHER_AUTO_SYNC_LAST_KEY) || '0')
-          : 0;
-        if (now - lastLocalSync < WEATHER_AUTO_SYNC_INTERVAL_MS) {
-          return;
-        }
-
-        const statusResponse = await fetch(`${PYTHON_API_BASE}/api/integrations/weather/status`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-        if (!statusResponse.ok) return;
-
-        const statusPayload = await statusResponse.json();
-        if (!statusPayload?.enabled) return;
-
-        if (statusPayload?.last_sync_at) {
-          const lastServerSync = new Date(statusPayload.last_sync_at).getTime();
-          if (Number.isFinite(lastServerSync) && now - lastServerSync < 30 * 60 * 1000) {
-            return;
-          }
-        }
-
-        const permission = await getLocationPermissionStatus();
-        if (permission !== 'granted') {
-          return;
-        }
-
-        const location = await requestCurrentLocation({
-          timeoutMs: 10000,
-          maximumAgeMs: 5 * 60 * 1000,
-          enableHighAccuracy: false,
-        });
-
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-        const syncResponse = await fetch(`${PYTHON_API_BASE}/api/integrations/weather/sync`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            lat: location.lat,
-            lon: location.lon,
-            tz,
-            locationLabel: 'Near you',
-            storePreciseLocation: false,
-          }),
-        });
-
-        if (syncResponse.ok && typeof window !== 'undefined') {
-          sessionStorage.setItem(WEATHER_AUTO_SYNC_LAST_KEY, String(now));
-        }
-      } catch (error) {
-        console.debug('Weather background sync skipped:', error);
-      } finally {
-        if (typeof window !== 'undefined') {
-          (window as any).__ritualWeatherSyncInFlight = false;
-        }
-      }
-    };
-
-    runWeatherAutoSync();
-    const intervalId = setInterval(runWeatherAutoSync, WEATHER_AUTO_SYNC_INTERVAL_MS);
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        runWeatherAutoSync();
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [userLoaded, isSignedIn, getToken]);
-  
-  // Load chart view mode from localStorage
-  useEffect(() => {
-    const savedViewMode = localStorage.getItem('analytics-view-mode');
-    if (savedViewMode === 'chart' || savedViewMode === 'ticker') {
-      setChartViewMode(savedViewMode);
-    }
-  }, []);
-  
-  // Persist chart view mode
-  useEffect(() => {
-    localStorage.setItem('analytics-view-mode', chartViewMode);
-  }, [chartViewMode]);
-  
   // Update dropdown position when opening
   useEffect(() => {
     if (habitDropdownOpen && habitDropdownButtonRef.current) {
@@ -312,15 +183,42 @@ function UnifiedAnalyticsContent() {
   // Sync view mode with URL
   useEffect(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam === 'overview' || viewParam === 'metrics') {
+    if (viewParam === 'chat' || viewParam === 'overview' || viewParam === 'metrics') {
       setViewMode(viewParam);
     }
   }, [searchParams, setViewMode]);
+
+  useEffect(() => {
+    const shouldOpenImport = searchParams.get('openImport') === '1';
+    if (!shouldOpenImport) return;
+
+    setViewMode('overview');
+    setShowImportModal(true);
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('openImport');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams, setViewMode]);
+
+  useEffect(() => {
+    const habitId = searchParams.get('habit');
+    if (!habitId || habits.length === 0) return;
+    if (!habits.some((habit) => habit.id === habitId)) return;
+
+    setViewMode('metrics');
+    setSelectedHabits([habitId]);
+  }, [habits, searchParams, setSelectedHabits, setViewMode]);
   
   // Update URL when view mode changes
   const handleViewChange = useCallback((newView: ViewMode) => {
+    if (newView === 'chat') {
+      // Navigate to the dedicated full chat page
+      router.push('/chat');
+      return;
+    }
     setViewMode(newView);
-    
+
     // Update URL without triggering navigation
     const params = new URLSearchParams(searchParams.toString());
     params.set('view', newView);
@@ -337,23 +235,34 @@ function UnifiedAnalyticsContent() {
   }, [fetchHabits]);
 
   // Portal controls into the header (aligned with Search/Tracker)
-  // Resolve portal targets on every render (after mount) so we never hold stale
-  // DOM references. This is critical because router.replace() during view switching
-  // can cause the Suspense boundary to re-suspend and remount the component,
-  // which would leave the old cached references pointing at detached nodes.
-  const headerRightSlot =
-    typeof document !== 'undefined'
-      ? document.getElementById('header-right-slot')
-      : null;
-  const headerLeftSlot =
-    typeof document !== 'undefined'
-      ? document.getElementById('header-left-slot')
-      : null;
+  // Use state + effect so portals re-resolve after the header DOM appears.
+  // When isFullScreenChat transitions from true→false the header re-mounts,
+  // but during that same render the DOM nodes don't exist yet.  The effect
+  // fires *after* paint, finds the freshly-mounted nodes, and triggers a
+  // re-render that wires up the portals.
+  const [headerRightSlot, setHeaderRightSlot] = useState<HTMLElement | null>(null);
+  const [headerCenterSlot, setHeaderCenterSlot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const right = document.getElementById('header-right-slot');
+    const center = document.getElementById('header-center-slot');
+    setHeaderRightSlot(right);
+    setHeaderCenterSlot(center);
+  }, [isFullScreenChat]);
 
   return (
     <div className="space-y-3">
-      {/* + button (overview) + Date picker + View toggle — portalled into header right slot */}
-      {!isFullScreenChat && headerRightSlot && createPortal(
+      {/* Tab bar — portalled into header center slot */}
+      {!isFullScreenChat && headerCenterSlot && createPortal(
+        <ViewModeToggle
+          currentView={viewMode}
+          onViewChange={handleViewChange}
+        />,
+        headerCenterSlot
+      )}
+
+      {/* + button (overview) + Date picker — portalled into header right slot, hidden in chat mode */}
+      {!isFullScreenChat && viewMode !== 'chat' && headerRightSlot && createPortal(
         <>
           {viewMode === 'overview' && (
             <DropdownMenu>
@@ -382,105 +291,12 @@ function UnifiedAnalyticsContent() {
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}
           />
-          <ViewModeToggle
-            currentView={viewMode}
-            onViewChange={handleViewChange}
-          />
         </>,
         headerRightSlot
       )}
 
-      {/* Metrics-only controls live in the header beside search instead of floating above the cards. */}
-      {!isFullScreenChat && viewMode === 'metrics' && headerLeftSlot && createPortal(
-        <>
-          <AnalyticsViewToggle
-            currentView={chartViewMode}
-            onViewChange={setChartViewMode}
-            darkMode={false}
-            buttonClassName="text-gray-600 hover:text-black"
-          />
-          <button
-            ref={habitDropdownButtonRef}
-            onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
-            className="flex h-8 items-center gap-2 border border-gray-300 bg-white px-3 text-[13px] text-gray-600 shadow-sm transition-colors hover:bg-[#F3F3F3] hover:text-black rounded-sm"
-          >
-            <span>
-              {selectedHabits.length === habits.length
-                ? 'All'
-                : `${selectedHabits.length} of ${habits.length}`
-              }
-            </span>
-            <ChevronDown className={`h-4 w-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
-          </button>
-          <button
-            onClick={() => setSummaryPanelOpen(prev => !prev)}
-            className={cn(
-              "flex h-8 w-8 items-center justify-center border border-gray-300 bg-white text-gray-500 shadow-sm transition-colors hover:bg-[#F3F3F3] hover:text-black rounded-sm",
-              summaryPanelOpen && "bg-[#F7F7F7] text-black",
-            )}
-            title="Show activity breakdown"
-            aria-label="Show activity breakdown"
-          >
-            <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M2 3.5h11M2 7.5h11M2 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-          </button>
-        </>,
-        headerLeftSlot
-      )}
-
-      {/* Habit Filter Dropdown Portal */}
-      {habitDropdownOpen && typeof document !== 'undefined' && createPortal(
-        <>
-          <div
-            className="fixed inset-0"
-            style={{ zIndex: 9998 }}
-            onClick={() => setHabitDropdownOpen(false)}
-          />
-          <div
-            className="fixed bg-white border border-gray-200 shadow-xl max-h-[400px] overflow-y-auto rounded-sm"
-            style={{
-              zIndex: 9999,
-              top: dropdownPosition.top,
-              left: dropdownPosition.left,
-              width: '220px'
-            }}
-          >
-            <div className="p-1">
-              <button
-                onClick={() => {
-                  if (selectedHabits.length === habits.length) {
-                    clearHabitSelection();
-                  } else {
-                    selectAllHabits(habits.map(h => h.id).filter((id): id is string => !!id));
-                  }
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-[#F7F7F7] border-b border-gray-200"
-              >
-                {selectedHabits.length === habits.length ? 'Deselect all' : 'Select all'}
-              </button>
-              {habits.filter(h => h.id).map((habit) => (
-                <label
-                  key={habit.id}
-                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F7F7F7] cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedHabits.includes(habit.id!)}
-                    onChange={() => toggleHabit(habit.id!)}
-                    className="analytics-checkbox"
-                  />
-                  <span className="text-sm text-gray-900">{habit.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </>,
-        document.body
-      )}
-      
       {/* Content Area with smooth view switching */}
-      <div className="relative min-h-[400px]">
+      <div className="relative min-h-[400px] pt-1">
         {/* Overview View - Lazy loaded */}
         <div 
           role="tabpanel"
@@ -509,15 +325,11 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'metrics' && (
-            <MetricsView
-              hideControls={true}
-              externalChartViewMode={chartViewMode}
-              onChartViewModeChange={setChartViewMode}
-              summaryPanelOpen={summaryPanelOpen}
-              onSummaryPanelChange={setSummaryPanelOpen}
-            />
+            <MetricsView hideControls={true} />
           )}
         </div>
+
+        {/* Chat navigates to /chat — no inline panel needed */}
       </div>
       
       {/* Modals */}

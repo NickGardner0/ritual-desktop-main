@@ -12,6 +12,11 @@ import {
 } from '@/lib/onboarding-flow'
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const devLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args);
+  }
+};
 
 export default function SSOCallback() {
   const router = useRouter()
@@ -39,7 +44,7 @@ export default function SSOCallback() {
         // FAST PATH: If user has completed onboarding locally, go straight to dashboard
         // This handles returning users who sign in again
         if (hasCompletedOnboardingLocally) {
-          console.log('[SSO Callback] User has local onboarding flag, going to dashboard')
+          devLog('[SSO Callback] User has local onboarding flag, going to dashboard')
           setStatus('Welcome back! Taking you to your dashboard...')
           router.replace(getPostOnboardingRoute('/dashboard'))
           return
@@ -56,7 +61,7 @@ export default function SSOCallback() {
         });
 
         if (!token) {
-          console.log('No token in SSO callback, redirecting to dashboard');
+          devLog('No token in SSO callback, redirecting to dashboard');
           router.replace(getPostOnboardingRoute('/dashboard'))
           return
         }
@@ -78,14 +83,14 @@ export default function SSOCallback() {
 
         if (response && response.ok) {
           const profile = await response.json()
-          console.log('[SSO Callback] Profile data:', profile)
-          console.log('[SSO Callback] Onboarding completed:', profile.onboarding_completed)
+          devLog('[SSO Callback] Profile data:', profile)
+          devLog('[SSO Callback] Onboarding completed:', profile.onboarding_completed)
 
           if (profile.onboarding_completed) {
             // User already completed onboarding - set local flag and go to dashboard
             localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
             setStatus('Welcome back! Taking you to your dashboard...')
-            console.log('[SSO Callback] Redirecting to dashboard - onboarding already completed')
+            devLog('[SSO Callback] Redirecting to dashboard - onboarding already completed')
             router.replace(getPostOnboardingRoute('/dashboard'))
           } else {
             // Backend says not completed - check if user has habits (existing user)
@@ -96,7 +101,7 @@ export default function SSOCallback() {
               if (habitsResponse.ok) {
                 const habits = await habitsResponse.json();
                 if (habits && habits.length > 0) {
-                  console.log('[SSO Callback] User has existing habits, skipping onboarding');
+                  devLog('[SSO Callback] User has existing habits, skipping onboarding');
                   // User is clearly an existing user, set local flag and mark in backend
                   localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
                   setStatus('Welcome back! Taking you to your dashboard...')
@@ -105,7 +110,7 @@ export default function SSOCallback() {
                 }
               }
             } catch (e) {
-              console.log('[SSO Callback] Could not check habits, proceeding with onboarding check');
+              devLog('[SSO Callback] Could not check habits, proceeding with onboarding check');
             }
             
             // Only redirect to onboarding if:
@@ -113,12 +118,12 @@ export default function SSOCallback() {
             // 2. User has never completed onboarding locally
             if (isFromWelcome === 'true') {
               setStatus('Setting up your profile...')
-              console.log('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
+              devLog('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
               router.replace('/onboarding')
             } else {
               // Returning user but backend shows incomplete - could be DB issue
               // Default to dashboard since they're trying to sign in (not sign up)
-              console.log('[SSO Callback] Backend shows incomplete but user is signing in - going to dashboard')
+              devLog('[SSO Callback] Backend shows incomplete but user is signing in - going to dashboard')
               setStatus('Taking you to your dashboard...')
               router.replace(getPostOnboardingRoute('/dashboard'))
             }
@@ -128,11 +133,11 @@ export default function SSOCallback() {
           if (isFromWelcome === 'true') {
             // New user from welcome flow - go to onboarding
             setStatus('Setting up your profile...')
-            console.log('[SSO Callback] No profile yet, new user - redirecting to onboarding')
+            devLog('[SSO Callback] No profile yet, new user - redirecting to onboarding')
             router.replace('/onboarding')
           } else {
             // Returning user but profile fetch failed - go to dashboard
-            console.log('[SSO Callback] Profile fetch failed, status:', response?.status)
+            devLog('[SSO Callback] Profile fetch failed, status:', response?.status)
             setStatus('Taking you to your dashboard...')
             router.replace(getPostOnboardingRoute('/dashboard'))
           }

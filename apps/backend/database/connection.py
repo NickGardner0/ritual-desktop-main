@@ -24,6 +24,7 @@ load_dotenv()
 # Get Turso Cloud DATABASE_URL
 DATABASE_URL = os.getenv("DATABASE_URL")
 LOCAL_ONLY_MODE = os.getenv("RITUAL_DB_LOCAL_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
+LOCAL_REPLICA_ENCRYPTION_KEY = (os.getenv("TURSO_LOCAL_ENCRYPTION_KEY") or "").strip() or None
 
 # Use a local replica in the backend directory
 project_root = Path(__file__).parent.parent
@@ -82,6 +83,12 @@ else:
     logger.info(f"🔗 Connecting to Turso Cloud: {parsed.netloc}")
     logger.info(f"📡 Mode: Local replica with automatic sync")
     logger.info(f"💾 Local replica: {local_db_path}")
+    if LOCAL_REPLICA_ENCRYPTION_KEY:
+        logger.info("🔐 Local replica encryption: enabled")
+    else:
+        logger.warning(
+            "⚠️ Local replica encryption is disabled. Set TURSO_LOCAL_ENCRYPTION_KEY in production to encrypt the embedded replica at rest."
+        )
 
     # Create the engine with embedded replica
     # Note: Must use NullPool for async SQLite/libsql engines - QueuePool is not compatible
@@ -93,6 +100,7 @@ else:
             "sync_url": sync_url,
             "auth_token": auth_token,
             "check_same_thread": False,
+            **({"encryption_key": LOCAL_REPLICA_ENCRYPTION_KEY} if LOCAL_REPLICA_ENCRYPTION_KEY else {}),
             # Note: sync_interval removed - libsql uses default (5 seconds)
             # Setting to 0 causes Rust panic: "`period` must be non-zero"
         },
@@ -146,6 +154,10 @@ async def init_database():
                 result = await session.execute(text("SELECT COUNT(*) FROM users"))
                 count = result.scalar()
                 logger.info(f"✅ Database ready: {count} user(s)")
+
+                # Verify replica integrity before running migrations so broken
+                # habit_logs indexes trigger recovery during startup.
+                await _validate_local_replica(session)
                 
                 # Run lightweight migrations for new columns
                 migration_summary = await _run_migrations(session)
@@ -161,7 +173,10 @@ async def init_database():
             # Recover once from local replica corruption and retry startup.
             if (
                 not recovery_attempted
-                and "database disk image is malformed" in error_msg.lower()
+                and (
+                    "database disk image is malformed" in error_msg.lower()
+                    or "integrity check failed" in error_msg.lower()
+                )
             ):
                 recovery_attempted = True
                 recovered = await _recover_corrupt_local_replica()
@@ -180,7 +195,10 @@ async def init_database():
                 DATABASE_RUNTIME_STATE["db_ready"] = False
                 if "no such table" in error_msg.lower():
                     logger.error(f"❌ Database tables missing: {error_msg}")
-                    logger.info("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
+                    if "wearable_events" in error_msg:
+                        logger.info("💡 Run: cd backend && python scripts/repair_wearable_events_schema.py")
+                    else:
+                        logger.info("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
                 else:
                     logger.warning(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
 
@@ -220,6 +238,21 @@ async def _recover_corrupt_local_replica() -> bool:
     return True
 
 
+async def _validate_local_replica(session) -> None:
+    """Detect index/table corruption in the embedded replica before serving traffic."""
+    from sqlalchemy import text
+
+    result = await session.execute(text("PRAGMA integrity_check"))
+    rows = [str(row[0]) for row in result.fetchall()]
+    if rows == ["ok"]:
+        return
+
+    summary = "; ".join(rows[:8])
+    if len(rows) > 8:
+        summary = f"{summary}; ... ({len(rows)} issues)"
+    raise RuntimeError(f"Local replica integrity check failed: {summary}")
+
+
 async def _run_migrations(session):
     """Run lightweight schema migrations for new columns."""
     from sqlalchemy import text
@@ -235,6 +268,13 @@ async def _run_migrations(session):
         # Import v2 undo support columns (required by import service queries)
         ("import_runs", "undo_expires_at", "ALTER TABLE import_runs ADD COLUMN undo_expires_at DATETIME"),
         ("import_runs", "undo_package_json", "ALTER TABLE import_runs ADD COLUMN undo_package_json TEXT"),
+        # Unified wearable compatibility fields
+        ("habit_logs", "origin_record_kind", "ALTER TABLE habit_logs ADD COLUMN origin_record_kind TEXT"),
+        ("habit_logs", "origin_record_id", "ALTER TABLE habit_logs ADD COLUMN origin_record_id TEXT"),
+        ("wearable_devices", "provider", "ALTER TABLE wearable_devices ADD COLUMN provider TEXT DEFAULT 'apple_health'"),
+        ("wearable_devices", "connection_id", "ALTER TABLE wearable_devices ADD COLUMN connection_id TEXT"),
+        ("wearable_devices", "last_seen_at", "ALTER TABLE wearable_devices ADD COLUMN last_seen_at DATETIME"),
+        ("wearable_devices", "sdk_version", "ALTER TABLE wearable_devices ADD COLUMN sdk_version TEXT"),
     ]
     
     for table, column, sql in migrations:
@@ -253,6 +293,291 @@ async def _run_migrations(session):
             if "no such table" not in str(e).lower():
                 add_warning(f"migration:{table}.{column}", str(e))
                 logger.warning(f"  ⚠️ Migration {table}.{column}: {e}")
+
+    create_table_sql = [
+        (
+            "wearable_connections",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_connections (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                auth_method TEXT NOT NULL,
+                provider_user_id TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                access_token TEXT,
+                refresh_token TEXT,
+                token_expires_at DATETIME,
+                scopes_json TEXT,
+                settings_json TEXT,
+                last_sync_at DATETIME,
+                last_successful_sync_at DATETIME,
+                last_error_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
+        (
+            "wearable_sources",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_sources (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                connection_id TEXT,
+                provider TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                external_source_id TEXT,
+                external_source_name TEXT,
+                device_name TEXT,
+                device_model TEXT,
+                device_type TEXT,
+                platform TEXT,
+                source_bundle_id TEXT,
+                priority_rank INTEGER NOT NULL DEFAULT 100,
+                is_active BOOLEAN DEFAULT 1,
+                metadata_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id)
+            )
+            """,
+        ),
+        (
+            "wearable_raw_payloads",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_raw_payloads (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                connection_id TEXT,
+                provider TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                external_id TEXT,
+                payload_sha256 TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id)
+            )
+            """,
+        ),
+        (
+            "wearable_samples",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_samples (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                connection_id TEXT,
+                source_id TEXT,
+                provider TEXT NOT NULL,
+                metric_type TEXT NOT NULL,
+                provider_metric_type TEXT,
+                external_id TEXT,
+                recorded_at DATETIME,
+                start_time DATETIME,
+                end_time DATETIME,
+                attributed_date TEXT,
+                value REAL NOT NULL,
+                unit TEXT NOT NULL,
+                aggregation_kind TEXT NOT NULL DEFAULT 'point',
+                confidence REAL,
+                timezone TEXT,
+                attributes_json TEXT,
+                raw_payload_id TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
+                FOREIGN KEY(source_id) REFERENCES wearable_sources(id),
+                FOREIGN KEY(raw_payload_id) REFERENCES wearable_raw_payloads(id)
+            )
+            """,
+        ),
+        (
+            "wearable_events",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                connection_id TEXT,
+                source_id TEXT,
+                provider TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                provider_event_type TEXT,
+                external_id TEXT,
+                start_time DATETIME NOT NULL,
+                end_time DATETIME NOT NULL,
+                attributed_date TEXT,
+                timezone TEXT,
+                title TEXT,
+                summary_value REAL,
+                summary_unit TEXT,
+                details_json TEXT,
+                raw_payload_id TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
+                FOREIGN KEY(source_id) REFERENCES wearable_sources(id),
+                FOREIGN KEY(raw_payload_id) REFERENCES wearable_raw_payloads(id)
+            )
+            """,
+        ),
+        (
+            "wearable_sync_cursors",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_sync_cursors (
+                id TEXT PRIMARY KEY,
+                connection_id TEXT NOT NULL,
+                source_id TEXT,
+                cursor_key TEXT NOT NULL,
+                cursor_type TEXT NOT NULL,
+                cursor_value TEXT NOT NULL,
+                last_synced_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
+                FOREIGN KEY(source_id) REFERENCES wearable_sources(id)
+            )
+            """,
+        ),
+        (
+            "wearable_sync_runs",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_sync_runs (
+                id TEXT PRIMARY KEY,
+                connection_id TEXT,
+                provider TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                completed_at DATETIME,
+                items_seen INTEGER DEFAULT 0,
+                items_written INTEGER DEFAULT 0,
+                items_updated INTEGER DEFAULT 0,
+                items_deleted INTEGER DEFAULT 0,
+                error_json TEXT,
+                metadata_json TEXT,
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id)
+            )
+            """,
+        ),
+        (
+            "heart_rate_sessions",
+            """
+            CREATE TABLE IF NOT EXISTS heart_rate_sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_device_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at DATETIME NOT NULL,
+                ended_at DATETIME,
+                app_version TEXT,
+                device_model TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
+        (
+            "heart_rate_samples",
+            """
+            CREATE TABLE IF NOT EXISTS heart_rate_samples (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_device_id TEXT NOT NULL,
+                bpm_raw INTEGER NOT NULL,
+                bpm_display INTEGER NOT NULL,
+                quality_score REAL,
+                is_outlier BOOLEAN NOT NULL DEFAULT 0,
+                rr_intervals_json TEXT,
+                contact_detected BOOLEAN,
+                received_at DATETIME NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(session_id) REFERENCES heart_rate_sessions(id)
+            )
+            """,
+        ),
+        (
+            "heart_rate_1m_rollups",
+            """
+            CREATE TABLE IF NOT EXISTS heart_rate_1m_rollups (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                bucket_start DATETIME NOT NULL,
+                source_preference TEXT NOT NULL,
+                sample_count INTEGER NOT NULL,
+                bpm_avg REAL NOT NULL,
+                bpm_min INTEGER NOT NULL,
+                bpm_max INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
+        (
+            "live_biometrics_state",
+            """
+            CREATE TABLE IF NOT EXISTS live_biometrics_state (
+                user_id TEXT PRIMARY KEY,
+                current_bpm INTEGER,
+                current_source_type TEXT,
+                latest_sample_at DATETIME,
+                connection_state TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
+    ]
+
+    for table_name, sql in create_table_sql:
+        try:
+            await session.execute(text(sql))
+            await session.commit()
+            applied.append(f"table:{table_name}")
+            logger.info(f"  ✅ Ensured table {table_name}")
+        except Exception as e:
+            add_warning(f"table:{table_name}", str(e))
+            logger.warning(f"  ⚠️ Create table {table_name}: {e}")
+
+    index_sql = [
+        ("idx_habit_logs_origin_record", "CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_origin_record ON habit_logs (habit_id, origin_record_kind, origin_record_id)"),
+        ("idx_wearable_connections_user_provider", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_connections_user_provider ON wearable_connections (user_id, provider)"),
+        ("idx_wearable_sources_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_sources_user_provider_external ON wearable_sources (user_id, provider, external_source_id)"),
+        ("idx_wearable_samples_user_metric_recorded", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_metric_recorded ON wearable_samples (user_id, metric_type, recorded_at)"),
+        ("idx_wearable_samples_user_provider_date", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_provider_date ON wearable_samples (user_id, provider, attributed_date)"),
+        ("idx_wearable_samples_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_provider_external ON wearable_samples (user_id, provider, external_id)"),
+        ("idx_wearable_events_user_type_start", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_type_start ON wearable_events (user_id, event_type, start_time)"),
+        ("idx_wearable_events_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_provider_external ON wearable_events (user_id, provider, external_id)"),
+        ("idx_wearable_sync_cursors_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_sync_cursors_unique ON wearable_sync_cursors (connection_id, COALESCE(source_id, ''), cursor_key)"),
+        ("idx_wearable_raw_payloads_provider_received", "CREATE INDEX IF NOT EXISTS idx_wearable_raw_payloads_provider_received ON wearable_raw_payloads (provider, received_at)"),
+        ("idx_heart_rate_sessions_user_started", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_started ON heart_rate_sessions (user_id, started_at)"),
+        ("idx_heart_rate_sessions_user_status", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_status ON heart_rate_sessions (user_id, status)"),
+        ("idx_heart_rate_samples_user_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_user_received ON heart_rate_samples (user_id, received_at)"),
+        ("idx_heart_rate_samples_user_source_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_user_source_received ON heart_rate_samples (user_id, source_type, received_at)"),
+        ("idx_heart_rate_samples_session_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_session_received ON heart_rate_samples (session_id, received_at)"),
+        ("idx_heart_rate_rollups_user_bucket_source", "CREATE UNIQUE INDEX IF NOT EXISTS idx_heart_rate_rollups_user_bucket_source ON heart_rate_1m_rollups (user_id, bucket_start, source_preference)"),
+    ]
+
+    for index_name, sql in index_sql:
+        try:
+            await session.execute(text(sql))
+            await session.commit()
+            applied.append(f"index:{index_name}")
+        except Exception as e:
+            add_warning(f"index:{index_name}", str(e))
+            logger.warning(f"  ⚠️ Create index {index_name}: {e}")
 
     # Create scheduled blocks table for calendar week-view planner.
     try:
@@ -283,7 +608,7 @@ async def _run_migrations(session):
             add_warning("migration:scheduled_blocks", str(e))
             logger.warning(f"  ⚠️ Migration scheduled_blocks: {e}")
 
-    # Weather integration tables (privacy-first weather snapshots).
+    # Integrations provider table (Whoop, wearables, etc.).
     try:
         await session.execute(text("""
             CREATE TABLE IF NOT EXISTS integrations (
@@ -303,62 +628,11 @@ async def _run_migrations(session):
             CREATE INDEX IF NOT EXISTS idx_integrations_provider_enabled
             ON integrations (provider, enabled)
         """))
-        await session.execute(text("""
-            CREATE TABLE IF NOT EXISTS weather_observations (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                observed_at TIMESTAMP NOT NULL,
-                tz TEXT NOT NULL,
-                location_label TEXT NOT NULL,
-                condition_code TEXT NOT NULL,
-                temperature_c REAL NOT NULL,
-                feels_like_c REAL NOT NULL,
-                humidity REAL NOT NULL,
-                wind_speed_mps REAL NOT NULL,
-                wind_gust_mps REAL,
-                wind_direction_deg REAL NOT NULL,
-                precip_probability REAL NOT NULL,
-                precip_intensity REAL,
-                cloud_cover REAL,
-                pressure_hpa REAL,
-                visibility_m REAL,
-                source TEXT NOT NULL DEFAULT 'weatherkit',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """))
-        await session.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_weather_observations_user_observed
-            ON weather_observations (user_id, observed_at)
-        """))
-        await session.execute(text("""
-            CREATE TABLE IF NOT EXISTS weather_daily (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                date_local TEXT NOT NULL,
-                tz TEXT NOT NULL,
-                location_label TEXT NOT NULL,
-                condition_code TEXT,
-                high_c REAL NOT NULL,
-                low_c REAL NOT NULL,
-                sunrise TIMESTAMP,
-                sunset TIMESTAMP,
-                uv_index_max REAL,
-                source TEXT NOT NULL DEFAULT 'weatherkit',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """))
-        await session.execute(text("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_weather_daily_user_date_unique
-            ON weather_daily (user_id, date_local)
-        """))
         await session.commit()
     except Exception as e:
         if "no such table" not in str(e).lower():
-            add_warning("migration:weather_tables", str(e))
-            logger.warning(f"  ⚠️ Migration weather tables: {e}")
+            add_warning("migration:integrations", str(e))
+            logger.warning(f"  ⚠️ Migration integrations: {e}")
 
     # Enforce one derived Computer Time projection row per (habit_id, date, source).
     # This prevents duplicate projection logs during concurrent sync operations.

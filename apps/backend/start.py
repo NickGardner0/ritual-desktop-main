@@ -11,6 +11,16 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+def has_runtime_environment() -> bool:
+    """Allow production platforms to inject env vars without a local .env file."""
+    required_markers = [
+        "DATABASE_URL",
+        "CLERK_SECRET_KEY",
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+    ]
+    return all((os.getenv(name) or "").strip() for name in required_markers)
+
 def check_requirements():
     """Check if all requirements are installed"""
     try:
@@ -25,9 +35,12 @@ def check_requirements():
         return False
 
 def check_env_file():
-    """Check if .env file exists"""
+    """Check if a local .env exists, or if runtime env vars are already injected."""
     env_file = Path(".env")
     if not env_file.exists():
+        if has_runtime_environment():
+            logger.info(".env file not found; using injected runtime environment")
+            return True
         logger.warning(".env file not found")
         logger.info("Please copy .env.example to .env and configure your settings")
         return False
@@ -68,9 +81,9 @@ def main():
     try:
         import uvicorn
         
-        host = os.getenv("API_HOST", "127.0.0.1")
-        port = int(os.getenv("API_PORT", 8000))
         debug = os.getenv("DEBUG", "true").lower() == "true"
+        host = os.getenv("API_HOST", "127.0.0.1" if debug else "0.0.0.0")
+        port = int(os.getenv("API_PORT") or os.getenv("PORT") or 8000)
         
         logger.info("Starting server on http://%s:%s", host, port)
         logger.info("Debug mode: %s", debug)

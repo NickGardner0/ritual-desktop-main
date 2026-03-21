@@ -63,6 +63,17 @@ export interface DailyBreakdownResponse {
   days_with_data?: number;
   total?: number;
   average_per_day?: number;
+  sync_context?: {
+    provider?: string;
+    provider_label?: string;
+    latest_data_date?: string | null;
+    latest_sleep_date?: string | null;
+    latest_sync_at?: string | null;
+    last_successful_sync_at?: string | null;
+    is_upstream_stale?: boolean;
+    missing_dates?: string[];
+    message?: string | null;
+  };
   data?: DailyDataPoint[];
   daily_data?: DailyDataPoint[];
 }
@@ -187,13 +198,19 @@ class AnalyticsApiClient {
     options: {
       habitId?: string;
       habitName?: string;
+      startDate?: string;
+      endDate?: string;
       daysBack?: number;
+      timezone?: string;
     }
   ): Promise<DailyBreakdownResponse> {
     return this.fetch<DailyBreakdownResponse>('/api/analytics/daily-breakdown', token, {
       habit_id: options.habitId,
       habit_name: options.habitName,
+      start_date: options.startDate,
+      end_date: options.endDate,
       days_back: options.daysBack,
+      timezone: options.timezone,
     });
   }
 

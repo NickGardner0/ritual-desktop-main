@@ -189,7 +189,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
           <span className="text-sm">No computer tracking data yet</span>
         </div>
         <p className="text-xs text-gray-400 mt-2">
-          Enable Computer Tracking in Settings to see your screen time
+          Enable Computer Use in Settings to see your screen time
         </p>
       </div>
     );
@@ -211,11 +211,11 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
 
       {/* Main Stat */}
       <div className="flex items-baseline gap-3 mb-4">
-        <span className="text-3xl font-semibold text-gray-900">
+        <span className="text-3xl font-semibold text-gray-900 tabular-nums">
           {formatDuration(todayMs)}
         </span>
         {changePercent !== 0 && (
-          <span className={`flex items-center gap-1 text-sm ${
+          <span className={`flex items-center gap-1 text-sm tabular-nums ${
             changePercent > 0 ? 'text-amber-600' : 'text-green-600'
           }`}>
             {changePercent > 0 ? (
@@ -232,11 +232,11 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
       <div className="flex items-center gap-6 mb-4 text-sm text-gray-600">
         <div className="flex items-center gap-1.5">
           <Clock className="w-4 h-4 text-gray-400" />
-          <span>{todayData.apps_count || 0} apps used</span>
+          <span className="tabular-nums">{todayData.apps_count || 0} apps used</span>
         </div>
         <div className="flex items-center gap-1.5">
           <Repeat className="w-4 h-4 text-gray-400" />
-          <span>{todayEvents} switches</span>
+          <span className="tabular-nums">{todayEvents} switches</span>
         </div>
       </div>
 
@@ -255,7 +255,7 @@ export function ComputerTimeCard({ className = '', onViewDetails }: ComputerTime
                     {app.app_name}
                   </span>
                 </div>
-                <span className="text-sm text-gray-500 font-medium">
+                <span className="text-sm text-gray-500 font-medium tabular-nums">
                   {formatHours(app.hours)}
                 </span>
               </div>
@@ -320,7 +320,7 @@ export function ComputerTimeMiniCard({ className = '' }: { className?: string })
       <div className="flex items-center gap-2">
         <Monitor className="w-4 h-4 text-indigo-600" />
         <span className="text-sm text-gray-700">Screen Time</span>
-        <span className="ml-auto text-sm font-semibold text-gray-900">
+        <span className="ml-auto text-sm font-semibold text-gray-900 tabular-nums">
           {formatDuration(todayMs)}
         </span>
       </div>

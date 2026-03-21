@@ -14,12 +14,30 @@ import {
   Copy,
   Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Download,
   X,
 } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  rectSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type { DateRange } from 'react-day-picker';
 import { format, parseISO, startOfDay, differenceInDays, subDays, eachDayOfInterval } from 'date-fns';
-import { AnalyticsViewToggle } from '@/components/analytics/analytics-view-toggle';
 import { analyticsApi } from '@/lib/services/analytics-api';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
@@ -34,7 +52,6 @@ import {
   getHabitDisplayName,
   isComputerHabitName,
 } from '@/lib/computer-time-habit';
-import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Select,
   SelectContent,
@@ -48,13 +65,8 @@ const DateRangePicker = dynamic(
   { ssr: false }
 );
 
-const HabitMetricCard = dynamic(
-  () => import('./habit-metric-card').then(m => ({ default: m.HabitMetricCard })),
-  { ssr: false }
-);
-
-const HabitTickerGrid = dynamic(
-  () => import('@/components/analytics/habit-ticker-view').then(m => ({ default: m.HabitTickerGrid })),
+const HabitTickerCard = dynamic(
+  () => import('@/components/analytics/habit-ticker-view').then(m => ({ default: m.HabitTickerCard })),
   { ssr: false }
 );
 
@@ -67,6 +79,11 @@ const ComputerActivitySection = dynamic(
   () => import('@/components/analytics/computer-activity').then(m => ({ default: m.ComputerActivitySection })),
   { ssr: false }
 );
+
+import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
+import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-list';
+import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
+import { HabitChartCard } from '@/components/analytics/habit-chart-card';
 
 type HabitData = {
   habit_id: string;
@@ -91,6 +108,99 @@ type ComputerDailyRow = {
 };
 
 const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
+const CARD_ORDER_KEY = 'ritual-metric-card-order';
+
+// ── Metric Category Tabs ──
+const METRIC_CATEGORY_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'health', label: 'Health' },
+  { id: 'digital', label: 'Digital' },
+  { id: 'productivity', label: 'Productivity' },
+  { id: 'experiments', label: 'Experiments' },
+] as const;
+
+/** Map a habit to one of the fixed category tabs by name pattern. */
+function getMetricCategoryForHabit(habitName: string, dbCategory?: string): string {
+  const name = habitName.toLowerCase();
+
+  // Health
+  if (name.includes('sleep') || name.includes('heart') || name.includes('step')
+    || name.includes('walk') || name.includes('workout') || name.includes('exercise')
+    || name.includes('calorie') || name.includes('weight') || name.includes('water')
+    || name.includes('hydrat') || name.includes('running') || name.includes('yoga')
+    || name.includes('stretch') || name.includes('recovery') || name.includes('hrv')
+    || name.includes('resting') || name.includes('strain')) return 'health';
+
+  // Digital
+  if (name.includes('screen time') || name.includes('computer')
+    || name.includes('social media') || name.includes('phone')
+    || name.includes('digital')) return 'digital';
+
+  // Productivity
+  if (name.includes('coding') || name.includes('deep work') || name.includes('focus')
+    || name.includes('reading') || name.includes('read') || name.includes('journal')
+    || name.includes('meditat') || name.includes('study') || name.includes('writing')
+    || name.includes('planning') || name.includes('time block')) return 'productivity';
+
+  // Experiments
+  if (name.includes('nicotine') || name.includes('caffeine') || name.includes('alcohol')
+    || name.includes('fasting') || name.includes('cold') || name.includes('supplement')
+    || name.includes('nootropic') || name.includes('experiment')
+    || name.includes('tobacco') || name.includes('sugar')) return 'experiments';
+
+  // Fall back to db category if it matches one of our tabs
+  const cat = (dbCategory || '').toLowerCase();
+  if (cat.includes('fitness') || cat.includes('health') || cat.includes('wellness')) return 'health';
+  if (cat.includes('productivity') || cat.includes('education') || cat.includes('learning')) return 'productivity';
+  if (cat.includes('experiment')) return 'experiments';
+
+  return 'experiments'; // default bucket
+}
+
+function SortableMetricCard({ id, children }: { id: string; children: React.ReactNode }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.85 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="min-w-0">
+      {children}
+    </div>
+  );
+}
+
+type HeartRateSummaryRow = {
+  current_avg_bpm?: number;
+  previous_avg_bpm?: number;
+  change_pct?: number;
+  absolute_change?: number;
+  min_bpm?: number;
+  max_bpm?: number;
+  total_samples?: number;
+  days_with_data?: number;
+  first_day?: string;
+  last_day?: string;
+};
+
+type HeartRateSeriesRow = {
+  bucket_start: string;
+  bpm_avg: number;
+  bpm_min: number;
+  bpm_max: number;
+  sample_count: number;
+};
 
 function sanitizeDailyActiveHours(rawHours: number, rawActiveMs?: number): number {
   const msDerivedHours = Number(rawActiveMs || 0) / (1000 * 60 * 60);
@@ -107,14 +217,70 @@ function sanitizeDailyActiveHours(rawHours: number, rawActiveMs?: number): numbe
   return Math.min(Math.max(hours, 0), 24);
 }
 
+function getHeartRateBucket(rangeKey: RangeKey, rangeDays?: number): '1m' | 'hour' | 'day' {
+  if (typeof rangeDays === 'number' && Number.isFinite(rangeDays)) {
+    if (rangeDays <= 1) return '1m';
+    if (rangeDays <= 7) return 'hour';
+    return 'day';
+  }
+
+  switch (rangeKey) {
+    case '1D':
+      return '1m';
+    case '5D':
+    case '1W':
+      return 'hour';
+    default:
+      return 'day';
+  }
+}
+
+function isSleepLikeHabit(habit?: HabitData | null): boolean {
+  if (!habit) return false;
+
+  const metricType = String((habit as any)?.metric_type || '').toLowerCase();
+  const habitName = String(habit.habit_name || '').toLowerCase();
+
+  return metricType.includes('sleep') || habitName.includes('sleep');
+}
+
+function isGranularHeartRateHabit(habit?: HabitData | null): boolean {
+  if (!habit) return false;
+
+  const metricType = String((habit as any)?.metric_type || '').toLowerCase();
+  const habitName = String(habit.habit_name || '').toLowerCase();
+  const integrationSource = String((habit as any)?.integration_source || '').toLowerCase();
+
+  if (integrationSource !== 'whoop') return false;
+  return metricType === 'heart_rate' || metricType === 'hr' || habitName === 'heart rate';
+}
+
+function mapDailyBreakdownRows(habitId: string, rows: any[]): any[] {
+  return rows.map((point: any) => {
+    const entries = Array.isArray(point?.entries) ? point.entries : [];
+    const sleepEntry = entries.find((entry: any) => entry?.sleep_start || entry?.sleep_end || entry?.time) || entries[0];
+
+    return {
+      habit_id: habitId,
+      date: point.date,
+      daily_value: Number(point.value ?? point.total_amount ?? 0),
+      unit: point.unit,
+      total_amount: Number(point.total_amount ?? point.value ?? 0),
+      total_duration_seconds: Number(point.total_duration_seconds ?? 0),
+      completed_count: entries.length || (Number(point.value || point.total_amount || 0) > 0 ? 1 : 0),
+      entries,
+      sleep_onset: point.sleep_onset ?? sleepEntry?.sleep_start ?? null,
+      sleep_end: point.sleep_end ?? sleepEntry?.sleep_end ?? null,
+      time: point.time ?? sleepEntry?.time ?? null,
+      completed_at: point.completed_at ?? null,
+    };
+  });
+}
+
 interface MetricsViewProps {
   externalDateRange?: DateRange | undefined;
   onDateRangeChange?: (range: DateRange | undefined) => void;
   hideControls?: boolean;
-  externalChartViewMode?: 'chart' | 'ticker';
-  onChartViewModeChange?: (mode: 'chart' | 'ticker') => void;
-  summaryPanelOpen?: boolean;
-  onSummaryPanelChange?: (open: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 
@@ -158,6 +324,46 @@ const CompareSelect = ({
   </Select>
 );
 
+/**
+ * Infer whether a higher value is desirable for a given habit.
+ * Returns true  → higher = good (green), lower = bad (red)
+ * Returns false → lower = good (green), higher = bad (red)
+ * Returns null  → neutral / unknown — keep default up=green, down=red
+ */
+function inferHigherIsBetter(habitName: string, unit?: string): boolean | null {
+  const name = habitName.toLowerCase();
+  const u = (unit || '').toLowerCase();
+
+  // Explicitly "lower is better"
+  if (name.includes('nicotine') || name.includes('tobacco') || name.includes('smoking')) return false;
+  if (name.includes('alcohol') || name.includes('drinking') || name.includes('drinks')) return false;
+  if (name.includes('screen time')) return false;
+  if (name.includes('social media') && !name.includes('post')) return false;
+  if (name.includes('junk food') || name.includes('fast food')) return false;
+  if (name.includes('sugar') && !name.includes('blood')) return false;
+  if (name.includes('procrastinat')) return false;
+  if (name.includes('caffeine') || name.includes('coffee')) return false;
+  if (name.includes('stress')) return false;
+  if (name.includes('anxiety')) return false;
+  if (name.includes('idle') || name.includes('sedentary') || name.includes('sitting')) return false;
+
+  // Explicitly "higher is better"
+  if (name.includes('sleep') && (u.includes('hour') || u.includes('min'))) return true;
+  if (name.includes('workout') || name.includes('exercise') || name.includes('training')) return true;
+  if (name.includes('step') || name.includes('walk') || name.includes('run')) return true;
+  if (name.includes('reading') || name.includes('read')) return true;
+  if (name.includes('meditat')) return true;
+  if (name.includes('water') || name.includes('hydrat')) return true;
+  if (name.includes('coding') || name.includes('deep work') || name.includes('focus')) return true;
+  if (name.includes('journal')) return true;
+  if (name.includes('stretching') || name.includes('yoga')) return true;
+  if (name.includes('savings') || name.includes('income')) return true;
+  if (name.includes('gratitude')) return true;
+
+  // Default: null means we don't know, use standard up=green/down=red
+  return null;
+}
+
 // Helper to determine start/end dates
 const getRangeDates = (range: RangeKey) => {
   const now = new Date();
@@ -183,10 +389,6 @@ export function MetricsView({
   externalDateRange,
   onDateRangeChange,
   hideControls = false,
-  externalChartViewMode,
-  onChartViewModeChange,
-  summaryPanelOpen: externalSummaryPanelOpen,
-  onSummaryPanelChange,
 }: MetricsViewProps) {
   const { getToken } = useAuth();
   const { user, isLoaded: isUserLoaded } = useUser();
@@ -234,34 +436,66 @@ export function MetricsView({
   const queryLoading = habitsLoading;
 
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any>({});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
-  const [localSummaryPanelOpen, setLocalSummaryPanelOpen] = useState(false);
-  const summaryPanelOpen = externalSummaryPanelOpen ?? localSummaryPanelOpen;
-  const setSummaryPanelOpen = onSummaryPanelChange ?? setLocalSummaryPanelOpen;
   const [expandedLogs, setExpandedLogs] = useState<any[]>([]);
+  const [expandedSyncContext, setExpandedSyncContext] = useState<any>(null);
   const [loadingExpandedLogs, setLoadingExpandedLogs] = useState(false);
 
   const [summaryMetrics, setSummaryMetrics] = useState<Record<string, any>>({});
 
   const [expandedTimeRange, setExpandedTimeRange] = useState<RangeKey>('1M');
+  const [barListRange, setBarListRange] = useState<BarListRange>('1M');
   const [compareHabitId, setCompareHabitId] = useState<string | null>(null);
   const [comparisonLogs, setComparisonLogs] = useState<any[]>([]);
   const [loadingComparison, setLoadingComparison] = useState(false);
-  const [localViewMode, setLocalViewMode] = useState<'chart' | 'ticker'>('chart');
-  
-  // Use external view mode if provided, otherwise use local state
-  const viewMode = externalChartViewMode ?? localViewMode;
-  const setViewMode = onChartViewModeChange ?? setLocalViewMode;
-  const expandedChartType: 'bar' | 'spark' = viewMode === 'chart' ? 'bar' : 'spark';
+  const [activeCategoryTab, setActiveCategoryTab] = useState<string | null>(null);
+  const [cardPage, setCardPage] = useState(0);
+  const [totalCardPages, setTotalCardPages] = useState(1);
+  const clampedCardPage = Math.min(cardPage, Math.max(totalCardPages - 1, 0));
 
   const [correlationData, setCorrelationData] = useState<any>(null);
   const [loadingCorrelation, setLoadingCorrelation] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
-  const [showComputerActivity, setShowComputerActivity] = useState(true);
+  const [heartRateExpandedSeries, setHeartRateExpandedSeries] = useState<HeartRateSeriesRow[]>([]);
+  const [heartRateExpandedSummary, setHeartRateExpandedSummary] = useState<HeartRateSummaryRow | null>(null);
+
+  // Drag-to-reorder: persisted card order
+  const [appliedCardOrder, setAppliedCardOrder] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem(CARD_ORDER_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // Track current visible card IDs so handleDragEnd can seed order if needed
+  const visibleCardIdsRef = useRef<string[]>([]);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    setAppliedCardOrder((prev) => {
+      // If order is empty, seed from current visible IDs
+      const base = prev.length > 0 ? prev : visibleCardIdsRef.current;
+      const activeId = String(active.id);
+      const overId = String(over.id);
+      const oldIndex = base.indexOf(activeId);
+      const newIndex = base.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return base;
+      const next = arrayMove(base, oldIndex, newIndex);
+      try { localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   const [isCapturing, setIsCapturing] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
@@ -285,6 +519,12 @@ export function MetricsView({
     () => availableHabits.filter((habit) => !isComputerHabitName(habit.habit_name)),
     [availableHabits],
   );
+  const hasCustomDateRange = !!(dateRange?.from && dateRange?.to);
+  const expandedHabitData = React.useMemo(
+    () => availableHabits.find((h: HabitData) => h.habit_id === expandedHabit) || null,
+    [availableHabits, expandedHabit],
+  );
+  const expandedHabitUsesGranularHeartRate = isGranularHeartRateHabit(expandedHabitData);
 
   const captureExpandedChart = useCallback(async (label: string) => {
     const captureTarget = exportCardRef.current || chartRef.current;
@@ -472,17 +712,6 @@ export function MetricsView({
     };
   }, []);
 
-  // Load view mode from localStorage
-  useEffect(() => {
-    setMounted(true);
-    const savedViewMode = localStorage.getItem('analytics-view-mode');
-    if (savedViewMode) {
-      setViewMode(savedViewMode as 'chart' | 'ticker');
-    } else {
-      setViewMode('ticker');
-    }
-  }, []);
-
   // Auto-select all habits when data loads
   useEffect(() => {
     if (availableHabits.length > 0 && selectedHabits.length === 0) {
@@ -492,13 +721,6 @@ export function MetricsView({
       }
     }
   }, [availableHabits, selectedHabits.length, setSelectedHabits]);
-
-  // Persist viewMode
-  useEffect(() => {
-    if (mounted) {
-      localStorage.setItem('analytics-view-mode', viewMode);
-    }
-  }, [viewMode, mounted]);
 
   // Fetch canonical daily values + summary (Tinybird first, Python fallback only on failure)
   useEffect(() => {
@@ -525,16 +747,19 @@ export function MetricsView({
       setAnalyticsError(null);
 
       const params = new URLSearchParams();
-      const rangeSpanDays = dateRange?.from && dateRange?.to
-        ? differenceInDays(dateRange.to, dateRange.from) + 1
-        : 0;
-      const useWideRange = !dateRange?.from || !dateRange?.to || rangeSpanDays < 7;
+      const useWideRange = !dateRange?.from || !dateRange?.to;
 
       if (!useWideRange) {
         params.set('start_date', format(dateRange!.from!, 'yyyy-MM-dd'));
         params.set('end_date', format(dateRange!.to!, 'yyyy-MM-dd'));
       } else {
         params.set('days_back', '1095');
+      }
+
+      if (habitsToFetch.length === 1) {
+        params.set('habit_id', habitsToFetch[0]);
+      } else {
+        params.set('habit_ids', habitsToFetch.join(','));
       }
 
       try {
@@ -581,6 +806,61 @@ export function MetricsView({
           throw new Error('Tinybird data too sparse, falling back to Python backend');
         }
 
+        const sleepHabitIds = habitsToFetch.filter((habitId) =>
+          isSleepLikeHabit(availableHabits.find((habit: HabitData) => habit.habit_id === habitId))
+        );
+
+        if (sleepHabitIds.length > 0) {
+          const token = await getToken();
+          if (token) {
+            const now = new Date();
+            const to = useWideRange ? now : (dateRange?.to || now);
+            const from = useWideRange ? subDays(now, 1095) : (dateRange?.from || subDays(now, 1095));
+            const startDate = format(from, 'yyyy-MM-dd');
+            const endDate = format(to, 'yyyy-MM-dd');
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+
+            const [statsResult, dailyResults] = await Promise.all([
+              analyticsApi.getHabitStats(token, { startDate, endDate }),
+              Promise.all(
+                sleepHabitIds.map((habitId) =>
+                  analyticsApi.getDailyBreakdown(token, {
+                    habitId,
+                    startDate,
+                    endDate,
+                    timezone,
+                  }).catch(() => null)
+                )
+              ),
+            ]);
+
+            const statsById = new Map(
+              (statsResult.habits || []).map((stat: any) => [stat.id, stat])
+            );
+
+            sleepHabitIds.forEach((habitId, index) => {
+              const stat = statsById.get(habitId);
+              if (stat) {
+                summaryMap[habitId] = {
+                  ...(summaryMap[habitId] || {}),
+                  habit_id: stat.id,
+                  habit_name: stat.name,
+                  unit: stat.unit,
+                  total_value: stat.total,
+                  current_value: stat.average,
+                  days_with_data: stat.days_with_data,
+                };
+              }
+
+              const response = dailyResults[index];
+              const rows = response?.data || response?.daily_data || [];
+              if (rows.length > 0) {
+                dataByHabit[habitId] = mapDailyBreakdownRows(habitId, rows);
+              }
+            });
+          }
+        }
+
         setAnalyticsData(dataByHabit);
         setSummaryMetrics(summaryMap);
       } catch (error) {
@@ -594,7 +874,7 @@ export function MetricsView({
           const now = new Date();
           const to = useWideRange ? now : (dateRange?.to || now);
           const from = useWideRange ? subDays(now, 1095) : (dateRange?.from || subDays(now, 1095));
-          const fallbackDays = Math.max(1, differenceInDays(to, from) + 1);
+          const fallbackTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 
           const [statsResult, dailyResults] = await Promise.all([
             analyticsApi.getHabitStats(token, {
@@ -605,7 +885,9 @@ export function MetricsView({
               habitsToFetch.map((habitId) =>
                 analyticsApi.getDailyBreakdown(token, {
                   habitId,
-                  daysBack: fallbackDays,
+                  startDate: format(from, 'yyyy-MM-dd'),
+                  endDate: format(to, 'yyyy-MM-dd'),
+                  timezone: fallbackTimezone,
                 }).catch(() => null)
               )
             ),
@@ -630,15 +912,7 @@ export function MetricsView({
           habitsToFetch.forEach((habitId: string, index: number) => {
             const response = dailyResults[index];
             const rows = response?.data || response?.daily_data || [];
-            fallbackDailyByHabit[habitId] = rows.map((point: any) => ({
-              habit_id: habitId,
-              date: point.date,
-              daily_value: Number(point.value ?? point.total_amount ?? 0),
-              unit: point.unit,
-              total_amount: Number(point.total_amount ?? point.value ?? 0),
-              total_duration_seconds: Number(point.total_duration_seconds ?? 0),
-              completed_count: Number(point.value || point.total_amount || 0) > 0 ? 1 : 0,
-            }));
+            fallbackDailyByHabit[habitId] = mapDailyBreakdownRows(habitId, rows);
           });
 
           setSummaryMetrics(fallbackSummaryMap);
@@ -684,7 +958,8 @@ export function MetricsView({
 
     const now = new Date();
     const hasExplicitRange = !!(dateRange?.from && dateRange?.to);
-    const startDate = format(hasExplicitRange ? dateRange!.from! : subDays(now, 1095), 'yyyy-MM-dd');
+    // Cap default computer activity to 180 days to avoid slow queries on large DBs
+    const startDate = format(hasExplicitRange ? dateRange!.from! : subDays(now, 180), 'yyyy-MM-dd');
     const endDate = format(hasExplicitRange ? dateRange!.to! : now, 'yyyy-MM-dd');
     const query = `start_date=${startDate}&end_date=${endDate}`;
     const controller = new AbortController();
@@ -694,7 +969,9 @@ export function MetricsView({
         const dailyRes = await fetch(`/api/watcher/stats/daily?${query}`, { signal: controller.signal });
 
         if (!dailyRes.ok) {
-          throw new Error('Failed to load computer activity');
+          console.warn('Computer activity API returned', dailyRes.status, await dailyRes.text().catch(() => ''));
+          setComputerActivityDaily([]);
+          return;
         }
 
         const dailyPayload = await dailyRes.json();
@@ -729,9 +1006,11 @@ export function MetricsView({
     return () => controller.abort();
   }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), isUserLoaded, user?.id]);
 
+
+
   // Fetch correlation data
   useEffect(() => {
-    if (!expandedHabit || !compareHabitId || expandedHabit === COMPUTER_ACTIVITY_CARD_ID) {
+    if (!expandedHabit || !compareHabitId || expandedHabit === COMPUTER_ACTIVITY_CARD_ID || expandedHabitUsesGranularHeartRate) {
       setCorrelationData(null);
       return;
     }
@@ -760,32 +1039,97 @@ export function MetricsView({
     };
 
     fetchCorrelation();
-  }, [expandedHabit, compareHabitId]);
+  }, [expandedHabit, compareHabitId, expandedHabitUsesGranularHeartRate]);
 
-  const hasCustomDateRange = !!(dateRange?.from && dateRange?.to);
+  useEffect(() => {
+    if (!expandedHabitUsesGranularHeartRate) {
+      setHeartRateExpandedSeries([]);
+      setHeartRateExpandedSummary(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const rangeDates = hasCustomDateRange
+      ? { from: dateRange!.from!, to: dateRange!.to! }
+      : getRangeDates(expandedTimeRange);
+    const rangeSpanDays = differenceInDays(rangeDates.to, rangeDates.from) + 1;
+    const bucket = getHeartRateBucket(expandedTimeRange, rangeSpanDays);
+    const params = new URLSearchParams({
+      start_date: format(rangeDates.from, 'yyyy-MM-dd'),
+      end_date: format(rangeDates.to, 'yyyy-MM-dd'),
+      bucket,
+    });
+
+    const fetchExpandedHeartRate = async () => {
+      setLoadingExpandedLogs(true);
+      try {
+        const [summaryRes, seriesRes] = await Promise.all([
+          fetch(`/api/analytics/heart-rate/summary?${params.toString()}`, { signal: controller.signal }),
+          fetch(`/api/analytics/heart-rate/series?${params.toString()}`, { signal: controller.signal }),
+        ]);
+
+        if (!summaryRes.ok || !seriesRes.ok) {
+          throw new Error(`Failed to load heart-rate detail (summary=${summaryRes.status}, series=${seriesRes.status})`);
+        }
+
+        const [summaryPayload, seriesPayload] = await Promise.all([
+          summaryRes.json(),
+          seriesRes.json(),
+        ]);
+
+        if (controller.signal.aborted) return;
+
+        setHeartRateExpandedSummary(summaryPayload?.data || null);
+        setHeartRateExpandedSeries(Array.isArray(seriesPayload?.data) ? seriesPayload.data : []);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.warn('Failed to load expanded heart-rate analytics:', error);
+        setHeartRateExpandedSummary(null);
+        setHeartRateExpandedSeries([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingExpandedLogs(false);
+        }
+      }
+    };
+
+    fetchExpandedHeartRate();
+
+    return () => controller.abort();
+  }, [
+    expandedHabitUsesGranularHeartRate,
+    expandedTimeRange,
+    hasCustomDateRange,
+    dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
+  ]);
 
   // Fetch expanded logs
   useEffect(() => {
     if (!expandedHabit) {
       setExpandedLogs([]);
+      setExpandedSyncContext(null);
       setExpandedTimeRange('1M');
       setCompareHabitId(null);
       setComparisonLogs([]);
       return;
     }
 
-    if (expandedHabit === COMPUTER_ACTIVITY_CARD_ID) {
+    if (expandedHabit === COMPUTER_ACTIVITY_CARD_ID || expandedHabitUsesGranularHeartRate) {
       setExpandedLogs([]);
+      setExpandedSyncContext(null);
       setCompareHabitId(null);
       setComparisonLogs([]);
-      setLoadingExpandedLogs(false);
+      if (expandedHabit === COMPUTER_ACTIVITY_CARD_ID) {
+        setLoadingExpandedLogs(false);
+      }
       return;
     }
 
-    const expandedHabitData = availableHabits.find((h: HabitData) => h.habit_id === expandedHabit);
     const metricType = String((expandedHabitData as any)?.metric_type || '').toLowerCase();
     const habitName = String(expandedHabitData?.habit_name || '').toLowerCase();
     const shouldAttachSleepMetadata = metricType.includes('sleep') || habitName.includes('sleep');
+    const shouldPreferPythonBreakdown = isSleepLikeHabit(expandedHabitData);
 
     const enrichRowsWithSleepMetadata = async (
       rows: any[],
@@ -930,12 +1274,29 @@ export function MetricsView({
         const startDate = format(from, 'yyyy-MM-dd');
         const endDate = format(to, 'yyyy-MM-dd');
 
+        if (shouldPreferPythonBreakdown) {
+          const token = await getToken();
+          if (token) {
+            const fallback = await analyticsApi.getDailyBreakdown(token, {
+              habitId: expandedHabit,
+              startDate,
+              endDate,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+            }).catch(() => null);
+            setExpandedSyncContext(fallback?.sync_context || null);
+            const rows = mapDailyBreakdownRows(expandedHabit, fallback?.data || fallback?.daily_data || []);
+            setExpandedLogs(rows);
+            return;
+          }
+        }
+
         const response = await fetch(
           `/api/analytics/habits/daily-values?output=daily&habit_id=${expandedHabit}&start_date=${startDate}&end_date=${endDate}`
         );
 
         const result = await response.json();
         if (result.success && result.data?.length > 0) {
+          setExpandedSyncContext(null);
           const enrichedRows = await enrichRowsWithSleepMetadata(
             result.data,
             expandedHabit,
@@ -946,19 +1307,14 @@ export function MetricsView({
         } else {
           const token = await getToken();
           if (token) {
-            const daysBack = Math.max(1, differenceInDays(to, from) + 1);
             const fallback = await analyticsApi.getDailyBreakdown(token, {
               habitId: expandedHabit,
-              daysBack,
+              startDate,
+              endDate,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
             }).catch(() => null);
-            const rows = (fallback?.data || fallback?.daily_data || []).map((point: any) => ({
-              habit_id: expandedHabit,
-              date: point.date,
-              daily_value: Number(point.value ?? point.total_amount ?? 0),
-              unit: point.unit,
-              total_amount: Number(point.total_amount ?? point.value ?? 0),
-              total_duration_seconds: Number(point.total_duration_seconds ?? 0),
-            }));
+            setExpandedSyncContext(fallback?.sync_context || null);
+            const rows = mapDailyBreakdownRows(expandedHabit, fallback?.data || fallback?.daily_data || []);
             const enrichedRows = await enrichRowsWithSleepMetadata(
               rows,
               expandedHabit,
@@ -967,11 +1323,13 @@ export function MetricsView({
             );
             setExpandedLogs(enrichedRows);
           } else {
+            setExpandedSyncContext(null);
             setExpandedLogs([]);
           }
         }
       } catch (error) {
         console.error('❌ Error fetching expanded logs:', error);
+        setExpandedSyncContext(null);
         setExpandedLogs([]);
       } finally {
         setLoadingExpandedLogs(false);
@@ -979,7 +1337,16 @@ export function MetricsView({
     };
 
     fetchExpandedLogs();
-  }, [expandedHabit, expandedTimeRange, hasCustomDateRange, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), availableHabits, getToken]);
+  }, [
+    expandedHabit,
+    expandedTimeRange,
+    hasCustomDateRange,
+    dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
+    expandedHabitData,
+    expandedHabitUsesGranularHeartRate,
+    getToken,
+  ]);
 
   // Fetch comparison logs
   useEffect(() => {
@@ -1002,6 +1369,21 @@ export function MetricsView({
         }
         const startDate = format(from, 'yyyy-MM-dd');
         const endDate = format(to, 'yyyy-MM-dd');
+        const compareHabit = availableHabits.find((h: HabitData) => h.habit_id === compareHabitId);
+
+        if (isSleepLikeHabit(compareHabit)) {
+          const token = await getToken();
+          if (token) {
+            const fallback = await analyticsApi.getDailyBreakdown(token, {
+              habitId: compareHabitId,
+              startDate,
+              endDate,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+            }).catch(() => null);
+            setComparisonLogs(mapDailyBreakdownRows(compareHabitId, fallback?.data || fallback?.daily_data || []));
+            return;
+          }
+        }
 
         const response = await fetch(
           `/api/analytics/habits/daily-values?output=daily&habit_id=${compareHabitId}&start_date=${startDate}&end_date=${endDate}`
@@ -1013,19 +1395,13 @@ export function MetricsView({
         } else {
           const token = await getToken();
           if (token) {
-            const daysBack = Math.max(1, differenceInDays(to, from) + 1);
             const fallback = await analyticsApi.getDailyBreakdown(token, {
               habitId: compareHabitId,
-              daysBack,
+              startDate,
+              endDate,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
             }).catch(() => null);
-            const rows = (fallback?.data || fallback?.daily_data || []).map((point: any) => ({
-              habit_id: compareHabitId,
-              date: point.date,
-              daily_value: Number(point.value ?? point.total_amount ?? 0),
-              unit: point.unit,
-              total_amount: Number(point.total_amount ?? point.value ?? 0),
-              total_duration_seconds: Number(point.total_duration_seconds ?? 0),
-            }));
+            const rows = mapDailyBreakdownRows(compareHabitId, fallback?.data || fallback?.daily_data || []);
             setComparisonLogs(rows);
           } else {
             setComparisonLogs([]);
@@ -1099,14 +1475,42 @@ export function MetricsView({
     const totalValue = Number(summary.total_value ?? localTotal);
     const daysWithData = Number(summary.days_with_data ?? chartData.length);
 
-    // Day-over-day: compare the most recent logged day vs the previous logged day
-    const nonZeroDays = chartData.filter((d: { value: number }) => d.value > 0);
-    const latestDay = nonZeroDays.length > 0 ? nonZeroDays[nonZeroDays.length - 1] : null;
-    const previousDay = nonZeroDays.length > 1 ? nonZeroDays[nonZeroDays.length - 2] : null;
+    // For wide/unbounded ranges ("All time", or ranges > 60 days), compare
+    // the average of the last 30 days vs the 30 days before that.
+    // For narrow ranges, compare day-over-day (most recent vs previous logged day).
+    const isWideRange = !hasCustomDateRange || (dateRange?.from && dateRange?.to && differenceInDays(dateRange.to, dateRange.from) > 60);
 
-    const latestValue = latestDay ? Number(latestDay.value) : 0;
-    const previousValue = previousDay ? Number(previousDay.value) : 0;
-    const currentValue = latestValue || Number(summary.current_value ?? localAverage ?? 0);
+    let latestValue: number;
+    let previousValue: number;
+    let currentValue: number;
+
+    if (isWideRange && chartData.length > 0) {
+      const now = new Date();
+      const thirtyDaysAgo = subDays(now, 30);
+      const sixtyDaysAgo = subDays(now, 60);
+
+      const recentDays = chartData.filter((d: any) => d.rawDate >= thirtyDaysAgo);
+      const priorDays = chartData.filter((d: any) => d.rawDate >= sixtyDaysAgo && d.rawDate < thirtyDaysAgo);
+
+      const recentNonZero = recentDays.filter((d: { value: number }) => d.value > 0);
+      const priorNonZero = priorDays.filter((d: { value: number }) => d.value > 0);
+
+      latestValue = recentNonZero.length > 0
+        ? recentNonZero.reduce((sum: number, d: { value: number }) => sum + d.value, 0) / recentNonZero.length
+        : 0;
+      previousValue = priorNonZero.length > 0
+        ? priorNonZero.reduce((sum: number, d: { value: number }) => sum + d.value, 0) / priorNonZero.length
+        : 0;
+      currentValue = latestValue || Number(summary.current_value ?? localAverage ?? 0);
+    } else {
+      const nonZeroDays = chartData.filter((d: { value: number }) => d.value > 0);
+      const latestDay = nonZeroDays.length > 0 ? nonZeroDays[nonZeroDays.length - 1] : null;
+      const previousDay = nonZeroDays.length > 1 ? nonZeroDays[nonZeroDays.length - 2] : null;
+
+      latestValue = latestDay ? Number(latestDay.value) : 0;
+      previousValue = previousDay ? Number(previousDay.value) : 0;
+      currentValue = latestValue || Number(summary.current_value ?? localAverage ?? 0);
+    }
 
     let change = previousValue > 0
       ? ((latestValue - previousValue) / previousValue) * 100
@@ -1116,14 +1520,17 @@ export function MetricsView({
     if (!Number.isFinite(change)) change = 0;
     if (!Number.isFinite(absoluteChange)) absoluteChange = 0;
 
+    const habitUnit = summary.unit || habit.unit_type || (habit as any).unit || 'count';
+
     return {
       habitName: habit.habit_name,
       currentValue,
-      unit: summary.unit || habit.unit_type || (habit as any).unit || 'count',
+      unit: habitUnit,
       change,
       absoluteChange,
       chartData: enrichedChartData,
       isPositive: change >= 0,
+      higherIsBetter: inferHigherIsBetter(habit.habit_name, habitUnit),
       total: totalValue,
       average: localAverage,
       daysWithData,
@@ -1149,105 +1556,110 @@ export function MetricsView({
     const total = values.reduce((sum, value) => sum + value, 0);
     const average = values.length > 0 ? total / values.length : 0;
 
-    const nonZeroDays = chartData.filter((d) => d.value > 0);
-    const latestDay = nonZeroDays.length > 0 ? nonZeroDays[nonZeroDays.length - 1] : null;
-    const previousDay = nonZeroDays.length > 1 ? nonZeroDays[nonZeroDays.length - 2] : null;
-    const latestValue = latestDay ? Number(latestDay.value) : 0;
-    const previousValue = previousDay ? Number(previousDay.value) : 0;
+    const isWideRangeComputer = !hasCustomDateRange || (dateRange?.from && dateRange?.to && differenceInDays(dateRange.to, dateRange.from) > 60);
 
-    const change = previousValue > 0 ? ((latestValue - previousValue) / previousValue) * 100 : (latestValue > 0 ? 100 : 0);
-    const absoluteChange = latestValue - previousValue;
+    let compLatestValue: number;
+    let compPreviousValue: number;
+
+    if (isWideRangeComputer && chartData.length > 0) {
+      const now = new Date();
+      const thirtyDaysAgo = subDays(now, 30);
+      const sixtyDaysAgo = subDays(now, 60);
+
+      const recentDays = chartData.filter((d) => d.rawDate >= thirtyDaysAgo && d.value > 0);
+      const priorDays = chartData.filter((d) => d.rawDate >= sixtyDaysAgo && d.rawDate < thirtyDaysAgo && d.value > 0);
+
+      compLatestValue = recentDays.length > 0
+        ? recentDays.reduce((sum, d) => sum + d.value, 0) / recentDays.length
+        : 0;
+      compPreviousValue = priorDays.length > 0
+        ? priorDays.reduce((sum, d) => sum + d.value, 0) / priorDays.length
+        : 0;
+    } else {
+      const nonZeroDays = chartData.filter((d) => d.value > 0);
+      const latestDay = nonZeroDays.length > 0 ? nonZeroDays[nonZeroDays.length - 1] : null;
+      const previousDay = nonZeroDays.length > 1 ? nonZeroDays[nonZeroDays.length - 2] : null;
+      compLatestValue = latestDay ? Number(latestDay.value) : 0;
+      compPreviousValue = previousDay ? Number(previousDay.value) : 0;
+    }
+
+    const change = compPreviousValue > 0 ? ((compLatestValue - compPreviousValue) / compPreviousValue) * 100 : (compLatestValue > 0 ? 100 : 0);
+    const absoluteChange = compLatestValue - compPreviousValue;
 
     return {
       habitName: COMPUTER_HABIT_DISPLAY_NAME,
-      currentValue: latestValue || average,
+      currentValue: compLatestValue || average,
       unit: 'hours',
       change: Number.isFinite(change) ? change : 0,
       absoluteChange: Number.isFinite(absoluteChange) ? absoluteChange : 0,
       chartData,
       isPositive: (Number.isFinite(change) ? change : 0) >= 0,
+      higherIsBetter: null as boolean | null,
       total,
       average,
       min: values.length > 0 ? Math.min(...values) : 0,
       max: values.length > 0 ? Math.max(...values) : 0,
       events: computerActivityDaily.reduce((sum, row) => sum + Number(row.events_count || 0), 0),
       activeDays: values.filter((value) => value > 0).length,
-      trendCurrentValue: latestValue || average,
-      trendPreviousValue: previousValue,
+      trendCurrentValue: compLatestValue || average,
+      trendPreviousValue: compPreviousValue,
     };
-  }, [computerActivityDaily]);
+  }, [computerActivityDaily, hasCustomDateRange, dateRange]);
 
-  const getComputerActivityRowsForExpandedRange = React.useCallback(() => {
-    if (!computerActivityDaily.length) return [];
+  const getHeartRateExpandedData = React.useCallback(() => {
+    if (!heartRateExpandedSeries.length && !heartRateExpandedSummary) return null;
 
-    const rangeDates = hasCustomDateRange
-      ? { from: dateRange!.from!, to: dateRange!.to! }
-      : getRangeDates(expandedTimeRange);
-    const fromDayStart = startOfDay(rangeDates.from).getTime();
-    const toDayStart = startOfDay(rangeDates.to).getTime();
-
-    return computerActivityDaily
-      .filter((row) => {
-        const rowDayMs = parseISO(row.day).getTime();
-        return Number.isFinite(rowDayMs) && rowDayMs >= fromDayStart && rowDayMs <= toDayStart;
+    const chartData = heartRateExpandedSeries
+      .map((row) => {
+        const date = parseISO(row.bucket_start);
+        return {
+          date: format(date, 'MMM d, yyyy h:mm a'),
+          shortDate: format(date, 'MMM d'),
+          value: Number(row.bpm_avg || 0),
+          unit: 'bpm',
+          samples: Number(row.sample_count || 0),
+          rawDate: date,
+        };
       })
-      .sort((a, b) => a.day.localeCompare(b.day));
-  }, [
-    computerActivityDaily,
-    hasCustomDateRange,
-    dateRange?.from?.toISOString(),
-    dateRange?.to?.toISOString(),
-    expandedTimeRange,
-  ]);
+      .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
 
-  const getComputerActivityExpandedData = React.useCallback((rows: ComputerDailyRow[]) => {
-    if (!rows.length) return null;
-
-    const chartData = rows.map((row) => {
-      const date = parseISO(row.day);
-      return {
-        date: format(date, 'MMM d, yyyy'),
-        shortDate: format(date, 'MMM d'),
-        value: Number(row.active_hours || 0),
-        unit: 'hours',
-        entries: Number(row.events_count || 0),
-      };
-    });
-
-    const values = chartData.map((d) => Number(d.value || 0));
+    const values = chartData.map((d) => Number(d.value || 0)).filter((value) => Number.isFinite(value) && value > 0);
     const total = values.reduce((sum, value) => sum + value, 0);
-    const average = values.length > 0 ? total / values.length : 0;
-    const min = values.length > 0 ? Math.min(...values) : 0;
-    const max = values.length > 0 ? Math.max(...values) : 0;
-    const variance = values.length
-      ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
-      : 0;
-    const nonZeroValues = values.filter((v) => v > 0);
-    const latestVal = nonZeroValues.length > 0 ? nonZeroValues[nonZeroValues.length - 1] : 0;
-    const prevVal = nonZeroValues.length > 1 ? nonZeroValues[nonZeroValues.length - 2] : 0;
+    const average = values.length > 0
+      ? total / values.length
+      : Number(heartRateExpandedSummary?.current_avg_bpm || 0);
+    const min = values.length > 0
+      ? Math.min(...values)
+      : Number(heartRateExpandedSummary?.min_bpm || 0);
+    const max = values.length > 0
+      ? Math.max(...values)
+      : Number(heartRateExpandedSummary?.max_bpm || 0);
+
+    const latestVal = values.length > 0 ? values[values.length - 1] : average;
+    const prevVal = values.length > 1 ? values[values.length - 2] : Number(heartRateExpandedSummary?.previous_avg_bpm || 0);
     const change = prevVal > 0 ? ((latestVal - prevVal) / prevVal) * 100 : (latestVal > 0 ? 100 : 0);
     const absoluteChange = latestVal - prevVal;
 
     return {
       chartData,
-      total,
       average,
       min,
       max,
-      stdDev: Math.sqrt(variance),
-      events: rows.reduce((sum, row) => sum + Number(row.events_count || 0), 0),
-      activeDays: values.filter((value) => value > 0).length,
+      totalSamples: Number(heartRateExpandedSummary?.total_samples || 0),
+      buckets: chartData.length,
+      daysWithData: Number(heartRateExpandedSummary?.days_with_data || 0),
       change: Number.isFinite(change) ? change : 0,
       absoluteChange: Number.isFinite(absoluteChange) ? absoluteChange : 0,
     };
-  }, []);
+  }, [heartRateExpandedSeries, heartRateExpandedSummary]);
 
   // Get expanded data
   const getExpandedData = (habitId: string) => {
     const habit = availableHabits.find((h: HabitData) => h.habit_id === habitId);
     if (!habit) return null;
+    const isMainSleepHabit = isSleepLikeHabit(habit);
 
-    const processLogsToMap = (logsSource: any[], unitType: any) => {
+    const processLogsToMap = (logsSource: any[], unitType: any, useMaxPerDay = false) => {
       if (!logsSource || !logsSource.length) return { byDate: {}, logs: {} };
 
       const uniqueLogs = logsSource.reduce((acc: any[], log: any) => {
@@ -1277,22 +1689,26 @@ export function MetricsView({
         const dayLogs = logsMap[dateStr];
         dayLogs.forEach((log: any) => {
           if (log.daily_value !== undefined && log.daily_value !== null) {
-            total += Number(log.daily_value || 0);
+            const dailyValue = Number(log.daily_value || 0);
+            total = useMaxPerDay ? Math.max(total, dailyValue) : total + dailyValue;
             return;
           }
 
           const duration = Number(log.duration || 0);
           const amount = Number(log.amount || 0);
+          let nextValue = 0;
 
           if (unit.includes('hour')) {
-            if (duration > 0) total += duration / 3600;
-            else if (amount > 0) total += amount;
+            if (duration > 0) nextValue = duration / 3600;
+            else if (amount > 0) nextValue = amount;
           } else if (unit.includes('minute')) {
-            if (duration > 0) total += duration / 60;
-            else if (amount > 0) total += amount;
+            if (duration > 0) nextValue = duration / 60;
+            else if (amount > 0) nextValue = amount;
           } else {
-            total += amount > 0 ? amount : (duration > 0 ? 1 : 0);
+            nextValue = amount > 0 ? amount : (duration > 0 ? 1 : 0);
           }
+
+          total = useMaxPerDay ? Math.max(total, nextValue) : total + nextValue;
         });
         valuesMap[dateStr] = total;
       });
@@ -1300,14 +1716,18 @@ export function MetricsView({
       return { byDate: valuesMap, logs: logsMap };
     };
 
-    const mainData = processLogsToMap(expandedLogs, habit.unit_type || (habit as any).unit);
+    const mainData = processLogsToMap(expandedLogs, habit.unit_type || (habit as any).unit, isMainSleepHabit);
 
     let compData = { byDate: {}, logs: {} };
     let compHabit: any = null;
     if (compareHabitId) {
       compHabit = availableHabits.find((h: HabitData) => h.habit_id === compareHabitId);
       if (compHabit) {
-        compData = processLogsToMap(comparisonLogs, compHabit.unit_type || (compHabit as any).unit);
+        compData = processLogsToMap(
+          comparisonLogs,
+          compHabit.unit_type || (compHabit as any).unit,
+          isSleepLikeHabit(compHabit),
+        );
       }
     }
 
@@ -1317,7 +1737,9 @@ export function MetricsView({
     const allDatesInRange = eachDayOfInterval({ start: startOfDay(rangeDates.from), end: startOfDay(rangeDates.to) })
       .map(d => format(d, 'yyyy-MM-dd'));
     const dataDateSet = new Set([...Object.keys(mainData.byDate), ...Object.keys(compData.byDate)]);
-    const allDates = Array.from(new Set([...allDatesInRange, ...dataDateSet])).sort();
+    const allDates = isMainSleepHabit
+      ? Array.from(dataDateSet).sort()
+      : Array.from(new Set([...allDatesInRange, ...dataDateSet])).sort();
 
     const values = Object.values(mainData.byDate) as number[];
     const totalValue = values.reduce((a, b) => a + b, 0);
@@ -1400,42 +1822,6 @@ export function MetricsView({
   const hasRenderableMetricCards = filteredHabits.length > 0 || Boolean(computerActivityCard);
   const hasValidHabitData = (availableHabits.length > 0 && availableHabits[0]?.habit_id) || Boolean(computerActivityCard);
 
-  const summaryRows = useMemo(() => {
-    const validSelected = selectedHabits.filter((id: string): id is string => !!id);
-    const filteredIds = filteredHabits.map((h: HabitData) => h.habit_id).filter((id: string): id is string => !!id);
-    const ids = validSelected.length > 0
-      ? validSelected.filter((id: string) => filteredIds.includes(id))
-      : filteredIds;
-    const isComputerSelected = detectedComputerHabitId ? validSelected.includes(detectedComputerHabitId) : true;
-    const allIds = computerActivityCard && isComputerSelected ? [...ids, COMPUTER_ACTIVITY_CARD_ID] : ids;
-
-    return allIds.map((habitId: string) => {
-      const cardData = habitId === COMPUTER_ACTIVITY_CARD_ID
-        ? computerActivityCard
-        : getHabitCardData(habitId);
-      if (!cardData) return null;
-
-      const pct = Number(cardData.change ?? 0);
-      const isUp = pct > 0;
-      const isDown = pct < 0;
-      const absPct = Math.abs(pct);
-      const fmtPct = absPct >= 10 ? absPct.toFixed(1) : absPct.toFixed(2);
-
-      const val = Number(cardData.currentValue ?? 0);
-      const fmtVal = val >= 100 ? val.toFixed(0) : val >= 10 ? val.toFixed(1) : val.toFixed(2);
-
-      return {
-        id: habitId,
-        name: cardData.habitName,
-        value: fmtVal,
-        unit: cardData.unit || '',
-        pctText: `${fmtPct}%`,
-        isUp,
-        isDown,
-      };
-    }).filter(Boolean) as { id: string; name: string; value: string; unit: string; pctText: string; isUp: boolean; isDown: boolean }[];
-  }, [selectedHabits, filteredHabits, detectedComputerHabitId, computerActivityCard]);
-
   if (!hasValidHabitData && (loading || queryLoading)) {
     return (
       <div className="space-y-4">
@@ -1457,107 +1843,6 @@ export function MetricsView({
       {!hideControls && (
         <div className="mx-auto w-full max-w-[920px] flex flex-wrap items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
-            <AnalyticsViewToggle
-              currentView={viewMode}
-              onViewChange={setViewMode}
-              darkMode={false}
-            />
-
-            <button
-              onClick={() => setSummaryPanelOpen(prev => !prev)}
-              className={`flex items-center justify-center w-[34px] h-[34px] border text-sm transition-colors ${
-                summaryPanelOpen
-                  ? 'bg-gray-900 border-gray-900 text-white'
-                  : 'bg-white border-gray-300 text-gray-500 hover:bg-[#F3F3F3]'
-              }`}
-              title="Habit summary"
-            >
-              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 3.5h11M2 7.5h11M2 11.5h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-              </svg>
-            </button>
-
-            {/* Habit Filter Dropdown */}
-            <div className="relative">
-              <button
-                id="habit-dropdown-button"
-                onClick={() => setHabitDropdownOpen(!habitDropdownOpen)}
-                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 text-sm text-gray-600 hover:bg-[#F3F3F3] transition-colors"
-              >
-                <span>
-                  {selectedHabits.length === availableHabits.length
-                    ? 'All'
-                    : `${selectedHabits.length} of ${availableHabits.length}`
-                  }
-                </span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${habitDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {habitDropdownOpen && (
-                <>
-                  <div
-                    className="fixed inset-0 ml-[70px]"
-                    style={{ zIndex: 999 }}
-                    onClick={() => setHabitDropdownOpen(false)}
-                  />
-                  <div
-                    className="fixed bg-white border border-gray-300 shadow-xl max-h-[400px] overflow-y-auto"
-                    style={{
-                      zIndex: 1000,
-                      top: typeof window !== 'undefined'
-                        ? (document.getElementById('habit-dropdown-button')?.getBoundingClientRect().bottom || 0) + 4 + window.scrollY
-                        : 0,
-                      left: typeof window !== 'undefined'
-                        ? document.getElementById('habit-dropdown-button')?.getBoundingClientRect().left || 0
-                        : 0,
-                      width: '220px'
-                    }}
-                  >
-                    <div className="p-1">
-                      <button
-                        onClick={() => {
-                          if (selectedHabits.length === availableHabits.length) {
-                            if (filterContext) {
-                              filterContext.clearHabitSelection();
-                            } else {
-                              setLocalSelectedHabits([]);
-                            }
-                          } else {
-                            if (filterContext) {
-                              filterContext.selectAllHabits(availableHabits.map((h: HabitData) => h.habit_id));
-                            } else {
-                              setLocalSelectedHabits(availableHabits.map((h: HabitData) => h.habit_id));
-                            }
-                          }
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-[#F3F3F3] border-b border-gray-200"
-                      >
-                        {selectedHabits.length === availableHabits.length ? 'Deselect all' : 'Select all'}
-                      </button>
-                      {availableHabits.map((habit: HabitData) => (
-                        <label
-                          key={habit.habit_id}
-                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F3F3F3] cursor-pointer transition-colors"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedHabits.includes(habit.habit_id)}
-                            onChange={() => toggleHabit(habit.habit_id)}
-                            className="analytics-checkbox"
-                          />
-                          <span className="text-sm text-gray-900">
-                            {getHabitDisplayName(habit.habit_name)}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
             <DateRangePicker
               className="w-auto"
               onDateRangeChange={setDateRange}
@@ -1573,6 +1858,31 @@ export function MetricsView({
           Analytics metrics unavailable: {analyticsError}
         </div>
       )}
+
+      {/* ── Category Tabs + Pagination Arrows ── */}
+      <div className="mx-auto w-full max-w-[920px] mb-5">
+        <div className="flex items-center gap-0 border-b border-[rgba(39,37,30,0.08)]">
+            {METRIC_CATEGORY_TABS.map((tab) => {
+              const isActive = activeCategoryTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveCategoryTab(tab.id === 'all' ? null : (isActive ? null : tab.id)); setCardPage(0); }}
+                  className={`px-3 py-2 text-[13px] font-medium transition-colors relative ${
+                    (tab.id === 'all' && activeCategoryTab === null) || isActive
+                      ? 'text-[#27251E]'
+                      : 'text-[#1E2725] hover:text-[#000]'
+                  }`}
+                >
+                  {tab.label}
+                  {((tab.id === 'all' && activeCategoryTab === null) || isActive) && (
+                    <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-[#27251E] rounded-full" />
+                  )}
+                </button>
+              );
+            })}
+        </div>
+      </div>
 
       {/* Habit Metrics Grid */}
       {(loading || queryLoading) ? (
@@ -1590,7 +1900,7 @@ export function MetricsView({
             </p>
           </div>
         </div>
-      ) : selectedHabits.length > 0 || availableHabits.length > 0 ? (
+      ) : selectedHabits.length > 0 || availableHabits.length > 0 || Boolean(computerActivityCard) ? (
         <>
           {(() => {
             const validSelectedHabits = selectedHabits.filter((id: string): id is string => !!id);
@@ -1604,136 +1914,356 @@ export function MetricsView({
               ? selectedFilteredHabitIds
               : filteredHabitIds;
 
-            const metricCardIds = showComputerCard
-              ? [...habitsToShow, COMPUTER_ACTIVITY_CARD_ID]
-              : habitsToShow;
+            const unorderedIds = [...habitsToShow];
+            if (showComputerCard) {
+              unorderedIds.push(COMPUTER_ACTIVITY_CARD_ID);
+            }
 
-            if (viewMode === 'chart') {
-              return (
-                <div 
-                  className={`mx-auto grid w-full max-w-[920px] grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 transition-opacity duration-300 ${
-                    expandedHabit ? 'opacity-50 pointer-events-auto' : 'opacity-100'
-                  }`}
-                >
-                  {metricCardIds.map((habitId: string) => {
-                    const cardData = habitId === COMPUTER_ACTIVITY_CARD_ID
-                      ? computerCardData
-                      : getHabitCardData(habitId);
-                    if (!cardData) return null;
+            const metricCardIds = appliedCardOrder.length > 0
+              ? [
+                  ...appliedCardOrder.filter((id: string) => unorderedIds.includes(id)),
+                  ...unorderedIds.filter((id: string) => !appliedCardOrder.includes(id)),
+                ]
+              : unorderedIds;
 
-                    return (
-                      <div key={habitId} className="min-w-0">
-                        <HabitMetricCard
-                          {...cardData}
-                          chartType="bar"
-                          onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
-                          onRemove={() => {
-                            const removedHabitId = habitId === COMPUTER_ACTIVITY_CARD_ID
-                              ? detectedComputerHabitId
-                              : habitId;
-                            if (!removedHabitId) return;
-                            if (filterContext) {
-                              filterContext.setSelectedHabits((prev: string[]) => prev.filter((id: string) => id !== removedHabitId));
-                            } else {
-                              setLocalSelectedHabits(prev => prev.filter((id: string) => id !== removedHabitId));
-                            }
-                            if (expandedHabit === habitId) {
-                              setExpandedHabit(null);
-                            }
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            } else {
-              const tickerHabits = metricCardIds.map((habitId: string) => {
-                if (habitId === COMPUTER_ACTIVITY_CARD_ID && computerCardData) {
-                  return {
-                    habit_id: habitId,
-                    habit_name: COMPUTER_HABIT_DISPLAY_NAME,
-                    category: 'computer',
-                    unit: computerCardData.unit || 'hours',
-                    display_value: computerCardData.currentValue || 0,
-                    absolute_change: computerCardData.absoluteChange || 0,
-                    last_7_days_avg: computerCardData.trendCurrentValue || computerCardData.currentValue || 0,
-                    prev_7_days_avg: computerCardData.trendPreviousValue || 0,
-                    weekly_amount_change_pct: computerCardData.change || 0,
-                    chartData: (computerCardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 })),
-                  };
-                }
+            // Keep ref in sync for drag handler seeding
+            visibleCardIdsRef.current = metricCardIds;
 
-                const cardData = getHabitCardData(habitId);
-                const habit = filteredHabits.find((h: HabitData) => h.habit_id === habitId);
+            // Filter by active category tab
+            const visibleIds = activeCategoryTab
+              ? metricCardIds.filter((id) => {
+                  if (id === COMPUTER_ACTIVITY_CARD_ID) {
+                    return activeCategoryTab === 'digital';
+                  }
+                  const habit = filteredHabits.find((h: HabitData) => h.habit_id === id);
+                  if (!habit) return false;
+                  return getMetricCategoryForHabit(habit.habit_name, habit.category) === activeCategoryTab;
+                })
+              : metricCardIds;
 
-                if (habit && !cardData) {
-                  return {
-                    habit_id: habitId,
-                    habit_name: habit.habit_name || 'Unknown',
-                    category: habit.category || '',
-                    unit: habit.unit_type || 'count',
-                    display_value: 0,
-                    absolute_change: 0,
-                    last_7_days_avg: 0,
-                    prev_7_days_avg: 0,
-                    weekly_amount_change_pct: 0,
-                    chartData: [],
-                  };
-                }
+            const CARDS_PER_PAGE = 4;
+            const computedTotalPages = Math.ceil(visibleIds.length / CARDS_PER_PAGE);
+            if (computedTotalPages !== totalCardPages) {
+              // Schedule state update for next tick to avoid render-during-render
+              Promise.resolve().then(() => setTotalCardPages(computedTotalPages));
+            }
+            const pageIds = visibleIds.slice(clampedCardPage * CARDS_PER_PAGE, (clampedCardPage + 1) * CARDS_PER_PAGE);
 
-                if (!cardData || !habit) return null;
+            return (
+                <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={pageIds} strategy={rectSortingStrategy}>
+                    <div
+                      className={`mx-auto relative w-full max-w-[920px] transition-opacity duration-300 ${
+                        expandedHabit ? 'opacity-50 pointer-events-auto' : 'opacity-100'
+                      }`}
+                    >
+                    <div className="grid w-full grid-cols-1 gap-[5px] sm:grid-cols-2 lg:grid-cols-4">
+                      {pageIds.map((habitId: string) => {
+                        const cardData = habitId === COMPUTER_ACTIVITY_CARD_ID
+                          ? computerCardData
+                          : getHabitCardData(habitId);
+                        const habit = habitId === COMPUTER_ACTIVITY_CARD_ID
+                          ? null
+                          : filteredHabits.find((h: HabitData) => h.habit_id === habitId);
+
+                        // Derive ticker card props
+                        let tickerName: string;
+                        let tickerUnit: string;
+                        let tickerCurrentValue: number;
+                        let tickerPercentChange: number;
+                        let tickerAbsoluteChange: number;
+                        let tickerChartData: { value: number }[];
+                        let tickerHigherIsBetter: boolean | null | undefined;
+
+                        if (habitId === COMPUTER_ACTIVITY_CARD_ID && computerCardData) {
+                          tickerName = COMPUTER_HABIT_DISPLAY_NAME;
+                          tickerUnit = computerCardData.unit || 'hours';
+                          tickerCurrentValue = computerCardData.currentValue || 0;
+                          tickerPercentChange = computerCardData.change || 0;
+                          tickerAbsoluteChange = computerCardData.absoluteChange || 0;
+                          tickerChartData = (computerCardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 }));
+                          tickerHigherIsBetter = computerCardData.higherIsBetter;
+                        } else if (cardData && habit) {
+                          tickerName = cardData.habitName || habit.habit_name || 'Unknown';
+                          tickerUnit = cardData.unit || habit.unit_type || 'count';
+                          tickerCurrentValue = cardData.currentValue || 0;
+                          tickerPercentChange = cardData.change || 0;
+                          tickerAbsoluteChange = cardData.absoluteChange || 0;
+                          tickerChartData = (cardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 }));
+                          tickerHigherIsBetter = cardData.higherIsBetter;
+                        } else if (habit) {
+                          tickerName = habit.habit_name || 'Unknown';
+                          tickerUnit = habit.unit_type || 'count';
+                          tickerCurrentValue = 0;
+                          tickerPercentChange = 0;
+                          tickerAbsoluteChange = 0;
+                          tickerChartData = [];
+                          tickerHigherIsBetter = inferHigherIsBetter(habit.habit_name, habit.unit_type);
+                        } else {
+                          return null;
+                        }
+
+                        return (
+                          <SortableMetricCard key={habitId} id={habitId}>
+                            <HabitTickerCard
+                              habitName={tickerName}
+                              unit={tickerUnit}
+                              currentValue={tickerCurrentValue}
+                              percentChange={tickerPercentChange}
+                              absoluteChange={tickerAbsoluteChange}
+                              chartData={tickerChartData}
+                              higherIsBetter={tickerHigherIsBetter}
+                              onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
+                              onRemove={() => {
+                                const removedHabitId = habitId === COMPUTER_ACTIVITY_CARD_ID
+                                  ? detectedComputerHabitId
+                                  : habitId;
+                                if (!removedHabitId) return;
+                                if (filterContext) {
+                                  filterContext.setSelectedHabits((prev: string[]) => prev.filter(id => id !== removedHabitId));
+                                } else {
+                                  setLocalSelectedHabits(prev => prev.filter(id => id !== removedHabitId));
+                                }
+                                if (expandedHabit === habitId) {
+                                  setExpandedHabit(null);
+                                }
+                              }}
+                            />
+                          </SortableMetricCard>
+                        );
+                      })}
+                    </div>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+            );
+          })()}
+
+          {/* ── Vercel-style analytics sections ── */}
+          {!expandedHabit && (() => {
+            if (filteredHabits.length === 0) return null;
+
+            // ─── Compute range-filtered habit data for bar list ───
+            const barRangeDates = getRangeDates(barListRange as RangeKey);
+            const rangeFrom = barRangeDates.from;
+            const rangeTo = barRangeDates.to;
+
+            const shortenUnit = (u: string) => {
+              const lower = u.toLowerCase();
+              if (lower === 'milligrams') return 'mg';
+              return u;
+            };
+            const formatBarValue = (v: number, unit: string) => {
+              const formatted = v >= 1000
+                ? Math.round(v).toLocaleString()
+                : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+              return `${formatted} ${shortenUnit(unit)}`.trim();
+            };
+
+            const habitBarData = filteredHabits
+              .map((h: HabitData) => {
+                const logs = analyticsData[h.habit_id] || [];
+                const unit = summaryMetrics[h.habit_id]?.unit || h.unit_type || 'count';
+                const hib = inferHigherIsBetter(h.habit_name, unit);
+
+                // Filter logs to selected range
+                const rangeLogs = logs.filter((l: any) => {
+                  if (!l.date) return false;
+                  const d = parseISO(l.date);
+                  return d >= rangeFrom && d <= rangeTo;
+                });
+
+                if (rangeLogs.length === 0) return null;
+
+                const values = rangeLogs.map((l: any) =>
+                  Number(l.daily_value ?? l.value ?? l.total_amount ?? 0)
+                ).filter((v: number) => v > 0);
+
+                if (values.length === 0) return null;
+
+                // Use average for heart rate, total for everything else
+                const useAverage = h.habit_name.toLowerCase().includes('heart rate');
+                const total = values.reduce((s: number, v: number) => s + v, 0);
+                const displayVal = useAverage ? total / values.length : total;
+
+                // Compare: split range in half for change calculation
+                const midPoint = new Date((rangeFrom.getTime() + rangeTo.getTime()) / 2);
+                const firstHalf = rangeLogs.filter((l: any) => parseISO(l.date) < midPoint);
+                const secondHalf = rangeLogs.filter((l: any) => parseISO(l.date) >= midPoint);
+
+                const firstValues = firstHalf.map((l: any) => Number(l.daily_value ?? l.value ?? l.total_amount ?? 0)).filter((v: number) => v > 0);
+                const secondValues = secondHalf.map((l: any) => Number(l.daily_value ?? l.value ?? l.total_amount ?? 0)).filter((v: number) => v > 0);
+
+                const firstSum = firstValues.reduce((s: number, v: number) => s + v, 0);
+                const secondSum = secondValues.reduce((s: number, v: number) => s + v, 0);
+                const firstCompare = useAverage && firstValues.length > 0 ? firstSum / firstValues.length : firstSum;
+                const secondCompare = useAverage && secondValues.length > 0 ? secondSum / secondValues.length : secondSum;
+
+                let change = firstCompare > 0
+                  ? ((secondCompare - firstCompare) / firstCompare) * 100
+                  : (secondCompare > 0 ? 100 : 0);
+                if (!Number.isFinite(change)) change = 0;
 
                 return {
-                  habit_id: habitId,
-                  habit_name: cardData.habitName || habit.habit_name || 'Unknown',
-                  category: habit.category || '',
-                  unit: cardData.unit || habit.unit_type || 'count',
-                  display_value: cardData.currentValue || 0,
-                  absolute_change: cardData.absoluteChange || 0,
-                  last_7_days_avg: cardData.trendCurrentValue || cardData.currentValue || 0,
-                  prev_7_days_avg: cardData.trendPreviousValue || 0,
-                  weekly_amount_change_pct: cardData.change || 0,
-                  chartData: (cardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 })),
+                  habitId: h.habit_id,
+                  name: h.habit_name,
+                  avg: displayVal,
+                  unit,
+                  change,
+                  higherIsBetter: hib,
+                  daysWithData: values.length,
+                  category: getMetricCategoryForHabit(h.habit_name, h.category),
                 };
-              }).filter((item: any): item is NonNullable<typeof item> => item !== null);
+              })
+              .filter(Boolean) as any[];
 
-              return (
-                <div className={`transition-opacity duration-300 ${
-                  expandedHabit ? 'opacity-50 pointer-events-auto' : 'opacity-100'
-                }`}>
-                  <HabitTickerGrid
-                    habits={tickerHabits}
-                    onHabitClick={(habitId) => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
-                    onHabitRemove={(habitId) => {
-                      const removedHabitId = habitId === COMPUTER_ACTIVITY_CARD_ID
-                        ? detectedComputerHabitId
-                        : habitId;
-                      if (!removedHabitId) return;
-                      if (filterContext) {
-                        filterContext.setSelectedHabits((prev: string[]) => prev.filter(id => id !== removedHabitId));
-                      } else {
-                        setLocalSelectedHabits(prev => prev.filter(id => id !== removedHabitId));
-                      }
-                      if (expandedHabit === habitId) {
-                        setExpandedHabit(null);
-                      }
-                    }}
-                    darkMode={false}
-                  />
-                </div>
-              );
+            // ─── Add Computer Activity if available ───
+            if (computerActivityDaily.length > 0) {
+              const compLogs = computerActivityDaily.filter((row) => {
+                const d = parseISO(row.day);
+                return d >= rangeFrom && d <= rangeTo;
+              });
+              const compValues = compLogs.map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
+              if (compValues.length > 0) {
+                const compTotal = compValues.reduce((s, v) => s + v, 0);
+                const midPoint = new Date((rangeFrom.getTime() + rangeTo.getTime()) / 2);
+                const compFirst = compLogs.filter((r) => parseISO(r.day) < midPoint).map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
+                const compSecond = compLogs.filter((r) => parseISO(r.day) >= midPoint).map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
+                const compFirstTotal = compFirst.reduce((s, v) => s + v, 0);
+                const compSecondTotal = compSecond.reduce((s, v) => s + v, 0);
+                let compChange = compFirstTotal > 0 ? ((compSecondTotal - compFirstTotal) / compFirstTotal) * 100 : (compSecondTotal > 0 ? 100 : 0);
+                if (!Number.isFinite(compChange)) compChange = 0;
+                habitBarData.push({
+                  habitId: COMPUTER_ACTIVITY_CARD_ID,
+                  name: COMPUTER_HABIT_DISPLAY_NAME,
+                  avg: compTotal,
+                  unit: 'Hours',
+                  change: compChange,
+                  higherIsBetter: null,
+                  daysWithData: compValues.length,
+                  category: 'digital',
+                });
+              }
             }
+
+            if (habitBarData.length === 0) return null;
+
+            // ─── Habits bar list ───
+            const maxVal = Math.max(...habitBarData.map((h: any) => Math.abs(h.avg)), 1);
+            const habitBarItems: BarListItem[] = [...habitBarData]
+              .sort((a: any, b: any) => b.avg - a.avg)
+              .map((h: any) => ({
+                name: h.name,
+                value: formatBarValue(h.avg, h.unit),
+                change: h.change,
+                higherIsBetter: h.higherIsBetter,
+                barPercent: Math.round((Math.abs(h.avg) / maxVal) * 100),
+              }));
+
+            // ─── Streaks bar list ───
+            const streakItems = habitBarData
+              .map((h: any) => {
+                const logs = analyticsData[h.habitId] || [];
+                let streak = 0;
+                if (logs.length > 0) {
+                  const sortedDates = logs
+                    .map((l: any) => l.date)
+                    .filter(Boolean)
+                    .sort()
+                    .reverse();
+                  if (sortedDates.length > 0) {
+                    streak = 1;
+                    for (let i = 1; i < sortedDates.length; i++) {
+                      const curr = parseISO(sortedDates[i - 1]);
+                      const prev = parseISO(sortedDates[i]);
+                      const diff = differenceInDays(curr, prev);
+                      if (diff <= 1) streak++;
+                      else break;
+                    }
+                  }
+                }
+                return { name: h.name, streak };
+              })
+              .sort((a: any, b: any) => b.streak - a.streak);
+            const maxStreak = Math.max(...streakItems.map((s: any) => s.streak), 1);
+            const streakBarItems: BarListItem[] = streakItems.map((s: any) => ({
+              name: s.name,
+              value: `${s.streak}d`,
+              barPercent: Math.round((s.streak / maxStreak) * 100),
+            }));
+
+            return (
+              <div className="mx-auto mt-6 w-full max-w-[920px]">
+                {/* Horizontal bar list cards - 2 col */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-[5px]">
+                  <VercelBarListCard
+                    tabs={[
+                      { id: 'habits', label: 'Habits' },
+                      { id: 'streaks', label: 'Streaks' },
+                    ]}
+                    defaultTab="habits"
+                    data={{
+                      habits: habitBarItems,
+                      streaks: streakBarItems,
+                    }}
+                    showRangeSelector
+                    activeRange={barListRange}
+                    onRangeChange={setBarListRange}
+                  />
+                  <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
+                </div>
+
+                {/* Habit chart cards — top 4 by data volume */}
+                <div className="space-y-20 mt-24">
+                  {filteredHabits
+                    .filter((h: HabitData) => h.habit_id !== COMPUTER_ACTIVITY_CARD_ID)
+                    .map((h: HabitData) => ({
+                      habit: h,
+                      dataLen: (analyticsData[h.habit_id] || []).length,
+                    }))
+                    .filter((h: any) => h.dataLen > 0)
+                    .sort((a: any, b: any) => b.dataLen - a.dataLen)
+                    .slice(0, 4)
+                    .map(({ habit }: any) => {
+                      const cardData = getHabitCardData(habit.habit_id);
+                      return (
+                        <HabitChartCard
+                          key={habit.habit_id}
+                          habitName={habit.habit_name}
+                          unit={habit.unit_type || (habit as any).unit || ''}
+                          logs={analyticsData[habit.habit_id] || []}
+                          higherIsBetter={cardData?.higherIsBetter}
+                          change={cardData?.change}
+                        />
+                      );
+                    })
+                  }
+                </div>
+              </div>
+            );
           })()}
 
           {/* Expanded View */}
           {expandedHabit && (
-            <div className="mt-4">
+            <div className="mx-auto mt-2 w-full max-w-[920px]">
               {expandedHabit === COMPUTER_ACTIVITY_CARD_ID ? (
+                <ComputerActivitySection onClose={() => setExpandedHabit(null)} />
+              ) : expandedHabitUsesGranularHeartRate ? (
                 (() => {
-                  const rowsInRange = getComputerActivityRowsForExpandedRange();
-                  const expandedData = getComputerActivityExpandedData(rowsInRange);
+                  if (loadingExpandedLogs) {
+                    return (
+                      <div className="flex h-[400px] items-center justify-center">
+                        <div className="text-center">
+                          <BrailleSpinner className="mx-auto mb-2 text-2xl text-gray-600" />
+                          <p className="text-sm text-gray-500">Loading metrics...</p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const expandedData = getHeartRateExpandedData();
                   if (!expandedData) return null;
+                  const heartRateTitle = expandedHabitData?.habit_name || 'Heart Rate';
 
                   const ranges: RangeOption[] = [
                     { value: '1D', label: '1D' },
@@ -1755,26 +2285,26 @@ export function MetricsView({
                       ? `${format(new Date(firstPoint.t), 'MMM d, yyyy')} – ${format(new Date(lastPoint.t), 'MMM d, yyyy')}`
                       : 'No data');
                   const deltaDirection = expandedData.change >= 0 ? 'up' : 'down';
-                  const deltaValueText = `${expandedData.absoluteChange >= 0 ? '+' : ''}${expandedData.absoluteChange.toFixed(2)}`;
+                  const deltaValueText = `${expandedData.absoluteChange >= 0 ? '+' : ''}${expandedData.absoluteChange.toFixed(1)}`;
                   const deltaPercentText = `${expandedData.change >= 0 ? '+' : ''}${expandedData.change.toFixed(2)}%`;
                   const primaryValue = lastPoint
-                    ? Number(lastPoint.close).toFixed(Number(lastPoint.close) < 10 ? 2 : 0)
+                    ? Number(lastPoint.close).toFixed(0)
                     : '--';
 
                   const stats: Array<{ label: string; value: string }> = [
-                    { label: 'Total', value: `${expandedData.total.toFixed(2)}h` },
-                    { label: 'Average', value: `${expandedData.average.toFixed(2)}h` },
-                    { label: 'Min', value: `${expandedData.min.toFixed(2)}h` },
-                    { label: 'Max', value: `${expandedData.max.toFixed(2)}h` },
-                    { label: 'Std Dev', value: `${expandedData.stdDev.toFixed(2)}h` },
+                    { label: 'Average', value: `${expandedData.average.toFixed(1)} bpm` },
+                    { label: 'Min', value: `${expandedData.min.toFixed(0)} bpm` },
+                    { label: 'Max', value: `${expandedData.max.toFixed(0)} bpm` },
+                    { label: 'Samples', value: expandedData.totalSamples.toLocaleString() },
+                    { label: 'Days', value: String(expandedData.daysWithData || 0) },
                   ];
 
                   return (
                     <div ref={exportCardRef}>
                       <ExpandedMetricCard
-                        title={COMPUTER_HABIT_DISPLAY_NAME}
+                        title={heartRateTitle}
                         primaryValue={primaryValue}
-                        unit="hours"
+                        unit="bpm"
                         deltaValue={deltaValueText}
                         deltaPercent={deltaPercentText}
                         deltaDirection={deltaDirection}
@@ -1786,7 +2316,7 @@ export function MetricsView({
                         actions={(
                           <button
                             type="button"
-                            onClick={() => captureExpandedChart(COMPUTER_HABIT_DISPLAY_NAME)}
+                            onClick={() => captureExpandedChart(heartRateTitle)}
                             disabled={isCapturing}
                             aria-label="Export chart image"
                             title="Export chart image"
@@ -1796,17 +2326,15 @@ export function MetricsView({
                           </button>
                         )}
                         onClose={() => setExpandedHabit(null)}
-                        stats={stats}
-                        showStats
                       >
                         <div ref={chartRef}>
                           <PerplexityExpandedHabitChart
                             points={points}
                             range={expandedTimeRange}
-                            unit="hours"
-                            chartType={expandedChartType}
+                            unit="bpm"
+                            chartType="bar"
                             showGrid
-                            showReferenceLine
+                            higherIsBetter={false}
                           />
                         </div>
                       </ExpandedMetricCard>
@@ -1888,6 +2416,7 @@ export function MetricsView({
                       deltaValue={deltaValueText}
                       deltaPercent={deltaPercentText}
                       deltaDirection={deltaDirection}
+                      higherIsBetter={expandedCardData?.higherIsBetter}
                       dateRangeText={dateRangeText}
                       rangePreset={expandedTimeRange}
                       onRangePresetChange={(value) => setExpandedTimeRange(value as RangeKey)}
@@ -1924,9 +2453,9 @@ export function MetricsView({
                           unit={habit.unit_type || (habit as any).unit || ''}
                           compareLabel={compHabit?.habit_name}
                           compareUnit={compHabit?.unit_type || (compHabit as any)?.unit || ''}
-                          chartType={expandedChartType}
+                          chartType="bar"
                           showGrid
-                          showReferenceLine
+                          higherIsBetter={expandedCardData?.higherIsBetter}
                         />
                       </div>
                     </ExpandedMetricCard>
@@ -1938,27 +2467,7 @@ export function MetricsView({
         </>
       ) : null}
 
-      {/* Activity Breakdown panel (timeline + app/website horizontal bars) */}
-      {showComputerActivity ? (
-        <div className="mx-auto mt-8 w-full max-w-[888px]">
-          <ComputerActivitySection
-            startDate={dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined}
-            endDate={dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : undefined}
-            daysBack={30}
-            isVisible={showComputerActivity}
-            onDismiss={() => setShowComputerActivity(false)}
-          />
-        </div>
-      ) : (
-        <div className="mt-8 flex justify-center">
-          <button
-            onClick={() => setShowComputerActivity(true)}
-            className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            Show Activity Breakdown Panel
-          </button>
-        </div>
-      )}
+
 
       {showShareModal ? (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
@@ -1974,7 +2483,7 @@ export function MetricsView({
               <button
                 type="button"
                 onClick={closeShareModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.12)] bg-white/80 text-[rgba(39,37,30,0.56)] transition-colors hover:bg-white hover:text-[#27251E]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.12)] bg-white/80 text-[rgba(39,37,30,0.56)] transition-colors hover:text-[#27251E]"
                 aria-label="Close share screenshot modal"
               >
                 <X className="h-4 w-4" />
@@ -2029,56 +2538,6 @@ export function MetricsView({
         </div>
       ) : null}
 
-      {/* Habit Summary Side Panel */}
-      <DialogPrimitive.Root open={summaryPanelOpen} onOpenChange={(open) => setSummaryPanelOpen(open)}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/5 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-          <DialogPrimitive.Content
-            onOpenAutoFocus={(e) => e.preventDefault()}
-            className="fixed inset-y-0 right-0 z-50 h-full w-[320px] border-l border-white/30 shadow-[-2px_0_24px_rgba(0,0,0,0.08)] transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-200 data-[state=open]:duration-300 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right"
-            style={{ background: 'rgba(255, 255, 255, 0.72)', backdropFilter: 'blur(40px) saturate(1.8)', WebkitBackdropFilter: 'blur(40px) saturate(1.8)' }}
-          >
-            <DialogPrimitive.Title className="sr-only">Habit Summary</DialogPrimitive.Title>
-            <div className="flex items-center justify-between px-5 pt-5 pb-3">
-              <h3 className="text-[13px] font-semibold text-[#1A1A1A]/80 uppercase tracking-[0.04em]">Habit Summary</h3>
-              <DialogPrimitive.Close className="text-[#1A1A1A]/30 hover:text-[#1A1A1A]/60 transition-colors">
-                <X className="h-3.5 w-3.5" />
-              </DialogPrimitive.Close>
-            </div>
-
-            <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 52px)' }}>
-              {summaryRows.map((row: typeof summaryRows[number], i: number) => (
-                <div
-                  key={row.id}
-                  className={`flex items-center justify-between px-5 py-[10px] hover:bg-white/40 transition-colors cursor-pointer ${
-                    i < summaryRows.length - 1 ? 'border-b border-[#1A1A1A]/[0.06]' : ''
-                  }`}
-                  onClick={() => {
-                    setSummaryPanelOpen(false);
-                    setExpandedHabit(row.id);
-                  }}
-                >
-                  <span className="text-[13px] font-medium text-[#1A1A1A]/85 truncate mr-3">{row.name}</span>
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    <span className="text-[13px] tabular-nums text-[#1A1A1A]/90 font-medium">{row.value}</span>
-                    <span
-                      className={`inline-flex items-center gap-[3px] rounded-[4px] px-[7px] py-[2.5px] text-[11px] font-semibold tabular-nums leading-none ${
-                        row.isUp
-                          ? 'bg-[#34C759]/15 text-[#248A3D]'
-                          : row.isDown
-                            ? 'bg-[#FF3B30]/12 text-[#D70015]'
-                            : 'bg-[#1A1A1A]/[0.06] text-[#1A1A1A]/40'
-                      }`}
-                    >
-                      {row.isUp ? '↗' : row.isDown ? '↘' : '–'} {row.pctText}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </DialogPrimitive.Root>
     </>
   );
 }

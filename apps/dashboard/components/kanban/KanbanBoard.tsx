@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   closestCorners,
   DndContext,
@@ -10,44 +10,30 @@ import {
   useSensors,
   type DragEndEvent,
   type DragOverEvent,
-  type DragStartEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
-  horizontalListSortingStrategy,
   rectSortingStrategy,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
-import { format, isAfter, isBefore, startOfDay } from 'date-fns';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { KanbanHeader } from './KanbanHeader';
+import { Filter, LayoutGrid, List, Plus, SlidersHorizontal } from 'lucide-react';
 import { KanbanColumn } from './KanbanColumn';
-import { KanbanCard } from './KanbanCard';
+import { KanbanListView } from './KanbanListView';
 import { KanbanCardDialog } from './KanbanCardDialog';
+import { NewTaskDialog } from './NewTaskDialog';
 import { ReflectionForm } from './ReflectionForm';
 import { LogPrompt } from './LogPrompt';
 import { useKanbanBoard } from '@/hooks/useKanbanBoard';
-import type {
-  DueDateFilter,
-  EnergyCost,
-  KanbanCard as KanbanCardType,
-  KanbanColumn as KanbanColumnType,
-} from '@/types/kanban';
+import type { KanbanCard as KanbanCardType } from '@/types/kanban';
 import type { HabitOption } from './MetricLinker';
 import { cn } from '@/lib/utils';
 import { useUser } from '@clerk/nextjs';
 
 const REFLECT_COLUMN_ID = 'in-review';
+
+type ViewMode = 'board' | 'list';
+type FilterTab = 'all' | 'active' | 'backlog';
 
 interface KanbanBoardProps {
   habits: HabitOption[];
@@ -55,31 +41,6 @@ interface KanbanBoardProps {
   className?: string;
   fullPage?: boolean;
   showSearch?: boolean;
-}
-
-function matchesDueDateFilter(card: KanbanCardType, filters: DueDateFilter[]) {
-  if (filters.length === 0) return true;
-  const today = startOfDay(new Date());
-  const dueDate = card.dueDate ? startOfDay(new Date(card.dueDate)) : null;
-
-  return filters.some((filter) => {
-    if (!dueDate) {
-      return filter === 'no-date';
-    }
-
-    switch (filter) {
-      case 'overdue':
-        return isBefore(dueDate, today);
-      case 'today':
-        return format(dueDate, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd');
-      case 'upcoming':
-        return isAfter(dueDate, today);
-      case 'no-date':
-        return false;
-      default:
-        return true;
-    }
-  });
 }
 
 export function KanbanBoard({
@@ -94,8 +55,7 @@ export function KanbanBoard({
     meta,
     columns,
     cards,
-    updateMeta,
-    addBoardLabel,
+    resetBoard,
     addColumn,
     updateColumn,
     deleteColumn,
@@ -104,6 +64,7 @@ export function KanbanBoard({
     updateCard,
     deleteCard,
     moveCard,
+    addBoardLabel,
     addComment,
     deleteComment,
     addChecklist,
@@ -114,73 +75,50 @@ export function KanbanBoard({
     deleteChecklistItem,
   } = useKanbanBoard(user?.id);
 
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [searchText, setSearchText] = useState('');
-  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
-  const [selectedColumnIds, setSelectedColumnIds] = useState<string[]>([]);
-  const [selectedEnergy, setSelectedEnergy] = useState<EnergyCost[]>([]);
-  const [selectedDueDateFilters, setSelectedDueDateFilters] = useState<DueDateFilter[]>([]);
-  const [recurringOnly, setRecurringOnly] = useState(false);
-  const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
-  const [editingCardId, setEditingCardId] = useState<string | null>(null);
-  const [addColumnOpen, setAddColumnOpen] = useState(false);
-  const [newColumnTitle, setNewColumnTitle] = useState('');
-  const [renameColumn, setRenameColumn] = useState<KanbanColumnType | null>(null);
-  const [renameTitle, setRenameTitle] = useState('');
   const [reflectCard, setReflectCard] = useState<KanbanCardType | null>(null);
   const [logPromptCard, setLogPromptCard] = useState<KanbanCardType | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const [selectedCard, setSelectedCard] = useState<KanbanCardType | null>(null);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTaskDefaultColumn, setNewTaskDefaultColumn] = useState<string | undefined>();
+
+  // Keyboard shortcut: C to create new task (like Linear)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setNewTaskDefaultColumn(undefined);
+        setNewTaskOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const habitMap = useMemo(() => new Map(habits.map((habit) => [habit.id, habit])), [habits]);
-  const labelMap = useMemo(() => new Map(meta.labels.map((label) => [label.id, label])), [meta.labels]);
-
-  const completedCount = cards.filter((card) => card.columnId === 'complete').length;
-  const editingCard = editingCardId ? cards.find((card) => card.id === editingCardId) ?? null : null;
 
   const filteredCards = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
 
     return cards.filter((card) => {
-      const activeLabels = card.labelIds.map((labelId) => labelMap.get(labelId)?.name?.toLowerCase()).filter(Boolean);
-      const linkedMetricName = card.linkedMetricId ? habitMap.get(card.linkedMetricId)?.name?.toLowerCase() : undefined;
-      const matchesSearch =
-        !needle ||
-        card.title.toLowerCase().includes(needle) ||
-        card.description?.toLowerCase().includes(needle) ||
-        activeLabels.some((label) => label?.includes(needle)) ||
-        linkedMetricName?.includes(needle);
+      if (!needle) return true;
 
-      const matchesLabels =
-        selectedLabelIds.length === 0 ||
-        selectedLabelIds.some((labelId) => card.labelIds.includes(labelId));
-
-      const matchesColumns =
-        selectedColumnIds.length === 0 || selectedColumnIds.includes(card.columnId);
-
-      const matchesEnergy =
-        selectedEnergy.length === 0 || selectedEnergy.includes(card.energyCost);
-
-      const matchesRecurring = !recurringOnly || card.isRecurring;
+      const linkedMetricName = card.linkedMetricId
+        ? habitMap.get(card.linkedMetricId)?.name?.toLowerCase()
+        : undefined;
 
       return (
-        matchesSearch &&
-        matchesLabels &&
-        matchesColumns &&
-        matchesEnergy &&
-        matchesRecurring &&
-        matchesDueDateFilter(card, selectedDueDateFilters)
+        card.title.toLowerCase().includes(needle) ||
+        card.description?.toLowerCase().includes(needle) ||
+        linkedMetricName?.includes(needle)
       );
     });
-  }, [
-    cards,
-    habitMap,
-    labelMap,
-    recurringOnly,
-    searchText,
-    selectedColumnIds,
-    selectedDueDateFilters,
-    selectedEnergy,
-    selectedLabelIds,
-  ]);
+  }, [cards, habitMap, searchText]);
 
   const filteredCardsByColumn = useMemo(
     () =>
@@ -196,45 +134,37 @@ export function KanbanBoard({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const handleDragStart = (_event: DragStartEvent) => {};
-
   const handleDragOver = ({ over }: DragOverEvent) => {
     if (!over) {
       setDragOverColumn(null);
       return;
     }
-
     const overType = over.data.current?.type as 'card' | 'column' | undefined;
-
     if (overType === 'column') {
       setDragOverColumn(String(over.id));
       return;
     }
-
     const overCard = cards.find((card) => card.id === over.id);
     setDragOverColumn(overCard?.columnId ?? null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-
     setDragOverColumn(null);
-
     if (!over || active.id === over.id) return;
 
     const activeType = active.data.current?.type as 'card' | 'column' | undefined;
     const overType = over.data.current?.type as 'card' | 'column' | undefined;
 
     if (activeType === 'column' && overType === 'column') {
-      const oldIndex = columns.findIndex((column) => column.id === active.id);
-      const newIndex = columns.findIndex((column) => column.id === over.id);
+      const oldIndex = columns.findIndex((c) => c.id === active.id);
+      const newIndex = columns.findIndex((c) => c.id === over.id);
       if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
-      reorderColumns(arrayMove(columns.map((column) => column.id), oldIndex, newIndex));
+      reorderColumns(arrayMove(columns.map((c) => c.id), oldIndex, newIndex));
       return;
     }
 
     if (activeType !== 'card') return;
-
     const activeCard = cards.find((card) => card.id === active.id);
     if (!activeCard) return;
 
@@ -252,7 +182,6 @@ export function KanbanBoard({
         : cards.find((card) => card.id === over.id)?.columnId;
 
     if (!targetColumnId) return;
-
     if (targetColumnId === REFLECT_COLUMN_ID) {
       setReflectCard({ ...activeCard, columnId: targetColumnId });
     } else if (targetColumnId === 'complete' && activeCard.linkedMetricId) {
@@ -260,215 +189,213 @@ export function KanbanBoard({
     }
   };
 
-  const clearFilters = () => {
-    setSelectedLabelIds([]);
-    setSelectedColumnIds([]);
-    setSelectedEnergy([]);
-    setSelectedDueDateFilters([]);
-    setRecurringOnly(false);
+  const handleCardClick = (card: KanbanCardType) => {
+    const fresh = cards.find((c) => c.id === card.id) ?? card;
+    setSelectedCard(fresh);
   };
 
-  const toggleArrayValue = <T,>(list: T[], value: T, setList: (value: T[]) => void) => {
-    setList(list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
-  };
-
-  const handleColumnMenu = (column: KanbanColumnType, action: 'rename' | 'delete') => {
-    if (action === 'rename') {
-      setRenameColumn(column);
-      setRenameTitle(column.title);
-      return;
+  const handleToggleComplete = (cardId: string) => {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return;
+    if (card.columnId === 'complete') {
+      moveCard(cardId, 'todo');
+    } else {
+      moveCard(cardId, 'complete');
+      if (card.linkedMetricId) {
+        setLogPromptCard({ ...card, columnId: 'complete' });
+      }
     }
-    deleteColumn(column.id);
   };
+
+  const liveSelectedCard = selectedCard
+    ? cards.find((c) => c.id === selectedCard.id) ?? null
+    : null;
+
+  const FILTER_TABS: { id: FilterTab; label: string }[] = [
+    { id: 'all', label: 'All issues' },
+    { id: 'active', label: 'Active' },
+    { id: 'backlog', label: 'Backlog' },
+  ];
 
   return (
     <>
-      <div className={cn('flex h-full flex-col bg-[#FBFBF8]', className)}>
-        {fullPage ? (
-          <KanbanHeader
-            boardTitle={meta.title}
-            boardSlug={meta.slug}
-            totalTasks={cards.length}
-            completedTasks={completedCount}
-            visibility={meta.visibility}
-            searchText={showSearch ? searchText : ''}
-            onSearchChange={setSearchText}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            onVisibilityChange={(value) => updateMeta({ visibility: value })}
-            onAddSection={() => setAddColumnOpen(true)}
-            labels={meta.labels}
-            columns={columns}
-            selectedLabelIds={selectedLabelIds}
-            selectedColumnIds={selectedColumnIds}
-            selectedEnergy={selectedEnergy}
-            selectedDueDateFilters={selectedDueDateFilters}
-            recurringOnly={recurringOnly}
-            onToggleLabel={(labelId) => toggleArrayValue(selectedLabelIds, labelId, setSelectedLabelIds)}
-            onToggleColumn={(columnId) => toggleArrayValue(selectedColumnIds, columnId, setSelectedColumnIds)}
-            onToggleEnergy={(energy) => toggleArrayValue(selectedEnergy, energy, setSelectedEnergy)}
-            onToggleDueDateFilter={(filter) =>
-              toggleArrayValue(selectedDueDateFilters, filter, setSelectedDueDateFilters)
-            }
-            onToggleRecurringOnly={() => setRecurringOnly((current) => !current)}
-            onClearFilters={clearFilters}
-          />
-        ) : null}
+      <div className={cn('flex h-full flex-col bg-white', className)}>
+        {fullPage && (
+          <>
+            {/* Top header */}
+            <div className="flex items-center justify-between border-b border-[#f0f0f0] px-5 py-2.5">
+              <h1 className="text-[14px] font-semibold text-[#1a1a1a]">{meta.title}</h1>
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center rounded-md border border-[#e5e5e5]">
+                  <button type="button" onClick={() => setViewMode('list')}
+                    className={cn('flex items-center gap-1 rounded-l-md px-2.5 py-[5px] text-[12px] font-medium',
+                      viewMode === 'list' ? 'bg-[#f5f5f5] text-[#1a1a1a]' : 'text-[#bbb] hover:text-[#888]')}>
+                    <List className="h-3.5 w-3.5" /> List
+                  </button>
+                  <button type="button" onClick={() => setViewMode('board')}
+                    className={cn('flex items-center gap-1 rounded-r-md px-2.5 py-[5px] text-[12px] font-medium',
+                      viewMode === 'board' ? 'bg-[#f5f5f5] text-[#1a1a1a]' : 'text-[#bbb] hover:text-[#888]')}>
+                    <LayoutGrid className="h-3.5 w-3.5" /> Board
+                  </button>
+                </div>
+                <div className="mx-1 h-4 w-px bg-[#eee]" />
+                <button type="button"
+                  onClick={() => { setNewTaskDefaultColumn(undefined); setNewTaskOpen(true); }}
+                  className="flex items-center gap-1.5 rounded-md bg-[#1a1a1a] px-3 py-[5px] text-[12px] font-medium text-white hover:bg-[#333]">
+                  <Plus className="h-3.5 w-3.5" /> New task
+                </button>
+              </div>
+            </div>
 
-        <div
-          className="flex-1 overflow-auto"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 1px 1px, rgba(39,37,30,0.09) 1px, transparent 0)',
-            backgroundSize: '20px 20px',
-          }}
-        >
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
-          >
-            {viewMode === 'board' ? (
-              <div className="h-full overflow-x-auto px-6 py-6">
+            {/* Filter tabs */}
+            <div className="flex items-center border-b border-[#f0f0f0] px-5">
+              {FILTER_TABS.map((tab) => (
+                <button key={tab.id} type="button" onClick={() => setFilterTab(tab.id)}
+                  className={cn('relative px-3 py-2 text-[13px]',
+                    filterTab === tab.id ? 'font-medium text-[#1a1a1a]' : 'text-[#bbb] hover:text-[#888]')}>
+                  {tab.label}
+                  {filterTab === tab.id && <span className="absolute bottom-0 left-1 right-1 h-[1.5px] rounded-full bg-[#1a1a1a]" />}
+                </button>
+              ))}
+              <button type="button"
+                onClick={() => { const t = window.prompt('Column name:'); if (t?.trim()) addColumn(t); }}
+                className="ml-0.5 rounded p-1.5 text-[#ccc] hover:text-[#999]" aria-label="Add">
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+              <div className="flex-1" />
+              <div className="flex items-center gap-0.5">
+                <button type="button" className="rounded p-1.5 text-[#ccc] hover:text-[#999]" aria-label="Filter">
+                  <Filter className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" className="rounded p-1.5 text-[#ccc] hover:text-[#999]" aria-label="Settings">
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {viewMode === 'board' ? (
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCorners}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="px-6 py-5">
                 <SortableContext
-                  items={columns.map((column) => column.id)}
-                  strategy={horizontalListSortingStrategy}
+                  items={columns.map((c) => c.id)}
+                  strategy={rectSortingStrategy}
                 >
-                  <div className="flex min-h-full items-start gap-5">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-6">
                     {columns.map((column) => (
                       <KanbanColumn
                         key={column.id}
                         column={column}
                         cards={filteredCardsByColumn[column.id] ?? []}
                         labels={meta.labels}
-                        habitMap={habitMap}
                         isDragOver={dragOverColumn === column.id}
-                        onOpenCard={(card) => setEditingCardId(card.id)}
+                        onDeleteColumn={(targetColumn) => deleteColumn(targetColumn.id)}
+                        onRenameColumn={(columnId, title) => updateColumn(columnId, { title })}
                         onDeleteCard={(card) => deleteCard(card.id)}
                         onAddCard={(columnId, data) => addCard(columnId, data)}
-                        onColumnMenu={handleColumnMenu}
+                        onUpdateCardTitle={(cardId, title) =>
+                          updateCard(cardId, { title }, 'Updated card title')
+                        }
+                        onCardClick={handleCardClick}
                       />
                     ))}
                   </div>
                 </SortableContext>
               </div>
-            ) : (
-              <div className="space-y-5 px-6 py-6">
-                {columns.map((column) => {
-                  const columnCards = filteredCardsByColumn[column.id] ?? [];
-                  return (
-                    <section
-                      key={column.id}
-                      className="rounded-sm border border-border bg-[rgba(255,255,255,0.92)] shadow-[0_1px_0_rgba(39,37,30,0.04)]"
-                    >
-                      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[15px] font-medium text-[#111827]">{column.title}</span>
-                          <span className="text-[13px] text-[rgba(39,37,30,0.42)]">{columnCards.length}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addCard(column.id, { title: 'Untitled task' })}
-                          className="rounded-sm border border-border px-2.5 py-1.5 text-xs text-[rgba(39,37,30,0.58)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
-                        >
-                          Quick add
-                        </button>
-                      </div>
-                      <SortableContext
-                        items={columnCards.map((card) => card.id)}
-                        strategy={rectSortingStrategy}
-                      >
-                        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-                          {columnCards.map((card) => (
-                            <KanbanCard
-                              key={card.id}
-                              card={card}
-                              labels={meta.labels}
-                              linkedMetricName={
-                                card.linkedMetricId ? habitMap.get(card.linkedMetricId)?.name : undefined
-                              }
-                              onOpen={(nextCard) => setEditingCardId(nextCard.id)}
-                              onDelete={(nextCard) => deleteCard(nextCard.id)}
-                            />
-                          ))}
-                        </div>
-                      </SortableContext>
-                    </section>
-                  );
-                })}
-              </div>
-            )}
-
-          </DndContext>
-        </div>
+            </DndContext>
+          </div>
+        ) : (
+          <KanbanListView
+            columns={columns}
+            cards={filteredCards}
+            labels={meta.labels}
+            onToggleComplete={handleToggleComplete}
+            onCardClick={handleCardClick}
+            onAddCard={(columnId, data) => addCard(columnId, data)}
+            onOpenNewTask={() => {
+              setNewTaskDefaultColumn(undefined);
+              setNewTaskOpen(true);
+            }}
+          />
+        )}
       </div>
 
+      {/* Card detail dialog */}
       <KanbanCardDialog
-        open={Boolean(editingCard)}
-        onOpenChange={(open) => {
-          if (!open) setEditingCardId(null);
-        }}
-        card={editingCard}
+        open={Boolean(liveSelectedCard)}
+        onOpenChange={(open) => !open && setSelectedCard(null)}
+        card={liveSelectedCard}
         habits={habits}
         labels={meta.labels}
         columns={columns}
         onSave={(updates, activityMessage) => {
-          if (!editingCard) return;
-          const { columnId, ...rest } = updates;
-
-          if (columnId && columnId !== editingCard.columnId) {
-            moveCard(editingCard.id, columnId);
-
-            if (columnId === REFLECT_COLUMN_ID) {
-              setReflectCard({ ...editingCard, columnId });
-            } else if (columnId === 'complete' && editingCard.linkedMetricId) {
-              setLogPromptCard({ ...editingCard, columnId });
-            }
-          }
-
-          if (Object.keys(rest).length > 0) {
-            updateCard(editingCard.id, rest, activityMessage);
+          if (!liveSelectedCard) return;
+          updateCard(liveSelectedCard.id, updates, activityMessage);
+          if (updates.columnId && updates.columnId !== liveSelectedCard.columnId) {
+            moveCard(liveSelectedCard.id, updates.columnId);
           }
         }}
         onDelete={() => {
-          if (!editingCard) return;
-          deleteCard(editingCard.id);
-          setEditingCardId(null);
+          if (!liveSelectedCard) return;
+          deleteCard(liveSelectedCard.id);
+          setSelectedCard(null);
         }}
         onCreateLabel={(name, color) => addBoardLabel(name, color)}
         onAddComment={(body) => {
-          if (!editingCard) return;
-          addComment(editingCard.id, body);
+          if (!liveSelectedCard) return;
+          addComment(liveSelectedCard.id, body);
         }}
         onDeleteComment={(commentId) => {
-          if (!editingCard) return;
-          deleteComment(editingCard.id, commentId);
+          if (!liveSelectedCard) return;
+          deleteComment(liveSelectedCard.id, commentId);
         }}
         onAddChecklist={(title) => {
-          if (!editingCard) return null;
-          return addChecklist(editingCard.id, title);
+          if (!liveSelectedCard) return null;
+          return addChecklist(liveSelectedCard.id, title);
         }}
         onUpdateChecklistTitle={(checklistId, title) => {
-          if (!editingCard) return;
-          updateChecklistTitle(editingCard.id, checklistId, title);
+          if (!liveSelectedCard) return;
+          updateChecklistTitle(liveSelectedCard.id, checklistId, title);
         }}
         onDeleteChecklist={(checklistId) => {
-          if (!editingCard) return;
-          deleteChecklist(editingCard.id, checklistId);
+          if (!liveSelectedCard) return;
+          deleteChecklist(liveSelectedCard.id, checklistId);
         }}
         onAddChecklistItem={(checklistId, title) => {
-          if (!editingCard) return null;
-          return addChecklistItem(editingCard.id, checklistId, title);
+          if (!liveSelectedCard) return null;
+          return addChecklistItem(liveSelectedCard.id, checklistId, title);
         }}
         onToggleChecklistItem={(checklistId, itemId) => {
-          if (!editingCard) return;
-          toggleChecklistItem(editingCard.id, checklistId, itemId);
+          if (!liveSelectedCard) return;
+          toggleChecklistItem(liveSelectedCard.id, checklistId, itemId);
         }}
         onDeleteChecklistItem={(checklistId, itemId) => {
-          if (!editingCard) return;
-          deleteChecklistItem(editingCard.id, checklistId, itemId);
+          if (!liveSelectedCard) return;
+          deleteChecklistItem(liveSelectedCard.id, checklistId, itemId);
+        }}
+      />
+
+      <NewTaskDialog
+        open={newTaskOpen}
+        onClose={() => setNewTaskOpen(false)}
+        columns={columns}
+        labels={meta.labels}
+        defaultColumnId={newTaskDefaultColumn}
+        onSubmit={(data) => {
+          addCard(data.columnId, {
+            title: data.title,
+            description: data.description,
+            priority: data.priority,
+            dueDate: data.dueDate,
+            labelIds: data.labelIds,
+          });
         }}
       />
 
@@ -504,75 +431,6 @@ export function KanbanBoard({
           setLogPromptCard(null);
         }}
       />
-
-      <Dialog open={addColumnOpen} onOpenChange={setAddColumnOpen}>
-        <DialogContent className="sm:max-w-[360px] rounded-sm border-border">
-          <DialogHeader>
-            <DialogTitle>New list</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label htmlFor="new-column-title">List name</Label>
-            <Input
-              id="new-column-title"
-              value={newColumnTitle}
-              onChange={(event) => setNewColumnTitle(event.target.value)}
-              placeholder="e.g. Planned"
-              className="rounded-sm border-border"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddColumnOpen(false)} className="rounded-sm border-border">
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (!newColumnTitle.trim()) return;
-                addColumn(newColumnTitle);
-                setNewColumnTitle('');
-                setAddColumnOpen(false);
-              }}
-              disabled={!newColumnTitle.trim()}
-              className="rounded-sm"
-            >
-              Create list
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(renameColumn)} onOpenChange={(open) => !open && setRenameColumn(null)}>
-        <DialogContent className="sm:max-w-[360px] rounded-sm border-border">
-          <DialogHeader>
-            <DialogTitle>Rename list</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <Label htmlFor="rename-column-title">List name</Label>
-            <Input
-              id="rename-column-title"
-              value={renameTitle}
-              onChange={(event) => setRenameTitle(event.target.value)}
-              placeholder="List name"
-              className="rounded-sm border-border"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameColumn(null)} className="rounded-sm border-border">
-              Cancel
-            </Button>
-            <Button
-              className="rounded-sm"
-              disabled={!renameTitle.trim()}
-              onClick={() => {
-                if (!renameColumn || !renameTitle.trim()) return;
-                updateColumn(renameColumn.id, { title: renameTitle.trim() });
-                setRenameColumn(null);
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

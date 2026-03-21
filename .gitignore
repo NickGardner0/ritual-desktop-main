@@ -38,6 +38,7 @@ yarn-error.log*
 # Tauri
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/Cargo.lock
+apps/desktop/src-tauri/tauri.generated.production.conf.json
 apps/desktop/src-tauri/bin/*/target/
 apps/desktop/src-tauri/crates/*/target/
 

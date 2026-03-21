@@ -62,6 +62,11 @@ const ageBrackets = ['12-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'
 const genderOptions = ['Male', 'Female']
 const trackingInterests = ['Productivity', 'Education', 'Fitness & Health', 'Experiments', 'Other']
 const wearableDevices = ['Screen Time (phone/computer)', 'Apple Watch', 'Oura Ring', 'Whoop', 'Garmin', 'Fitbit', 'None']
+const devLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args)
+  }
+}
 
 export default function OnboardingPage() {
   const { user, isLoaded } = useUser()
@@ -75,7 +80,7 @@ export default function OnboardingPage() {
       // Check localStorage first (fastest check)
       const hasCompletedLocally = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true'
       if (hasCompletedLocally) {
-        console.log('🔄 User already completed onboarding (localStorage), redirecting to dashboard')
+        devLog('🔄 User already completed onboarding (localStorage), redirecting to dashboard')
         window.location.href = getPostOnboardingRoute('/dashboard')
         return
       }
@@ -92,7 +97,7 @@ export default function OnboardingPage() {
             if (habitsResponse.ok) {
               const habits = await habitsResponse.json()
               if (habits && habits.length > 0) {
-                console.log('🔄 User has existing habits, redirecting to dashboard')
+                devLog('🔄 User has existing habits, redirecting to dashboard')
                 localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
                 window.location.href = getPostOnboardingRoute('/dashboard')
                 return
@@ -106,7 +111,7 @@ export default function OnboardingPage() {
             if (response.ok) {
               const profile = await response.json()
               if (profile.onboarding_completed) {
-                console.log('🔄 User already completed onboarding (backend), redirecting to dashboard')
+                devLog('🔄 User already completed onboarding (backend), redirecting to dashboard')
                 localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
                 window.location.href = getPostOnboardingRoute('/dashboard')
                 return
@@ -143,7 +148,7 @@ export default function OnboardingPage() {
 
     setLoading(true)
     try {
-      console.log('🔄 Submitting onboarding data:', values)
+      devLog('🔄 Submitting onboarding data:', values)
 
       const token = await getToken()
       if (!token) {
@@ -165,7 +170,7 @@ export default function OnboardingPage() {
       }
 
       const userData = await response.json()
-      console.log('✅ Onboarding completed successfully:', userData)
+      devLog('✅ Onboarding completed successfully:', userData)
 
       // Always set the local onboarding completed flag
       localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
@@ -337,7 +342,7 @@ export default function OnboardingPage() {
 
             <Button
               type="submit"
-              className="w-full mt-6 bg-black text-white hover:bg-gray-800 rounded-none"
+              className="w-full mt-6 bg-black text-white rounded-sm"
               disabled={loading}
             >
               {loading ? 'Saving...' : 'Continue to Dashboard'}

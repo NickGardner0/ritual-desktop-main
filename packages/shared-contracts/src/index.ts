@@ -39,7 +39,10 @@ export type {
   AttentionHeader,
   RankedBar,
   MicroMetrics,
+  ActivityBreakdownSource,
+  ActivityBreakdownCapabilities,
   ComputerActivityViewModel,
+  ActivityBreakdownViewModel,
   TimeRangePreset,
   TimeRange,
   DailyRollup,
@@ -52,3 +55,17 @@ export {
   KIND_COLORS,
   KIND_COLORS_ACCENT,
 } from "./computer-activity";
+
+export type {
+  WearableProvider,
+  WearableAuthMethod,
+  WearableConnectionStatus,
+  WearableCapability,
+  WearableConnection,
+  WearableSample,
+  WearableEvent,
+  WearableSyncRun,
+  WearableConnectionsResponse,
+  WearableConnectionActionResponse,
+  WearableSyncResponse,
+} from "./wearables-unified";

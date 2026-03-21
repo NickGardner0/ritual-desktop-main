@@ -105,7 +105,9 @@ export const HabitsContext = React.createContext<HabitsContextType>({
 
 // Create a provider component using React Query hooks
 export function HabitsProvider({ children }: { children: React.ReactNode }) {
-  console.log('🏗️ HabitsProvider (React Query) initializing...');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('🏗️ HabitsProvider (React Query) initializing...');
+  }
   
   const { user } = useUser();
   const queryClient = useQueryClient();

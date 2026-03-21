@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useAuth } from '@clerk/nextjs';
-import { ArrowUp, ArrowLeft, AudioLines, Plus, PanelRight } from 'lucide-react';
+import { useAuth, useUser } from '@clerk/nextjs';
+import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X } from 'lucide-react';
 import { VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -11,7 +11,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Streamdown } from 'streamdown';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useAI } from '@/contexts/AIContext';
+import { useHabits } from '@/contexts/HabitsContext';
 import { isScreenRecordingQuery, prefetchScreenResults, type ScreenSearchPrefetchResult } from '@/lib/screen-search';
+import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
@@ -68,7 +70,7 @@ const Response = memo(function Response({
   return (
     <Streamdown
       className={cn(
-        "w-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words [overflow-wrap:anywhere]",
+        "w-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words",
         "[&>p]:my-0 [&>p+p]:mt-3",
         "[&>h2]:mt-5 [&>h3]:mt-4 [&>h4]:mt-4 [&>h2]:mb-2 [&>h3]:mb-2 [&>h4]:mb-2",
         "[&>ul]:my-3 [&>ol]:my-3 [&>ul+*]:mt-3 [&>ol+*]:mt-3",
@@ -86,7 +88,7 @@ const Response = memo(function Response({
           </ol>
         ),
         li: ({ children, ...props }) => (
-          <li className="my-1 leading-[1.6] text-[#535353] break-words [overflow-wrap:anywhere]" data-streamdown="list-item" {...props}>
+          <li className="my-1 leading-[1.6] text-[#535353] break-words" data-streamdown="list-item" {...props}>
             {children}
           </li>
         ),
@@ -106,7 +108,7 @@ const Response = memo(function Response({
           </h4>
         ),
         p: ({ children, ...props }) => (
-          <p className="leading-[1.55] text-[#535353] break-words [overflow-wrap:anywhere]" {...props}>
+          <p className="leading-[1.55] text-[#535353] break-words" {...props}>
             {children}
           </p>
         ),
@@ -114,6 +116,11 @@ const Response = memo(function Response({
           <strong className="font-medium text-gray-900" {...props}>
             {children}
           </strong>
+        ),
+        code: ({ children, ...props }) => (
+          <code className="px-1 py-0.5 rounded bg-[#f0ede8] text-[#535353] font-mono text-[13px]" {...props}>
+            {children}
+          </code>
         ),
         // Hide tables in the main response - they'll show in canvas
         table: () => null,
@@ -337,12 +344,17 @@ function buildCanvasFromToolData(
   }
 
   if (toolData.weeklyOverview && toolData.weeklyOverview.success) {
+    const start = toolData.weeklyOverview.date_range?.start || '';
+    const end = toolData.weeklyOverview.date_range?.end || '';
+    const title = /last week/i.test(question)
+      ? 'Last Week Overview'
+      : 'Weekly Activity Overview';
     return {
       type: 'weeklyOverview',
-      title: 'Weekly Activity Overview',
+      title,
       dateRange: {
-        start: toolData.weeklyOverview.date_range?.start || '',
-        end: toolData.weeklyOverview.date_range?.end || '',
+        start,
+        end,
       },
       weeklyOverview: toolData.weeklyOverview,
     };
@@ -363,15 +375,6 @@ function buildCanvasFromToolData(
         end: toolData.screenTimeSpent.summary?.range_end || '',
       },
       screenTimeSpent: toolData.screenTimeSpent,
-    };
-  }
-  
-  // Handle screen recording search results
-  if (toolData.screenRecordings && toolData.screenRecordings.success) {
-    return {
-      type: 'screenRecordings',
-      title: 'Screen Activity',
-      screenRecordings: toolData.screenRecordings,
     };
   }
   
@@ -567,6 +570,7 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const DEFAULT_CANVAS_WIDTH = 560;
 const MIN_CANVAS_WIDTH = 360;
 const MAX_CANVAS_WIDTH = 860;
+const CHAT_PAGE_CARD_BG = '#F5F5F4';
 
 // Persisted conversation types
 interface PersistedMessage {
@@ -602,10 +606,22 @@ export function ChatClient() {
   const initialQuestion = searchParams.get('q');
   const initialConversationId = searchParams.get('conversation');
   const { getToken } = useAuth();
+  const { user } = useUser();
   const { setIsFullScreenChat } = useAI();
-  
+  const { habits, habitLogs } = useHabits();
+
+  // Time-of-day greeting
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Good morning';
+    if (hour >= 12 && hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionsAbortRef = useRef<AbortController | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -631,6 +647,10 @@ export function ChatClient() {
   
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [suggestions, setSuggestions] = useState<ChatSuggestion[]>([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [keyboardSuggestionActive, setKeyboardSuggestionActive] = useState(false);
   
   // Resizable side panel state
   const [canvasWidth, setCanvasWidth] = useState(DEFAULT_CANVAS_WIDTH);
@@ -644,6 +664,7 @@ export function ChatClient() {
     Math.max(MIN_CANVAS_WIDTH, Math.floor(viewportWidth * 0.48)),
   );
   const effectiveCanvasWidth = Math.min(canvasWidth, maxCanvasWidthForViewport);
+  const deferredInput = useDeferredValue(input.trim());
 
   // Set full screen chat mode on mount, reset on unmount
   useEffect(() => {
@@ -666,6 +687,84 @@ export function ChatClient() {
   useEffect(() => {
     router.prefetch('/dashboard');
   }, [router]);
+
+  const fetchSuggestions = useCallback(async (
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<ChatSuggestion[]> => {
+    try {
+      const token = await getToken();
+      const params = new URLSearchParams({ mode: 'chat', q: query });
+      const response = await fetch(`/api/suggestions?${params.toString()}`, {
+        cache: 'no-store',
+        signal,
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = await response.json();
+      return (data.suggestions || []).slice(0, 5).map((suggestion: ChatSuggestion) => ({
+        ...suggestion,
+        score: suggestion.score || 0,
+        source: 'server',
+      }));
+    } catch (error: any) {
+      if (error?.name === 'AbortError') {
+        return [];
+      }
+      console.error('Suggestions fetch error:', error);
+      return [];
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    const localSuggestions = buildInstantSuggestions({
+      mode: 'chat',
+      query: deferredInput,
+      habits,
+      habitLogs,
+      limit: 4,
+    });
+
+    startTransition(() => {
+      setSuggestions(localSuggestions);
+      setSelectedSuggestionIndex(0);
+      setKeyboardSuggestionActive(false);
+    });
+  }, [deferredInput, habits, habitLogs]);
+
+  useEffect(() => {
+    const localSuggestions = buildInstantSuggestions({
+      mode: 'chat',
+      query: deferredInput,
+      habits,
+      habitLogs,
+      limit: 4,
+    });
+
+    suggestionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    suggestionsAbortRef.current = controller;
+
+    const timer = window.setTimeout(async () => {
+      const remoteSuggestions = await fetchSuggestions(deferredInput, controller.signal);
+      if (controller.signal.aborted) return;
+
+      startTransition(() => {
+        setSuggestions(mergeSuggestions(localSuggestions, remoteSuggestions, 4));
+      });
+    }, deferredInput ? 120 : 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [deferredInput, habits, habitLogs, fetchSuggestions]);
   
   // Start in a clean empty state unless an explicit saved conversation is requested.
   useEffect(() => {
@@ -998,8 +1097,17 @@ export function ChatClient() {
         ? cleanContentForDisplay(fullResponse)
         : fullResponse;
       
-      const replyChips = voiceStyleEnabled
-        ? (toolData as { reply_chips?: string[] } | null)?.reply_chips
+      // Show follow-up suggestion chips for all modes
+      const toolReplyChips = (toolData as any)?.reply_chips as string[] | undefined;
+      const td = toolData as any;
+      const replyChips = toolReplyChips && toolReplyChips.length > 0
+        ? toolReplyChips
+        : td?.weeklyOverview ? ['Show my trends', 'Any unusual days?', 'How does this compare to last month?']
+        : td?.dailyOverview ? ['What did I work on today?', 'Show my weekly recap', 'Any anomalies this week?']
+        : td?.monthlyOverview ? ['Compare to last month', 'Show my trends', 'What were my best days?']
+        : td?.trends ? ['Show weekly recap', 'Any anomalies?', 'What habits are improving?']
+        : td?.stats ? ['Show daily breakdown', 'Compare with another habit', 'Any unusual days?']
+        : td?.screenRecordings ? ['Summarize my day', 'What else did I work on?', 'Show weekly recap']
         : undefined;
 
       const assistantMessage: Message = {
@@ -1062,6 +1170,19 @@ export function ChatClient() {
     }
   }, [messages, streamingContent]);
 
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = 'auto';
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+  }, [input]);
+
+  useEffect(() => () => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+    }
+    suggestionsAbortRef.current?.abort();
+  }, []);
+
   const handleCanvasResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsResizingCanvas(true);
@@ -1103,12 +1224,125 @@ export function ChatClient() {
     setInput('');
   };
 
+  const handleInputFocus = useCallback(() => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+    setIsFocused(true);
+    setSelectedSuggestionIndex(0);
+    setKeyboardSuggestionActive(false);
+  }, []);
+
+  const handleInputBlur = useCallback(() => {
+    blurTimeoutRef.current = setTimeout(() => {
+      setIsFocused(false);
+    }, 200);
+  }, []);
+
+  const handleSuggestionSelect = useCallback((suggestion: ChatSuggestion) => {
+    const question = suggestion.text.trim();
+    if (!question || isLoading) return;
+    setInput('');
+    setIsFocused(false);
+    setKeyboardSuggestionActive(false);
+    void sendMessage(question);
+  }, [isLoading, sendMessage]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const canUseSuggestions =
+      isFocused &&
+      suggestions.length > 0 &&
+      input.trim().length > 0 &&
+      !isLoading &&
+      !isListening &&
+      !isProcessingVoice;
+
+    if (canUseSuggestions && e.key === 'ArrowDown') {
+      e.preventDefault();
+      setKeyboardSuggestionActive(true);
+      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+      return;
+    }
+
+    if (canUseSuggestions && e.key === 'ArrowUp') {
+      e.preventDefault();
+      setKeyboardSuggestionActive(true);
+      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+      return;
+    }
+
+    if (canUseSuggestions && e.key === 'Tab' && suggestions[selectedSuggestionIndex]) {
+      e.preventDefault();
+      handleSuggestionSelect(suggestions[selectedSuggestionIndex]);
+      return;
+    }
+
+    if (
+      canUseSuggestions &&
+      e.key === 'Enter' &&
+      !e.shiftKey &&
+      keyboardSuggestionActive &&
+      suggestions[selectedSuggestionIndex]
+    ) {
+      e.preventDefault();
+      handleSuggestionSelect(suggestions[selectedSuggestionIndex]);
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
     }
   };
+
+  const showSuggestions =
+    isFocused &&
+    input.trim().length > 0 &&
+    suggestions.length > 0 &&
+    !isLoading &&
+    !isListening &&
+    !isProcessingVoice;
+
+  const suggestionList = (
+    <div
+      className={cn(
+        "overflow-hidden transition-all duration-150 ease-out",
+        showSuggestions ? "max-h-[172px] opacity-100 pt-2 pb-1" : "max-h-0 opacity-0",
+      )}
+    >
+      <div className="max-h-[168px] overflow-y-auto border-t border-gray-200/80 pt-1">
+        {suggestions.map((suggestion, idx) => (
+          <button
+            key={`${suggestion.type}-${idx}-${suggestion.text.slice(0, 24)}`}
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => handleSuggestionSelect(suggestion)}
+            onMouseEnter={() => {
+              setSelectedSuggestionIndex(idx);
+              setKeyboardSuggestionActive(true);
+            }}
+            className={cn(
+              "group flex w-full items-center justify-between gap-3 px-0 py-[9px] text-left text-[13px] transition-colors",
+              idx === selectedSuggestionIndex
+                ? "text-gray-950"
+                : "text-gray-500 hover:text-gray-900",
+            )}
+          >
+            <span className="truncate leading-snug">{suggestion.text}</span>
+            <ArrowUpRight
+              className={cn(
+                "h-3 w-3 flex-shrink-0 transition-colors",
+                idx === selectedSuggestionIndex
+                  ? "text-gray-500"
+                  : "text-gray-300 group-hover:text-gray-500",
+              )}
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   // Voice recording
   const startVoiceRecognition = async () => {
@@ -1230,13 +1464,6 @@ export function ChatClient() {
         {isSidebarCollapsed && (
           <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
             <button
-              onClick={() => router.push('/dashboard')}
-              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-              title="Back to dashboard"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <button
               onClick={() => setIsSidebarCollapsed(false)}
               className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
               title="Expand sidebar"
@@ -1268,13 +1495,22 @@ export function ChatClient() {
                     <textarea
                       ref={textareaRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                        setSelectedSuggestionIndex(0);
+                        setKeyboardSuggestionActive(false);
+                      }}
                       onKeyDown={handleKeyDown}
+                      onFocus={handleInputFocus}
+                      onBlur={handleInputBlur}
                       placeholder="Ask a follow-up question..."
                       className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[24px] max-h-[120px]"
                       rows={1}
                       disabled={isLoading}
                     />
+                  </div>
+                  <div className="px-4">
+                    {suggestionList}
                   </div>
                   <div className="flex justify-between items-center px-3 pb-3">
                     <div className="flex items-center gap-3">
@@ -1306,7 +1542,7 @@ export function ChatClient() {
                     <button
                       type="submit"
                       disabled={!input.trim() || isLoading}
-                      className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
+                      className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:cursor-not-allowed"
                     >
                       {isLoading ? (
                         <BrailleSpinner className="text-sm text-white" />
@@ -1336,7 +1572,8 @@ export function ChatClient() {
               animate={{ width: 280, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}
               transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="h-full border-r border-gray-200 bg-gray-50/80 flex flex-col overflow-hidden"
+              className="h-full border-r border-gray-200 flex flex-col overflow-hidden"
+              style={{ backgroundColor: CHAT_PAGE_CARD_BG }}
             >
               {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
               <div className="flex items-center justify-between pl-4 pr-2 pt-6 pb-2">
@@ -1345,7 +1582,7 @@ export function ChatClient() {
                   className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
                   title="Go to Dashboard"
                 >
-                  <img src="/images/eclipse.svg" alt="Ritual" className="w-6 h-6" />
+                  <img src="/images/eclipse.svg" alt="Ritual" className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => setIsSidebarCollapsed(true)}
@@ -1356,14 +1593,15 @@ export function ChatClient() {
                 </button>
               </div>
               
-              {/* New Chat Button */}
-              <div className="px-3 pt-4 pb-4">
+              {/* New Chat Button - Perplexity-style compact pill */}
+              <div className="px-3 pt-3 pb-3">
                 <button
                   onClick={startNewConversation}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                  className="w-full flex items-center justify-center py-2 px-3 text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                  title="New Chat"
+                  aria-label="New Chat"
                 >
                   <Plus className="w-4 h-4" />
-                  New Chat
                 </button>
               </div>
               
@@ -1386,19 +1624,34 @@ export function ChatClient() {
                         : displayTitle;
                       
                       return (
-                        <button
+                        <div
                           key={conv.id}
-                          onClick={() => switchConversation(conv.id)}
-                          className={cn(
-                            "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors truncate",
-                            conv.id === conversationId
-                              ? "bg-[#E8E8E8] text-gray-900 font-medium"
-                              : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
-                          )}
-                          title={displayTitle}
+                          className="group flex items-center gap-1 rounded hover:bg-[#F3F3F3]"
                         >
-                          {truncatedTitle}
-                        </button>
+                          <button
+                            onClick={() => switchConversation(conv.id)}
+                            className={cn(
+                              "flex-1 min-w-0 text-left px-2.5 py-1.5 text-sm transition-colors truncate rounded",
+                              conv.id === conversationId
+                                ? "bg-[#E8E8E8] text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
+                            )}
+                            title={displayTitle}
+                          >
+                            {truncatedTitle}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteConversation(conv.id);
+                            }}
+                            className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-gray-500 transition-opacity"
+                            title="Delete conversation"
+                            aria-label="Delete conversation"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       );
                     })
                   )}
@@ -1411,13 +1664,6 @@ export function ChatClient() {
         {/* Expand sidebar button when collapsed */}
         {isSidebarCollapsed && (
           <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-              title="Back to dashboard"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
             <button
               onClick={() => setIsSidebarCollapsed(false)}
               className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
@@ -1432,85 +1678,78 @@ export function ChatClient() {
         <div className="flex-1 flex flex-col min-w-0">
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
-            <div className="max-w-xl w-full space-y-6">
-              {/* Faded Logo - Perplexity style watermark */}
-              <div className="flex justify-center mb-4">
+            <div className="max-w-xl w-full space-y-5">
+              {/* Logo + Greeting — Claude-style centered hero */}
+              <div className="flex flex-col items-center gap-4 mb-2">
                 <img
-                  src="/images/new_logo4.svg"
+                  src="/images/eclipse.svg"
                   alt="Ritual"
-                  className="w-10 h-10 opacity-[0.08]"
-                  style={{ filter: 'grayscale(100%)' }}
+                  className="w-10 h-10"
                 />
+                <h1 className="text-[28px] font-medium text-gray-900 tracking-tight">
+                  {greeting}{user?.firstName ? `, ${user.firstName}` : ''}
+                </h1>
               </div>
 
+              {/* Input — clean rounded card */}
               <form onSubmit={handleSubmit} className="relative">
-                <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
+                <div
+                  className="border border-gray-300 rounded-sm overflow-hidden transition-shadow focus-within:shadow-md focus-within:border-gray-400/80"
+                  style={{ backgroundColor: CHAT_PAGE_CARD_BG }}
+                >
                   <textarea
                     ref={textareaRef}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      setSelectedSuggestionIndex(0);
+                      setKeyboardSuggestionActive(false);
+                    }}
                     onKeyDown={handleKeyDown}
+                    onFocus={handleInputFocus}
+                    onBlur={handleInputBlur}
                     placeholder="Ask about your personal data"
-                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-4 py-3 min-h-[44px] max-h-[100px]"
+                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-5 pt-4 pb-2 min-h-[56px] max-h-[120px]"
                     rows={1}
                   />
-                  <div className="flex justify-between items-center px-3 pb-3">
+                  <div className="px-5">
+                    {suggestionList}
+                  </div>
+                  <div className="flex justify-between items-center px-4 pb-3">
                     {/* Voice Input */}
                     <div className="flex items-center gap-3">
-                      {/* Voice Recording Button */}
-                      <div className="flex items-center gap-2 group">
-                        <button
-                          type="button"
-                          onClick={startVoiceRecognition}
-                          className={cn(
-                            "w-8 h-8 flex items-center justify-center transition-all duration-200",
-                            isListening || isProcessingVoice
-                              ? "text-gray-900"
-                              : "text-gray-400 hover:text-gray-600"
-                          )}
-                          aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
-                        >
-                          {isListening ? (
-                            <VoiceWaveformMini isActive={true} />
-                          ) : isProcessingVoice ? (
-                            <BrailleSpinner className="text-sm text-gray-900" />
-                          ) : (
-                            <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
-                          )}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={startVoiceRecognition}
+                        className={cn(
+                          "w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-200",
+                          isListening || isProcessingVoice
+                            ? "text-gray-900"
+                            : "text-gray-400 hover:text-gray-600 hover:bg-gray-200/50"
+                        )}
+                        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                      >
+                        {isListening ? (
+                          <VoiceWaveformMini isActive={true} />
+                        ) : isProcessingVoice ? (
+                          <BrailleSpinner className="text-sm text-gray-900" />
+                        ) : (
+                          <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
+                        )}
+                      </button>
                     </div>
-                    
+
                     {/* Submit Button */}
                     <button
                       type="submit"
                       disabled={!input.trim()}
-                      className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
+                      className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <ArrowUp className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
               </form>
-
-              <div className="flex gap-2 justify-center flex-wrap">
-                {[
-                  "How's my sleep this week?",
-                  "What was I working on yesterday?",
-                  "What habits need attention?",
-                ].map((text) => (
-                  <button
-                    key={text}
-                    onClick={() => {
-                      setInput(text);
-                      textareaRef.current?.focus();
-                    }}
-                    className="px-3 py-1.5 text-xs text-gray-600 bg-white border border-gray-300 transition-all hover:bg-[#F3F3F3] whitespace-nowrap"
-                  >
-                    {text}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </div>
@@ -1529,27 +1768,18 @@ export function ChatClient() {
             animate={{ width: 280, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-            className="h-full border-r border-gray-200 bg-gray-50/80 flex flex-col overflow-hidden"
+              className="h-full border-r border-gray-200 flex flex-col overflow-hidden"
+              style={{ backgroundColor: CHAT_PAGE_CARD_BG }}
           >
             {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
             <div className="flex items-center justify-between pl-3 pr-2 pt-6 pb-2">
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => router.push('/dashboard')}
-                  className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-                  title="Back to dashboard"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => router.push('/dashboard')}
-                  className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
-                  title="Go to Dashboard"
-                >
-                  <img src="/images/eclipse.svg" alt="Ritual" className="w-4 h-4" />
-                  <span className="text-lg font-normal text-gray-900">Ritual</span>
-                </button>
-              </div>
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
+                title="Go to Dashboard"
+              >
+                <img src="/images/eclipse.svg" alt="Ritual" className="w-5 h-5" />
+              </button>
               <button
                 onClick={() => setIsSidebarCollapsed(true)}
                 className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
@@ -1559,14 +1789,15 @@ export function ChatClient() {
               </button>
             </div>
             
-            {/* New Chat Button */}
-            <div className="px-3 pt-4 pb-4">
+            {/* New Chat Button - Perplexity-style compact pill */}
+            <div className="px-3 pt-3 pb-3">
               <button
                 onClick={startNewConversation}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                className="w-full flex items-center justify-center py-2 px-3 text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                title="New Chat"
+                aria-label="New Chat"
               >
                 <Plus className="w-4 h-4" />
-                New Chat
               </button>
             </div>
             
@@ -1591,12 +1822,13 @@ export function ChatClient() {
                     return (
                       <div
                         key={conv.id}
+                        className="group flex items-center gap-1 rounded"
                         onContextMenu={(e) => showConversationContextMenu(conv.id, e)}
                       >
                         <button
                           onClick={() => switchConversation(conv.id)}
                           className={cn(
-                            "w-full text-left px-2.5 py-1.5 rounded text-sm transition-colors truncate",
+                            "flex-1 min-w-0 text-left px-2.5 py-1.5 rounded text-sm transition-colors truncate",
                             conv.id === conversationId
                               ? "bg-[#E8E8E8] text-gray-900 font-medium"
                               : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
@@ -1604,6 +1836,17 @@ export function ChatClient() {
                           title={displayTitle}
                         >
                           {truncatedTitle}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteConversation(conv.id);
+                          }}
+                          className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-gray-500 transition-opacity"
+                          title="Delete conversation"
+                          aria-label="Delete conversation"
+                        >
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     );
@@ -1618,13 +1861,6 @@ export function ChatClient() {
       {/* Expand sidebar button when collapsed */}
       {isSidebarCollapsed && (
         <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
-          <button
-            onClick={() => router.push('/dashboard')}
-            className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-            title="Back to dashboard"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
           <button
             onClick={() => setIsSidebarCollapsed(false)}
             className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
@@ -1711,20 +1947,29 @@ export function ChatClient() {
             canvasData ? "w-full max-w-none" : "max-w-3xl"
           )}>
             <form onSubmit={handleSubmit}>
-              <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
-                <div className="px-4 py-3">
-                  <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Ask a follow-up question..."
-                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[24px] max-h-[120px]"
-                    rows={1}
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="flex justify-between items-center px-3 pb-3">
+                <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
+                  <div className="px-4 py-3">
+                    <textarea
+                      ref={textareaRef}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                        setSelectedSuggestionIndex(0);
+                        setKeyboardSuggestionActive(false);
+                      }}
+                      onKeyDown={handleKeyDown}
+                      onFocus={handleInputFocus}
+                      onBlur={handleInputBlur}
+                      placeholder="Ask a follow-up question..."
+                      className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[24px] max-h-[120px]"
+                      rows={1}
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className="px-4">
+                    {suggestionList}
+                  </div>
+                  <div className="flex justify-between items-center px-3 pb-3">
                   {/* Voice Input */}
                   <div className="flex items-center gap-3">
                     {/* Voice Recording Button */}
@@ -1757,7 +2002,7 @@ export function ChatClient() {
                   <button
                     type="submit"
                     disabled={!input.trim() || isLoading}
-                    className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all disabled:cursor-not-allowed"
+                    className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:cursor-not-allowed"
                   >
                     {isLoading ? (
                       <BrailleSpinner className="text-sm text-white" />
@@ -1795,7 +2040,7 @@ export function ChatClient() {
               )} />
             </div>
 
-            <div className="w-full overflow-hidden border-l border-gray-100">
+            <div className="w-full overflow-hidden">
               <HabitCanvas 
                 data={canvasData} 
                 onClose={() => setCanvasData(null)} 

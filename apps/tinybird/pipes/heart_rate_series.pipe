@@ -1,0 +1,115 @@
+DESCRIPTION >
+    Bucketed heart-rate time series derived from canonical 1-minute rollups.
+    Supports bucket=1m, bucket=hour, and bucket=day.
+
+TOKEN "heart_rate_series_read" READ
+
+NODE period_window
+SQL >
+    %
+    SELECT
+        {% if defined(start_date) %}
+        toDate({{ String(start_date) }})
+        {% else %}
+        today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+        {% end %} AS current_start,
+        {% if defined(end_date) %}
+        toDate({{ String(end_date) }})
+        {% else %}
+        today()
+        {% end %} AS current_end
+
+NODE deduplicated_rollups
+SQL >
+    %
+    SELECT
+        id,
+        bucket_start,
+        date,
+        source_type,
+        sample_count,
+        bpm_avg,
+        bpm_min,
+        bpm_max,
+        created_at
+    FROM heart_rate_1m_rollups
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= (SELECT current_start FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+      {% if defined(source_type) %}
+      AND source_type = {{ String(source_type) }}
+      {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE bucketed_1m
+SQL >
+    %
+    SELECT
+        bucket_start,
+        avgWeighted(bpm_avg, sample_count) AS bpm_avg,
+        MIN(bpm_min) AS bpm_min,
+        MAX(bpm_max) AS bpm_max,
+        SUM(sample_count) AS total_samples
+    FROM deduplicated_rollups
+    GROUP BY bucket_start
+    ORDER BY bucket_start ASC
+
+NODE bucketed_hour
+SQL >
+    %
+    SELECT
+        bucket_start,
+        bpm_avg,
+        bpm_min,
+        bpm_max,
+        total_samples
+    FROM (
+        SELECT
+            toStartOfHour(bucket_start) AS bucket_start,
+            avgWeighted(bpm_avg, sample_count) AS bpm_avg,
+            MIN(bpm_min) AS bpm_min,
+            MAX(bpm_max) AS bpm_max,
+            SUM(sample_count) AS total_samples
+        FROM deduplicated_rollups
+        GROUP BY toStartOfHour(bucket_start)
+    )
+    ORDER BY bucket_start ASC
+
+NODE bucketed_day
+SQL >
+    %
+    SELECT
+        toDateTime(d) AS bucket_start,
+        bpm_avg,
+        bpm_min,
+        bpm_max,
+        total_samples
+    FROM (
+        SELECT
+            toDate(bucket_start) AS d,
+            avgWeighted(bpm_avg, sample_count) AS bpm_avg,
+            MIN(bpm_min) AS bpm_min,
+            MAX(bpm_max) AS bpm_max,
+            SUM(sample_count) AS total_samples
+        FROM deduplicated_rollups
+        GROUP BY toDate(bucket_start)
+    )
+    ORDER BY bucket_start ASC
+
+NODE bucketed_series
+SQL >
+    %
+    {% if String(bucket, 'day') == '1m' %}
+    SELECT bucket_start, bpm_avg, bpm_min, bpm_max, total_samples AS sample_count FROM bucketed_1m
+    {% elif String(bucket, 'day') == 'hour' %}
+    SELECT bucket_start, bpm_avg, bpm_min, bpm_max, total_samples AS sample_count FROM bucketed_hour
+    {% else %}
+    SELECT bucket_start, bpm_avg, bpm_min, bpm_max, total_samples AS sample_count FROM bucketed_day
+    {% end %}
+
+NODE endpoint
+TYPE ENDPOINT
+SQL >
+    %
+    SELECT * FROM bucketed_series

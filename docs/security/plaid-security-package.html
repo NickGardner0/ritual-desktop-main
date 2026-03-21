@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>plaid-security-package</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="plaid-security-package.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<h1 id="ritual-security-policy-packet">Ritual Security Policy Packet</h1>
+<p>Company: Ritual<br />
+Prepared by: Nicholas Gardner, Founder<br />
+Effective Date: 2026-03-18<br />
+Document Version: 1.0</p>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>This document summarizes Ritual’s current information security, access control, and incident response practices.</p>
+<p>Ritual is a behavior and personal data product that connects user-selected data sources, including wearable, health, and financial integrations, in order to help users track and understand behavioral patterns over time. For Plaid-backed spending, Ritual’s intended use is limited to generating daily spending totals for a user’s habit data rather than operating a general-purpose transaction analysis or budgeting product.</p>
+<p>Ritual’s security approach is designed to be practical, documented, and operational for a small but production-oriented software company. It focuses on least-privilege access, server-side credential handling, encrypted storage of sensitive integration tokens in production, monitored backend services, and documented response procedures for security events.</p>
+<hr />
+<h2 id="1-information-security-policy">1. Information Security Policy</h2>
+<h3 id="purpose">Purpose</h3>
+<p>Ritual maintains an Information Security Policy to identify, mitigate, and monitor information security risks relevant to the business, product, and user data processed by Ritual.</p>
+<p>This policy applies to Ritual’s dashboard, backend APIs, desktop application, iOS companion application, supporting infrastructure, and third-party integrations.</p>
+<h3 id="security-principles">Security Principles</h3>
+<p>Ritual’s security program is guided by the following principles:</p>
+<ul>
+<li>protect the confidentiality of user data and integration credentials</li>
+<li>preserve the integrity of user records, sync pipelines, and analytics</li>
+<li>minimize the collection and retention of sensitive data</li>
+<li>restrict access to systems and data based on legitimate business need</li>
+<li>monitor systems for failures, broken credentials, and other security-relevant events</li>
+<li>respond to incidents promptly and document remediation actions</li>
+</ul>
+<h3 id="governance-and-risk-management">Governance and Risk Management</h3>
+<p>Security oversight is owned by Nicholas Gardner, Founder of Ritual. Security responsibilities include maintaining security policies, reviewing material architecture or vendor changes, controlling production access, and coordinating incident response.</p>
+<p>Ritual performs security review when:</p>
+<ul>
+<li>enabling a new high-sensitivity integration such as Plaid</li>
+<li>introducing new credential storage or sync flows</li>
+<li>making material changes to authentication, backend data handling, or third-party access</li>
+<li>responding to security incidents or identified vulnerabilities</li>
+</ul>
+<h3 id="access-control">Access Control</h3>
+<p>Ritual limits access to production systems, operational tools, and user data to authorized persons with a legitimate business need.</p>
+<p>Key requirements:</p>
+<ul>
+<li>production access is granted on a least-privilege basis</li>
+<li>secrets are stored outside source control</li>
+<li>access is removed when no longer required</li>
+<li>shared credentials are avoided where practical</li>
+<li>protected backend routes require authenticated bearer tokens</li>
+</ul>
+<p>Ritual uses Clerk for end-user authentication, and backend APIs validate authentication tokens server-side before granting access to protected resources.</p>
+<h3 id="credential-and-secret-protection">Credential and Secret Protection</h3>
+<p>Ritual treats integration credentials, device secrets, and authentication tokens as sensitive data.</p>
+<p>Security controls include:</p>
+<ul>
+<li>server-side handling of third-party credentials whenever possible</li>
+<li>encrypted storage of sensitive integration tokens in production using an application-managed encryption key</li>
+<li>separation of encryption keys from stored application data</li>
+<li>avoidance of storing plaintext secrets in code, logs, or documentation</li>
+</ul>
+<p>For Plaid specifically, access tokens are intended to remain on the backend and are not intentionally exposed directly to browser or desktop clients.</p>
+<h3 id="data-minimization">Data Minimization</h3>
+<p>Ritual limits data collection and use to what is necessary to provide the product.</p>
+<p>Examples:</p>
+<ul>
+<li>authentication data is used only for account access and session validation</li>
+<li>wearable and health data are used only for the sync and analytics functionality selected by the user</li>
+<li>Plaid-backed spending is scoped to generating daily spending totals for a user’s Ritual habit data rather than operating a broad transaction analysis product</li>
+</ul>
+<h3 id="secure-development-and-operations">Secure Development and Operations</h3>
+<p>Ritual incorporates security into development through code review, scoped releases, and validation of sensitive flows before deployment.</p>
+<p>Current operational controls include:</p>
+<ul>
+<li>protected backend APIs that require authenticated bearer tokens</li>
+<li>encryption support for stored integration tokens in production</li>
+<li>server-side Plaid token handling and reconnect flows</li>
+<li>rate limiting and CORS controls in the backend</li>
+<li>backend health checks and application logging</li>
+<li>platform keychain storage for iOS companion credentials</li>
+</ul>
+<hr />
+<h2 id="2-incident-response-plan">2. Incident Response Plan</h2>
+<h3 id="purpose-1">Purpose</h3>
+<p>Ritual maintains an Incident Response Plan defining how suspected or confirmed information security incidents are identified, contained, investigated, remediated, and documented.</p>
+<h3 id="scope">Scope</h3>
+<p>This plan applies to incidents involving:</p>
+<ul>
+<li>unauthorized access to Ritual systems or user data</li>
+<li>exposure or misuse of authentication or integration credentials</li>
+<li>compromise or suspected compromise of production infrastructure</li>
+<li>material failures affecting the confidentiality, integrity, or availability of user data</li>
+<li>suspicious activity involving Plaid, wearable, or other connected integrations</li>
+</ul>
+<h3 id="ownership">Ownership</h3>
+<p>Nicholas Gardner, Founder of Ritual, is responsible for incident coordination, containment decisions, remediation oversight, communications, and documentation.</p>
+<h3 id="response-process">Response Process</h3>
+<p>Ritual handles material security incidents through the following process:</p>
+<ol type="1">
+<li>Identify and validate the event.</li>
+<li>Contain the issue by restricting access, disabling affected integrations or endpoints, or rotating credentials as appropriate.</li>
+<li>Assess scope, affected systems, affected data, and whether the incident is ongoing.</li>
+<li>Remediate the root cause and restore service safely.</li>
+<li>Document the incident, actions taken, and follow-up improvements.</li>
+</ol>
+<p>Where required by law, contract, or platform obligations, Ritual will notify affected parties or relevant vendors.</p>
+<hr />
+<h2 id="3-access-control-policy">3. Access Control Policy</h2>
+<h3 id="principle">Principle</h3>
+<p>Ritual grants access based on least privilege and legitimate business need. Access is limited to the minimum required to perform a role or task.</p>
+<h3 id="scope-1">Scope</h3>
+<p>This policy applies to:</p>
+<ul>
+<li>production infrastructure and hosted services</li>
+<li>backend administration and operational tooling</li>
+<li>source code repositories</li>
+<li>databases and analytics systems</li>
+<li>authentication, integration, and encryption secrets</li>
+<li>user data and support access</li>
+</ul>
+<h3 id="requirements">Requirements</h3>
+<p>Ritual requires that:</p>
+<ul>
+<li>access be granted only to authorized individuals</li>
+<li>production access be limited to those who need it for engineering, operations, or support</li>
+<li>secrets not be stored in source control</li>
+<li>unique credentials be used where practical</li>
+<li>access be revoked when no longer needed</li>
+</ul>
+<h3 id="sensitive-systems">Sensitive Systems</h3>
+<p>Higher-sensitivity systems include:</p>
+<ul>
+<li>authentication systems</li>
+<li>production databases</li>
+<li>encryption keys</li>
+<li>integration credential stores</li>
+<li>financial and health-related data flows</li>
+</ul>
+<p>Access to these systems is more tightly restricted than general development access.</p>
+<h3 id="end-user-and-administrative-controls">End-User and Administrative Controls</h3>
+<p>Ritual uses Clerk for end-user authentication. Backend APIs validate authenticated bearer tokens before permitting access to protected user resources.</p>
+<p>Administrative access is limited to authorized operators and is expected to use secure authentication methods and follow least-privilege principles.</p>
+<hr />
+<h2 id="4-operationalization-in-ritual">4. Operationalization in Ritual</h2>
+<p>Ritual’s documented security controls are reflected in its current architecture and codebase, including:</p>
+<ul>
+<li>Clerk-based authentication with server-side JWT verification</li>
+<li>encrypted storage support for integration tokens via <code>TOKEN_ENCRYPTION_KEY</code></li>
+<li>server-side handling of Plaid access tokens</li>
+<li>Plaid reconnect and webhook handling for broken or changed Items</li>
+<li>CORS restrictions and API rate limiting</li>
+<li>backend health checks and logging</li>
+<li>iOS Keychain storage for mobile companion credentials</li>
+</ul>
+<p>Representative implementation references:</p>
+<ul>
+<li><code>apps/backend/services/auth_service.py</code></li>
+<li><code>apps/backend/services/token_crypto.py</code></li>
+<li><code>apps/backend/services/plaid_service.py</code></li>
+<li><code>apps/backend/api/financial.py</code></li>
+<li><code>apps/backend/main.py</code></li>
+<li><code>apps/ios-companion/Sources/RitualCompanion/Services/RitualAPIClient.swift</code></li>
+</ul>
+<hr />
+<h2 id="5-approval">5. Approval</h2>
+<p>Prepared by: Nicholas Gardner<br />
+Title: Founder<br />
+Company: Ritual<br />
+Date: 2026-03-18</p>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 
@@ -52,9 +53,14 @@ export async function GET(request: NextRequest) {
     const key = searchParams.get("key");
     const start = searchParams.get("start");
     const end = searchParams.get("end");
+    const source = searchParams.get("source") || "desktop";
 
     if (kind !== "app" && kind !== "website") {
       return NextResponse.json({ error: "Invalid kind" }, { status: 400 });
+    }
+
+    if (source !== "desktop" && source !== "iphone") {
+      return NextResponse.json({ error: "Invalid source" }, { status: 400 });
     }
 
     if (!key) {
@@ -73,16 +79,12 @@ export async function GET(request: NextRequest) {
       end_date: end,
     }).toString();
 
-    const url = `${BACKEND_URL}/api/watcher/breakdown?${queryString}`;
+    const upstreamPath = source === "iphone" ? "/api/screen-time/breakdown" : "/api/watcher/breakdown";
+    const url = `${BACKEND_URL}${upstreamPath}?${queryString}`;
 
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "X-User-ID": userId,
-        "X-Internal-Key": process.env.INTERNAL_API_KEY || "",
-      },
+      headers: buildBackendAuthHeaders({ userId, token }),
     });
 
     if (!response.ok) {
@@ -95,36 +97,44 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
     const rows = Array.isArray(data?.data) ? data.data : [];
-    const valueByDate = new Map<string, { seconds: number; startTime: string | null; endTime: string | null }>(
-      rows.map((row: { day: string; active_ms?: number; first_start_ms?: number; last_end_ms?: number }) => [
-        row.day,
-        {
-          seconds: Math.round((row.active_ms || 0) / 1000),
-          startTime: formatLocalTime(row.first_start_ms),
-          endTime: formatLocalTime(row.last_end_ms),
-        },
-      ])
+    const valueByDate = new Map<string, { activeMs: number; seconds: number; startTime: string | null; endTime: string | null }>(
+      rows.map((row: { day: string; active_ms?: number; first_start_ms?: number; last_end_ms?: number }) => {
+        const activeMs = Math.max(0, Number(row.active_ms || 0));
+        return [
+          row.day,
+          {
+            activeMs,
+            seconds: Math.round(activeMs / 1000),
+            startTime: formatLocalTime(row.first_start_ms),
+            endTime: formatLocalTime(row.last_end_ms),
+          },
+        ];
+      })
     );
 
     const points = buildDateRange(start, end).map((date) => {
       const entry = valueByDate.get(date);
       return {
         date,
+        activeMs: entry?.activeMs || 0,
         seconds: entry?.seconds || 0,
         startTime: entry?.startTime || null,
         endTime: entry?.endTime || null,
       };
     });
 
-    const totalSeconds = points.reduce((sum, point) => sum + point.seconds, 0);
+    const totalMs = points.reduce((sum, point) => sum + point.activeMs, 0);
+    const totalSeconds = Math.round(totalMs / 1000);
 
     return NextResponse.json({
+      source,
       kind,
       key,
       start,
       end,
       points,
       totalSeconds,
+      totalMs,
     });
   } catch (error) {
     console.error("Error fetching usage breakdown:", error);

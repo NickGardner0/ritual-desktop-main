@@ -36,6 +36,61 @@ class TinybirdService:
             'Content-Type': 'application/json'
         }
 
+    def _format_utc_datetime(self, dt_value: Optional[Any], fallback: Optional[datetime] = None) -> str:
+        if dt_value is None:
+            dt_value = fallback or datetime.now(timezone.utc)
+
+        if isinstance(dt_value, datetime):
+            parsed = dt_value
+        else:
+            raw = str(dt_value).strip()
+            parsed = None
+
+            try:
+                parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+            except Exception:
+                parsed = None
+
+            if parsed is None:
+                try:
+                    parsed = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    parsed = fallback or datetime.now(timezone.utc)
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed.strftime('%Y-%m-%d %H:%M:%S')
+
+    def _build_heart_rate_rollup_event(self, rollup: Dict[str, Any]) -> Dict[str, Any]:
+        bucket_start = rollup.get('bucket_start')
+        created_at = rollup.get('created_at') or datetime.utcnow()
+        bucket_start_str = self._format_utc_datetime(bucket_start)
+        created_at_str = self._format_utc_datetime(created_at)
+
+        if isinstance(bucket_start, datetime):
+            bucket_day = (
+                bucket_start.astimezone(timezone.utc).date()
+                if bucket_start.tzinfo is not None
+                else bucket_start.date()
+            ).isoformat()
+        else:
+            bucket_day = bucket_start_str[:10]
+
+        return {
+            'id': rollup.get('id') or 'unknown',
+            'user_id': rollup.get('user_id') or 'unknown',
+            'bucket_start': bucket_start_str,
+            'date': bucket_day,
+            'source_type': rollup.get('source_type') or rollup.get('source_preference') or 'unknown',
+            'sample_count': int(rollup.get('sample_count') or 0),
+            'bpm_avg': float(rollup.get('bpm_avg') or 0.0),
+            'bpm_min': int(rollup.get('bpm_min') or 0),
+            'bpm_max': int(rollup.get('bpm_max') or 0),
+            'created_at': created_at_str,
+        }
+
     async def check_connectivity(self) -> Dict[str, Any]:
         """
         Lightweight connectivity probe for health checks.
@@ -396,6 +451,44 @@ class TinybirdService:
             'success': len(errors) == 0,
             'total_ingested': total_ingested,
             'total_logs': len(events),
+            'errors': errors,
+        }
+
+    async def ingest_heart_rate_rollups(
+        self,
+        rollups: List[Dict[str, Any]],
+        batch_size: int = 500,
+    ) -> Dict[str, Any]:
+        """
+        Ingest canonical 1-minute heart-rate rollups to Tinybird.
+
+        Rollup `id` is deterministic per user/source/bucket. Re-sends therefore
+        append new versions of the same logical bucket, and Tinybird pipes
+        deduplicate by latest `created_at`.
+        """
+        events = [self._build_heart_rate_rollup_event(rollup) for rollup in rollups]
+        if not events:
+            return {
+                'success': True,
+                'total_ingested': 0,
+                'total_rollups': 0,
+                'errors': [],
+            }
+
+        total_ingested = 0
+        errors = []
+        for i in range(0, len(events), batch_size):
+            chunk = events[i:i + batch_size]
+            result = await self.ingest_events('heart_rate_1m_rollups', chunk)
+            if result.get('success'):
+                total_ingested += len(chunk)
+            else:
+                errors.append(f"Batch {i // batch_size}: {result.get('error', 'unknown')}")
+
+        return {
+            'success': len(errors) == 0,
+            'total_ingested': total_ingested,
+            'total_rollups': len(events),
             'errors': errors,
         }
 

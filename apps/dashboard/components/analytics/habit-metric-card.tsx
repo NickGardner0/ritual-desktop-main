@@ -13,6 +13,8 @@ export interface HabitMetricCardProps {
   absoluteChange?: number;
   chartData: any[];
   isPositive: boolean;
+  /** true = higher is better, false = lower is better, undefined = default (up=green) */
+  higherIsBetter?: boolean | null;
   chartType?: 'spark' | 'bar';
   onClick?: () => void;
   onRemove?: () => void;
@@ -101,6 +103,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   absoluteChange,
   chartData,
   isPositive,
+  higherIsBetter,
   chartType = 'spark',
   onClick,
   onRemove,
@@ -108,7 +111,13 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   const numericChange = Number(change ?? 0);
   const isNeutral = change === undefined || !Number.isFinite(numericChange);
   const trend = isNeutral ? 'neutral' : (isPositive ? 'up' : 'down');
-  const changeColorClass = isNeutral ? 'text-[rgba(39,37,30,0.65)]' : (isPositive ? 'text-[#136A22]' : 'text-[#A23544]');
+
+  // Determine if this direction is "good" for coloring purposes
+  // When higherIsBetter is false, invert: going up is bad (red), going down is good (green)
+  const isGoodDirection = higherIsBetter === false ? !isPositive : isPositive;
+  const changeColorClass = isNeutral ? 'text-[rgba(39,37,30,0.65)]' : (isGoodDirection ? 'text-[#136A22]' : 'text-[#A23544]');
+  // Sparkline color should reflect polarity, not raw direction
+  const sparkTrend = isNeutral ? 'neutral' as const : (isGoodDirection ? 'up' as const : 'down' as const);
 
   const formattedChange = formatPercentChange(numericChange);
   const numericAbsoluteChange = Number(absoluteChange ?? 0);
@@ -136,7 +145,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             event.stopPropagation();
             onRemove();
           }}
-          className="absolute right-1.5 top-1.5 z-20 rounded-sm bg-white/80 p-0.5 opacity-0 transition-opacity duration-200 hover:bg-white group-hover:opacity-100"
+          className="absolute right-1.5 top-1.5 z-20 rounded-sm bg-white/80 p-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
           aria-label="Remove habit"
         >
           <X className="h-2.5 w-2.5 text-gray-400 hover:text-gray-600" />
@@ -225,7 +234,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
         ) : (
           <PerplexityMiniSparkChart
             values={sparkValues}
-            trend={trend}
+            trend={sparkTrend}
             height={30}
           />
         )}

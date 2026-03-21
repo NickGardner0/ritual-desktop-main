@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Ritual Consumer MFA Documentation</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="plaid-security-package.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Ritual Consumer MFA Documentation</h1>
+</header>
+<h1 id="ritual-consumer-mfa-documentation">Ritual Consumer MFA Documentation</h1>
+<p>Company: Ritual<br />
+Prepared by: Nicholas Gardner, Founder<br />
+Effective Date: 2026-03-18<br />
+Document Version: 1.0</p>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>This document describes Ritual’s consumer multi-factor authentication implementation for web and mobile access, and the additional product-side control used before financial connectivity is surfaced.</p>
+<p>Ritual uses Clerk for consumer authentication and requires multi-factor authentication for user accounts. For higher-sensitivity bank connectivity features, Ritual also applies an application-level control that prevents the Plaid connection flow from being surfaced unless the authenticated user account has MFA enabled.</p>
+<h2 id="mfa-methods-enabled">MFA Methods Enabled</h2>
+<p>Ritual’s current consumer MFA configuration in Clerk includes:</p>
+<ul>
+<li>SMS verification code</li>
+<li>authenticator application</li>
+<li>backup codes</li>
+<li>required MFA enforcement for consumer accounts</li>
+</ul>
+<p>These controls support a truthful vendor questionnaire response of:</p>
+<p><code>Yes - Non-phishing-resistant multi-factor authentication is performed</code></p>
+<p>Ritual does not represent this implementation as phishing-resistant MFA unless and until a qualifying phishing-resistant control is specifically enforced before Plaid Link is surfaced.</p>
+<h2 id="product-side-enforcement-before-plaid-link">Product-Side Enforcement Before Plaid Link</h2>
+<p>In addition to Clerk-level MFA enforcement, Ritual applies a product-side control within the Plaid / Spending integration flow:</p>
+<ul>
+<li>the user must be authenticated with Ritual through Clerk</li>
+<li>the application checks whether the authenticated account has MFA enabled</li>
+<li>if MFA is not enabled, the application does not surface the Plaid connection flow</li>
+<li>instead, the user is directed to account security settings to complete MFA setup first</li>
+</ul>
+<p>This creates an additional control at the application level for financial connectivity.</p>
+<h2 id="user-experience">User Experience</h2>
+<p>If a user has not enabled MFA:</p>
+<ul>
+<li>the Plaid / Spending integration shows that MFA is required</li>
+<li>the details panel explains that MFA must be enabled before bank connection is available</li>
+<li>the user is directed to account security settings to complete MFA setup</li>
+</ul>
+<p>If a user has enabled MFA:</p>
+<ul>
+<li>the user can proceed to the Plaid connection flow</li>
+</ul>
+<h2 id="operational-implementation">Operational Implementation</h2>
+<p>Ritual’s current implementation includes:</p>
+<ul>
+<li>Clerk-authenticated consumer sessions</li>
+<li>server-side JWT validation in the Ritual backend</li>
+<li>MFA required in Clerk configuration</li>
+<li>product-side gating in the Plaid / Spending integration before bank connection</li>
+</ul>
+<p>Representative implementation references:</p>
+<ul>
+<li><code>apps/dashboard/app/(dashboard)/integrations/integrations-client.tsx</code></li>
+<li><code>apps/dashboard/components/settings-modal.tsx</code></li>
+<li><code>apps/backend/services/auth_service.py</code></li>
+<li><code>apps/backend/api/financial.py</code></li>
+</ul>
+<h2 id="supporting-evidence">Supporting Evidence</h2>
+<p>Recommended supporting uploads for this control:</p>
+<ul>
+<li>screenshot of Clerk MFA settings showing enabled MFA methods and required MFA enforcement</li>
+<li>screenshot of Ritual’s Plaid / Spending integration reflecting the MFA requirement before connection</li>
+</ul>
+<h2 id="approval">Approval</h2>
+<p>Prepared by: Nicholas Gardner<br />
+Title: Founder<br />
+Company: Ritual<br />
+Date: 2026-03-18</p>
+</body>
+</html>

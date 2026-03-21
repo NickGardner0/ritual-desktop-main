@@ -9,6 +9,7 @@ import {
   Search, 
   List, 
   BarChart3, 
+  CalendarDays,
   Wifi, 
   Bot, 
   Timer, 
@@ -22,6 +23,7 @@ import {
   Upload,
   Watch,
   MessageSquare,
+  Monitor,
   Activity,
   Clock,
   Hash,
@@ -52,7 +54,6 @@ const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; cla
   return <DynamicIcon name={iconName} className={`${className} text-gray-600`} />;
 };
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { RitualLogo } from "@/components/ritual-logo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAnalytics } from "@/lib/analytics";
@@ -111,6 +112,7 @@ const iconMap: Record<string, React.ReactNode> = {
   "plus": <Plus className="h-4 w-4" />,
   "search": <Search className="h-4 w-4" />,
   "bar-chart": <BarChart3 className="h-4 w-4" />,
+  "calendar": <CalendarDays className="h-4 w-4" />,
   "bot": <Bot className="h-4 w-4" />,
   "upload": <Upload className="h-4 w-4" />,
   "watch": <Watch className="h-4 w-4" />,
@@ -124,6 +126,7 @@ const iconMap: Record<string, React.ReactNode> = {
   "list": <List className="h-4 w-4" />,
   "wifi": <Wifi className="h-4 w-4" />,
   "message": <MessageSquare className="h-4 w-4" />,
+  "monitor": <Monitor className="h-4 w-4" />,
   "activity": <Activity className="h-4 w-4" />,
 };
 
@@ -154,7 +157,6 @@ export default function CommandPalette({
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<SearchResults | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
-  const [selectedSection, setSelectedSection] = React.useState<string | null>(null);
   
   const router = useRouter();
   const { trackQuickActionsOpened, track } = useAnalytics();
@@ -222,13 +224,14 @@ export default function CommandPalette({
   
   const getFallbackResults = (q: string): SearchResults => {
     const actions: QuickAction[] = [
-      { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "open_logger", icon: "plus" },
+      { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
       { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
-      { id: "view-analytics", name: "View analytics", keywords: ["stats", "charts"], action: "navigate", path: "/analytics", icon: "bar-chart" },
+      { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
+      { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
       { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
-      { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "open_import", icon: "upload" },
+      { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
       { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
-      { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "open_settings", icon: "settings" },
+      { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
     ];
     
     let filteredActions = actions;
@@ -251,6 +254,60 @@ export default function CommandPalette({
     };
   };
 
+  const paletteActions = React.useMemo(() => {
+    const trimmedQuery = debouncedQuery.trim();
+    const actions: QuickAction[] = [...(results?.quick_actions || [])];
+    const topHabit = results?.habits?.hits?.[0];
+
+    if (trimmedQuery) {
+      actions.unshift(
+        {
+          id: `search-logs:${trimmedQuery.toLowerCase()}`,
+          name: `Search logs for "${trimmedQuery}"`,
+          action: "navigate",
+          path: `/activity?q=${encodeURIComponent(trimmedQuery)}`,
+          icon: "search",
+        },
+        {
+          id: `ask-ai:${trimmedQuery.toLowerCase()}`,
+          name: `Ask AI about "${trimmedQuery}"`,
+          action: "navigate",
+          path: `/chat?q=${encodeURIComponent(trimmedQuery)}`,
+          icon: "bot",
+        },
+      );
+
+      if (topHabit) {
+        actions.unshift(
+          {
+            id: `log:${topHabit.id}`,
+            name: `Log ${topHabit.name}`,
+            action: "navigate",
+            path: `/dashboard?view=overview&compose=log&prefill=${encodeURIComponent(`${topHabit.name} `)}`,
+            icon: "plus",
+          },
+          {
+            id: `metrics:${topHabit.id}`,
+            name: `View ${topHabit.name} metrics`,
+            action: "navigate",
+            path: `/dashboard?view=metrics&habit=${encodeURIComponent(topHabit.id)}`,
+            icon: "bar-chart",
+          },
+        );
+      }
+    }
+
+    const deduped = new Map<string, QuickAction>();
+    for (const action of actions) {
+      const key = `${action.id}:${action.path || action.name}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, action);
+      }
+      if (deduped.size >= 6) break;
+    }
+    return Array.from(deduped.values());
+  }, [debouncedQuery, results]);
+
   // ================================
   // ACTION HANDLERS
   // ================================
@@ -265,16 +322,19 @@ export default function CommandPalette({
         if (action.path) router.push(action.path);
         break;
       case "open_logger":
-        onOpenLogger?.();
+        if (onOpenLogger) onOpenLogger();
+        else router.push("/dashboard?view=overview&compose=log");
         break;
       case "open_import":
-        onOpenImport?.();
+        if (onOpenImport) onOpenImport();
+        else router.push("/dashboard?view=overview&openImport=1");
         break;
       case "open_settings":
-        onOpenSettings?.();
+        if (onOpenSettings) onOpenSettings();
+        else router.push("/dashboard?openSettings=account");
         break;
       case "export":
-        router.push("/analytics?export=true");
+        router.push("/dashboard?view=metrics&export=true");
         break;
     }
   };
@@ -283,16 +343,18 @@ export default function CommandPalette({
     track('search_habit_selected', { habitId: habit.id, habitName: habit.name });
     setOpen(false);
     setQuery("");
-    // Navigate to analytics for this habit or open logger
-    router.push(`/analytics?habit=${habit.id}`);
+    router.push(`/dashboard?view=metrics&habit=${encodeURIComponent(habit.id)}`);
   };
   
   const handleLogSelect = (log: LogResult) => {
     track('search_log_selected', { logId: log.id });
     setOpen(false);
     setQuery("");
-    // Navigate to activity page with date filter
-    router.push(`/activity?date=${log.date}`);
+    const params = new URLSearchParams();
+    params.set("date", log.date);
+    params.set("habits", log.habit_id);
+    params.set("q", log.habit_name);
+    router.push(`/activity?${params.toString()}`);
   };
   
   const handleConversationSelect = (conv: any) => {
@@ -334,13 +396,13 @@ export default function CommandPalette({
           trackQuickActionsOpened();
         }}
         className={cn(
-          "justify-between border border-gray-200 shadow-sm hover:bg-[#F5F5F5] rounded-none",
+          "justify-between border border-gray-200/90 bg-[#F0F0F0]/60 shadow-sm hover:bg-[#E8E8E8]/80 rounded-none",
           className
         )}
       >
         <div className="flex items-center gap-2">
           <span>Search</span>
-          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 border border-gray-200 bg-gray-50 px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 border border-gray-200/90 bg-white/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
             <span className="text-xs">⌘</span>K
           </kbd>
         </div>
@@ -349,7 +411,7 @@ export default function CommandPalette({
   }
 
   const hasResults = results && (
-    results.quick_actions.length > 0 ||
+    paletteActions.length > 0 ||
     results.habits.found > 0 ||
     results.logs.found > 0 ||
     results.conversations.found > 0
@@ -359,14 +421,14 @@ export default function CommandPalette({
     <DialogPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
       <DialogPrimitive.Portal>
         {/* High z-index overlay to cover sidebar (z-[1001]) */}
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[#e8e5df]/70 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.18)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className="fixed left-[50%] top-[50%] z-[9999] translate-x-[-50%] translate-y-[-50%] w-full md:max-w-[600px] select-text border-none shadow-2xl focus:outline-none"
         >
           <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
-          <div className="bg-white border border-gray-200 flex flex-col h-[420px]">
+          <div className="flex h-[420px] flex-col overflow-hidden rounded-sm border border-[rgba(255,255,255,0.58)] bg-[linear-gradient(180deg,rgba(255,255,255,0.50),rgba(246,244,240,0.42))] shadow-[0_24px_56px_rgba(15,23,42,0.16),0_6px_20px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.32)] backdrop-blur-[22px] supports-[backdrop-filter]:bg-[rgba(248,248,246,0.42)]">
             {/* Search Input */}
-            <div className="flex-shrink-0 border-b border-gray-200 px-4 py-3 flex items-center gap-2">
+            <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.16)] px-4 py-3">
               <input
                 ref={inputRef}
                 type="text"
@@ -380,7 +442,7 @@ export default function CommandPalette({
             </div>
 
           {/* Results */}
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[rgba(255,255,255,0.10)]">
             <Command className="rtlp-cmd">
               <Command.List className="px-1 py-2 max-h-full overflow-y-auto">
                 
@@ -393,17 +455,17 @@ export default function CommandPalette({
                 )}
 
                 {/* Quick Actions */}
-                {results?.quick_actions && results.quick_actions.length > 0 && (
+                {paletteActions.length > 0 && (
                   <>
                     <div className="px-3 py-1.5 text-xs font-medium text-gray-400">
-                      Quick Actions
+                      {debouncedQuery.trim() ? "Best Matches" : "Quick Actions"}
                     </div>
-                    {results.quick_actions.map((action) => (
+                    {paletteActions.map((action) => (
                       <Command.Item
                         key={action.id}
                         value={action.name}
                         onSelect={() => handleActionSelect(action)}
-                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
                       >
                         <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           {getActionIcon(action.icon)}
@@ -426,7 +488,7 @@ export default function CommandPalette({
                         key={habit.id}
                         value={`habit-${habit.name}`}
                         onSelect={() => handleHabitSelect(habit)}
-                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
                       >
                         <span className="w-4 h-4 flex items-center justify-center">
                           <HabitIcon iconName={habit.icon} className="w-4 h-4" />
@@ -457,7 +519,7 @@ export default function CommandPalette({
                         key={log.id}
                         value={`log-${log.habit_name}-${log.date}`}
                         onSelect={() => handleLogSelect(log)}
-                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
                       >
                         <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           <Clock className="h-4 w-4" />
@@ -469,6 +531,11 @@ export default function CommandPalette({
                             <span className="text-xs text-gray-400">{log.amount} {log.unit_type || ''}</span>
                           )}
                         </div>
+                        {log.notes && (
+                          <span className="hidden max-w-[180px] truncate text-xs text-gray-400 md:block">
+                            {log.notes}
+                          </span>
+                        )}
                       </Command.Item>
                     ))}
                   </>
@@ -486,7 +553,7 @@ export default function CommandPalette({
                         key={conv.id}
                         value={`conv-${conv.id}`}
                         onSelect={() => handleConversationSelect(conv)}
-                        className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[#F3F3F3] data-[selected=true]:bg-[#F3F3F3]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
                       >
                         <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           <MessageSquare className="h-4 w-4" />
@@ -504,10 +571,10 @@ export default function CommandPalette({
           </div>
           
           {/* Footer */}
-          <div className="flex-shrink-0 px-3 py-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400 bg-white">
+          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.14)] px-3 py-2 text-xs text-gray-400">
             {/* Logo on left */}
             <div className="flex items-center gap-2">
-              <RitualLogo className="w-4 h-4 opacity-60" />
+              <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
               {results?.fallback && (
                 <span className="text-amber-500 text-[10px]">Offline</span>
               )}
@@ -515,9 +582,9 @@ export default function CommandPalette({
             
             {/* Keyboard shortcuts on right */}
             <div className="flex items-center gap-2">
-              <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-[11px] rounded">↑</kbd>
-              <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-[11px] rounded">↓</kbd>
-              <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-[11px] rounded">↵</kbd>
+              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↑</kbd>
+              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↓</kbd>
+              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↵</kbd>
             </div>
           </div>
           </div>

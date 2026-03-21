@@ -67,7 +67,7 @@ export function TasksClient() {
       habits={habitsForKanban}
       onLogMetric={handleLogMetric}
       fullPage
-      showSearch
+      showSearch={false}
     />
   );
 }

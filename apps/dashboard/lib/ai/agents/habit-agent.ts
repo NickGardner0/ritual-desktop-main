@@ -217,7 +217,7 @@ function createTools(ctx: RitualContext) {
 
           if (!summary || summary.total_hours === 0) {
             return { 
-              message: "No computer activity data found for this period. The user may not have Computer Tracking enabled.",
+              message: "No computer activity data found for this period. The user may not have Computer Use enabled.",
               dateRange: { start: params.startDate, end: params.endDate }
             };
           }

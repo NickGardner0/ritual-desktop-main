@@ -25,6 +25,12 @@ type CalendarMonthViewProps = {
   onDayBlockEditorOpen?: (date: Date) => void;
   onWeekClick?: (weekNumber: number, weekStart: Date) => void;
   onDayHover?: (date: Date | null, data: HabitLog[]) => void;
+  heartRateSummariesByDay?: Map<string, {
+    averageBpm: number;
+    minBpm: number;
+    maxBpm: number;
+    sampleCount: number;
+  }>;
 };
 
 export const CalendarMonthView = memo(function CalendarMonthView({
@@ -44,6 +50,7 @@ export const CalendarMonthView = memo(function CalendarMonthView({
   onScheduledItemClick,
   onDayBlockEditorOpen,
   onDayHover,
+  heartRateSummariesByDay = new Map(),
 }: CalendarMonthViewProps) {
   const scheduledItemsByDay = useMemo(() => {
     const grouped = new Map<string, WeekScheduledItem[]>();
@@ -79,6 +86,7 @@ export const CalendarMonthView = memo(function CalendarMonthView({
         const dateKey = format(date, 'yyyy-MM-dd');
         const dayLogs = logsByDate.get(dateKey) || [];
         const dayScheduledItems = scheduledItemsByDay.get(dateKey) || [];
+        const heartRateSummary = heartRateSummariesByDay.get(dateKey);
 
         return (
           <CalendarDay
@@ -98,6 +106,7 @@ export const CalendarMonthView = memo(function CalendarMonthView({
             onScheduledItemClick={onScheduledItemClick}
             onDayBlockEditorOpen={onDayBlockEditorOpen}
             onHover={onDayHover}
+            heartRateSummary={heartRateSummary}
           />
         );
       })}

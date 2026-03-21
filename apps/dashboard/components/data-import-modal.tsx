@@ -761,7 +761,7 @@ export function DataImportModal({
       
       {/* Modal */}
       <div 
-        className="relative bg-white w-[90vw] max-w-xl flex flex-col shadow-xl border border-gray-300 z-10 rounded-none max-h-[85vh]"
+        className="relative bg-white w-[90vw] max-w-xl flex flex-col shadow-xl border border-gray-300 z-10 rounded-sm max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -853,7 +853,7 @@ export function DataImportModal({
                   </div>
                   <button
                     onClick={() => handleSelectSource(source.id)}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors mr-1"
                   >
                     Import
                   </button>
@@ -939,7 +939,7 @@ export function DataImportModal({
                 <button
                   onClick={handleFetchPreview}
                   disabled={!file || isLoading}
-                  className="px-5 py-2 text-sm font-normal text-white bg-black hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2 text-sm font-normal text-white bg-black rounded-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? (
                     <span className="flex items-center gap-2">
@@ -1302,7 +1302,7 @@ export function DataImportModal({
                 <button
                   onClick={handleStartImport}
                   disabled={isLoading || previewData.dedupe_estimate.new_items === 0}
-                  className="px-5 py-2 text-sm font-normal text-white bg-black hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2 text-sm font-normal text-white bg-black rounded-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Import {previewData.dedupe_estimate.new_items.toLocaleString()} Records
                 </button>
@@ -1373,7 +1373,7 @@ export function DataImportModal({
                 )}
                 <button
                   onClick={handleClose}
-                  className="px-5 py-2 text-sm font-normal text-white bg-black hover:bg-gray-800 transition-colors"
+                  className="px-5 py-2 text-sm font-normal text-white bg-black rounded-sm transition-colors"
                 >
                   Done
                 </button>

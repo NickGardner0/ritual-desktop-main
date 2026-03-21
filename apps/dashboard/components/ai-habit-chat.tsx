@@ -1,14 +1,15 @@
 "use client"
 
-import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { startTransition, useDeferredValue, useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { ArrowUp, ArrowUpRight, AudioLines, Paperclip, X, Check, AlertTriangle, ChevronDown, ChevronUp, ImageIcon, Sparkles } from 'lucide-react';
 import spinners, { type BrailleSpinnerName } from 'unicode-animations';
 import { cn } from "@/lib/utils";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
 import { useAnalytics } from '@/lib/analytics';
+import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 
 type InputMode = 'log' | 'chat';
 
@@ -64,17 +65,6 @@ interface LoggingResult {
   clarifications: Clarification[];
   refreshNeeded?: boolean;
   affectedHabitIds?: string[];
-}
-
-// Suggestion types for Perplexity-style autocomplete
-interface Suggestion {
-  text: string;
-  type: 'habit' | 'question' | 'log_phrase';
-  habit_id?: string;
-  habit_name?: string;
-  unit_type?: string;
-  icon?: string;
-  value?: number;
 }
 
 interface HabitOption {
@@ -142,23 +132,51 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [clarificationDropdownIndex, setClarificationDropdownIndex] = useState<number | null>(null);
 
   // Suggestions state
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<ChatSuggestion[]>([]);
   const [isFocused, setIsFocused] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const suggestionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [keyboardSuggestionActive, setKeyboardSuggestionActive] = useState(false);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastFetchedQueryRef = useRef<string>('');
-  const lastFetchedModeRef = useRef<InputMode>('log');
+  const suggestionsAbortRef = useRef<AbortController | null>(null);
 
-  const { habits } = useHabits();
+  const { habits, habitLogs } = useHabits();
   const { user } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
+  const deferredInput = useDeferredValue(input.trim());
 
   useEffect(() => {
     router.prefetch('/chat');
   }, [router]);
+
+  useEffect(() => {
+    const compose = searchParams.get('compose');
+    const prefillValue = searchParams.get('prefill');
+    if (compose !== 'log' && !prefillValue) return;
+
+    setMode('log');
+    if (prefillValue) {
+      setInput(prefillValue);
+    }
+
+    window.setTimeout(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      const end = (prefillValue || '').length;
+      node.setSelectionRange(end, end);
+    }, 30);
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('compose');
+    params.delete('prefill');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+
+  }, [pathname, router, searchParams]);
 
   const screenshotHabitOptions = useMemo<HabitOption[]>(() => {
     if (!screenshotPreview) return [];
@@ -196,21 +214,18 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   // SUGGESTIONS - Perplexity-style autocomplete
   // ================================
 
-  // Fetch suggestions from backend (Typesense-powered)
-  const fetchSuggestions = useCallback(async (currentMode: InputMode, query: string) => {
-    // Skip if same as last fetch
-    if (query === lastFetchedQueryRef.current && currentMode === lastFetchedModeRef.current) {
-      return;
-    }
-
-    lastFetchedQueryRef.current = query;
-    lastFetchedModeRef.current = currentMode;
-
+  const fetchSuggestions = useCallback(async (
+    currentMode: InputMode,
+    query: string,
+    signal?: AbortSignal
+  ): Promise<ChatSuggestion[]> => {
     try {
       const sessionToken = await getToken();
       const params = new URLSearchParams({ mode: currentMode, q: query });
 
       const response = await fetch(`/api/suggestions?${params.toString()}`, {
+        cache: 'no-store',
+        signal,
         headers: {
           Authorization: sessionToken ? `Bearer ${sessionToken}` : '',
         },
@@ -218,67 +233,68 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
       if (response.ok) {
         const data = await response.json();
-        setSuggestions((data.suggestions || []).slice(0, 4));
+        return (data.suggestions || []).slice(0, 5).map((suggestion: ChatSuggestion) => ({
+          ...suggestion,
+          score: suggestion.score || 0,
+          source: 'server',
+        }));
       }
-    } catch (err) {
+
+      return [];
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return [];
+      }
       console.error('Suggestions fetch error:', err);
-      // On error, generate client-side fallback suggestions
-      if (currentMode === 'log') {
-        const fallback = habits.slice(0, 4).map(h => ({
-          text: h.name,
-          type: 'habit' as const,
-          habit_id: h.id || undefined,
-          habit_name: h.name,
-          unit_type: h.unit_type || undefined,
-        }));
-        setSuggestions(fallback);
-      } else {
-        const habitNames = habits.slice(0, 4).map(h => h.name.toLowerCase());
-        const fallback = habitNames.map(name => ({
-          text: `How has my ${name} been this week?`,
-          type: 'question' as const,
-        }));
-        setSuggestions(fallback);
-      }
+      return [];
     }
-  }, [getToken, habits]);
+  }, [getToken]);
 
-  // Fetch suggestions on mount and when mode changes
+  // Instant local suggestions
   useEffect(() => {
-    fetchSuggestions(mode, '');
-  }, [mode, fetchSuggestions]);
+    const localSuggestions = buildInstantSuggestions({
+      mode,
+      query: deferredInput,
+      habits,
+      habitLogs,
+      limit: 4,
+    });
 
-  // Debounced fetch as user types
+    startTransition(() => {
+      setSuggestions(localSuggestions);
+      setSelectedSuggestionIndex(0);
+      setKeyboardSuggestionActive(false);
+    });
+  }, [mode, deferredInput, habits, habitLogs]);
+
+  // Async server enrichment
   useEffect(() => {
-    if (suggestionsDebounceRef.current) {
-      clearTimeout(suggestionsDebounceRef.current);
-    }
+    const localSuggestions = buildInstantSuggestions({
+      mode,
+      query: deferredInput,
+      habits,
+      habitLogs,
+      limit: 4,
+    });
 
-    if (input.trim()) {
-      // Debounce typed queries (300ms)
-      suggestionsDebounceRef.current = setTimeout(() => {
-        fetchSuggestions(mode, input.trim());
-      }, 300);
-    } else {
-      // Immediately fetch empty-state suggestions
-      fetchSuggestions(mode, '');
-    }
+    suggestionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    suggestionsAbortRef.current = controller;
+
+    const timer = window.setTimeout(async () => {
+      const remoteSuggestions = await fetchSuggestions(mode, deferredInput, controller.signal);
+      if (controller.signal.aborted) return;
+
+      startTransition(() => {
+        setSuggestions(mergeSuggestions(localSuggestions, remoteSuggestions, 4));
+      });
+    }, deferredInput ? 120 : 0);
 
     return () => {
-      if (suggestionsDebounceRef.current) {
-        clearTimeout(suggestionsDebounceRef.current);
-      }
+      window.clearTimeout(timer);
+      controller.abort();
     };
-  }, [input, mode, fetchSuggestions]);
-
-  // Show suggestions only when focused AND there's typed input
-  useEffect(() => {
-    if (isLoading || !isFocused || !input.trim()) {
-      setShowSuggestions(false);
-    } else {
-      setShowSuggestions(true);
-    }
-  }, [isFocused, isLoading, input]);
+  }, [mode, deferredInput, habits, habitLogs, fetchSuggestions]);
 
   // Focus/blur handlers with delay so clicking a suggestion registers before blur hides it
   const handleInputFocus = useCallback(() => {
@@ -287,6 +303,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       blurTimeoutRef.current = null;
     }
     setIsFocused(true);
+    setSelectedSuggestionIndex(0);
+    setKeyboardSuggestionActive(false);
   }, []);
 
   const handleInputBlur = useCallback(() => {
@@ -297,7 +315,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   }, []);
 
   // Handle suggestion click
-  const handleSuggestionClick = useCallback((suggestion: Suggestion) => {
+  const handleSuggestionClick = useCallback((suggestion: ChatSuggestion) => {
     if (mode === 'chat') {
       // Chat mode: route to dedicated chat page
       const question = suggestion.text.trim();
@@ -326,6 +344,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       // Habit-name suggestion — fill input for user to add a value
       const habitText = suggestion.habit_name || suggestion.text;
       setInput(habitText + ' ');
+      setSelectedSuggestionIndex(0);
+      setKeyboardSuggestionActive(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [mode, router, trackAIChatMessageSent]);
@@ -956,6 +976,41 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const canUseSuggestions =
+      isFocused &&
+      suggestions.length > 0 &&
+      !error &&
+      !isListening &&
+      !isProcessingVoice &&
+      !isUploadingScreenshot &&
+      !screenshotPreview
+
+    if (canUseSuggestions && e.key === 'ArrowDown') {
+      e.preventDefault();
+      setKeyboardSuggestionActive(true);
+      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+      return;
+    }
+
+    if (canUseSuggestions && e.key === 'ArrowUp') {
+      e.preventDefault();
+      setKeyboardSuggestionActive(true);
+      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+      return;
+    }
+
+    if (canUseSuggestions && e.key === 'Tab' && suggestions[selectedSuggestionIndex]) {
+      e.preventDefault();
+      handleSuggestionClick(suggestions[selectedSuggestionIndex]);
+      return;
+    }
+
+    if (canUseSuggestions && e.key === 'Enter' && !e.shiftKey && keyboardSuggestionActive && suggestions[selectedSuggestionIndex]) {
+      e.preventDefault();
+      handleSuggestionClick(suggestions[selectedSuggestionIndex]);
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleFormSubmit(e as any);
@@ -969,6 +1024,16 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
     }
   }, [input]);
+
+  const showSuggestions =
+    isFocused &&
+    input.trim().length > 0 &&
+    suggestions.length > 0 &&
+    !error &&
+    !isListening &&
+    !isProcessingVoice &&
+    !isUploadingScreenshot &&
+    !screenshotPreview
 
   return (
     <div className="w-full">
@@ -1086,7 +1151,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               <button
                 type="button"
                 onClick={handleCancelScreenshot}
-                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-400 hover:bg-black/[0.04] hover:text-gray-700"
+                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-400 hover:text-gray-700"
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
@@ -1278,7 +1343,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   type="button"
                   onClick={handleConfirmScreenshot}
                   disabled={isConfirming || !editedValue}
-                  className="inline-flex items-center gap-2 border border-[#111827] bg-[#111827] px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 border border-[#111827] bg-[#111827] px-3 py-1.5 text-sm font-medium text-white rounded-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isConfirming ? (
                     <BrailleSpinner className="text-sm text-white" />
@@ -1293,11 +1358,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         </div>
       )}
 
-      <div className="relative border border-gray-200/80 bg-[#F9F9F9] shadow-sm">
+      <div className="relative border border-gray-200/80 bg-[#F9F9F9] shadow-sm rounded-sm transition-all duration-300 hover:shadow-md hover:border-gray-300 focus-within:shadow-md focus-within:border-gray-300">
         <form onSubmit={handleFormSubmit}>
-          <div className="px-5 py-3">
+          <div className="px-5 pt-3 pb-3">
             {/* Input Area */}
-            <div className="mb-1">
+            <div className="mb-1 relative">
               {(isListening || isProcessingVoice) ? (
                 <div className="w-full h-[42px] flex items-center justify-center">
                   <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
@@ -1306,7 +1371,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                 <textarea
                   ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    setSelectedSuggestionIndex(0);
+                    setKeyboardSuggestionActive(false);
+                  }}
                   onKeyDown={handleKeyDown}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
@@ -1321,27 +1390,40 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               )}
             </div>
 
-            {/* Suggestions - Perplexity-style, only when focused */}
             <div
               className={cn(
-                "overflow-hidden transition-all duration-200 ease-out",
-                showSuggestions && suggestions.length > 0 && !error && !isListening && !isProcessingVoice
-                  ? "max-h-[130px] opacity-100 pt-1"
-                  : "max-h-0 opacity-0"
+                "overflow-hidden transition-all duration-150 ease-out",
+                showSuggestions ? "max-h-[172px] opacity-100 pt-2 pb-1" : "max-h-0 opacity-0"
               )}
             >
-              {suggestions.map((suggestion, idx) => (
-                <button
-                  key={`${suggestion.type}-${idx}-${suggestion.text.slice(0, 20)}`}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  className="w-full flex items-center justify-between gap-3 py-[5px] text-left text-[13px] text-gray-400 hover:text-gray-900 transition-colors group"
-                >
-                  <span className="truncate leading-snug">{suggestion.text}</span>
-                  <ArrowUpRight className="w-3 h-3 flex-shrink-0 text-gray-300 group-hover:text-gray-500 transition-colors" />
-                </button>
-              ))}
+              <div className="max-h-[168px] overflow-y-auto border-t border-gray-200/80 pt-1">
+                {suggestions.map((suggestion, idx) => (
+                  <button
+                    key={`${suggestion.type}-${idx}-${suggestion.text.slice(0, 20)}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    onMouseEnter={() => {
+                      setSelectedSuggestionIndex(idx);
+                      setKeyboardSuggestionActive(true);
+                    }}
+                    className={cn(
+                      "w-full flex items-center justify-between gap-3 px-0 py-[9px] text-left text-[13px] transition-colors group",
+                      idx === selectedSuggestionIndex
+                        ? "text-gray-950"
+                        : "text-gray-500 hover:text-gray-900"
+                    )}
+                  >
+                    <span className="truncate leading-snug">{suggestion.text}</span>
+                    <ArrowUpRight
+                      className={cn(
+                        "w-3 h-3 flex-shrink-0 transition-colors",
+                        idx === selectedSuggestionIndex ? "text-gray-500" : "text-gray-300 group-hover:text-gray-500"
+                      )}
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Error Display */}
@@ -1461,7 +1543,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               <button
                 type="submit"
                 disabled={!input.trim() || isLoading}
-                className="px-3 py-2 min-w-[40px] flex items-center justify-center bg-black hover:bg-gray-800 text-white transition-all duration-200 disabled:cursor-not-allowed"
+                className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors duration-200 hover:bg-[#27251E] disabled:cursor-not-allowed"
               >
                 {isLoading ? (
                   <BrailleSpinner className="text-sm text-white" />

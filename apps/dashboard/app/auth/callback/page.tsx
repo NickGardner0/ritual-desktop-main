@@ -6,6 +6,12 @@ import { useUser } from '@clerk/nextjs'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import { getPostOnboardingRoute } from '@/lib/onboarding-flow'
 
+const devLog = (...args: unknown[]) => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(...args);
+  }
+};
+
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState('Processing authentication...')
   const router = useRouter()
@@ -17,11 +23,11 @@ export default function AuthCallbackPage() {
       // Just redirect to dashboard when user is loaded
       if (isLoaded) {
         if (user) {
-          console.log('✅ User authenticated via Clerk, redirecting to dashboard');
+          devLog('✅ User authenticated via Clerk, redirecting to dashboard');
           setStatus('Authentication successful! Redirecting...')
           router.push(getPostOnboardingRoute('/dashboard'));
         } else {
-          console.log('❌ No user found, redirecting to home');
+          devLog('❌ No user found, redirecting to home');
           setStatus('Authentication failed. Redirecting...')
           setTimeout(() => {
             router.push('/');

@@ -18,16 +18,16 @@ async function runWhoopSync(payload: { userId?: string; daysBack?: number; hour?
   console.log('🔄 Starting automated Whoop sync...');
   console.log(`📊 Config: API=${API_BASE_URL}, userId=${payload.userId || 'all'}, daysBack=${payload.daysBack || 2}, hour=${payload.hour ?? 'any'}`);
 
-  // Sync all users with active Whoop integrations, filtered by hour if provided
-  const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync-all`, {
+  const response = await fetch(`${API_BASE_URL}/api/wearables/connections/whoop/sync-all`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Internal-Key': INTERNAL_API_KEY,
     },
     body: JSON.stringify({
-      daysBack: payload.daysBack || 2,
+      days_back: payload.daysBack || 2,
       hour: payload.hour,
+      force_full_sync: false,
     }),
   });
 

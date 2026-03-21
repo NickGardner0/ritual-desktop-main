@@ -10,7 +10,9 @@ import sqlite3
 import time
 from datetime import date as dt_date
 from datetime import datetime, time as dt_time, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from services.watcher_service_local_db import (
     get_local_activity_db_path_impl,
@@ -306,6 +308,36 @@ LOW_SIGNAL_OVERVIEW_MARKERS = (
 )
 
 
+# Domain-specific token sets for multi-query fan-out on overview queries.
+# Each set targets a different activity domain so that candidates from all
+# parts of the user's day get competitive lexical scores (instead of only
+# matching the generic "work" / "today" tokens from the user's query).
+_OVERVIEW_DOMAIN_TOKEN_SETS: List[List[str]] = [
+    ["code", "file", "function", "error", "debug", "build", "commit", "edit", "cursor", "codex"],
+    ["task", "todo", "plan", "project", "ticket", "things", "reminder"],
+    ["browser", "chrome", "safari", "search", "article", "page", "website", "read"],
+    ["email", "message", "chat", "slack", "gmail", "meeting", "zoom", "teams"],
+    ["terminal", "command", "npm", "python", "cargo", "git", "deploy", "docker"],
+    ["design", "figma", "sketch", "layout", "mockup", "v0", "interface"],
+]
+
+
+def _overview_fanout_lexical_score(haystack: str, original_tokens: List[str]) -> float:
+    """Score a candidate against the original tokens AND all domain token sets.
+
+    Returns the maximum lexical score achieved across the original query tokens
+    and each domain-specific token set.  This ensures that a candidate about
+    e.g. "email" in Gmail gets a real score even when the user's query was the
+    generic "what did I work on today?".
+    """
+    best = score_lexical_match_impl(haystack, original_tokens)
+    for domain_tokens in _OVERVIEW_DOMAIN_TOKEN_SETS:
+        score = score_lexical_match_impl(haystack, domain_tokens)
+        if score > best:
+            best = score
+    return best
+
+
 def _normalized_semantic_key(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
@@ -450,6 +482,18 @@ def _is_low_signal_overview_row(
         return True
     if normalized_query and len(normalized_query.split()) >= 4 and normalized_query in haystack:
         return True
+
+    # Semantic boost escape hatch — if the row has strong semantic relevance, keep it
+    if semantic_boost >= 0.12:
+        return False
+
+    # Non-browser apps (Cursor, VS Code, Terminal, etc.) are generally high-signal work
+    # Only filter them if they're known noise sources (loginwindow, ritual-desktop handled above)
+    is_browser = normalized_app in {"google chrome", "chrome", "safari", "arc", "firefox"} or bool(normalized_domain)
+    if not is_browser:
+        return False
+
+    # Browser-specific filtering below
     if any(pattern in normalized_title for pattern in LOW_SIGNAL_WINDOW_PATTERNS):
         return True
     if any(pattern in normalized_snippet for pattern in LOW_SIGNAL_SNIPPET_PATTERNS):
@@ -468,11 +512,6 @@ def _is_low_signal_overview_row(
         )
     ):
         return True
-    if semantic_boost >= 0.12:
-        return False
-
-    if normalized_app not in {"google chrome", "chrome", "safari", "arc", "firefox"} and not normalized_domain:
-        return False
 
     if normalized_domain in LOW_SIGNAL_BROWSER_DOMAINS and not has_worklike_marker:
         return True
@@ -483,9 +522,16 @@ def _select_diverse_context_results(
     rows: List[Dict[str, Any]],
     *,
     limit: int,
+    overview_mode: bool = False,
 ) -> List[Dict[str, Any]]:
     if len(rows) <= limit:
         return rows
+
+    # Overview mode allows more evidence per app/window/bucket so the
+    # story planner gets broader coverage of the full day.
+    max_per_app = 5 if overview_mode else 3
+    max_per_window = 3 if overview_mode else 2
+    max_per_bucket = 4 if overview_mode else 3
 
     selected: List[Dict[str, Any]] = []
     per_app: Dict[str, int] = {}
@@ -510,11 +556,11 @@ def _select_diverse_context_results(
 
         if semantic_key and semantic_key in seen_semantic_keys:
             continue
-        if per_app.get(app_key, 0) >= 3:
+        if per_app.get(app_key, 0) >= max_per_app:
             continue
-        if per_window.get(window_key, 0) >= 2:
+        if per_window.get(window_key, 0) >= max_per_window:
             continue
-        if per_bucket.get(bucket_key, 0) >= 3:
+        if per_bucket.get(bucket_key, 0) >= max_per_bucket:
             continue
 
         selected.append(row)
@@ -851,11 +897,11 @@ def _build_local_context_budgets(query: str, intent: str, requested_limit: int) 
         return {
             "kind": "broad_overview",
             "allowed_query_types": {"original", "lex", "vec"},
-            "expanded_query_limit": 4,
-            "session_candidate_limit": min(max(requested_limit * 6, 120), 500),
-            "snapshot_candidate_limit": min(max(requested_limit * 12, 180), 800),
-            "final_limit": min(max(requested_limit, 1), 40),
-            "citation_limit": 40,
+            "expanded_query_limit": 5,
+            "session_candidate_limit": min(max(requested_limit * 8, 200), 800),
+            "snapshot_candidate_limit": min(max(requested_limit * 14, 300), 1200),
+            "final_limit": min(max(requested_limit, 1), 50),
+            "citation_limit": 50,
         }
     return {
         "kind": "topic_lookup",
@@ -1025,7 +1071,10 @@ async def search_context_memory_impl(
                         str(row["raw_visible_text"] or ""),
                     ]
                 ).lower()
-                lexical_score = score_lexical_match_impl(haystack, tokens)
+                if is_overview_query:
+                    lexical_score = _overview_fanout_lexical_score(haystack, tokens)
+                else:
+                    lexical_score = score_lexical_match_impl(haystack, tokens)
                 exact_match_score = _exact_context_match_score(
                     normalized_query,
                     [
@@ -1150,15 +1199,24 @@ async def search_context_memory_impl(
                     key=lambda item: (item["relevance_score"], item["timestamp"]),
                     reverse=True,
                 )
+                if is_overview_query:
+                    selected = _select_diverse_context_results(scored_rows, limit=final_limit, overview_mode=True)
+                else:
+                    selected = scored_rows[:final_limit]
                 results = _prioritize_app_scope_results(
-                    scored_rows[:final_limit],
+                    selected,
                     requested_app_scope,
-                    hard_filter=local_budgets["kind"] == "app_drilldown",
+                    hard_filter=False,
                 )
                 mode_used = "context-session-docs"
                 status = "hybrid"
 
-        if (prefer_snapshot_evidence or not results) and has_snapshots:
+        # For overview queries, also pull snapshots to supplement session docs
+        # with broader temporal/app coverage.  Store session-doc results so we
+        # can merge after snapshot scoring.
+        session_doc_results = list(results) if (is_overview_query and results) else []
+
+        if (prefer_snapshot_evidence or not results or is_overview_query) and has_snapshots:
             candidate_limit = int(local_budgets["snapshot_candidate_limit"])
             cursor.execute(
                 """
@@ -1202,7 +1260,10 @@ async def search_context_memory_impl(
                         str(row["visible_text_raw"] or ""),
                     ]
                 ).lower()
-                lexical_score = score_lexical_match_impl(haystack, tokens)
+                if is_overview_query:
+                    lexical_score = _overview_fanout_lexical_score(haystack, tokens)
+                else:
+                    lexical_score = score_lexical_match_impl(haystack, tokens)
                 exact_match_score = _exact_context_match_score(
                     normalized_query,
                     [
@@ -1347,14 +1408,34 @@ async def search_context_memory_impl(
                     key=lambda item: (item["relevance_score"], item["timestamp"]),
                     reverse=True,
                 )
-                selected_rows = _select_diverse_context_results(scored_rows, limit=final_limit) if prefer_snapshot_evidence else scored_rows[:final_limit]
+                selected_rows = _select_diverse_context_results(scored_rows, limit=final_limit, overview_mode=is_overview_query) if (prefer_snapshot_evidence or is_overview_query) else scored_rows[:final_limit]
                 results = _prioritize_app_scope_results(
                     selected_rows,
                     requested_app_scope,
-                    hard_filter=local_budgets["kind"] == "app_drilldown",
+                    hard_filter=False,
                 )
                 mode_used = "context-snapshots"
                 status = "text-only"
+
+        # Merge session-doc and snapshot results for overview queries so the
+        # story planner sees evidence from both retrieval paths.
+        if is_overview_query and session_doc_results and results:
+            existing_timestamps = {int(r.get("timestamp") or 0) for r in results}
+            for sdr in session_doc_results:
+                sdr_ts = int(sdr.get("timestamp") or 0)
+                # Skip near-duplicates (within 30s)
+                if any(abs(sdr_ts - ts) < 30_000 for ts in existing_timestamps):
+                    continue
+                results.append(sdr)
+                existing_timestamps.add(sdr_ts)
+            # Re-sort the merged pool and re-apply diversity selection
+            results.sort(
+                key=lambda item: (float(item.get("relevance_score") or 0.0), int(item.get("timestamp") or 0)),
+                reverse=True,
+            )
+            results = list(_select_diverse_context_results(results, limit=final_limit, overview_mode=True))
+            mode_used = "context-merged"
+            status = "hybrid"
 
         if not results and allow_legacy_fallback:
             legacy = await search_screen_recordings_impl(
@@ -1372,16 +1453,53 @@ async def search_context_memory_impl(
             )
             return legacy
 
+        # OCR fusion: when context memory results have low avg capture quality,
+        # supplement with legacy OCR results for richer evidence
+        if results and allow_legacy_fallback:
+            avg_quality = sum(float(r.get("capture_quality") or 0.0) for r in results) / max(len(results), 1)
+            if avg_quality < 0.5:
+                try:
+                    ocr_supplement = await search_screen_recordings_impl(
+                        service=service,
+                        user_id=user_id,
+                        query=normalized_query,
+                        days_back=safe_days_back,
+                        limit=max(5, final_limit // 3),
+                        allow_activity_fallback=False,
+                    )
+                    ocr_results = ocr_supplement.get("results") or [] if ocr_supplement.get("success") else []
+                    if ocr_results:
+                        # Tag OCR results and merge them into the evidence set
+                        existing_timestamps = {int(r.get("timestamp") or 0) for r in results}
+                        for ocr_row in ocr_results:
+                            ocr_ts = int(ocr_row.get("timestamp") or 0)
+                            # Skip if within 30s of an existing result to avoid near-duplicates
+                            if any(abs(ocr_ts - ts) < 30_000 for ts in existing_timestamps):
+                                continue
+                            ocr_row["source"] = "ocr_fallback"
+                            ocr_row["source_type"] = "ocr_fusion"
+                            results.append(ocr_row)
+                        results.sort(key=lambda r: (float(r.get("relevance_score") or 0.0), int(r.get("timestamp") or 0)), reverse=True)
+                except Exception:
+                    pass  # OCR fusion is best-effort
+
         story_plan = None
         renderer = None
         debug = None
+        citations = []
+        rerank_info = {"provider": "none", "rerank_attempted": False, "rerank_latency_ms": 0}
         if results:
-            if local_budgets["kind"] == "app_drilldown":
-                results = _prioritize_app_scope_results(
-                    results,
-                    requested_app_scope,
-                    hard_filter=True,
-                )
+            if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
+                # Soft-filter: 70% primary app, 30% corroborating from other apps
+                primary_results = [r for r in results if _result_matches_app_scope(r, requested_app_scope)]
+                corroborating_results = [r for r in results if not _result_matches_app_scope(r, requested_app_scope)]
+                primary_budget = max(1, int(final_limit * 0.7))
+                corroboration_budget = max(1, final_limit - primary_budget)
+                results = primary_results[:primary_budget] + corroborating_results[:corroboration_budget]
+
+            # Reranking disabled — first-stage scoring (recency + app-scope + text
+            # matching) provides sufficient ordering and avoids 5-11s Cohere latency.
+
             citations = _build_citations(
                 results,
                 start_ms=cutoff_ms,
@@ -1389,13 +1507,12 @@ async def search_context_memory_impl(
                 limit=max(final_limit * 2, int(local_budgets["citation_limit"])),
             )
             if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
-                scoped_citations = [
-                    citation
-                    for citation in citations
-                    if _result_matches_app_scope(citation, requested_app_scope)
-                ]
-                if scoped_citations:
-                    citations = scoped_citations
+                # Keep primary app citations dominant but include corroborating evidence
+                scoped_citations = [c for c in citations if _result_matches_app_scope(c, requested_app_scope)]
+                other_citations = [c for c in citations if not _result_matches_app_scope(c, requested_app_scope)]
+                citation_primary_budget = max(1, int(len(citations) * 0.7))
+                citation_corr_budget = max(1, len(citations) - citation_primary_budget)
+                citations = scoped_citations[:citation_primary_budget] + other_citations[:citation_corr_budget]
             top_score = float(results[0].get("relevance_score") or 0.0)
             runner_up_score = float(results[1].get("relevance_score") or 0.0) if len(results) > 1 else 0.0
             strong_signal = None
@@ -1428,6 +1545,7 @@ async def search_context_memory_impl(
                     "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
                     "expanded_queries": expanded_queries,
                     "strong_signal_short_circuit": strong_signal,
+                    "rerank": rerank_info,
                     "candidate_limit_applied": {
                         "kind": local_budgets["kind"],
                         "session_candidate_limit": int(local_budgets["session_candidate_limit"]),
@@ -1446,7 +1564,7 @@ async def search_context_memory_impl(
                             "candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
                         },
                     ],
-                    "rerank_cache_hit": False,
+                    "rerank_cache_hit": bool(rerank_info.get("cache_hits")),
                 }
 
         return {
@@ -1458,6 +1576,7 @@ async def search_context_memory_impl(
             "mode_used": mode_used,
             "status": status,
             "warning": warning,
+            "citations": citations,
             "story_plan": story_plan,
             "renderer": renderer,
             "debug": debug,
@@ -1930,10 +2049,11 @@ def _resolve_query_window(
     days_back: Optional[int],
     start_date: Optional[str],
     end_date: Optional[str],
+    timezone_name: Optional[str] = None,
     query: Optional[str] = None,
 ) -> Tuple[dt_date, dt_date, int]:
     safe_days_back = max(1, min(int(days_back or 7), 90))
-    today = datetime.now().date()
+    today = _resolve_today(timezone_name)
 
     parsed_start = _parse_ymd(start_date)
     parsed_end = _parse_ymd(end_date)
@@ -2006,6 +2126,25 @@ def _resolve_relative_window_from_query(
         return first_this_month, today, _days(first_this_month, today)
 
     return None
+
+
+def _resolve_query_timezone(timezone_name: Optional[str]) -> dt_timezone | ZoneInfo:
+    normalized = (timezone_name or "").strip()
+    if normalized:
+        try:
+            return ZoneInfo(normalized)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "Unknown memory query timezone '%s'; falling back to local timezone.",
+                normalized,
+            )
+
+    local_tz = datetime.now().astimezone().tzinfo
+    return local_tz or dt_timezone.utc
+
+
+def _resolve_today(timezone_name: Optional[str]) -> dt_date:
+    return datetime.now(_resolve_query_timezone(timezone_name)).date()
 
 
 def _detect_memory_intent(query: str, explicit_intent: Optional[str]) -> str:
@@ -3124,6 +3263,7 @@ async def query_memory_impl(
     days_back: int = 7,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    timezone: Optional[str] = None,
     group_by: str = "app",
     limit: int = 20,
 ) -> Dict[str, Any]:
@@ -3150,10 +3290,12 @@ async def query_memory_impl(
         days_back,
         start_date,
         end_date,
+        timezone_name=timezone,
         query=normalized_query,
     )
-    start_ms = int(datetime.combine(start_day, dt_time.min).timestamp() * 1000)
-    end_ms = int(datetime.combine(end_day, dt_time.max).timestamp() * 1000)
+    query_tz = _resolve_query_timezone(timezone)
+    start_ms = int(datetime.combine(start_day, dt_time.min, tzinfo=query_tz).timestamp() * 1000)
+    end_ms = int(datetime.combine(end_day, dt_time.max, tzinfo=query_tz).timestamp() * 1000)
     resolved_intent = _detect_memory_intent(normalized_query, intent)
 
     memory_db_path = get_local_memory_db_path_impl()
@@ -3271,7 +3413,13 @@ async def query_memory_impl(
         if should_include_semantic and semantic_allowed:
             if cloud_mode:
                 local_strong_signal = False
-                if resolved_intent == "broad_overview":
+                # Skip redundant local semantic search for broad_overview —
+                # go straight to Turbopuffer cloud which has higher-quality
+                # OpenAI embeddings and returns faster without the local overhead.
+                if resolved_intent == "broad_overview" and False:
+                    # Disabled: local semantic truth was redundant with cloud path
+                    pass
+                elif resolved_intent == "broad_overview_DISABLED":
                     local_context_truth = await _load_semantic_truth(
                         service=service,
                         user_id=user_id,
@@ -3282,8 +3430,9 @@ async def query_memory_impl(
                         start_ms=start_ms,
                         end_ms=end_ms,
                         allow_activity_fallback=False,
-                        allow_legacy_ocr_fallback=False,
                     )
+                    if local_context_truth.get("warning"):
+                        warning_parts.append(str(local_context_truth["warning"]))
                     local_context_citations = local_context_truth.pop("citations", [])
                     if local_context_citations:
                         semantic_truth = local_context_truth
@@ -3312,8 +3461,9 @@ async def query_memory_impl(
                         start_ms=start_ms,
                         end_ms=end_ms,
                         allow_activity_fallback=False,
-                        allow_legacy_ocr_fallback=False,
                     )
+                    if local_context_truth.get("warning"):
+                        warning_parts.append(str(local_context_truth["warning"]))
                     local_context_citations = local_context_truth.pop("citations", [])
                     if local_context_citations:
                         semantic_truth = local_context_truth
@@ -3337,7 +3487,12 @@ async def query_memory_impl(
                         if part != "Semantic retrieval is degraded; using lexical-first fallback where needed."
                     ]
                 try:
-                    if local_strong_signal:
+                    # Always call Turbopuffer for cloud vector retrieval — don't
+                    # short-circuit on local_strong_signal. The cloud path provides
+                    # vector-semantic results that complement the local lexical/recency
+                    # search, and Cohere reranking in the cloud path further improves
+                    # result quality. Skipping this wastes the Turbopuffer index.
+                    if False:  # was: local_strong_signal — no longer skip cloud
                         cloud_result = {"enabled": False}
                     else:
                         cloud_result = await query_semantic_cloud(
@@ -3364,6 +3519,14 @@ async def query_memory_impl(
                                 secondary=cloud_citations,
                                 limit=max(20, safe_limit),
                             )
+                            # Re-apply hard app filter after cloud fusion so app-scoped
+                            # queries (e.g. "What was I doing in Cursor?") don't get
+                            # diluted by unscoped cloud citations.
+                            _app_scope = _extract_requested_app_scope(normalized_query)
+                            if _app_scope and resolved_intent in {"semantic_lookup", "evidence_timeline"}:
+                                scoped = [c for c in citations if _result_matches_app_scope(c, _app_scope)]
+                                if scoped:
+                                    citations = scoped
                             semantic_truth = semantic_truth or cloud_semantic_truth
                             if isinstance(semantic_truth, dict):
                                 semantic_truth["highlights"] = citations[: min(safe_limit, 12)]
@@ -3487,7 +3650,17 @@ async def query_memory_impl(
                             except Exception as shadow_exc:
                                 logger.debug("memory shadow comparison failed: %s", shadow_exc)
                 except Exception as cloud_exc:
-                    if memory_fail_closed():
+                    if citations:
+                        warning_parts.append(
+                            f"Cloud semantic retrieval error; continuing with local grounded evidence: {cloud_exc}"
+                        )
+                        if provider_path is None:
+                            provider_path = {
+                                "retrieval": "local_context",
+                                "rerank": "none",
+                                "answer": "openai",
+                            }
+                    elif memory_fail_closed():
                         semantic_truth = {
                             "query": normalized_query,
                             "result_count": 0,

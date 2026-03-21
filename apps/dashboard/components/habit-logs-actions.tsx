@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { TableDensity } from '@/app/(dashboard)/activity/activity-client';
+import type { TableDensity } from '@/app/(dashboard)/activity/logs-client';
 
 const COLUMN_LABELS: Record<string, string> = {
   select: 'Select',
@@ -27,7 +27,6 @@ const COLUMN_LABELS: Record<string, string> = {
   value: 'Value',
   category: 'Category',
   source: 'Source',
-  status: 'Status',
   notes: 'Notes',
   actions: 'Actions',
 };
@@ -54,20 +53,20 @@ export function HabitLogsActions({
   onQuickSaveView,
 }: Props) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex h-9 w-9 items-center justify-center bg-white border border-gray-200 text-gray-600 hover:bg-[#F8F8F8] transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-sm border border-black/10 bg-white text-neutral-600 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-colors hover:bg-neutral-50 hover:text-neutral-900"
             aria-label="Column visibility"
           >
-            <SlidersHorizontal className="w-[17px] h-[17px]" />
+            <SlidersHorizontal className="h-4 w-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          className="w-[190px] bg-white border border-gray-200 shadow-md p-1 rounded-none"
+          className="w-[200px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
         >
           {Object.entries(COLUMN_LABELS)
             .filter(([key]) => !REQUIRED_COLUMNS.includes(key))
@@ -77,7 +76,7 @@ export function HabitLogsActions({
               return (
                 <label
                   key={key}
-                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F8F8F8] cursor-pointer transition-colors"
+                  className="flex cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2 transition-colors hover:bg-neutral-50"
                 >
                   <Checkbox
                     checked={isVisible}
@@ -99,20 +98,20 @@ export function HabitLogsActions({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex h-9 w-9 items-center justify-center bg-white border border-gray-200 text-gray-600 hover:bg-[#F8F8F8] transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-sm border border-black/10 bg-white text-neutral-600 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-colors hover:bg-neutral-50 hover:text-neutral-900"
             aria-label="More actions"
           >
-            <Plus className="w-[17px] h-[17px]" />
+            <Plus className="h-4 w-4" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          className="w-[220px] bg-white border border-gray-200 shadow-md p-1 rounded-none"
+          className="w-[220px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
         >
           {onQuickSaveView && (
             <DropdownMenuItem
-              className="rounded-none"
+              className="rounded-sm"
               onClick={onQuickSaveView}
             >
               <Save className="w-4 h-4 mr-2" />
@@ -122,7 +121,7 @@ export function HabitLogsActions({
 
           {onExportFiltered && (
             <DropdownMenuItem
-              className="rounded-none"
+              className="rounded-sm"
               onClick={onExportFiltered}
               disabled={exportDisabled}
             >
@@ -131,10 +130,10 @@ export function HabitLogsActions({
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuSeparator className="bg-gray-200" />
+          <DropdownMenuSeparator className="bg-black/5" />
 
           <DropdownMenuItem
-            className="rounded-none"
+            className="rounded-sm"
             onClick={() => onDensityChange('comfortable')}
           >
             <Rows3 className="w-4 h-4 mr-2" />
@@ -143,7 +142,7 @@ export function HabitLogsActions({
           </DropdownMenuItem>
 
           <DropdownMenuItem
-            className="rounded-none"
+            className="rounded-sm"
             onClick={() => onDensityChange('compact')}
           >
             <Rows3 className="w-4 h-4 mr-2" />

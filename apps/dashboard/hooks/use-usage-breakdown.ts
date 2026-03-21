@@ -1,9 +1,14 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import type { BreakdownResponse, UsageBreakdownKind } from '@ritual/shared-contracts/computer-activity';
+import type {
+  ActivityBreakdownSource,
+  BreakdownResponse,
+  UsageBreakdownKind,
+} from '@ritual/shared-contracts/computer-activity';
 
 export interface UsageBreakdownParams {
+  source?: ActivityBreakdownSource;
   kind: UsageBreakdownKind;
   key: string;
   start: string;
@@ -12,6 +17,7 @@ export interface UsageBreakdownParams {
 }
 
 export function useUsageBreakdown({
+  source = 'desktop',
   kind,
   key,
   start,
@@ -19,9 +25,9 @@ export function useUsageBreakdown({
   enabled = true,
 }: UsageBreakdownParams) {
   return useQuery({
-    queryKey: ['usage-breakdown', kind, key, start, end],
+    queryKey: ['usage-breakdown', source, kind, key, start, end],
     queryFn: async () => {
-      const params = new URLSearchParams({ kind, key, start, end });
+      const params = new URLSearchParams({ source, kind, key, start, end });
       const response = await fetch(`/api/computer-activity/breakdown?${params.toString()}`);
 
       if (!response.ok) {

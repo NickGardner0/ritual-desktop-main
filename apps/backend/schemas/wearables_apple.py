@@ -13,6 +13,7 @@ class WearableSource(str, Enum):
     """Supported wearable data sources"""
     WHOOP = "whoop"
     APPLE_HEALTH = "apple_health"
+    APPLE_SCREEN_TIME = "apple_screen_time"
     OURA = "oura"
     GARMIN = "garmin"
     FITBIT = "fitbit"
@@ -50,6 +51,11 @@ class MetricType(str, Enum):
     # Workouts & Mindfulness
     WORKOUT = "workout"
     MINDFUL_MINUTES = "mindful_minutes"
+
+    # Screen Time
+    SCREEN_TIME_TOTAL = "screen_time_total"
+    SCREEN_TIME_APP_USAGE = "screen_time_app_usage"
+    SCREEN_TIME_WEB_DOMAIN_USAGE = "screen_time_web_domain_usage"
 
 
 class Unit(str, Enum):

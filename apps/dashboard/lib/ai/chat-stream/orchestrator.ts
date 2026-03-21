@@ -137,12 +137,17 @@ type ChatToolResults = {
   trends?: any;
   anomalies?: any;
   screenRecordings?: any;
+  contextMemoryRecap?: any;
   screenTimeSpent?: any;
   weeklyOverview?: any;
   dailyOverview?: any;
   monthlyOverview?: any;
   allStats?: any[];
   allBreakdowns?: { habit: any; data: any[] }[];
+  activitySummary?: any;
+  dailyBiometrics?: any;
+  screenTimeSummary?: any;
+  calendarEvents?: any;
   suggested_followups?: string[];
   reply_chips?: string[];
 };
@@ -155,13 +160,16 @@ function buildCanvasToolPayload(toolResults: ChatToolResults): Record<string, un
     correlation: toolResults.correlation,
     trends: toolResults.trends,
     anomalies: toolResults.anomalies,
-    screenRecordings: toolResults.screenRecordings,
     screenTimeSpent: toolResults.screenTimeSpent,
     weeklyOverview: toolResults.weeklyOverview,
     dailyOverview: toolResults.dailyOverview,
     monthlyOverview: toolResults.monthlyOverview,
     allStats: toolResults.allStats,
     allBreakdowns: toolResults.allBreakdowns,
+    activitySummary: toolResults.activitySummary,
+    dailyBiometrics: toolResults.dailyBiometrics,
+    screenTimeSummary: toolResults.screenTimeSummary,
+    calendarEvents: toolResults.calendarEvents,
     suggested_followups: toolResults.suggested_followups,
     reply_chips: toolResults.reply_chips,
   };
@@ -287,6 +295,54 @@ function isMonthlyOverviewQuery(text: string): boolean {
 function isExplicitThisWeekQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase();
   return normalized.includes('this week');
+}
+
+function isExplicitLastWeekQuery(text: string): boolean {
+  const normalized = (text || '').toLowerCase();
+  return normalized.includes('last week');
+}
+
+function resolveWeeklyOverviewParamsFromQuery(
+  text: string,
+  timezone?: string,
+): { startDate?: string; endDate?: string; daysBack?: number; strictThisWeek?: boolean } {
+  if (isExplicitLastWeekQuery(text)) {
+    const thisWeekRange = getStrictThisWeekRange(timezone || 'UTC', new Date());
+    return {
+      startDate: shiftYmd(thisWeekRange.startDate, -7),
+      endDate: shiftYmd(thisWeekRange.startDate, -1),
+      strictThisWeek: false,
+    };
+  }
+
+  if (isExplicitThisWeekQuery(text)) {
+    return {
+      daysBack: 7,
+      strictThisWeek: true,
+    };
+  }
+
+  return {
+    daysBack: 7,
+    strictThisWeek: false,
+  };
+}
+
+function getOverviewTitleFromQuery(
+  toolName: string | null,
+  query: string,
+  contextMemoryRecap?: unknown,
+  timezone?: string,
+): string {
+  if (toolName === 'getDailyOverview') return 'Daily Activity Overview';
+  if (toolName === 'searchContextMemory') {
+    return formatNarrativeDateLabel(contextMemoryRecap || {}, query, timezone);
+  }
+  if (toolName === 'getMonthlyOverview') return 'Monthly Activity Overview';
+  if (toolName === 'getWeeklyOverview' && isExplicitLastWeekQuery(query)) {
+    return 'Last Week Overview';
+  }
+  return 'Weekly Activity Overview';
 }
 
 function isScreenTimeSpentQuery(text: string): boolean {
@@ -440,6 +496,135 @@ function formatContextTimestamp(value: unknown, timezone?: string): string {
   }).format(date);
 }
 
+function formatWorkstreamTimeRange(
+  startTs: unknown,
+  endTs: unknown,
+  timezone?: string,
+): string {
+  const start = formatContextTimestamp(startTs, timezone);
+  const end = formatContextTimestamp(endTs, timezone);
+  if (start && end && start !== end) return `${start} - ${end}`;
+  return start || end || '';
+}
+
+function renderWorkstreamSection(
+  item: any,
+  timezone?: string,
+): string[] {
+  const sectionLines: string[] = [];
+  const label = clipContextText(item?.label || item?.title || 'Workstream', 120);
+  const timeRange = formatWorkstreamTimeRange(item?.start_ts, item?.end_ts, timezone);
+  const seqNum = item?.sequence_number || 0;
+  const interactionLevel = item?.interaction_level || 'present';
+
+  // For brief passive visits, render a single concise line instead of a full section
+  if (interactionLevel === 'passive_brief') {
+    const apps = Array.isArray(item?.apps) ? item.apps : [];
+    const appName = apps[0] || label;
+    const briefLine = seqNum > 0
+      ? `${seqNum}. Briefly checked ${appName}`
+      : `- Briefly checked ${appName}`;
+    if (timeRange) {
+      sectionLines.push(`${briefLine} *(${timeRange})*`);
+    } else {
+      sectionLines.push(briefLine);
+    }
+    return sectionLines;
+  }
+
+  // For task manager items without corroborating artifacts, use "viewed tasks" language
+  if (interactionLevel === 'task_viewed') {
+    const apps = Array.isArray(item?.apps) ? item.apps : [];
+    const appName = apps[0] || label;
+    const specificTasks = Array.isArray(item?.specific_tasks) ? item.specific_tasks : [];
+    const taskDetail = specificTasks.length > 0
+      ? `: "${clipContextText(specificTasks[0], 120)}"`
+      : '';
+    const viewedLine = seqNum > 0
+      ? `${seqNum}. Viewed/added tasks in ${appName}${taskDetail}`
+      : `- Viewed/added tasks in ${appName}${taskDetail}`;
+    if (timeRange) {
+      sectionLines.push(`${viewedLine} *(${timeRange})*`);
+    } else {
+      sectionLines.push(viewedLine);
+    }
+    return sectionLines;
+  }
+
+  // Bold heading (not markdown ### — avoids LLM passing through as section headers)
+  const heading = `**${label}**`;
+  sectionLines.push(heading);
+  if (timeRange) {
+    sectionLines.push(`*${timeRange}*`);
+  }
+
+  // Canonical identity context (repo/branch) — gives grounding like Littlebird
+  const repoRoot = item?.repo_root ? String(item.repo_root).split('/').pop() || '' : '';
+  const branch = item?.branch || '';
+  if (repoRoot && branch) {
+    sectionLines.push(`*${repoRoot} — ${branch}*`);
+  } else if (repoRoot) {
+    sectionLines.push(`*${repoRoot}*`);
+  }
+
+  // Collect all evidence into a structured block for LLM synthesis
+  const specificTasks = Array.isArray(item?.specific_tasks) ? item.specific_tasks : [];
+  const files = Array.isArray(item?.file_artifacts) ? item.file_artifacts : [];
+  const commands = Array.isArray(item?.command_artifacts) ? item.command_artifacts : [];
+  const commits = Array.isArray(item?.commit_artifacts) ? item.commit_artifacts : [];
+  const gitOps = Array.isArray(item?.git_op_artifacts) ? item.git_op_artifacts : [];
+  const errors = Array.isArray(item?.error_artifacts) ? item.error_artifacts : [];
+  const taskDocs = Array.isArray(item?.task_doc_artifacts) ? item.task_doc_artifacts : [];
+  const apps = Array.isArray(item?.apps) ? item.apps : [];
+  const confidence = item?.confidence || 0;
+  const durationMs = item?.duration_ms || 0;
+  const durationMin = durationMs > 0 ? Math.round(durationMs / 60000) : 0;
+
+  // Provide evidence as a synthesis block — the LLM weaves these into prose
+  sectionLines.push('[EVIDENCE FOR SYNTHESIS — weave into narrative prose, do not list mechanically]');
+
+  if (specificTasks.length > 0) {
+    sectionLines.push(`Activities: ${specificTasks.slice(0, 6).map((t: string) => clipContextText(t, 160)).join(' | ')}`);
+  }
+
+  if (files.length > 0) {
+    sectionLines.push(`Files modified: ${files.slice(0, 10).map((f: string) => `\`${f}\``).join(', ')}`);
+  }
+
+  if (commands.length > 0) {
+    sectionLines.push(`Commands: ${commands.slice(0, 5).map((c: string) => `\`${c}\``).join(', ')}`);
+  }
+
+  const allGit = [...commits.slice(0, 3), ...gitOps.slice(0, 3)];
+  if (allGit.length > 0) {
+    sectionLines.push(`Git activity: ${allGit.map((g: string) => clipContextText(g, 80)).join(', ')}`);
+  }
+
+  if (errors.length > 0) {
+    sectionLines.push(`Errors encountered: ${errors.slice(0, 3).map((e: string) => clipContextText(e, 140)).join('; ')}`);
+  }
+
+  if (taskDocs.length > 0) {
+    sectionLines.push(`Task references: ${taskDocs.slice(0, 3).join(', ')}`);
+  }
+
+  if (apps.length > 0) {
+    sectionLines.push(`Apps: ${apps.join(', ')}`);
+  }
+
+  if (durationMin > 0) {
+    sectionLines.push(`Duration: ~${durationMin} min`);
+  }
+
+  if (confidence > 0 && confidence < 0.5) {
+    sectionLines.push(`Note: low confidence (${(confidence * 100).toFixed(0)}%) — use cautious language`);
+  }
+
+  sectionLines.push('[END EVIDENCE]');
+
+  return sectionLines;
+}
+
 function buildContextMemoryNarrative(
   payload: any,
   query: string,
@@ -464,6 +649,12 @@ function buildContextMemoryNarrative(
   const apps = Array.isArray(storyPlan.apps_and_tools_used) ? storyPlan.apps_and_tools_used : [];
   const timelineSegments = Array.isArray(storyPlan.timeline_segments) ? storyPlan.timeline_segments : [];
   const uncertainty = Array.isArray(storyPlan.uncertainty_or_conflicts) ? storyPlan.uncertainty_or_conflicts : [];
+  const numberedWorkstreams = Array.isArray(storyPlan.numbered_workstreams) ? storyPlan.numbered_workstreams : [];
+  const corroboratingActivity = Array.isArray(storyPlan.corroborating_activity) ? storyPlan.corroborating_activity : [];
+  const filesTouched = Array.isArray(storyPlan.files_touched) ? storyPlan.files_touched : [];
+  const commandsRun = Array.isArray(storyPlan.commands_run) ? storyPlan.commands_run : [];
+  const errorsEncountered = Array.isArray(storyPlan.errors_encountered) ? storyPlan.errors_encountered : [];
+  const commitsAndPushes = Array.isArray(storyPlan.commits_and_pushes) ? storyPlan.commits_and_pushes : [];
   const heading = formatNarrativeDateLabel(payload, query, timezone);
   const lines: string[] = [`## ${heading}`];
 
@@ -472,117 +663,221 @@ function buildContextMemoryNarrative(
     return lines.join('\n');
   }
 
-  const mainClaim =
-    claimCards.find((card: any) => card?.claim_kind === 'main_event')?.claim_text
-    || claimCards[0]?.claim_text
-    || (mainEvent?.label ? `The main thread was ${mainEvent.label}.` : '');
-
-  if (mainEvent?.label) {
-    lines.push('', `**${mainEvent.label}**`);
-  }
-  if (mainClaim) {
-    lines.push('', clipContextText(mainClaim, 240));
-  }
-
+  // --- App Drilldown: Numbered workstream rendering ---
   if (rendererKind === 'app_drilldown') {
     const appName = Array.isArray(mainEvent?.apps) && mainEvent.apps.length > 0
       ? String(mainEvent.apps[0])
       : results[0]?.app_name || 'that app';
-    lines.push('', `### What you did in ${appName}`);
-    for (const item of [mainEvent, ...supporting].filter(Boolean).slice(0, 3)) {
-      const taskText = Array.isArray(item?.specific_tasks) && item.specific_tasks.length > 0
-        ? `: ${clipContextText(item.specific_tasks[0], 140)}`
-        : '';
-      lines.push(`- ${clipContextText(item?.label || item?.title || 'Primary thread', 100)}${taskText}`);
+
+    // Compute overall time range from ALL workstreams (not just main event)
+    const allWorkstreams = numberedWorkstreams.length > 0
+      ? numberedWorkstreams
+      : [mainEvent, ...supporting].filter(Boolean);
+    let minTs = mainEvent?.start_ts || 0;
+    let maxTs = mainEvent?.end_ts || 0;
+    for (const ws of allWorkstreams) {
+      if (ws?.start_ts && (!minTs || ws.start_ts < minTs)) minTs = ws.start_ts;
+      if (ws?.end_ts && ws.end_ts > maxTs) maxTs = ws.end_ts;
+    }
+    const overallTimeRange = formatWorkstreamTimeRange(minTs || undefined, maxTs || undefined, timezone);
+    if (overallTimeRange) {
+      lines.push('', `**${appName} (${overallTimeRange})**`);
+    } else {
+      lines.push('', `**${appName}**`);
     }
 
-    if (documents.length > 0) {
-      lines.push('', '### Documents worked on');
-      for (const documentItem of documents.slice(0, 5)) {
-        lines.push(`- ${clipContextText(documentItem?.label || documentItem?.title || 'Document', 160)}`);
+    // Render numbered workstreams
+    const workstreamsToRender = numberedWorkstreams.length > 0
+      ? numberedWorkstreams.filter((ws: any) => ws?.label && ws.label !== 'General workstream')
+      : [mainEvent, ...supporting].filter(Boolean);
+
+    for (const item of workstreamsToRender.slice(0, 8)) {
+      lines.push('');
+      lines.push(...renderWorkstreamSection(item, timezone));
+    }
+
+    // If no workstreams had files but we have top-level files, show them
+    const workstreamHasFiles = workstreamsToRender.some((ws: any) =>
+      Array.isArray(ws?.file_artifacts) && ws.file_artifacts.length > 0
+    );
+    if (!workstreamHasFiles && filesTouched.length > 0) {
+      lines.push('', '[EVIDENCE FOR SYNTHESIS — weave into narrative prose, do not list mechanically]');
+      lines.push(`Files modified: ${filesTouched.slice(0, 10).map((f: string) => `\`${f}\``).join(', ')}`);
+      lines.push('[END EVIDENCE]');
+    }
+
+    // Corroborating activity from other apps
+    const terminalCorr = corroboratingActivity.filter((c: any) => c?.kind === 'terminal');
+    const browserCorr = corroboratingActivity.filter((c: any) => c?.kind === 'browser');
+    const hasGitOps = commitsAndPushes.length > 0;
+    const hasCorr = terminalCorr.length > 0 || browserCorr.length > 0 || hasGitOps || errorsEncountered.length > 0;
+
+    if (hasCorr) {
+      lines.push('', '[ADDITIONAL EVIDENCE — weave into workstream narratives where relevant]');
+      if (terminalCorr.length > 0) {
+        const termCmds = _dedupeStrings(terminalCorr.flatMap((c: any) => c?.commands || []).concat(commandsRun)).slice(0, 6);
+        if (termCmds.length > 0) {
+          lines.push(`Terminal commands: ${termCmds.map((c: string) => `\`${c}\``).join(', ')}`);
+        }
+      }
+      if (browserCorr.length > 0) {
+        const browserSnippets = browserCorr.slice(0, 3).map((c: any) => {
+          const domain = c?.domain || '';
+          const snippet = clipContextText(c?.snippet || '', 80);
+          return domain ? `${domain} (${snippet})` : snippet;
+        }).filter(Boolean);
+        if (browserSnippets.length > 0) {
+          lines.push(`Browser research: ${browserSnippets.join(', ')}`);
+        }
+      }
+      if (hasGitOps) {
+        lines.push(`Git activity: ${commitsAndPushes.slice(0, 4).join(', ')}`);
+      }
+      if (errorsEncountered.length > 0) {
+        for (const err of errorsEncountered.slice(0, 3)) {
+          lines.push(`Error: ${clipContextText(err, 140)}`);
+        }
+      }
+      lines.push('[END ADDITIONAL EVIDENCE]');
+    }
+
+    // Documents — included as evidence for the LLM to weave into narrative
+    if (documents.length > 0 && filesTouched.length === 0) {
+      lines.push('', '[EVIDENCE FOR SYNTHESIS — weave into narrative prose, do not list mechanically]');
+      lines.push(`Documents: ${documents.slice(0, 5).map((d: any) => clipContextText(d?.label || d?.title || 'Document', 160)).join(', ')}`);
+      lines.push('[END EVIDENCE]');
+    }
+
+  // --- Daypart/Broad Overview: Numbered workstream rendering ---
+  } else if (rendererKind === 'daypart_overview' || rendererKind === 'broad_overview') {
+    // Provide claim cards as high-level narrative seeds for the LLM
+    const relevantClaims = claimCards.filter((card: any) =>
+      card?.claim_text && card.claim_kind !== 'uncertainty'
+    );
+    if (relevantClaims.length > 0) {
+      lines.push('', '[NARRATIVE SEEDS — use these to frame the overall summary]');
+      for (const card of relevantClaims.slice(0, 5)) {
+        const conf = card.confidence ? ` (confidence: ${(card.confidence * 100).toFixed(0)}%)` : '';
+        lines.push(`- ${clipContextText(card.claim_text, 200)}${conf}`);
+      }
+      lines.push('[END NARRATIVE SEEDS]');
+    }
+
+    // Render numbered workstreams for overview too
+    const workstreamsToRender = numberedWorkstreams.length > 0
+      ? numberedWorkstreams.filter((ws: any) => ws?.label && ws.label !== 'General workstream')
+      : [mainEvent, ...supporting].filter(Boolean);
+
+    for (const item of workstreamsToRender.slice(0, 8)) {
+      lines.push('');
+      lines.push(...renderWorkstreamSection(item, timezone));
+    }
+
+    if (researchBrowsing.length > 0) {
+      for (const item of researchBrowsing.slice(0, 3)) {
+        lines.push('');
+        lines.push(...renderWorkstreamSection(item, timezone));
       }
     }
 
-    const artifactRefs = Array.isArray(mainEvent?.artifact_refs) ? mainEvent.artifact_refs : [];
-    if (artifactRefs.length > 0) {
-      lines.push('', '### Key artifacts');
-      for (const artifact of artifactRefs.slice(0, 5)) {
-        lines.push(`- ${clipContextText(String(artifact), 140)}`);
+    if (personalActivity.length > 0) {
+      for (const item of personalActivity.slice(0, 3)) {
+        lines.push('');
+        lines.push(...renderWorkstreamSection(item, timezone));
       }
     }
-  } else if (rendererKind === 'daypart_overview' && timelineSegments.length > 0) {
-    lines.push('', '### Timeline');
-    for (const segment of timelineSegments.slice(0, 3)) {
-      const tasksForSegment = Array.isArray(segment?.tasks) ? segment.tasks.slice(0, 2) : [];
-      const taskText = tasksForSegment.length > 0 ? `: ${tasksForSegment.join('; ')}` : '';
-      lines.push(`- ${clipContextText(segment?.bucket || segment?.segment_type || 'work block', 60)}${taskText}`);
-    }
-  } else if (supporting.length > 0) {
-    lines.push('', '### Supporting workstreams');
-    for (const item of supporting.slice(0, 3)) {
-      const taskText = Array.isArray(item?.specific_tasks) && item.specific_tasks.length > 0
-        ? `: ${clipContextText(item.specific_tasks[0], 120)}`
-        : '';
-      lines.push(`- ${clipContextText(item?.label || item?.title || 'Supporting thread', 80)}${taskText}`);
-    }
-  }
 
-  if (researchBrowsing.length > 0) {
-    lines.push('', '### Research and browsing');
-    for (const item of researchBrowsing.slice(0, 3)) {
-      const taskText = Array.isArray(item?.specific_tasks) && item.specific_tasks.length > 0
-        ? `: ${clipContextText(item.specific_tasks[0], 120)}`
-        : '';
-      lines.push(`- ${clipContextText(item?.label || item?.title || 'Research thread', 90)}${taskText}`);
-    }
-  }
+    // Corroborating activity from terminal/browser
+    const terminalCorr = corroboratingActivity.filter((c: any) => c?.kind === 'terminal');
+    const browserCorr = corroboratingActivity.filter((c: any) => c?.kind === 'browser');
+    const hasCorr = terminalCorr.length > 0 || browserCorr.length > 0 || commitsAndPushes.length > 0 || commandsRun.length > 0;
 
-  if (personalActivity.length > 0) {
-    lines.push('', '### Personal');
-    for (const item of personalActivity.slice(0, 3)) {
-      const label = clipContextText(item?.label || item?.title || 'Personal activity', 90);
-      lines.push(`- ${label}`);
+    if (hasCorr) {
+      lines.push('', '[ADDITIONAL EVIDENCE — weave into workstream narratives where relevant]');
+      if (terminalCorr.length > 0) {
+        const termCmds = _dedupeStrings(terminalCorr.flatMap((c: any) => c?.commands || []).concat(commandsRun)).slice(0, 6);
+        if (termCmds.length > 0) {
+          lines.push(`Terminal commands: ${termCmds.map((c: string) => `\`${c}\``).join(', ')}`);
+        }
+      }
+      if (browserCorr.length > 0) {
+        const browserSnippets = browserCorr.slice(0, 3).map((c: any) => {
+          const domain = c?.domain || '';
+          const snippet = clipContextText(c?.snippet || '', 80);
+          return domain ? `${domain} (${snippet})` : snippet;
+        }).filter(Boolean);
+        if (browserSnippets.length > 0) {
+          lines.push(`Browser research: ${browserSnippets.join(', ')}`);
+        }
+      }
+      if (commitsAndPushes.length > 0) {
+        lines.push(`Git activity: ${commitsAndPushes.slice(0, 4).join(', ')}`);
+      }
+      lines.push('[END ADDITIONAL EVIDENCE]');
     }
-  }
 
-  if (tasks.length > 0) {
-    lines.push('', '### Concrete tasks');
-    for (const task of tasks.slice(0, 5)) {
-      lines.push(`- ${clipContextText(task, 140)}`);
+    // Uncertainty / caveats
+    if (uncertainty.length > 0) {
+      lines.push('', '[CAVEATS — mention these honestly in your summary]');
+      for (const u of uncertainty.slice(0, 3)) {
+        lines.push(`- ${clipContextText(u, 160)}`);
+      }
+      lines.push('[END CAVEATS]');
     }
-  } else if (documents.length > 0) {
-    lines.push('', '### Documents worked on');
-    for (const documentItem of documents.slice(0, 4)) {
-      lines.push(`- ${clipContextText(documentItem?.label || documentItem?.title || 'Document', 140)}`);
-    }
-  }
 
-  if (apps.length > 0) {
-    const topApps = apps.slice(0, 5).map((item: any) => item?.app).filter(Boolean);
-    if (topApps.length > 0) {
-      lines.push('', `### Apps and tools used\n- ${topApps.join(', ')}`);
-    }
-  }
+  // --- Topic lookup / default ---
+  } else {
+    const mainClaim =
+      claimCards.find((card: any) => card?.claim_kind === 'main_event')?.claim_text
+      || claimCards[0]?.claim_text
+      || (mainEvent?.label ? `The main thread was ${mainEvent.label}.` : '');
 
-  if (strongestEvidence.length > 0) {
-    lines.push('', '### Strongest evidence');
-    for (const evidence of strongestEvidence.slice(0, 3)) {
-      const when = formatContextTimestamp(evidence?.timestamp, timezone);
-      const location = [when, evidence?.app].filter(Boolean).join(' in ');
-      const snippet = clipContextText(evidence?.snippet || evidence?.label || '', 150);
-      if (location && snippet) {
-        lines.push(`- ${location}: ${snippet}`);
-      } else if (snippet) {
-        lines.push(`- ${snippet}`);
+    if (mainEvent?.label) {
+      lines.push('', `**${mainEvent.label}**`);
+    }
+    if (mainClaim) {
+      lines.push('', clipContextText(mainClaim, 240));
+    }
+
+    if (supporting.length > 0) {
+      for (const item of supporting.slice(0, 3)) {
+        lines.push('');
+        lines.push(...renderWorkstreamSection(item, timezone));
       }
     }
+
+    if (tasks.length > 0) {
+      lines.push('', '[EVIDENCE FOR SYNTHESIS — weave into narrative prose, do not list mechanically]');
+      lines.push(`Completed tasks: ${tasks.slice(0, 5).map((t: string) => clipContextText(t, 140)).join(', ')}`);
+      lines.push('[END EVIDENCE]');
+    } else if (documents.length > 0) {
+      lines.push('', '[EVIDENCE FOR SYNTHESIS — weave into narrative prose, do not list mechanically]');
+      lines.push(`Documents: ${documents.slice(0, 4).map((d: any) => clipContextText(d?.label || d?.title || 'Document', 140)).join(', ')}`);
+      lines.push('[END EVIDENCE]');
+    }
   }
+
+  // Apps list and strongest evidence are available in per-workstream evidence blocks —
+  // no separate sections needed. The LLM weaves these into narrative naturally.
 
   if (uncertainty.length > 0) {
-    lines.push('', `### Uncertainty\n- ${clipContextText(uncertainty[0], 160)}`);
+    lines.push('', `*${clipContextText(uncertainty[0], 160)}*`);
   }
 
   return lines.join('\n');
+}
+
+function _dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const v of values) {
+    const key = v.toLowerCase().trim();
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      result.push(v);
+    }
+  }
+  return result;
 }
 
 function parseRelativeTimeWindowMs(query: string): number | null {
@@ -650,6 +945,7 @@ function shiftYmd(ymd: string, deltaDays: number): string {
 interface WeeklyOverviewHabitSummary {
   id: string;
   name: string;
+  category?: string;
   unit?: string;
   total: number;
   average: number;
@@ -657,6 +953,10 @@ interface WeeklyOverviewHabitSummary {
   max: number;
   days_with_data: number;
   total_entries: number;
+  daily?: Array<{
+    date?: string;
+    value?: number;
+  }>;
 }
 
 interface WeeklyOverviewComputerSummary {
@@ -665,6 +965,11 @@ interface WeeklyOverviewComputerSummary {
   average_daily_hours: number;
   min_daily_hours: number;
   max_daily_hours: number;
+  daily?: Array<{
+    day?: string;
+    active_hours?: number;
+    events_count?: number;
+  }>;
   top_apps?: Array<{
     app_name?: string;
     hours?: number;
@@ -682,6 +987,7 @@ interface WeeklyOverviewPayload {
   date_range?: {
     start?: string;
     end?: string;
+    days?: number;
   };
   summary?: {
     habits_with_data?: number;
@@ -696,6 +1002,13 @@ function formatWeeklyDate(dateInput?: string): string {
   const date = new Date(`${dateInput}T00:00:00`);
   if (Number.isNaN(date.getTime())) return dateInput;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatWeeklyShortDate(dateInput?: string): string {
+  if (!dateInput) return 'Unknown';
+  const date = new Date(`${dateInput}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateInput;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function formatWeeklyNumber(value: number, digits = 2): string {
@@ -727,54 +1040,310 @@ function formatWeeklyValue(value: number, unit?: string): string {
   return `${formatWeeklyNumber(value)} ${unit}`;
 }
 
+function normalizeWeeklyHabitName(name?: string): string {
+  return String(name || '').trim().toLowerCase();
+}
+
+function formatWeeklyNameList(names: string[]): string {
+  if (names.length <= 1) return names[0] || '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
+function buildWeeklyOverviewSynthesisPayload(payload: WeeklyOverviewPayload) {
+  const habits = (Array.isArray(payload.habits) ? payload.habits : [])
+    .filter((habit) => (habit.days_with_data || 0) > 0)
+    .map((habit) => ({
+      name: habit.name,
+      category: habit.category,
+      unit: habit.unit,
+      total: habit.total,
+      average: habit.average,
+      min: habit.min,
+      max: habit.max,
+      days_with_data: habit.days_with_data,
+      total_entries: habit.total_entries,
+      daily: Array.isArray(habit.daily)
+        ? habit.daily.map((row) => ({
+            date: row.date,
+            value: row.value,
+          }))
+        : [],
+    }));
+
+  const computer = payload.computer_activity
+    ? {
+        days_with_data: payload.computer_activity.days_with_data,
+        total_hours: payload.computer_activity.total_hours,
+        average_daily_hours: payload.computer_activity.average_daily_hours,
+        min_daily_hours: payload.computer_activity.min_daily_hours,
+        max_daily_hours: payload.computer_activity.max_daily_hours,
+        daily: Array.isArray(payload.computer_activity.daily)
+          ? payload.computer_activity.daily.map((row) => ({
+              day: row.day,
+              active_hours: row.active_hours,
+              events_count: row.events_count,
+            }))
+          : [],
+        top_apps: Array.isArray(payload.computer_activity.top_apps)
+          ? payload.computer_activity.top_apps.slice(0, 5)
+          : [],
+        top_domains: Array.isArray(payload.computer_activity.top_domains)
+          ? payload.computer_activity.top_domains.slice(0, 5)
+          : [],
+      }
+    : null;
+
+  return {
+    date_range: payload.date_range,
+    summary: payload.summary,
+    habits,
+    computer_activity: computer,
+  };
+}
+
+async function generateWeeklyOverviewNarrative(
+  payload: WeeklyOverviewPayload,
+  title = 'Weekly Activity Overview',
+): Promise<string> {
+  const fallback = buildWeeklyOverviewNarrative(payload, title);
+  const synthesisPayload = buildWeeklyOverviewSynthesisPayload(payload);
+  const periodLabel = title.includes('Daily')
+    ? 'today'
+    : title.includes('Monthly')
+      ? 'this month'
+      : 'this week';
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.5,
+      max_tokens: 350,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You write high-quality personal activity recaps from structured data.',
+            'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain what the period felt like.',
+            'Write 2 short paragraphs totaling 6-9 sentences.',
+            'Be specific and insightful: talk about the shape of the period, pacing over time, consistency, standout days, weaker spots, recovery versus effort, and what computer/app patterns imply.',
+            'Use a few concrete numbers and dates to support the narrative, but do not list every habit or dump totals line by line.',
+            'Do not use markdown bullets. Do not say "the data shows" or "based on the table". Just speak naturally.',
+            'Avoid generic coaching fluff. Make it sound like an observant analyst summarizing a real week.',
+          ].join(' '),
+        },
+        {
+          role: 'user',
+          content: `Write a useful recap for ${periodLabel}. Focus on what mattered, how the period evolved, where the momentum shifted, and what context from sleep, work habits, and computer usage makes the week easier to understand.\n\nStructured overview data:\n${JSON.stringify(synthesisPayload, null, 2)}`,
+        },
+      ],
+    });
+
+    const content = response.choices[0]?.message?.content?.trim();
+    return content || fallback;
+  } catch (error) {
+    console.error('❌ generateWeeklyOverviewNarrative error:', error);
+    return fallback;
+  }
+}
+
+function averageWeeklyValues(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function describeWeeklyShape(
+  subject: string,
+  points: Array<{ date?: string; value?: number }>,
+): string | null {
+  const normalizedPoints = [...points]
+    .map((point) => ({
+      date: point.date,
+      value: Number(point.value || 0),
+    }))
+    .filter((point) => point.date && Number.isFinite(point.value))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+  if (normalizedPoints.length < 3) return null;
+
+  const values = normalizedPoints.map((point) => point.value);
+  const overallAvg = averageWeeklyValues(values);
+  if (!Number.isFinite(overallAvg) || overallAvg <= 0) return null;
+
+  const earlyCutoff = Math.ceil(normalizedPoints.length / 3);
+  const lateStart = Math.max(earlyCutoff + 1, Math.floor((normalizedPoints.length * 2) / 3));
+  const early = normalizedPoints.slice(0, earlyCutoff);
+  const middle = normalizedPoints.slice(earlyCutoff, lateStart);
+  const late = normalizedPoints.slice(lateStart);
+
+  if (early.length === 0 || late.length === 0) return null;
+
+  const earlyAvg = averageWeeklyValues(early.map((point) => point.value));
+  const middleAvg = averageWeeklyValues(middle.map((point) => point.value));
+  const lateAvg = averageWeeklyValues(late.map((point) => point.value));
+  const threshold = Math.max(overallAvg * 0.18, 0.5);
+  const peak = normalizedPoints.reduce((best, point) => (point.value > best.value ? point : best), normalizedPoints[0]);
+  const low = normalizedPoints.reduce((best, point) => (point.value < best.value ? point : best), normalizedPoints[0]);
+
+  if (middle.length > 0 && earlyAvg > middleAvg + threshold && lateAvg > middleAvg + threshold) {
+    return `${subject} started relatively strong, dipped in the middle of the week, and recovered by the end, with the low point landing around ${formatWeeklyShortDate(low.date)}.`;
+  }
+  if (lateAvg > earlyAvg + threshold && lateAvg >= middleAvg + threshold * 0.6) {
+    return `${subject} built as the week went on and looked strongest near ${formatWeeklyShortDate(peak.date)}.`;
+  }
+  if (earlyAvg > lateAvg + threshold && earlyAvg >= middleAvg + threshold * 0.6) {
+    return `${subject} was more front-loaded, with the strongest stretch early before easing later in the week.`;
+  }
+  if (middle.length > 0 && middleAvg > earlyAvg + threshold && middleAvg > lateAvg + threshold) {
+    return `${subject} peaked midweek, with the strongest day around ${formatWeeklyShortDate(peak.date)} before settling back down.`;
+  }
+  if (peak.value - low.value >= threshold * 1.5) {
+    return `${subject} stayed uneven across the week, ranging from a low on ${formatWeeklyShortDate(low.date)} to a high on ${formatWeeklyShortDate(peak.date)}.`;
+  }
+
+  return `${subject} was fairly steady across the week without a big midweek swing.`;
+}
+
 function buildWeeklyOverviewNarrative(
   payload: WeeklyOverviewPayload,
   title = 'Weekly Activity Overview',
 ): string {
-  const dateStart = formatWeeklyDate(payload.date_range?.start);
-  const dateEnd = formatWeeklyDate(payload.date_range?.end);
   const habits = Array.isArray(payload.habits) ? payload.habits : [];
-  const sortedHabits = [...habits].sort((a, b) => a.name.localeCompare(b.name));
+  const habitsWithData = habits.filter((h) => (h.days_with_data || 0) > 0);
   const computer = payload.computer_activity;
+  const rangeDays = payload.date_range?.days || 7;
+  const periodLabel = title.includes('Daily')
+    ? 'Today'
+    : title.includes('Monthly')
+      ? 'This month'
+      : 'This week';
 
-  const sections: string[] = [];
-  sections.push(`${title} (${dateStart} - ${dateEnd})`);
-
-  let snapshot = `Snapshot: Habits with data ${payload.summary?.habits_with_data || 0} of ${payload.summary?.total_habits_tracked || 0} tracked.`;
-  if (computer) {
-    snapshot += ` Computer activity ${formatWeeklyNumber(computer.total_hours)}h across ${computer.days_with_data || 0} active days.`;
+  if (habitsWithData.length === 0 && (!computer || computer.total_hours <= 0)) {
+    return `${periodLabel} did not have enough logged activity to form a meaningful summary.`;
   }
-  sections.push(snapshot);
 
-  for (const habit of sortedHabits) {
-    sections.push(
-      `${habit.name}: total ${formatWeeklyValue(habit.total || 0, habit.unit)}, average ${formatWeeklyValue(habit.average || 0, habit.unit)} / day, minimum ${formatWeeklyValue(habit.min || 0, habit.unit)}, maximum ${formatWeeklyValue(habit.max || 0, habit.unit)}, days with data ${habit.days_with_data || 0}.`,
+  const lines: string[] = [];
+  const sortedByConsistency = [...habitsWithData].sort((a, b) => {
+    if ((b.days_with_data || 0) !== (a.days_with_data || 0)) {
+      return (b.days_with_data || 0) - (a.days_with_data || 0);
+    }
+    return (b.total || 0) - (a.total || 0);
+  });
+  const topConsistencyDays = sortedByConsistency[0]?.days_with_data || 0;
+  const consistencyLeaders = sortedByConsistency
+    .filter((habit) => (habit.days_with_data || 0) === topConsistencyDays)
+    .slice(0, 3);
+  const mostConsistent = sortedByConsistency[0];
+  const sleepHabit = habitsWithData.find((habit) => normalizeWeeklyHabitName(habit.name) === 'sleep duration');
+  const leadWorkHabit = [...habitsWithData]
+    .filter((habit) => normalizeWeeklyHabitName(habit.name) !== 'sleep duration' && Array.isArray(habit.daily) && habit.daily.length >= 3)
+    .sort((a, b) => {
+      if ((b.days_with_data || 0) !== (a.days_with_data || 0)) {
+        return (b.days_with_data || 0) - (a.days_with_data || 0);
+      }
+      return (b.total || 0) - (a.total || 0);
+    })[0];
+  const topApp = Array.isArray(computer?.top_apps) ? computer?.top_apps?.[0] : undefined;
+  const topWebsite = Array.isArray(computer?.top_domains) ? computer?.top_domains?.[0] : undefined;
+  const occasionalHabits = [...habitsWithData]
+    .filter((habit) => (habit.days_with_data || 0) > 0 && (habit.days_with_data || 0) <= Math.max(2, Math.floor(rangeDays / 3)))
+    .sort((a, b) => {
+      if ((a.days_with_data || 0) !== (b.days_with_data || 0)) {
+        return (a.days_with_data || 0) - (b.days_with_data || 0);
+      }
+      return (b.total_entries || 0) - (a.total_entries || 0);
+    })
+    .slice(0, 2);
+
+  if (consistencyLeaders.length > 1) {
+    lines.push(
+      `${periodLabel} had a clear backbone: ${formatWeeklyNameList(consistencyLeaders.map((habit) => habit.name))} were all logged on ${topConsistencyDays} of ${rangeDays} days.`,
+    );
+  } else if (mostConsistent) {
+    lines.push(
+      `${periodLabel} looked most consistent around ${mostConsistent.name}, which showed up on ${mostConsistent.days_with_data} of ${rangeDays} days.`,
     );
   }
 
-  if (computer) {
-    sections.push(
-      `Computer Time: total ${formatWeeklyNumber(computer.total_hours)}h, average ${formatWeeklyNumber(computer.average_daily_hours)}h / day, minimum ${formatWeeklyNumber(computer.min_daily_hours)}h, maximum ${formatWeeklyNumber(computer.max_daily_hours)}h.`,
-    );
-
-    const topApps = Array.isArray(computer.top_apps) ? computer.top_apps.slice(0, 5) : [];
-    if (topApps.length > 0) {
-      const appSummary = topApps
-        .map((app) => `${app.app_name || 'Unknown'} ${formatWeeklyNumber(app.hours || 0)}h (${(app.total_events || 0).toLocaleString()} events)`)
-        .join(', ');
-      sections.push(`Top apps by active time: ${appSummary}.`);
+  if (sleepHabit) {
+    const sleepAverage = formatWeeklyValue(sleepHabit.average || 0, sleepHabit.unit);
+    if ((sleepHabit.days_with_data || 0) >= Math.max(1, rangeDays - 2)) {
+      lines.push(
+        `Sleep averaged ${sleepAverage} across ${sleepHabit.days_with_data} ${sleepHabit.days_with_data === 1 ? 'night' : 'nights'}, which gave the week a fairly stable recovery baseline.`,
+      );
+    } else {
+      lines.push(
+        `Sleep averaged ${sleepAverage} when it was logged, but it only showed up on ${sleepHabit.days_with_data} of ${rangeDays} days, so your recovery picture was thinner than your work tracking.`,
+      );
     }
 
-    const topDomains = Array.isArray(computer.top_domains) ? computer.top_domains.slice(0, 5) : [];
-    if (topDomains.length > 0) {
-      const domainSummary = topDomains
-        .map((domain) => `${domain.domain || 'Unknown'} ${formatWeeklyNumber(domain.hours || 0)}h (${(domain.total_events || 0).toLocaleString()} events)`)
-        .join(', ');
-      sections.push(`Top domains: ${domainSummary}.`);
+    const sleepShape = describeWeeklyShape(
+      'Sleep',
+      Array.isArray(sleepHabit.daily)
+        ? sleepHabit.daily.map((point) => ({ date: point.date, value: point.value }))
+        : [],
+    );
+    if (sleepShape) {
+      lines.push(sleepShape);
     }
   }
 
-  return sections.join('\n\n').trim();
+  if (leadWorkHabit) {
+    const workShape = describeWeeklyShape(
+      leadWorkHabit.name,
+      Array.isArray(leadWorkHabit.daily)
+        ? leadWorkHabit.daily.map((point) => ({ date: point.date, value: point.value }))
+        : [],
+    );
+    if (workShape) {
+      lines.push(workShape);
+    }
+  }
+
+  if (computer && computer.total_hours > 0) {
+    const computerRange = computer.max_daily_hours - computer.min_daily_hours;
+    const computerLine = topApp?.app_name && topWebsite?.domain
+      ? `Computer time averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day, with most of that time concentrated in ${topApp.app_name} and ${topWebsite.domain}.`
+      : topApp?.app_name
+        ? `Computer time averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day, and ${topApp.app_name} took the biggest share of that time.`
+        : `Computer time averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day across ${computer.days_with_data || 0} active days.`;
+    lines.push(computerLine);
+    if (computerRange >= 2) {
+      lines.push(
+        `Your digital workload also moved around quite a bit day to day, from ${formatWeeklyNumber(computer.min_daily_hours)}h on the lightest day to ${formatWeeklyNumber(computer.max_daily_hours)}h on the heaviest.`,
+      );
+    }
+
+    const computerShape = describeWeeklyShape(
+      'Computer activity',
+      Array.isArray(computer.daily)
+        ? computer.daily.map((point) => ({ date: point.day, value: point.active_hours }))
+        : [],
+    );
+    if (computerShape) {
+      lines.push(computerShape);
+    }
+  }
+
+  if (occasionalHabits.length > 0) {
+    lines.push(
+      `The more occasional habits were ${occasionalHabits.map((habit) => `${habit.name} (${habit.days_with_data} ${habit.days_with_data === 1 ? 'day' : 'days'})`).join(' and ')}, so those showed up as situational patterns rather than fixed routines.`,
+    );
+  }
+
+  if (mostConsistent) {
+    const recoveryLagging = sleepHabit
+      && normalizeWeeklyHabitName(mostConsistent.name) !== 'sleep duration'
+      && (sleepHabit.days_with_data || 0) < (mostConsistent.days_with_data || 0);
+
+    lines.push(
+      recoveryLagging
+        ? `Overall, the pattern reads as a productive stretch with stronger follow-through on work and learning than on recovery tracking.`
+        : `Overall, the week looks structured and repeatable rather than scattered.`,
+    );
+  }
+
+  return lines.slice(0, 6).join('\n\n').trim();
 }
 
 // ====================
@@ -1084,6 +1653,67 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'getActivitySummary',
+      description: 'Get a rich activity summary with structured workstreams, claim cards, timeline segments, and evidence from context memory. Use for "what did I do today", "give me an activity summary", "recap my day/week", "what happened today". Returns the full story plan with broad_overview intent. Prefer this over searchContextMemory for overview/recap questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language query (e.g., "what did I do today", "activity this week")' },
+          daysBack: { type: 'number', description: 'How many days back to analyze (default 1 for today, 7 for week)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getDailyBiometrics',
+      description: 'Get biometrics data for a specific day: heart rate summary (average, min, max BPM, source breakdown, lowest/highest windows). Use for "what was my heart rate today", "biometrics", "heart rate summary", "resting heart rate", "how was my heart rate".',
+      parameters: {
+        type: 'object',
+        properties: {
+          day: { type: 'string', description: 'Date in YYYY-MM-DD format (default: today)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getScreenTimeSummary',
+      description: 'Get iPhone/mobile screen time summary: total active time and top apps by duration. Use for "how much time on my phone", "screen time", "phone usage", "mobile app usage". This is phone screen time, NOT computer time (use getComputerTimeSpentBreakdown for computer).',
+      parameters: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start date YYYY-MM-DD (default: today)' },
+          endDate: { type: 'string', description: 'End date YYYY-MM-DD (default: today)' },
+          daysBack: { type: 'number', description: 'Alternative: look back N days (default 1)' },
+          appLimit: { type: 'number', description: 'Top apps to return (default 10)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getCalendarEvents',
+      description: 'Get scheduled blocks/events from the user calendar for a date range. Use for "what do I have scheduled", "calendar today", "upcoming events", "what\'s on my calendar".',
+      parameters: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start date YYYY-MM-DD (default: today)' },
+          endDate: { type: 'string', description: 'End date YYYY-MM-DD (default: today)' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 // ====================
@@ -1345,6 +1975,10 @@ async function executeGetWeeklyOverview(token: string, params: {
       topApps,
       topDomains,
     });
+
+    // Add formatting instruction so the LLM writes a concise narrative
+    // instead of dumping all the raw data
+    (payload as any).__response_instructions = `IMPORTANT: The side panel already shows the raw tables and numbers. Your text response should be a useful recap, not a stat dump. Write a concise but substantive narrative (4-6 sentences). Explain the week's shape: what was most consistent, what looked less consistent, what recovery looked like if sleep exists, and what the computer/app pattern suggests. Mention only a few specific numbers that support your take. Do NOT list every habit with totals or averages. Write like an observant coach explaining what the week meant, not a reporting script.`;
 
     return JSON.stringify(payload);
   } catch (error) {
@@ -1981,10 +2615,12 @@ async function fetchOnDemandScreenSearchContext(
   params: { query: string; daysBack?: number; limit?: number },
 ): Promise<ScreenSearchContext | null> {
   try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
     const response = await fetchPythonApiPost('/api/memory/query', token, {
       query: params.query,
       intent: 'auto',
       days_back: clampDaysBack(params.daysBack),
+      timezone,
       limit: clampSearchLimit(params.limit ?? 20),
     }) as MemoryQueryApiResponse;
 
@@ -2912,6 +3548,7 @@ async function executeGetComputerTimeSpentBreakdown(
       query: params.query,
       intent: 'time_spent',
       days_back: safeDaysBack,
+      timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
       group_by: groupBy,
       limit: safeLimit,
     }) as MemoryQueryApiResponse;
@@ -3071,6 +3708,238 @@ async function executeGetComputerTimeSpentBreakdown(
 }
 
 // ====================
+// NEW TOOLS: Activity Summary, Biometrics, Screen Time, Calendar
+// ====================
+
+async function executeGetActivitySummary(
+  token: string,
+  params: { query?: string; daysBack?: number },
+) {
+  const safeDaysBack = clampDaysBack(params.daysBack ?? 1);
+  const query = params.query || 'activity summary';
+  console.log('📋 getActivitySummary called:', { query, daysBack: safeDaysBack });
+
+  try {
+    const response = await fetchPythonApiPost('/api/memory/query', token, {
+      query,
+      intent: 'broad_overview',
+      days_back: safeDaysBack,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+      group_by: 'app',
+      limit: 20,
+    });
+
+    if (!response || response.error) {
+      return JSON.stringify({
+        success: false,
+        error: response?.error || 'Activity summary unavailable.',
+      });
+    }
+
+    // Return both story_plan AND raw citations so the LLM can synthesize
+    // directly from evidence when the story_plan is weak
+    const citations = (response.citations || []).slice(0, 25).map((c: any) => ({
+      app: c.app_name || c.app || '',
+      title: c.window_title || c.title || '',
+      text: (c.text_compact || c.contextual_text_compact || c.snippet || '').slice(0, 300),
+      ts: c.chunk_start_ts || c.timestamp || 0,
+    }));
+
+    // Strip internal metadata fields from story_plan before sending to LLM —
+    // evidence_count, score_main_event, confidence etc. leak into output otherwise
+    const rawPlan = response.semantic_truth?.story_plan || null;
+    let cleanPlan = rawPlan;
+    if (rawPlan) {
+      const stripMeta = (obj: any): any => {
+        if (Array.isArray(obj)) return obj.map(stripMeta);
+        if (obj && typeof obj === 'object') {
+          const cleaned: any = {};
+          for (const [k, v] of Object.entries(obj)) {
+            if (['evidence_count', 'score_main_event', 'confidence', 'grounding_score',
+                 'grounding_reasons', 'supporting_evidence_ids', 'counter_evidence_ids',
+                 'metrics', 'session_keys'].includes(k)) continue;
+            cleaned[k] = stripMeta(v);
+          }
+          return cleaned;
+        }
+        return obj;
+      };
+      cleanPlan = stripMeta(rawPlan);
+    }
+
+    return JSON.stringify({
+      success: true,
+      query: response.query || query,
+      intent_resolved: response.intent_resolved || 'broad_overview',
+      retrieval_tier: response.retrieval_tier,
+      story_plan: cleanPlan,
+      citations,
+      citations_count: citations.length,
+      time_truth: response.time_truth || null,
+      confidence: response.confidence || null,
+      freshness: response.freshness || null,
+    });
+  } catch (error) {
+    console.error('❌ getActivitySummary error:', error);
+    return JSON.stringify({
+      success: false,
+      error: 'Activity summary is currently unavailable.',
+      details: String(error),
+    });
+  }
+}
+
+async function executeGetDailyBiometrics(
+  token: string,
+  params: { day?: string },
+  timezone?: string,
+) {
+  const day = params.day || getTimezoneYmd(new Date(), timezone);
+  console.log('💓 getDailyBiometrics called:', { day });
+
+  try {
+    const response = await fetchPythonApi(
+      '/api/v1/biometrics/heart-rate/day-summary',
+      token,
+      { day },
+    );
+
+    if (!response || response.detail) {
+      return JSON.stringify({
+        success: false,
+        error: response?.detail || 'No heart rate data available. Heart rate tracking may not be connected.',
+      });
+    }
+
+    return JSON.stringify({
+      success: true,
+      day: response.day || day,
+      average_bpm: response.average_bpm,
+      min_bpm: response.min_bpm,
+      max_bpm: response.max_bpm,
+      total_samples: response.total_samples,
+      lowest_window: response.lowest_window,
+      highest_window: response.highest_window,
+      source_breakdown: response.source_breakdown,
+    });
+  } catch (error) {
+    console.error('❌ getDailyBiometrics error:', error);
+    return JSON.stringify({
+      success: false,
+      error: 'Heart rate data is currently unavailable. The user may not have a heart rate monitor connected.',
+    });
+  }
+}
+
+async function executeGetScreenTimeSummary(
+  token: string,
+  params: { startDate?: string; endDate?: string; daysBack?: number; appLimit?: number },
+  timezone?: string,
+) {
+  const today = getTimezoneYmd(new Date(), timezone);
+  const daysBack = params.daysBack ?? 1;
+  const startDate = params.startDate || shiftYmd(today, -(daysBack - 1));
+  const endDate = params.endDate || today;
+  const appLimit = params.appLimit ?? 10;
+  console.log('📱 getScreenTimeSummary called:', { startDate, endDate, appLimit });
+
+  try {
+    const [summaryRes, appsRes] = await Promise.all([
+      fetchPythonApi('/api/screen-time/stats/summary', token, {
+        start_date: startDate,
+        end_date: endDate,
+      }),
+      fetchPythonApi('/api/screen-time/stats/top-apps', token, {
+        start_date: startDate,
+        end_date: endDate,
+        limit: appLimit,
+      }),
+    ]);
+
+    const summaryData = summaryRes?.data || summaryRes || {};
+    const appsData = appsRes?.data || appsRes || [];
+
+    return JSON.stringify({
+      success: true,
+      start_date: startDate,
+      end_date: endDate,
+      total_active_ms: summaryData.total_active_ms ?? 0,
+      is_connected: summaryData.is_connected ?? false,
+      has_data: summaryData.has_data ?? false,
+      daily: summaryData.daily || [],
+      top_apps: Array.isArray(appsData) ? appsData : [],
+    });
+  } catch (error) {
+    console.error('❌ getScreenTimeSummary error:', error);
+    return JSON.stringify({
+      success: false,
+      error: 'Screen time data is currently unavailable. iPhone screen time may not be connected.',
+    });
+  }
+}
+
+async function executeGetCalendarEvents(
+  token: string,
+  params: { startDate?: string; endDate?: string },
+  timezone?: string,
+) {
+  const today = getTimezoneYmd(new Date(), timezone);
+  const startDate = params.startDate || today;
+  const endDate = params.endDate || today;
+  console.log('📅 getCalendarEvents called:', { startDate, endDate });
+
+  try {
+    const response = await fetchPythonApi('/api/calendar/scheduled-blocks', token, {
+      start_date: startDate,
+      end_date: endDate,
+    });
+
+    const blocks = Array.isArray(response) ? response : (response?.data || response?.blocks || []);
+
+    // Transform start_minutes/end_minutes to human-readable times
+    const events = blocks.map((block: any) => {
+      const startHour = Math.floor((block.start_minutes || 0) / 60);
+      const startMin = (block.start_minutes || 0) % 60;
+      const endHour = Math.floor((block.end_minutes || 0) / 60);
+      const endMin = (block.end_minutes || 0) % 60;
+      const fmtTime = (h: number, m: number) => {
+        const period = h >= 12 ? 'PM' : 'AM';
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+      };
+
+      return {
+        title: block.title || 'Untitled',
+        day: block.day || startDate,
+        start_time: fmtTime(startHour, startMin),
+        end_time: fmtTime(endHour, endMin),
+        duration_minutes: (block.end_minutes || 0) - (block.start_minutes || 0),
+      };
+    });
+
+    // Sort by start time
+    events.sort((a: any, b: any) => {
+      if (a.day !== b.day) return a.day < b.day ? -1 : 1;
+      return (a.start_time || '') < (b.start_time || '') ? -1 : 1;
+    });
+
+    return JSON.stringify({
+      success: true,
+      start_date: startDate,
+      end_date: endDate,
+      events,
+      event_count: events.length,
+    });
+  } catch (error) {
+    console.error('❌ getCalendarEvents error:', error);
+    return JSON.stringify({
+      success: false,
+      error: 'Calendar data is currently unavailable.',
+    });
+  }
+}
+
+// ====================
 // MAIN API HANDLER
 // ====================
 
@@ -3164,24 +4033,30 @@ FOR OVERVIEW/INSIGHTS QUESTIONS ("what changed", "insights", "how am I doing", "
 → If confidence is "low", mention "limited data"
 → If user asks what they were doing on computer/screen this week (or similar), ALSO call searchContextMemory
 
-FOR COMPREHENSIVE WEEKLY HABIT RECAP QUESTIONS ("How did my habits do this week?", "weekly habit recap", "weekly habit summary"):
+FOR COMPREHENSIVE WEEKLY HABIT RECAP QUESTIONS ("How did my habits do this week?", "weekly habit recap", "weekly habit summary", "how was my week"):
 → Use getWeeklyOverview
-→ Include totals, averages, minimums, and maximums for each habit with data
-→ Include computer time totals and top apps/domains breakdown
-→ Keep numbers precise and concise
-→ Format recap as sections per habit: Total, Average, Minimum, Maximum
+→ Write a CONCISE narrative summary (NOT a data dump)
+→ Lead with 1-2 sentence overview of the week's highlights
+→ Then mention 2-3 notable habits with specific numbers (best day, worst day, trend direction)
+→ End with computer time total and top 2-3 apps
+→ Keep response under 150 words — the side panel has all the detailed tables
+→ Use bold for habit names and key numbers
+→ DO NOT list every habit with Total/Average/Min/Max — that's what the side panel table shows
 
-FOR DAILY HABIT RECAP QUESTIONS ("How did my habits do today?", "today habit summary", "daily habit recap"):
+FOR DAILY HABIT RECAP QUESTIONS ("How did my habits do today?", "today habit summary", "daily habit recap", "how am I doing today"):
 → Use getDailyOverview
 → Treat "today" as the current local day in the user's timezone
-→ Include totals, averages, minimums, and maximums for each habit with data
-→ Include computer time totals and top apps/domains breakdown
+→ Write a CONCISE 2-3 sentence summary of today's activity
+→ Highlight only habits that have data today with specific values
+→ DO NOT list habits with zero data
+→ Keep response under 100 words
 
-FOR MONTHLY/LAST-30-DAYS HABIT RECAP QUESTIONS ("How did my habits do this month?", "last 30 days of habits", "monthly habit summary"):
+FOR MONTHLY/LAST-30-DAYS HABIT RECAP QUESTIONS ("How did my habits do this month?", "last 30 days of habits", "monthly habit summary", "how was my month"):
 → Use getMonthlyOverview
-→ The range is rolling last 30 days ending today
-→ Include totals, averages, minimums, and maximums for each habit with data
-→ Include computer time totals and top apps/domains breakdown
+→ Write a CONCISE narrative summary with trends and highlights
+→ Lead with overall consistency (X of 30 days had data)
+→ Mention top 2-3 improving or declining habits with % changes
+→ Keep response under 150 words
 
 FOR SPECIFIC HABIT QUESTIONS ("How's my sleep?", "Tell me about my workouts"):
 → Call BOTH getHabitStats AND getDailyBreakdown with same date range
@@ -3196,19 +4071,91 @@ FOR RELATIONSHIP QUESTIONS ("connection between X and Y", "correlation"):
 → Use getCorrelation
 → State the coefficient and what it means
 
-FOR CONTEXT MEMORY / COMPUTER ACTIVITY QUESTIONS ("what did I work on today", "what did I do this morning", "what was I working on", "when did I look at", "find when I was", "what apps did I use", "show me what I was doing", "what did I do this week on my computer"):
-→ Use searchContextMemory with a natural language query
-→ The search uses visible context from active apps/tabs, with legacy OCR only as fallback
-→ Summarize what was found: apps used, content viewed, approximate times
-→ If results include visible text/content, mention key details
-→ For "what was I working on/doing" requests, infer tasks from snippets/windows and chronology, not total app-hour metrics
-→ Only discuss total app time if the user explicitly asks a time-spent question
-→ Time is returned as ISO timestamp - convert to readable format
-→ Output style should feel like a clean AI summary: 1 short summary paragraph + up to 4 concise bullets
-→ Prioritize synthesis over raw dumps; do not list every matched moment
-→ Never paste raw internal warning strings; convert caveats into one plain-English sentence max
-→ No markdown tables unless user explicitly asks
-→ If no results, suggest trying specific app names, URLs, or keywords
+FOR ACTIVITY RECAP / DAILY SUMMARY QUESTIONS ("what did I get done today", "recap my day", "activity summary", "what happened today", "what did I do this week", "give me a summary of my day"):
+→ Use getActivitySummary — it returns story_plan AND raw citations (screen evidence)
+→ Prefer getActivitySummary over searchContextMemory for BROAD overview/recap questions
+→ YOUR JOB IS TO SYNTHESIZE INTO A POLISHED NARRATIVE — tell the story of what the user ACCOMPLISHED, not what the watcher recorded
+→ Use the citations array (app names, window titles, OCR text) as PRIMARY evidence
+→ INFER the user's actual work from the evidence. Example: files like \`KanbanCard.tsx\`, \`KanbanBoard.tsx\`, \`KanbanColumn.tsx\` in Cursor = "building out the kanban board UI". Example: window "Configure | Clerk.com" in Chrome = "configuring authentication on Clerk.com"
+→ Write about WHAT WAS DONE and WHY, not which apps were open. Bad: "You spent time in Cursor with 18 evidence items". Good: "You built out the kanban board, modifying \`KanbanCard.tsx\` and \`KanbanBoard.tsx\` to add drag-and-drop column support."
+→ NEVER mention evidence counts, evidence items, supporting items, confidence scores, or any internal retrieval metadata in your response
+→ If story_plan has good workstream titles, use them. If titles are generic (like "Cursor general work"), ignore and synthesize from citations instead
+→ For a COMPREHENSIVE recap, also call getDailyBiometrics and getCalendarEvents to fold in heart rate and schedule context
+
+FOR HEART RATE / BIOMETRICS QUESTIONS ("what was my heart rate", "biometrics today", "resting heart rate", "how was my heart rate"):
+→ Use getDailyBiometrics
+→ Report numbers exactly as returned (average, min, max BPM)
+→ NEVER infer stress, anxiety, mood, or emotional state from heart rate data
+→ High HR could be exercise, caffeine, standing, postural change, or measurement artifact
+→ Say "Your heart rate averaged X BPM" NOT "You were stressed" or "You were anxious"
+→ If no data, note that heart rate tracking may not be connected
+
+FOR PHONE / MOBILE SCREEN TIME QUESTIONS ("phone usage", "screen time", "how much time on my phone", "mobile app usage"):
+→ Use getScreenTimeSummary — this is iOS/phone screen time, NOT computer time
+→ For computer time, use getComputerTimeSpentBreakdown instead
+→ Present total time and top apps with durations
+
+FOR CALENDAR / SCHEDULE QUESTIONS ("what's on my calendar", "what do I have scheduled", "calendar today", "upcoming events"):
+→ Use getCalendarEvents
+→ Present events sorted by time with start/end times
+→ These are scheduled blocks from Ritual, not external calendar events
+
+FOR CONTEXT MEMORY / SPECIFIC COMPUTER ACTIVITY QUESTIONS ("what did I work on in Cursor", "when did I look at X", "find when I was doing Y", "what apps did I use at 3pm"):
+→ Use searchContextMemory with a natural language query — best for SPECIFIC topic lookups
+→ The search returns structured evidence: workstreams with files, commands, git activity, time ranges
+→ YOUR JOB IS TO SYNTHESIZE THIS INTO A POLISHED NARRATIVE — not dump raw data
+
+=== MULTI-SOURCE SYNTHESIS ===
+When the user asks for a comprehensive recap ("full recap of my day", "what did I get done today"):
+→ Call getActivitySummary FIRST for the main narrative
+→ ALSO call getDailyBiometrics to add heart rate context (if available)
+→ ALSO call getCalendarEvents to add schedule context (if available)
+→ Weave all sources into ONE coherent narrative. Example: "You had a productive morning on the retrieval pipeline (HR averaged 72 BPM). Your NeuroPsych exam ran from 1-4pm. After that, you briefly checked email."
+→ Do NOT present each data source as a separate section — integrate them naturally
+
+=== CONTEXT MEMORY NARRATIVE FORMAT ===
+Your job is to transform raw evidence into a polished, detailed narrative that reads like a knowledgeable colleague recapping the day.
+
+**Output format — FOLLOW THIS EXACTLY:**
+
+1. **Opening** — One warm, natural sentence. Address the user by name if known. Example: "Here's a rundown of what you were up to yesterday, Nick!" Then a horizontal rule (---).
+
+2. **Workstream sections** — Each section has a **bold title** followed by a narrative PARAGRAPH (not bullets). This is the core of your response:
+
+   **Title format**: Bold text on its own line. Derive specific, descriptive titles from the actual work — files, branches, tools, projects. Good: "**Plaid / Spending Integration**", "**Kanban + Analytics UI Work**", "**Ritual App - Time Stats Debug**". Bad: "Main Event: Research and Design", "Supporting Workstreams", "Concrete Tasks Completed".
+
+   **Body format**: Write 2-5 sentences of FLOWING PROSE as a paragraph below the title. Tell the story of what happened:
+   - Explain WHAT was done and WHY, weaving file names in \`backticks\` and specific details naturally into sentences
+   - Connect related changes into a coherent thread with temporal flow when available
+   - For code work: mention what the changes accomplish functionally
+   - For debugging: describe the error → investigation → fix arc
+   - Mention specific files (\`KanbanCard.tsx\`, \`KanbanBoard.tsx\`), people, locations, and tools naturally in the prose
+
+3. **Brief passive activities**: Single line each — "Briefly checked Gmail" or "Glanced at Slack."
+
+4. **Closing** — A brief natural remark or follow-up question.
+
+**HARD FORMAT RULES — VIOLATIONS WILL PRODUCE BAD OUTPUT:**
+- PARAGRAPHS, NOT BULLET LISTS. Each workstream body MUST be flowing prose sentences, NOT a bulleted or numbered list. This is the single most important formatting rule.
+- NO meta-category headers. NEVER use headers like "Main Event:", "Supporting Workstreams", "Concrete Tasks Completed", "Apps and Tools Used", "Strongest Evidence", or "Heart Rate Insights". These are internal categories — the user should see workstream titles only.
+- NO bullet-point summaries of files, commands, or tasks. Weave all evidence into narrative paragraphs.
+- NO internal metadata in output. NEVER mention "evidence items", "evidence count", "supporting evidence", "confidence score", "retrieval tier", or any other internal system metrics. These are invisible to the user.
+- DESCRIBE THE WORK, NOT THE RECORDING. Bad: "You spent time in Obsidian with 18 evidence items reflecting active editing." Good: "You researched design inspirations for the Obsidian Vault, exploring typography systems and layout patterns across Paper, Figma, and Obsidian." Focus on WHAT was accomplished and HOW, not that the system observed activity.
+- If biometrics/heart-rate data is available, weave it into the opening or a relevant workstream paragraph — do NOT create a separate "Heart Rate" section.
+- If calendar events are available, weave them into the narrative chronologically — do NOT create a separate "Calendar" section.
+- NEVER pass through [EVIDENCE FOR SYNTHESIS], [END EVIDENCE], [NARRATIVE SEEDS], or any bracketed markers to the user.
+- Derive workstream titles from the ACTUAL WORK (files, branches, task descriptions), not from window titles or chat messages.
+- Aim for DEPTH over BREADTH: a detailed paragraph about 4 workstreams beats thin one-liners about 8.
+- If no results, suggest trying specific app names, URLs, or keywords.
+
+=== EVIDENCE-GROUNDING RULES (STRICT — DO NOT VIOLATE) ===
+1. Only claim the user "did X", "worked on X", "handled X", or "completed X" if there is DIRECT evidence: file edits, terminal commands, error messages, composed content, or commit activity. App presence alone (the app being visible on screen) is NOT sufficient to claim the user performed actions in it.
+2. Brief app visits (< 2 minutes of screen time with no edit/compose/typing evidence) = "briefly checked [app]" or omit entirely. NEVER upgrade brief visits to "worked on", "handled", "managed", or "spent time in".
+3. Task manager items (Things 3, Reminders, Todoist, etc.) = tasks the user VIEWED or ADDED. NEVER infer that the underlying work described by the task was actually performed unless corroborating evidence exists (e.g., file changes, terminal output, browser activity matching the task). Say "added a task to..." or "viewed tasks in..." instead of "worked on [task subject]".
+4. Do NOT infer causal relationships between apps that were simultaneously open. Two apps being open at the same time does NOT mean one was used through the other. For example, Claude and Gmail being open simultaneously does NOT mean "handled emails via Claude".
+5. Do NOT recycle UI chrome text (button labels, navigation items, tooltips, turn indicators) as descriptions of user activity. These are interface elements, not evidence of actions taken.
+6. If you are uncertain whether an action was taken, SAY SO or OMIT IT. A shorter, accurate summary is always better than a longer hallucinated one. When in doubt, use passive language: "Gmail was open" instead of "you handled emails".
+7. For email apps (Gmail, Mail, Outlook): only claim "sent", "wrote", or "replied to" emails if there is evidence of compose activity. Viewing an inbox = "checked email", not "handled email".
 
 FOR COMPUTER TIME-SPENT BREAKDOWN QUESTIONS ("what did I spend my time on", "where did my time go on my computer", "how much time did I spend on X", "what app did I spend the most time in"):
 → Use getComputerTimeSpentBreakdown
@@ -3284,14 +4231,15 @@ Keep total response under 500 characters when possible.`;
           : forceWeeklyOverview
             ? 'getWeeklyOverview'
             : null;
-    const strictThisWeekForWeeklyOverview = isExplicitThisWeekQuery(latestUserContent);
+    const weeklyOverviewQueryParams = resolveWeeklyOverviewParamsFromQuery(latestUserContent, timezone);
+    const strictThisWeekForWeeklyOverview = weeklyOverviewQueryParams.strictThisWeek;
 
     // Fast path: for deterministic recap tools in text mode, skip OpenAI and
     // render directly from the tool payload so routing and structure stay stable.
     const deterministicFastPath =
       !isVoiceMode &&
       forcedToolName &&
-      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'searchContextMemory'].includes(forcedToolName);
+      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview'].includes(forcedToolName);
 
     if (deterministicFastPath) {
       console.log(`⚡ Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
@@ -3303,7 +4251,11 @@ Keep total response under 500 characters when possible.`;
         case 'getWeeklyOverview':
           toolResultJson = await executeGetWeeklyOverview(
             token,
-            { daysBack: 7 },
+            {
+              daysBack: weeklyOverviewQueryParams.daysBack,
+              startDate: weeklyOverviewQueryParams.startDate,
+              endDate: weeklyOverviewQueryParams.endDate,
+            },
             timezone,
             strictThisWeekForWeeklyOverview,
           );
@@ -3330,11 +4282,11 @@ Keep total response under 500 characters when possible.`;
 
       try {
         const parsed = JSON.parse(toolResultJson);
-        if (parsed.success) {
-          if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
-          else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
-          else if (forcedToolName === 'searchContextMemory') toolResults.screenRecordings = parsed;
-          else toolResults.monthlyOverview = parsed;
+          if (parsed.success) {
+            if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
+            else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
+            else if (forcedToolName === 'searchContextMemory') toolResults.contextMemoryRecap = parsed;
+            else toolResults.monthlyOverview = parsed;
 
           if (parsed.suggested_followups) {
             toolResults.suggested_followups = parsed.suggested_followups;
@@ -3342,22 +4294,20 @@ Keep total response under 500 characters when possible.`;
         }
       } catch {}
 
-      const title =
-        forcedToolName === 'getDailyOverview'
-          ? 'Daily Activity Overview'
-          : forcedToolName === 'searchContextMemory'
-            ? formatNarrativeDateLabel(toolResults.screenRecordings || {}, latestUserContent, timezone)
-          : forcedToolName === 'getMonthlyOverview'
-            ? 'Monthly Activity Overview'
-            : 'Weekly Activity Overview';
+      const title = getOverviewTitleFromQuery(
+        forcedToolName,
+        latestUserContent,
+        toolResults.contextMemoryRecap,
+        timezone,
+      );
 
       const overviewPayload =
-        toolResults.weeklyOverview || toolResults.dailyOverview || toolResults.monthlyOverview || toolResults.screenRecordings;
+        toolResults.weeklyOverview || toolResults.dailyOverview || toolResults.monthlyOverview || toolResults.contextMemoryRecap;
 
       const finalText = overviewPayload?.success
         ? forcedToolName === 'searchContextMemory'
           ? buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone)
-          : buildWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
+          : await generateWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
         : 'I was unable to retrieve your data. Please try again.';
 
       const canvasToolPayload = buildCanvasToolPayload(toolResults);
@@ -3516,7 +4466,12 @@ Keep total response under 500 characters when possible.`;
             case 'getWeeklyOverview':
               result = await executeGetWeeklyOverview(
                 token,
-                args,
+                {
+                  ...args,
+                  startDate: args?.startDate || weeklyOverviewQueryParams.startDate,
+                  endDate: args?.endDate || weeklyOverviewQueryParams.endDate,
+                  daysBack: args?.daysBack ?? weeklyOverviewQueryParams.daysBack,
+                },
                 timezone,
                 strictThisWeekForWeeklyOverview,
               );
@@ -3599,13 +4554,27 @@ Keep total response under 500 characters when possible.`;
                 const normalizedArgs = {
                   ...args,
                   query: chooseScreenSearchQuery(args?.query, latestUserContent),
+                  // Override limit for richer results — GPT defaults to 10 which is too low
+                  limit: Math.max(args?.limit || 0, 30),
+                  daysBack: Math.max(args?.daysBack || 0, 1),
                 };
                 result = await executeSearchContextMemory(token, normalizedArgs);
               }
               try {
                 const parsed = JSON.parse(result);
                 if (parsed.success && parsed.results) {
-                  toolResults.screenRecordings = parsed;
+                  toolResults.contextMemoryRecap = parsed;
+                }
+                // Trim the result for the LLM: keep story_plan but drop raw results
+                // to avoid flooding GPT-4o-mini's context with screen dumps
+                if (parsed.success && parsed.story_plan) {
+                  const trimmed = {
+                    success: parsed.success,
+                    story_plan: parsed.story_plan,
+                    result_count: Array.isArray(parsed.results) ? parsed.results.length : 0,
+                    message: parsed.message,
+                  };
+                  result = JSON.stringify(trimmed);
                 }
               } catch {}
               break;
@@ -3620,6 +4589,45 @@ Keep total response under 500 characters when possible.`;
                 const parsed = JSON.parse(result);
                 if (parsed.success) {
                   toolResults.screenTimeSpent = parsed;
+                }
+              } catch {}
+              break;
+            case 'getActivitySummary':
+              result = await executeGetActivitySummary(token, {
+                ...args,
+                query: chooseScreenSearchQuery(args?.query, latestUserContent),
+              });
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.activitySummary = parsed;
+                }
+              } catch {}
+              break;
+            case 'getDailyBiometrics':
+              result = await executeGetDailyBiometrics(token, args, timezone);
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.dailyBiometrics = parsed;
+                }
+              } catch {}
+              break;
+            case 'getScreenTimeSummary':
+              result = await executeGetScreenTimeSummary(token, args, timezone);
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.screenTimeSummary = parsed;
+                }
+              } catch {}
+              break;
+            case 'getCalendarEvents':
+              result = await executeGetCalendarEvents(token, args, timezone);
+              try {
+                const parsed = JSON.parse(result);
+                if (parsed.success) {
+                  toolResults.calendarEvents = parsed;
                 }
               } catch {}
               break;
@@ -3664,25 +4672,20 @@ Keep total response under 500 characters when possible.`;
       console.log('💬 Generated reply chips:', replyChips);
     }
 
-    // Use deterministic recap text so streamed answers stay consistent and clean.
+    // Use a dedicated synthesis pass for overview recaps so the left-side summary
+    // reads like an actual interpretation instead of a telemetry dump.
     if (!isVoiceMode && toolResults.dailyOverview?.success) {
-      finalText = buildWeeklyOverviewNarrative(
+      finalText = await generateWeeklyOverviewNarrative(
         toolResults.dailyOverview as WeeklyOverviewPayload,
         'Daily Activity Overview',
       );
-    } else if (!isVoiceMode && toolResults.screenRecordings?.success && forceContextRecap) {
-      finalText = buildContextMemoryNarrative(
-        toolResults.screenRecordings,
-        latestUserContent,
-        timezone,
-      );
     } else if (!isVoiceMode && toolResults.monthlyOverview?.success) {
-      finalText = buildWeeklyOverviewNarrative(
+      finalText = await generateWeeklyOverviewNarrative(
         toolResults.monthlyOverview as WeeklyOverviewPayload,
         'Monthly Activity Overview',
       );
     } else if (!isVoiceMode && toolResults.weeklyOverview?.success) {
-      finalText = buildWeeklyOverviewNarrative(
+      finalText = await generateWeeklyOverviewNarrative(
         toolResults.weeklyOverview as WeeklyOverviewPayload,
         'Weekly Activity Overview',
       );

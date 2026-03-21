@@ -1,0 +1,130 @@
+DESCRIPTION >
+    Canonical daily habit values for charting.
+    Optimized for `output=daily` use cases where only the current range is needed.
+
+TOKEN "habit_daily_series_read" READ
+
+NODE period_window
+SQL >
+    %
+    SELECT
+        {% if defined(start_date) %}
+        toDate({{ String(start_date) }})
+        {% else %}
+        today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+        {% end %} AS current_start,
+        {% if defined(end_date) %}
+        toDate({{ String(end_date) }})
+        {% else %}
+        today()
+        {% end %} AS current_end
+
+NODE deduplicated_logs
+DESCRIPTION >
+    Deduplicate by log id to avoid double-counting re-synced records.
+
+SQL >
+    %
+    SELECT
+        id,
+        habit_id,
+        habit_name,
+        date,
+        status,
+        amount,
+        duration,
+        unit,
+        whoop_metric_type,
+        created_at
+    FROM habit_logs
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= (SELECT current_start FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+      {% if defined(habit_id) %}
+      AND habit_id = {{ String(habit_id) }}
+      {% elif defined(habit_ids) %}
+      AND has(splitByChar(',', {{ String(habit_ids) }}), habit_id)
+      {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE daily_values
+DESCRIPTION >
+    Normalize each completed log into one canonical numeric value, then aggregate by day.
+
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        date,
+        any(unit) AS unit_sample,
+        if(
+            max(toUInt8(
+                lowerUTF8(ifNull(habit_name, '')) LIKE '%sleep%'
+                OR lowerUTF8(ifNull(whoop_metric_type, '')) IN ('sleep_total', 'sleep_session', 'sleep_duration', 'sleep', 'in_bed')
+            )) = 1,
+            max(
+                multiIf(
+                    lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(amount > 0, amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(amount > 0, amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(amount > 0, amount, 1.0)),
+                    amount > 0, amount,
+                    duration > 0, duration * 1.0,
+                    1.0
+                )
+            ),
+            SUM(
+                multiIf(
+                    lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(amount > 0, amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(amount > 0, amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(amount > 0, amount, 1.0)),
+                    amount > 0, amount,
+                    duration > 0, duration * 1.0,
+                    1.0
+                )
+            )
+        ) AS daily_value,
+        if(
+            max(toUInt8(
+                lowerUTF8(ifNull(habit_name, '')) LIKE '%sleep%'
+                OR lowerUTF8(ifNull(whoop_metric_type, '')) IN ('sleep_total', 'sleep_session', 'sleep_duration', 'sleep', 'in_bed')
+            )) = 1,
+            max(amount),
+            SUM(amount)
+        ) AS total_amount,
+        if(
+            max(toUInt8(
+                lowerUTF8(ifNull(habit_name, '')) LIKE '%sleep%'
+                OR lowerUTF8(ifNull(whoop_metric_type, '')) IN ('sleep_total', 'sleep_session', 'sleep_duration', 'sleep', 'in_bed')
+            )) = 1,
+            max(duration),
+            SUM(duration)
+        ) AS total_duration_seconds,
+        if(
+            max(toUInt8(
+                lowerUTF8(ifNull(habit_name, '')) LIKE '%sleep%'
+                OR lowerUTF8(ifNull(whoop_metric_type, '')) IN ('sleep_total', 'sleep_session', 'sleep_duration', 'sleep', 'in_bed')
+            )) = 1,
+            1,
+            COUNT(*)
+        ) AS completed_count
+    FROM deduplicated_logs
+    WHERE status = 'completed'
+    GROUP BY habit_id, habit_name, date
+
+NODE endpoint
+TYPE ENDPOINT
+SQL >
+    %
+    SELECT
+        habit_id,
+        habit_name,
+        unit_sample AS unit,
+        date,
+        daily_value,
+        total_amount,
+        total_duration_seconds,
+        completed_count
+    FROM daily_values
+    ORDER BY date ASC

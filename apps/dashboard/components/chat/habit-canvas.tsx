@@ -9,6 +9,23 @@ function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
 }
 
+const CANVAS_TABLE_BORDER = 'border-[#e6e6e6]';
+const CANVAS_TABLE_WRAPPER = `overflow-hidden border bg-white ${CANVAS_TABLE_BORDER}`;
+const CANVAS_TABLE = 'w-full table-fixed text-xs font-sans border-separate border-spacing-0';
+const CANVAS_HEADER_ROW = 'bg-white';
+const CANVAS_HEADER_CELL = `h-10 px-4 align-middle bg-white text-[12px] font-medium text-[#666] border-b ${CANVAS_TABLE_BORDER}`;
+const CANVAS_BODY_CELL = 'px-4 py-2 align-middle font-normal';
+
+function TableCols({ widths }: { widths: string[] }) {
+  return (
+    <colgroup>
+      {widths.map((width, index) => (
+        <col key={`${width}-${index}`} style={{ width }} />
+      ))}
+    </colgroup>
+  );
+}
+
 // Types for trend data
 interface TrendItem {
   habit_id: string;
@@ -377,6 +394,118 @@ function formatValueWithUnit(value: number | undefined, unit?: string, isHours?:
   return `${formattedValue}${formatUnit(unit, isHours)}`;
 }
 
+function isSleepDurationHabit(name?: string): boolean {
+  return String(name || '').trim().toLowerCase() === 'sleep duration';
+}
+
+function formatTimeList(values: Array<string | undefined | null>): string {
+  const uniqueValues = Array.from(
+    new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ),
+  );
+
+  return uniqueValues.length > 0 ? uniqueValues.join(', ') : '—';
+}
+
+interface HabitDailyTableRow {
+  date: string;
+  value: string;
+  entries: string;
+  time?: string;
+  sleepTime?: string;
+  wakeTime?: string;
+}
+
+const HabitDailyTable = memo(function HabitDailyTable({
+  rows,
+  emptyText,
+  isSleepHabit,
+}: {
+  rows: HabitDailyTableRow[];
+  emptyText: string;
+  isSleepHabit: boolean;
+}) {
+  const columnCount = isSleepHabit ? 5 : 4;
+  const bodyCellBase = `${CANVAS_BODY_CELL} whitespace-nowrap overflow-hidden text-ellipsis`;
+
+  return (
+    <div className={cn(CANVAS_TABLE_WRAPPER, 'max-h-[260px] overflow-y-auto')}>
+      <table className={CANVAS_TABLE}>
+        <TableCols
+          widths={
+            isSleepHabit
+              ? ['20%', '20%', '20%', '20%', '20%']
+              : ['25%', '25%', '25%', '25%']
+          }
+        />
+        <thead className="sticky top-0 bg-white">
+          <tr className={cn(CANVAS_HEADER_ROW, 'sticky top-0')}>
+            <th className={`${CANVAS_HEADER_CELL} text-left border-r ${CANVAS_TABLE_BORDER}`}>Date</th>
+            <th className={`${CANVAS_HEADER_CELL} text-left border-r ${CANVAS_TABLE_BORDER}`}>Value</th>
+            {isSleepHabit ? (
+              <>
+                <th className={`${CANVAS_HEADER_CELL} text-left border-r ${CANVAS_TABLE_BORDER}`}>Sleep Time</th>
+                <th className={`${CANVAS_HEADER_CELL} text-left border-r ${CANVAS_TABLE_BORDER}`}>Wake Time</th>
+                <th className={`${CANVAS_HEADER_CELL} text-left`}>Entries</th>
+              </>
+            ) : (
+              <>
+                <th className={`${CANVAS_HEADER_CELL} text-left border-r ${CANVAS_TABLE_BORDER}`}>Time</th>
+                <th className={`${CANVAS_HEADER_CELL} text-left`}>Entries</th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columnCount} className="px-4 py-5 text-center text-xs text-[#666]">
+                {emptyText}
+              </td>
+            </tr>
+          ) : (
+            rows.map((row, idx) => (
+              <tr key={`${row.date}-${idx}`} className="transition-colors hover:bg-neutral-50/80">
+                <td className={cn(`${bodyCellBase} text-[#1a1a1a] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                  {row.date}
+                </td>
+                <td className={cn(`${bodyCellBase} text-[#1a1a1a] text-left tabular-nums border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                  {row.value}
+                </td>
+                {isSleepHabit ? (
+                  <>
+                    <td className={cn(`${bodyCellBase} text-[#666] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                      {row.sleepTime || '—'}
+                    </td>
+                    <td className={cn(`${bodyCellBase} text-[#666] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                      {row.wakeTime || '—'}
+                    </td>
+                    <td className={cn(`${bodyCellBase} text-[#666] text-left tabular-nums`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                      {row.entries}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className={cn(`${bodyCellBase} text-[#666] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                      {row.time || '—'}
+                    </td>
+                    <td className={cn(`${bodyCellBase} text-[#666] text-left tabular-nums`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
+                      {row.entries}
+                    </td>
+                  </>
+                )}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+});
+
 // ====================
 // MIDDAY-STYLE TRENDS SECTION
 // ====================
@@ -395,11 +524,11 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
       {/* Improvers Table - Midday style with borders */}
       {sortedImprovers.length > 0 && (
         <div>
-          <h4 className="text-[18px] font-normal text-black mb-4">
+          <h4 className="text-sm font-normal text-[#1a1a1a] mb-4">
             Top improvements
           </h4>
 
-          <div className="border border-[#e6e6e6] overflow-hidden">
+          <div className="border border-[#ebebeb] overflow-hidden">
             <table className="w-full table-fixed">
               <colgroup>
                 <col className="w-[30%]" />
@@ -445,11 +574,11 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
       {/* Decliners Table - Midday style with borders */}
       {sortedDecliners.length > 0 && (
         <div>
-          <h4 className="text-[18px] font-normal text-black mb-4">
+          <h4 className="text-sm font-normal text-[#1a1a1a] mb-4">
             Top decliners
           </h4>
 
-          <div className="border border-[#e6e6e6] overflow-hidden">
+          <div className="border border-[#ebebeb] overflow-hidden">
             <table className="w-full table-fixed">
               <colgroup>
                 <col className="w-[30%]" />
@@ -494,11 +623,11 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
 
       {/* Summary Cards - Exact Midday style */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">
             Habits tracked
           </div>
-          <div className="text-[18px] font-normal text-black mb-1">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">
             {trends.summary.total_habits}
           </div>
           <div className="text-[10px] text-[#707070]">
@@ -507,11 +636,11 @@ const TrendsSection = memo(function TrendsSection({ trends }: { trends: TrendsDa
         </div>
 
         {topImprover && (
-          <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="border border-[#ebebeb] p-3 bg-white">
             <div className="text-[12px] text-[#707070] mb-1">
               Biggest improvement
             </div>
-            <div className="text-[18px] font-normal text-black mb-1">
+            <div className="text-sm font-normal text-[#1a1a1a] mb-1">
               {topImprover.habit_name}
             </div>
             <div className="text-[10px] text-[#16a34a]">
@@ -546,7 +675,7 @@ const AnomaliesSection = memo(function AnomaliesSection({ anomalies }: { anomali
       {anomalies.anomalies.length > 0 ? (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-[18px] font-normal text-black">
+            <h4 className="text-sm font-normal text-[#1a1a1a]">
               Unusual days
             </h4>
             <span className="text-[12px] text-[#707070]">
@@ -554,7 +683,7 @@ const AnomaliesSection = memo(function AnomaliesSection({ anomalies }: { anomali
             </span>
           </div>
 
-          <div className="border border-[#e6e6e6]">
+          <div className="border border-[#ebebeb]">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#e6e6e6]">
@@ -603,11 +732,11 @@ const AnomaliesSection = memo(function AnomaliesSection({ anomalies }: { anomali
 
       {/* Summary Cards - Midday style */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">
             Baseline average
           </div>
-          <div className="text-[18px] font-normal text-black mb-1">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">
             {anomalies.baseline_avg.toFixed(1)}{formatUnit(anomalies.habit.unit)}
           </div>
           <div className="text-[10px] text-[#707070]">
@@ -615,11 +744,11 @@ const AnomaliesSection = memo(function AnomaliesSection({ anomalies }: { anomali
           </div>
         </div>
 
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">
             Standard deviation
           </div>
-          <div className="text-[18px] font-normal text-black mb-1">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">
             ±{anomalies.baseline_std_dev.toFixed(2)}
           </div>
           <div className="text-[10px] text-[#707070]">
@@ -672,18 +801,18 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
     <div className="space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">Results found</div>
-          <div className="text-[18px] font-normal text-black mb-1">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">
             {screenRecordings.result_count}
           </div>
           <div className="text-[10px] text-[#707070]">
             In the last {screenRecordings.days_searched} days
           </div>
         </div>
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">Apps involved</div>
-          <div className="text-[18px] font-normal text-black mb-1">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">
             {appCount}
           </div>
           <div className="text-[10px] text-[#707070]">
@@ -694,37 +823,37 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
 
       {/* Debug/QA metadata (enabled only when backend debug flag is on) */}
       {debug?.enabled && (
-        <div className="border border-[#e6e6e6] p-3 bg-[#f9fafb]">
+        <div className="border border-[#ebebeb] p-3 bg-[#f9fafb]">
           <div className="text-[11px] text-[#707070] mb-1 uppercase tracking-wide">QA debug</div>
           <div className="flex flex-wrap gap-2 text-[11px] text-black">
-            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
               mode: {debug.mode_used}
             </span>
-            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
               status: {debug.status}
             </span>
             {debug.retrieval_tier && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 tier: {debug.retrieval_tier}
               </span>
             )}
             {debug.source_counts && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 sources h:{debug.source_counts.hybrid || 0} t:{debug.source_counts.text || 0} a:{debug.source_counts.activity || 0}
               </span>
             )}
             {typeof debug.rerank_cache_hit === 'boolean' && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 rerank cache: {debug.rerank_cache_hit ? 'hit' : 'miss'}
               </span>
             )}
             {debug.rerank_candidates_considered !== undefined && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 rerank candidates: {debug.rerank_candidates_considered}
               </span>
             )}
             {debug.strong_signal_short_circuit && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 short-circuit: {debug.strong_signal_short_circuit.exact_match ? 'exact' : 'dominant lexical'}
               </span>
             )}
@@ -760,7 +889,7 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
       {screenRecordings.results.length > 0 ? (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-[18px] font-normal text-black">
+            <h4 className="text-sm font-normal text-[#1a1a1a]">
               Screen activity
             </h4>
             <span className="text-[12px] text-[#707070]">
@@ -768,7 +897,7 @@ const ScreenRecordingsSection = memo(function ScreenRecordingsSection({
             </span>
           </div>
 
-          <div className="border border-[#e6e6e6] max-h-[400px] overflow-y-auto">
+          <div className="border border-[#ebebeb] max-h-[400px] overflow-y-auto">
             <table className="w-full">
               <thead className="sticky top-0 bg-white">
                 <tr className="border-b border-[#e6e6e6]">
@@ -916,30 +1045,30 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">{metricLabel}</div>
-          <div className="text-[18px] font-normal text-black mb-1">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">
             {formatHours(totalHours)}
           </div>
           <div className="text-[10px] text-[#707070]">{rangeLabel}</div>
         </div>
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">{isActivityOnlyMode ? 'Activity events' : 'Matched moments'}</div>
-          <div className="text-[18px] font-normal text-black mb-1">{totalHits}</div>
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">{totalHits}</div>
           <div className="text-[10px] text-[#707070]">
             {matchedDaysWithActivity} active day{matchedDaysWithActivity === 1 ? '' : 's'}
           </div>
         </div>
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">{uniqueBucketLabel}</div>
-          <div className="text-[18px] font-normal text-black mb-1">{uniqueApps}</div>
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1">{uniqueApps}</div>
           <div className="text-[10px] text-[#707070]">
             {isWatcherAggregate ? 'Across active-time records' : 'Across matching moments'}
           </div>
         </div>
-        <div className="border border-[#e6e6e6] p-3 bg-white">
+        <div className="border border-[#ebebeb] p-3 bg-white">
           <div className="text-[12px] text-[#707070] mb-1">Grouping</div>
-          <div className="text-[18px] font-normal text-black mb-1 capitalize">
+          <div className="text-sm font-normal text-[#1a1a1a] mb-1 capitalize">
             {screenTimeSpent.group_by}
           </div>
           <div className="text-[10px] text-[#707070]">
@@ -961,9 +1090,9 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
 
       {!isActivityOnlyMode && (freshness?.status || confidence?.level) && (
         <div className={cn("gap-3", !isActivityOnlyMode ? "grid grid-cols-2" : "grid grid-cols-1")}>
-          <div className="border border-[#e6e6e6] p-3 bg-white">
+          <div className="border border-[#ebebeb] p-3 bg-white">
             <div className="text-[12px] text-[#707070] mb-1">Freshness</div>
-            <div className="text-[18px] font-normal text-black mb-1 capitalize">
+            <div className="text-sm font-normal text-[#1a1a1a] mb-1 capitalize">
               {freshness?.status || 'unknown'}
             </div>
             <div className="text-[10px] text-[#707070]">
@@ -971,9 +1100,9 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
             </div>
           </div>
           {!isActivityOnlyMode && (
-            <div className="border border-[#e6e6e6] p-3 bg-white">
+            <div className="border border-[#ebebeb] p-3 bg-white">
               <div className="text-[12px] text-[#707070] mb-1">Semantic confidence</div>
-              <div className="text-[18px] font-normal text-black mb-1 capitalize">
+              <div className="text-sm font-normal text-[#1a1a1a] mb-1 capitalize">
                 {confidence?.level || 'unknown'}
               </div>
               <div className="text-[10px] text-[#707070]">
@@ -985,22 +1114,22 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
       )}
 
       {debug?.enabled && (
-        <div className="border border-[#e6e6e6] p-3 bg-[#f9fafb]">
+        <div className="border border-[#ebebeb] p-3 bg-[#f9fafb]">
           <div className="text-[11px] text-[#707070] mb-1 uppercase tracking-wide">QA debug</div>
           <div className="flex flex-wrap gap-2 text-[11px] text-black">
-            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
               mode: {debug.mode_used}
             </span>
-            <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+            <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
               status: {debug.status}
             </span>
             {debug.retrieval_tier && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 tier: {debug.retrieval_tier}
               </span>
             )}
             {debug.source_counts && (
-              <span className="px-1.5 py-0.5 rounded bg-white border border-[#e6e6e6]">
+              <span className="px-1.5 py-0.5 rounded bg-white border border-[#ebebeb]">
                 sources h:{debug.source_counts.hybrid || 0} t:{debug.source_counts.text || 0} a:{debug.source_counts.activity || 0}
               </span>
             )}
@@ -1014,8 +1143,8 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
       )}
 
       <div className="space-y-2">
-        <h4 className="text-[18px] font-normal text-black">{groupLabel}</h4>
-        <div className="border border-[#e6e6e6] max-h-[280px] overflow-y-auto">
+        <h4 className="text-sm font-normal text-[#1a1a1a]">{groupLabel}</h4>
+        <div className="border border-[#ebebeb] max-h-[280px] overflow-y-auto">
           <table className="w-full">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-[#e6e6e6]">
@@ -1055,8 +1184,8 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
       </div>
 
       <div className="space-y-2">
-        <h4 className="text-[18px] font-normal text-black">Daily breakdown</h4>
-        <div className="border border-[#e6e6e6] max-h-[220px] overflow-y-auto">
+        <h4 className="text-sm font-normal text-[#1a1a1a]">Daily breakdown</h4>
+        <div className="border border-[#ebebeb] max-h-[220px] overflow-y-auto">
           <table className="w-full">
             <thead className="sticky top-0 bg-white">
               <tr className="border-b border-[#e6e6e6]">
@@ -1091,7 +1220,7 @@ const ScreenTimeSpentSection = memo(function ScreenTimeSpentSection({
           <h4 className="text-[12px] leading-normal text-[#707070]">Sample moments</h4>
           <div className="space-y-2">
             {sampleMoments.slice(0, 5).map((moment, index) => (
-              <div key={`${moment.timestamp}-${index}`} className="border border-[#e6e6e6] p-2 bg-white">
+              <div key={`${moment.timestamp}-${index}`} className="border border-[#ebebeb] p-2 bg-white">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] text-black truncate">{moment.app}</div>
                   <div className="text-[10px] text-[#707070] whitespace-nowrap">{moment.relevance}</div>
@@ -1143,79 +1272,7 @@ const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
     return `${formatNumber(value)}${formatUnit(unit)}`;
   };
 
-  const MetricStrip = ({
-    items,
-    columnsClassName = 'grid-cols-4',
-  }: {
-    items: Array<{ label: string; value: string | number }>;
-    columnsClassName?: string;
-  }) => (
-    <div className={cn('grid border border-[#e6e6e6] bg-white', columnsClassName)}>
-      {items.map((item, index) => (
-        <div
-          key={`${item.label}-${index}`}
-          className={cn(
-            'px-3 py-2',
-            index !== items.length - 1 && 'border-r border-[#e6e6e6]',
-          )}
-        >
-          <div className="text-[11px] text-[#707070] leading-tight mb-0.5">{item.label}</div>
-          <div className="text-[16px] leading-[1.2] font-normal text-black whitespace-nowrap">{item.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-
   const formatEvents = (value?: number) => (value || 0).toLocaleString();
-
-  const renderDailyValueTable = (
-    rows: Array<{ date: string; value: string; entries: number; sleep?: string; wake?: string }>,
-    emptyText: string,
-    options?: { showSleepWake?: boolean; valueLabel?: string },
-  ) => (
-    <div className="border border-[#e6e6e6] max-h-[220px] overflow-y-auto">
-      <table className="w-full">
-        <thead className="sticky top-0 bg-white">
-          <tr className="border-b border-[#e6e6e6]">
-            <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Date</th>
-            {options?.showSleepWake ? (
-              <>
-                <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Sleep</th>
-                <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Wake</th>
-              </>
-            ) : null}
-            <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">
-              {options?.valueLabel || 'Value'}
-            </th>
-            <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal">Entries</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={options?.showSleepWake ? 5 : 3} className="px-3 py-5 text-center text-[12px] text-[#707070]">
-                {emptyText}
-              </td>
-            </tr>
-          ) : (
-            rows.map((row) => (
-              <tr key={row.date} className="border-b border-[#e6e6e6] last:border-b-0 hover:bg-[#F2F1EF] transition-colors">
-                <td className="px-3 py-1.5 text-[12px] text-black border-r border-[#e6e6e6]">{formatDate(row.date)}</td>
-                {options?.showSleepWake ? (
-                  <>
-                    <td className="px-3 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">{row.sleep || '—'}</td>
-                    <td className="px-3 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">{row.wake || '—'}</td>
-                  </>
-                ) : null}
-                <td className="px-3 py-1.5 text-[12px] text-black text-right tabular-nums border-r border-[#e6e6e6]">{row.value}</td>
-                <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums">{row.entries}</td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
 
   const renderRankedUsageTable = (
     title: string,
@@ -1224,31 +1281,32 @@ const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
     nameHeader: string,
   ) => (
     <div className="space-y-2">
-      <div className="text-[12px] text-[#707070]">{title}</div>
-      <div className="border border-[#e6e6e6] max-h-[240px] overflow-y-auto">
-        <table className="w-full">
+      <div className="text-sm font-normal text-[#1a1a1a]">{title}</div>
+      <div className={cn(CANVAS_TABLE_WRAPPER, 'max-h-[240px] overflow-y-auto')}>
+        <table className={CANVAS_TABLE}>
+          <TableCols widths={['10%', '52%', '20%', '18%']} />
           <thead className="sticky top-0 bg-white">
-            <tr className="border-b border-[#e6e6e6]">
-              <th className="px-2 py-1.5 w-[44px] text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">#</th>
-              <th className="px-3 py-1.5 text-left text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">{nameHeader}</th>
-              <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal border-r border-[#e6e6e6]">Hours</th>
-              <th className="px-3 py-1.5 text-right text-[11px] text-[#707070] font-normal">Events</th>
+            <tr className={cn(CANVAS_HEADER_ROW, 'sticky top-0')}>
+              <th className={`${CANVAS_HEADER_CELL} w-[44px] text-left border-r ${CANVAS_TABLE_BORDER}`}>#</th>
+              <th className={`${CANVAS_HEADER_CELL} text-left border-r ${CANVAS_TABLE_BORDER}`}>{nameHeader}</th>
+              <th className={`${CANVAS_HEADER_CELL} text-right border-r ${CANVAS_TABLE_BORDER}`}>Hours</th>
+              <th className={`${CANVAS_HEADER_CELL} text-right`}>Events</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-3 py-5 text-center text-[12px] text-[#707070]">
+                <td colSpan={4} className="px-4 py-5 text-center text-xs text-[#666]">
                   {emptyText}
                 </td>
               </tr>
-            ) : (
-              rows.map((row, idx) => (
-                <tr key={`${row.name}-${idx}`} className="border-b border-[#e6e6e6] last:border-b-0 hover:bg-[#F2F1EF] transition-colors">
-                  <td className="px-2 py-1.5 text-[12px] text-[#707070] border-r border-[#e6e6e6]">{idx + 1}</td>
-                  <td className="px-3 py-1.5 text-[12px] text-black border-r border-[#e6e6e6] truncate" title={row.name}>{row.name}</td>
-                  <td className="px-3 py-1.5 text-[12px] text-black text-right tabular-nums border-r border-[#e6e6e6]">{formatNumber(row.hours)}h</td>
-                  <td className="px-3 py-1.5 text-[12px] text-[#707070] text-right tabular-nums">{formatEvents(row.events)}</td>
+          ) : (
+            rows.map((row, idx) => (
+                <tr key={`${row.name}-${idx}`} className="transition-colors hover:bg-neutral-50/80">
+                  <td className={cn(`${CANVAS_BODY_CELL} text-[#666] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>{idx + 1}</td>
+                  <td className={cn(`${CANVAS_BODY_CELL} text-[#1a1a1a] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}><span className="line-clamp-1">{row.name}</span></td>
+                  <td className={cn(`${CANVAS_BODY_CELL} text-[#1a1a1a] text-right tabular-nums border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>{formatNumber(row.hours)}h</td>
+                  <td className={cn(`${CANVAS_BODY_CELL} text-[#666] text-right tabular-nums`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>{row.events.toLocaleString()}</td>
                 </tr>
               ))
             )}
@@ -1276,84 +1334,78 @@ const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
   }));
 
   return (
-    <div className="space-y-8">
-      <MetricStrip
-        columnsClassName="grid-cols-3"
-        items={[
-          { label: 'Habits with data', value: weeklyOverview.summary.habits_with_data },
-          { label: 'Habits tracked', value: weeklyOverview.summary.total_habits_tracked },
-          { label: 'Range length', value: `${weeklyOverview.date_range.days} days` },
-        ]}
-      />
-
+    <div className="space-y-6">
       {habits.map((habit) => (
-        <div key={habit.id} className="space-y-3">
-          <div>
-            <h4 className="text-[18px] font-normal text-black">{habit.name}</h4>
-            <div className="text-[11px] text-[#707070] mt-0.5">
-              {habit.days_with_data} days with data{habit.total_entries ? ` • ${habit.total_entries} entries` : ''}
-            </div>
-          </div>
-
-          <MetricStrip
-            items={[
-              { label: 'Total', value: formatMetric(habit.total, habit.unit) },
-              { label: 'Average', value: formatMetric(habit.average, habit.unit) },
-              { label: 'Minimum', value: formatMetric(habit.min, habit.unit) },
-              { label: 'Maximum', value: formatMetric(habit.max, habit.unit) },
-            ]}
-          />
+        <div key={habit.id} className="space-y-2">
+          <h4 className="text-sm font-normal text-[#1a1a1a]">{habit.name}</h4>
 
           {(() => {
-            const isSleepHabit = habit.name.toLowerCase().includes('sleep');
+            const isSleepHabit = isSleepDurationHabit(habit.name);
             const dailyRows = [...(habit.daily || [])].sort((a, b) => a.date.localeCompare(b.date));
-            return renderDailyValueTable(
-              dailyRows.map((row) => {
-                const sleepEntry = (row.entries || []).find((entry) => entry.sleep_start || entry.sleep_end);
-                return {
-                  date: row.date,
-                  value: formatMetric(row.value || 0, habit.unit),
-                  entries: row.entries?.length || 0,
-                  sleep: row.sleep_start || sleepEntry?.sleep_start || '—',
-                  wake: row.sleep_end || sleepEntry?.sleep_end || sleepEntry?.time || '—',
-                };
-              }),
-              'No daily rows available for this habit in the selected range.',
-              isSleepHabit ? { showSleepWake: true, valueLabel: 'Duration' } : undefined,
+
+            const detailRows = dailyRows.map((row) => {
+              const sleepStart = formatTimeList([
+                row.sleep_start,
+                ...(row.entries || []).map((entry) => entry.sleep_start),
+              ]);
+              const sleepEnd = formatTimeList([
+                row.sleep_end,
+                ...(row.entries || []).map((entry) => entry.sleep_end),
+              ]);
+              const displayValue =
+                row.total_hours != null
+                  ? formatMetric(row.total_hours, habit.unit)
+                  : row.total_amount != null
+                    ? formatMetric(row.total_amount, habit.unit)
+                    : formatMetric(row.value || 0, habit.unit);
+
+              return {
+                date: formatDate(row.date),
+                value: displayValue,
+                entries: `${row.entries?.length || 0}`,
+                time: formatTimeList((row.entries || []).map((entry) => entry.time)),
+                sleepTime: sleepStart,
+                wakeTime: sleepEnd,
+              };
+            });
+
+            return (
+              <HabitDailyTable
+                rows={detailRows}
+                isSleepHabit={isSleepHabit}
+                emptyText="No rows available for this habit in the selected range."
+              />
             );
           })()}
         </div>
       ))}
 
       {computer && (
-        <div className="space-y-4">
-          <h4 className="text-[18px] font-normal text-black">Computer Time</h4>
-          <MetricStrip
-            items={[
-              { label: 'Total', value: `${formatNumber(computer.total_hours)}h` },
-              { label: 'Average', value: `${formatNumber(computer.average_daily_hours)}h` },
-              { label: 'Minimum', value: `${formatNumber(computer.min_daily_hours)}h` },
-              { label: 'Maximum', value: `${formatNumber(computer.max_daily_hours)}h` },
-            ]}
+        <div className="space-y-2">
+          <h4 className="text-sm font-normal text-[#1a1a1a]">Computer Time</h4>
+          <HabitDailyTable
+            rows={computerDailyTableRows.map((row) => ({
+              date: formatDate(row.date),
+              value: row.value,
+              time: '—',
+              entries: formatEvents(row.entries),
+            }))}
+            isSleepHabit={false}
+            emptyText="No computer time rows found for this date range."
           />
 
-          {renderDailyValueTable(
-            computerDailyTableRows,
-            'No computer time rows found for this date range.',
-          )}
-
           {renderRankedUsageTable(
-            'Top apps/websites by active time',
+            'Top Apps',
             'No application activity found for this date range.',
             appTableRows,
             'App',
           )}
 
           {renderRankedUsageTable(
-            'Top domains',
+            'Top Websites',
             'No domain activity found for this date range.',
             domainTableRows,
-            'Domain',
+            'Website',
           )}
         </div>
       )}
@@ -1380,38 +1432,31 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
   const totalValue = isHoursBased ? data.stats?.totalHours : data.stats?.totalAmount;
   
   return (
-    <div className="w-full h-full bg-white flex flex-col overflow-hidden border-l border-gray-200">
-      {/* Header - Midday style gray bar */}
-      <div className="flex items-center justify-between bg-[#f5f5f3] border-b border-[#e6e6e6] px-4 py-2">
-        <div className="text-[12px] text-black font-medium">
-          {data.title}
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 text-[#707070] hover:text-black transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Subheader with date range */}
-      {(data.dateRange || (hasTrends && data.trends)) && (
-        <div className="px-6 pt-4 pb-2">
-          <h2 className="text-[18px] font-normal text-black">
+    <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+      {/* Header — single title with date range and close */}
+      <div className="flex items-start justify-between border-b border-[#e6e6e6] px-6 py-4 shrink-0">
+        <div>
+          <h2 className="text-lg font-normal text-[#1a1a1a] leading-tight">
             {data.title}
           </h2>
           {data.dateRange && (
-            <p className="text-[12px] text-[#707070] mt-0.5">
+            <p className="text-xs text-[#666] mt-1">
               {formatDateRange(data.dateRange.start, data.dateRange.end)}
             </p>
           )}
           {hasTrends && data.trends && (
-            <p className="text-[12px] text-[#707070] mt-0.5">
+            <p className="text-xs text-[#666] mt-1">
               Last {data.trends.window_days} days vs prior {data.trends.window_days} days
             </p>
           )}
         </div>
-      )}
+        <button
+          onClick={onClose}
+          className="p-1 text-[#999] hover:text-black transition-colors mt-0.5"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       {/* Main content - scrollable, Midday padding */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -1444,17 +1489,17 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
         {hasStats && !hasTrends && !hasAnomalies && !hasWeeklyOverview && !hasScreenTimeSpent && (
           <div className="grid grid-cols-2 gap-3 mb-6">
             {totalValue !== undefined && (
-              <div className="border border-[#e6e6e6] p-3 bg-white">
+              <div className="border border-[#ebebeb] p-3 bg-white">
                 <div className="text-[12px] text-[#707070] mb-1">Total</div>
-                <div className="text-[18px] font-normal text-black">
+                <div className="text-sm font-normal text-[#1a1a1a]">
                   {formatValueWithUnit(totalValue, unit, isHoursBased)}
                 </div>
               </div>
             )}
             {data.stats && data.stats.avgPerDay !== undefined && (
-              <div className="border border-[#e6e6e6] p-3 bg-white">
+              <div className="border border-[#ebebeb] p-3 bg-white">
                 <div className="text-[12px] text-[#707070] mb-1">Average per day</div>
-                <div className="text-[18px] font-normal text-black">
+                <div className="text-sm font-normal text-[#1a1a1a]">
                   {formatValueWithUnit(data.stats.avgPerDay, unit, isHoursBased)}
                 </div>
               </div>
@@ -1464,123 +1509,36 @@ export const HabitCanvas = memo(function HabitCanvas({ data, onClose }: HabitCan
 
         {/* Daily Data Table - Midday style with borders */}
         {hasDailyData && data.dailyData && !hasWeeklyOverview && !hasScreenTimeSpent && (() => {
-          const isSleepData = data.dailyData.some(day => 
-            day.entries?.some(entry => entry.sleep_start || entry.sleep_end)
-          );
+          const isSleepData = isSleepDurationHabit(data.habitName);
           
           return (
             <div className="mb-6">
-              <h4 className="text-[18px] font-normal text-black mb-4">
+              <h4 className="text-sm font-normal text-[#1a1a1a] mb-4">
                 Daily breakdown
               </h4>
 
-              <div className="border border-[#e6e6e6] max-h-[400px] overflow-y-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-[#e6e6e6]">
-                      <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Date</th>
-                      {isSleepData ? (
-                        <>
-                          <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Sleep</th>
-                          <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Wake</th>
-                        </>
-                      ) : (
-                        <th className="px-3 py-2 text-left text-[12px] text-[#707070] font-normal border-r border-[#e6e6e6]">Time</th>
-                      )}
-                      <th className="px-3 py-2 text-right text-[12px] text-[#707070] font-normal">
-                        {isHoursBased ? 'Duration' : 'Amount'}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.dailyData.flatMap((day, dayIndex) => {
-                      const hasEntries = day.entries && day.entries.length > 0;
-                      const isMinuteUnit = unit && ['minutes', 'minute', 'min', 'm'].includes(unit.toLowerCase());
-                      
-                      if (hasEntries && day.entries!.length > 0) {
-                        return day.entries!.map((entry, entryIndex) => {
-                          let entryValue: string;
-                          if (isHoursBased && !isMinuteUnit) {
-                            entryValue = entry.duration_seconds 
-                              ? formatValueWithUnit(entry.duration_seconds / 3600, unit, true)
-                              : '—';
-                          } else if (isMinuteUnit && entry.duration_seconds != null) {
-                            entryValue = formatValueWithUnit(entry.duration_seconds / 60, unit, false);
-                          } else if (entry.amount != null) {
-                            entryValue = formatValueWithUnit(entry.amount, unit, false);
-                          } else {
-                            entryValue = '—';
-                          }
-                          
-                          return (
-                            <tr 
-                              key={`${day.date}-${dayIndex}-${entryIndex}`} 
-                              className={cn(
-                                "hover:bg-[#F2F1EF] transition-colors",
-                                (entryIndex !== day.entries!.length - 1 || dayIndex !== data.dailyData!.length - 1) && "border-b border-[#e6e6e6]"
-                              )}
-                            >
-                              <td className="px-3 py-2 text-[12px] text-black border-r border-[#e6e6e6] whitespace-nowrap">
-                                {formatDate(day.date)}
-                              </td>
-                              {isSleepData ? (
-                                <>
-                                  <td className="px-3 py-2 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">
-                                    {entry.sleep_start || '—'}
-                                  </td>
-                                  <td className="px-3 py-2 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">
-                                    {entry.sleep_end || entry.time || '—'}
-                                  </td>
-                                </>
-                              ) : (
-                                <td className="px-3 py-2 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">
-                                  {entry.time || '—'}
-                                </td>
-                              )}
-                              <td className="px-3 py-2 text-right text-[12px] text-black tabular-nums whitespace-nowrap">
-                                {entryValue}
-                              </td>
-                            </tr>
-                          );
-                        });
-                      } else {
-                        const displayValue = day.hours !== undefined 
-                          ? formatValueWithUnit(day.hours, unit, true)
-                          : day.amount !== undefined 
-                            ? formatValueWithUnit(day.amount, unit, false)
-                            : day.value !== undefined
-                              ? formatValueWithUnit(day.value, unit, isHoursBased)
-                              : '—';
-                        
-                        return [(
-                          <tr 
-                            key={`${day.date}-${dayIndex}`} 
-                            className={cn(
-                              "hover:bg-[#F2F1EF] transition-colors",
-                              dayIndex !== data.dailyData!.length - 1 && "border-b border-[#e6e6e6]"
-                            )}
-                          >
-                            <td className="px-3 py-2 text-[12px] text-black border-r border-[#e6e6e6] whitespace-nowrap">
-                              {formatDate(day.date)}
-                            </td>
-                            {isSleepData ? (
-                              <>
-                                <td className="px-3 py-2 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">—</td>
-                                <td className="px-3 py-2 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">—</td>
-                              </>
-                            ) : (
-                              <td className="px-3 py-2 text-[12px] text-[#707070] border-r border-[#e6e6e6] whitespace-nowrap">—</td>
-                            )}
-                            <td className="px-3 py-2 text-right text-[12px] text-black tabular-nums whitespace-nowrap">
-                              {displayValue}
-                            </td>
-                          </tr>
-                        )];
-                      }
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <HabitDailyTable
+                rows={data.dailyData.map((day) => {
+                  const displayValue = day.hours !== undefined
+                    ? formatValueWithUnit(day.hours, unit, true)
+                    : day.amount !== undefined
+                      ? formatValueWithUnit(day.amount, unit, false)
+                      : day.value !== undefined
+                        ? formatValueWithUnit(day.value, unit, isHoursBased)
+                        : '—';
+
+                  return {
+                    date: formatDate(day.date),
+                    value: displayValue,
+                    entries: `${day.entries?.length || 0}`,
+                    time: formatTimeList((day.entries || []).map((entry) => entry.time)),
+                    sleepTime: formatTimeList((day.entries || []).map((entry) => entry.sleep_start)),
+                    wakeTime: formatTimeList((day.entries || []).map((entry) => entry.sleep_end)),
+                  };
+                })}
+                isSleepHabit={isSleepData}
+                emptyText="No habit rows available for this range."
+              />
             </div>
           );
         })()}

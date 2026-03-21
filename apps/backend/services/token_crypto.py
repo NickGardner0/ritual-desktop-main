@@ -16,8 +16,10 @@ class TokenCrypto:
     """Encrypt/decrypt tokens stored in the database."""
 
     def __init__(self, key: Optional[str] = None):
-        raw_key = key or os.getenv("TOKEN_ENCRYPTION_KEY")
+        normalized_key = key.strip() if isinstance(key, str) else key
+        raw_key = normalized_key if key is not None else os.getenv("TOKEN_ENCRYPTION_KEY")
         self._fernet: Optional[Fernet] = None
+        self._explicit_empty_key = key is not None and not normalized_key
 
         if raw_key:
             self._fernet = Fernet(raw_key.encode("utf-8"))
@@ -34,6 +36,10 @@ class TokenCrypto:
             return plaintext
 
         if not self._fernet:
+            if self._explicit_empty_key:
+                raise RuntimeError(
+                    "TOKEN_ENCRYPTION_KEY is required to encrypt integration tokens."
+                )
             # No encryption key configured - store as plaintext.
             # This is acceptable for local/development environments.
             # In production, set TOKEN_ENCRYPTION_KEY for encrypted storage.
@@ -64,4 +70,3 @@ class TokenCrypto:
 
 
 token_crypto = TokenCrypto()
-

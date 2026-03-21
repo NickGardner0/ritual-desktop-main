@@ -1,0 +1,20 @@
+DESCRIPTION >
+    Canonical wearable heart-rate 1-minute rollups derived from WHOOP BLE collectors.
+    This is append-only. Queries deduplicate by rollup `id` and latest `created_at`.
+
+SCHEMA >
+    `id` String `json:$.id`,
+    `user_id` String `json:$.user_id`,
+    `bucket_start` DateTime `json:$.bucket_start`,
+    `date` Date `json:$.date`,
+    `source_type` LowCardinality(String) `json:$.source_type`,
+    `sample_count` Int32 `json:$.sample_count`,
+    `bpm_avg` Float64 `json:$.bpm_avg`,
+    `bpm_min` Int32 `json:$.bpm_min`,
+    `bpm_max` Int32 `json:$.bpm_max`,
+    `created_at` DateTime `json:$.created_at`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(date)"
+ENGINE_SORTING_KEY "user_id, date, bucket_start, source_type"
+ENGINE_TTL "date + INTERVAL 2 YEAR"

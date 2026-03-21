@@ -10,8 +10,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/tauri'
 import {
+  ActivityBreakdownSource,
+  ActivityBreakdownViewModel,
   ActivityEvent,
-  ComputerActivityViewModel,
   TimeRangePreset,
   SessionSegment,
   DrillDownData,
@@ -72,6 +73,43 @@ interface AggregatedComputerStats {
   domains: any[]
 }
 
+async function fetchScreenTimeAggregatedStats(startTs: number, endTs: number): Promise<AggregatedComputerStats | null> {
+  try {
+    const startDate = toLocalDateString(startTs)
+    const endDate = toLocalDateString(endTs)
+
+    const [summaryRes, appsRes, domainsRes] = await Promise.all([
+      fetch(`/api/screen-time/stats/summary?start_date=${startDate}&end_date=${endDate}`, {
+        cache: 'no-store',
+      }),
+      fetch(`/api/screen-time/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`),
+      fetch(`/api/screen-time/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`),
+    ])
+
+    if (!summaryRes.ok || !appsRes.ok || !domainsRes.ok) {
+      return null
+    }
+
+    const [summaryPayload, appsPayload, domainsPayload] = await Promise.all([
+      summaryRes.json(),
+      appsRes.json(),
+      domainsRes.json(),
+    ])
+
+    const summary = summaryPayload?.data || {}
+
+    return {
+      summary,
+      daily: Array.isArray(summary.daily) ? summary.daily : [],
+      apps: appsPayload?.data || [],
+      domains: domainsPayload?.data || [],
+    }
+  } catch (error) {
+    console.error('Failed to fetch aggregated screen time stats:', error)
+    return null
+  }
+}
+
 async function fetchAggregatedStats(startTs: number, endTs: number): Promise<AggregatedComputerStats | null> {
   try {
     const startDate = toLocalDateString(startTs)
@@ -122,14 +160,14 @@ const cache = new Map<string, CacheEntry>()
 const CACHE_TTL_MS = 60 * 1000
 const STALE_TTL_MS = 5 * 60 * 1000
 
-function getCacheKey(start: number, end: number): string {
+function getCacheKey(source: ActivityBreakdownSource, start: number, end: number): string {
   const roundedStart = Math.floor(start / 60000) * 60000
   const roundedEnd = Math.floor(end / 60000) * 60000
-  return `${roundedStart}-${roundedEnd}`
+  return `${source}:${roundedStart}-${roundedEnd}`
 }
 
-function getCached(start: number, end: number): { events: ActivityEvent[] | null; aggregated: AggregatedComputerStats | null; isStale: boolean } {
-  const key = getCacheKey(start, end)
+function getCached(source: ActivityBreakdownSource, start: number, end: number): { events: ActivityEvent[] | null; aggregated: AggregatedComputerStats | null; isStale: boolean } {
+  const key = getCacheKey(source, start, end)
   const entry = cache.get(key)
 
   if (!entry) return { events: null, aggregated: null, isStale: true }
@@ -144,8 +182,8 @@ function getCached(start: number, end: number): { events: ActivityEvent[] | null
   }
 }
 
-function setCache(start: number, end: number, events: ActivityEvent[], aggregated: AggregatedComputerStats | null): void {
-  const key = getCacheKey(start, end)
+function setCache(source: ActivityBreakdownSource, start: number, end: number, events: ActivityEvent[], aggregated: AggregatedComputerStats | null): void {
+  const key = getCacheKey(source, start, end)
   cache.set(key, {
     events,
     aggregated,
@@ -264,12 +302,13 @@ async function fetchActivityEvents(startTs: number, endTs: number, limit?: numbe
 
 export interface UseComputerActivityOptions {
   initialRange?: TimeRangePreset
+  source?: ActivityBreakdownSource
   autoRefresh?: boolean
   refreshIntervalMs?: number
 }
 
 export interface UseComputerActivityReturn {
-  viewModel: ComputerActivityViewModel
+  viewModel: ActivityBreakdownViewModel
   range: TimeRangePreset
   setRange: (range: TimeRangePreset) => void
   refresh: () => void
@@ -285,6 +324,7 @@ export function useComputerActivity(
 ): UseComputerActivityReturn {
   const {
     initialRange = '1D',
+    source = 'desktop',
     autoRefresh = false,
     refreshIntervalMs = 60000,
   } = options
@@ -311,7 +351,7 @@ export function useComputerActivity(
     const currentRequestId = ++requestIdRef.current
     setError(null)
 
-    const { events: cachedEvents, aggregated: cachedAgg, isStale } = getCached(timeRange.start, timeRange.end)
+    const { events: cachedEvents, aggregated: cachedAgg, isStale } = getCached(source, timeRange.start, timeRange.end)
 
     if (cachedEvents && cachedAgg) {
       setEvents(cachedEvents)
@@ -334,10 +374,14 @@ export function useComputerActivity(
     const eventLimit = eventLimitByRange[range]
 
     try {
-      const eventsPromise = cachedEvents
-        ? Promise.resolve(cachedEvents)
-        : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
-      const aggregatedPromise = fetchAggregatedStats(timeRange.start, timeRange.end)
+      const eventsPromise = source === 'desktop'
+        ? (cachedEvents
+            ? Promise.resolve(cachedEvents)
+            : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit))
+        : Promise.resolve<ActivityEvent[]>([])
+      const aggregatedPromise = source === 'desktop'
+        ? fetchAggregatedStats(timeRange.start, timeRange.end)
+        : fetchScreenTimeAggregatedStats(timeRange.start, timeRange.end)
 
       const aggregated = await aggregatedPromise
       let hasAggregatedData = false
@@ -363,7 +407,7 @@ export function useComputerActivity(
 
       if (currentRequestId === requestIdRef.current) {
         setEvents(dedupedEvents)
-        setCache(timeRange.start, timeRange.end, dedupedEvents, aggregated)
+        setCache(source, timeRange.start, timeRange.end, dedupedEvents, aggregated)
         if (!hasAggregatedData) {
           setIsLoading(false)
         }
@@ -377,7 +421,7 @@ export function useComputerActivity(
         setIsLoading(false)
       }
     }
-  }, [range, timeRange.start, timeRange.end])
+  }, [range, source, timeRange.start, timeRange.end])
   
   // Initial fetch and range changes
   useEffect(() => {
@@ -428,7 +472,7 @@ export function useComputerActivity(
   }, [events])
   
   // Build view model from events
-  const viewModel = useMemo<ComputerActivityViewModel>(() => {
+  const viewModel = useMemo<ActivityBreakdownViewModel>(() => {
     const rawSegments = eventsToSegments(events)
     const segments = mergeAdjacentSegments(rawSegments, 60000)
 
@@ -439,9 +483,9 @@ export function useComputerActivity(
 
     // Aggregated stats are day-level; for sub-day ranges prefer raw
     // event-derived values. Fall back to aggregated if events are empty.
-    const isSubDayRange = range === '6H' || range === '12H'
+    const isSubDayRange = source === 'desktop' && (range === '6H' || range === '12H')
     const hasRawEvents = fallbackApps.length > 0 || fallbackDomains.length > 0
-    const useAggregated = aggregatedStats != null && (!isSubDayRange || !hasRawEvents)
+    const useAggregated = aggregatedStats != null && (source === 'iphone' || !isSubDayRange || !hasRawEvents)
 
     const dailySparkline = useAggregated
       ? (aggregatedStats?.daily || []).map((row: any) => {
@@ -525,12 +569,30 @@ export function useComputerActivity(
         }
       : fallbackHeader
     
+    const capabilities = {
+      supportsDomains: source === 'desktop' ? true : Boolean(aggregatedStats?.summary?.supports_domains),
+      domainDisclosure: source === 'iphone' ? (aggregatedStats?.summary?.domain_disclosure || null) : null,
+      isConnected: source === 'desktop' ? true : Boolean(aggregatedStats?.summary?.is_connected),
+      setupHref: source === 'iphone' ? (aggregatedStats?.summary?.setup_href || '/integrations') : null,
+    }
+
     return {
+      source,
+      capabilities,
       header,
-      segments,
+      segments: source === 'desktop' ? segments : [],
       apps,
       domains,
-      micro,
+      micro: source === 'desktop'
+        ? micro
+        : {
+            focusBlocks: 0,
+            switches: 0,
+            longestBlockMs: 0,
+            longestBlockLabel: undefined,
+            totalActiveMs: header.primaryValueMs,
+            totalAfkMs: 0,
+          },
       range: {
         start: timeRange.start,
         end: timeRange.end,
@@ -539,7 +601,7 @@ export function useComputerActivity(
       isLoading,
       error,
     }
-  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, isLoading, error])
+  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, source, isLoading, error])
   
   return {
     viewModel,

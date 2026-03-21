@@ -82,6 +82,8 @@ interface PerplexityExpandedHabitChartProps {
   chartType?: "spark" | "bar";
   showReferenceLine?: boolean;
   showGrid?: boolean;
+  /** Determines gradient color: true/undefined=green, false=red */
+  higherIsBetter?: boolean | null;
 }
 
 export function PerplexityExpandedHabitChart({
@@ -93,8 +95,14 @@ export function PerplexityExpandedHabitChart({
   chartType = "spark",
   showReferenceLine = true,
   showGrid = true,
+  higherIsBetter,
 }: PerplexityExpandedHabitChartProps) {
   const baseline = points[0]?.close ?? 0;
+  const lastValue = points[points.length - 1]?.close ?? 0;
+  const avgValue = React.useMemo(() => {
+    const vals = points.map((p) => p.close).filter(Number.isFinite);
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  }, [points]);
 
   const data = React.useMemo(
     () =>
@@ -120,49 +128,45 @@ export function PerplexityExpandedHabitChart({
   );
 
   const hasData = allValues.length > 0;
-  const dataMin = hasData ? Math.min(...allValues, baseline) : 0;
-  const dataMax = hasData ? Math.max(...allValues, baseline) : 1;
+  const dataMin = hasData ? Math.min(...allValues) : 0;
+  const dataMax = hasData ? Math.max(...allValues) : 1;
   const span = Math.max(dataMax - dataMin, 1);
-  const domainMin = dataMin - span * 0.15;
-  const domainMax = dataMax + span * 0.15;
+  const domainMin = dataMin - span * 0.08;
+  const domainMax = dataMax + span * 0.08;
   const isBarChart = chartType === "bar";
   const chartDomainMin = isBarChart ? Math.min(0, dataMin) : domainMin;
   const chartDomainMax = isBarChart ? Math.max(0, dataMax) : domainMax;
 
-  const gradientOffset = React.useMemo(() => {
-    const range = domainMax - domainMin;
-    if (range <= 0) return 0.5;
-    return Math.max(0, Math.min(1, (domainMax - baseline) / range));
-  }, [domainMax, domainMin, baseline]);
+  // Determine chart color based on trend direction and higherIsBetter
+  const trendUp = lastValue >= baseline;
+  const isGoodTrend = higherIsBetter === false ? !trendUp : trendUp;
+  const chartColor = isGoodTrend ? COLORS.positive : COLORS.negative;
 
   const yTicks = React.useMemo(() => {
     if (!hasData) return [0];
-    const ticks = (isBarChart
-      ? [chartDomainMin, 0, chartDomainMax]
-      : [domainMin, baseline, domainMax])
+    const lo = isBarChart ? chartDomainMin : domainMin;
+    const hi = isBarChart ? chartDomainMax : domainMax;
+    const range = hi - lo;
+    if (range <= 0) return [lo];
+    const step = range / 3;
+    const ticks = [lo, lo + step, lo + step * 2, hi]
       .map((tick) => Number(tick.toFixed(2)))
-      .filter((tick, index, arr) => arr.indexOf(tick) === index)
-      .sort((a, b) => a - b);
+      .filter((tick, index, arr) => arr.indexOf(tick) === index);
     return ticks;
-  }, [baseline, chartDomainMax, chartDomainMin, domainMax, domainMin, hasData, isBarChart]);
+  }, [chartDomainMax, chartDomainMin, domainMax, domainMin, hasData, isBarChart]);
 
   const reactId = React.useId().replace(/:/g, "");
   const fillGradientId = `expanded-fill-${reactId}`;
-  const strokeGradientId = `expanded-stroke-${reactId}`;
-
-  const off = `${(gradientOffset * 100).toFixed(2)}%`;
-
-  const showDenseGrid = chartType === "bar";
 
   return (
-    <div className="h-[225px] w-full">
+    <div className="h-[220px] w-full">
       {hasData ? (
         <ResponsiveContainer width="100%" height="100%">
           {isBarChart ? (
-            <BarChart data={data} margin={{ top: 8, right: 4, bottom: 4, left: 0 }} barGap={0}>
+            <BarChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barGap={2} barCategoryGap="20%" maxBarSize={data.length <= 7 ? 40 : data.length <= 14 ? 32 : undefined}>
               <CartesianGrid
                 horizontal
-                vertical={showDenseGrid}
+                vertical={false}
                 stroke="rgba(39,37,30,0.06)"
                 strokeWidth={1}
                 strokeOpacity={showGrid ? 1 : 0}
@@ -170,16 +174,13 @@ export function PerplexityExpandedHabitChart({
 
               <XAxis
                 dataKey="t"
-                type="number"
-                domain={["dataMin", "dataMax"]}
+                type="category"
                 tickLine={false}
                 axisLine={false}
-                tickMargin={10}
-                tickFormatter={(value) => formatDateLabel(value, range)}
-                ticks={data.length <= 14 ? data.map((d) => d.t) : undefined}
-                minTickGap={data.length <= 14 ? 0 : 48}
-                tickCount={data.length <= 14 ? data.length : undefined}
-                tick={{ fill: "rgba(39,37,30,0.35)", fontSize: 11 }}
+                tickMargin={8}
+                tickFormatter={(value) => formatDateLabel(Number(value), range)}
+                interval={data.length <= 14 ? 0 : Math.ceil(data.length / 8)}
+                tick={{ fill: "rgba(39,37,30,0.3)", fontSize: 10 }}
               />
 
               <YAxis
@@ -188,18 +189,9 @@ export function PerplexityExpandedHabitChart({
                 axisLine={false}
                 tickFormatter={(value) => formatAxisValue(value)}
                 ticks={yTicks}
-                tick={{ fill: "rgba(39,37,30,0.35)", fontSize: 11 }}
-                width={38}
+                tick={{ fill: "rgba(39,37,30,0.3)", fontSize: 10 }}
+                width={50}
               />
-
-              {showReferenceLine ? (
-                <ReferenceLine
-                  y={0}
-                  stroke={COLORS.baseline}
-                  strokeDasharray="3.5 3"
-                  strokeWidth={1}
-                />
-              ) : null}
 
               <Tooltip
                 content={(
@@ -214,42 +206,46 @@ export function PerplexityExpandedHabitChart({
                 cursor={false}
               />
 
+              <ReferenceLine
+                y={avgValue}
+                stroke="rgba(39,37,30,0.28)"
+                strokeWidth={1}
+                strokeDasharray="6 4"
+                label={false}
+              />
+
               <Bar
                 dataKey="value"
-                fill="#4A4A4C"
-                radius={[1.5, 1.5, 0, 0]}
-                barSize={14}
+                fill="#27251E"
+                fillOpacity={0.85}
+                radius={[2, 2, 0, 0]}
                 isAnimationActive={false}
               />
               {hasCompareSeries ? (
                 <Bar
                   dataKey="compareValue"
-                  fill="#9CA3AF"
-                  radius={[1.5, 1.5, 0, 0]}
-                  barSize={14}
+                  fill="rgba(39,37,30,0.20)"
+                  fillOpacity={1}
+                  radius={[2, 2, 0, 0]}
                   isAnimationActive={false}
                 />
               ) : null}
             </BarChart>
           ) : (
-            <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 4, left: 0 }}>
+            <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
               <defs>
                 <linearGradient id={fillGradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={COLORS.positive} stopOpacity={0.35} />
-                  <stop offset={off} stopColor={COLORS.positive} stopOpacity={0} />
-                  <stop offset={off} stopColor={COLORS.negative} stopOpacity={0} />
-                  <stop offset="100%" stopColor={COLORS.negative} stopOpacity={0.35} />
-                </linearGradient>
-                <linearGradient id={strokeGradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset={off} stopColor={COLORS.positive} stopOpacity={1} />
-                  <stop offset={off} stopColor={COLORS.negative} stopOpacity={1} />
+                  <stop offset="0%" stopColor={chartColor} stopOpacity={0.35} />
+                  <stop offset="40%" stopColor={chartColor} stopOpacity={0.18} />
+                  <stop offset="75%" stopColor={chartColor} stopOpacity={0.08} />
+                  <stop offset="100%" stopColor={chartColor} stopOpacity={0.02} />
                 </linearGradient>
               </defs>
 
               <CartesianGrid
                 horizontal
-                vertical={showDenseGrid}
-                stroke="rgba(39,37,30,0.06)"
+                vertical={false}
+                stroke="rgba(39,37,30,0.05)"
                 strokeWidth={1}
                 strokeOpacity={showGrid ? 1 : 0}
               />
@@ -260,12 +256,12 @@ export function PerplexityExpandedHabitChart({
                 domain={["dataMin", "dataMax"]}
                 tickLine={false}
                 axisLine={false}
-                tickMargin={10}
+                tickMargin={8}
                 tickFormatter={(value) => formatDateLabel(value, range)}
                 ticks={data.length <= 14 ? data.map((d) => d.t) : undefined}
                 minTickGap={data.length <= 14 ? 0 : 48}
                 tickCount={data.length <= 14 ? data.length : undefined}
-                tick={{ fill: "rgba(39,37,30,0.35)", fontSize: 11 }}
+                tick={{ fill: "rgba(39,37,30,0.3)", fontSize: 10 }}
               />
 
               <YAxis
@@ -274,29 +270,9 @@ export function PerplexityExpandedHabitChart({
                 axisLine={false}
                 tickFormatter={(value) => formatAxisValue(value)}
                 ticks={yTicks}
-                tick={{ fill: "rgba(39,37,30,0.35)", fontSize: 11 }}
-                width={38}
+                tick={{ fill: "rgba(39,37,30,0.3)", fontSize: 10 }}
+                width={40}
               />
-
-              <Area
-                type="monotone"
-                dataKey="value"
-                baseValue={baseline}
-                stroke="none"
-                fill={`url(#${fillGradientId})`}
-                isAnimationActive={false}
-                dot={false}
-                activeDot={false}
-              />
-
-              {showReferenceLine ? (
-                <ReferenceLine
-                  y={baseline}
-                  stroke={COLORS.baseline}
-                  strokeDasharray="3.5 3"
-                  strokeWidth={1}
-                />
-              ) : null}
 
               <Tooltip
                 content={(
@@ -309,45 +285,58 @@ export function PerplexityExpandedHabitChart({
                   />
                 )}
                 cursor={{
-                  stroke: COLORS.baseline,
+                  stroke: "rgba(39,37,30,0.12)",
                   strokeWidth: 1,
-                  strokeDasharray: "3 3",
                 }}
               />
 
+              {/* Gradient fill area */}
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke="none"
+                fill={`url(#${fillGradientId})`}
+                isAnimationActive={false}
+                dot={false}
+                activeDot={false}
+                connectNulls
+              />
+
+              {/* Compare series */}
               {hasCompareSeries ? (
                 <Area
                   type="monotone"
                   dataKey="compareValue"
-                  stroke="#6B7280"
-                  strokeWidth={1.5}
+                  stroke="rgba(39,37,30,0.3)"
+                  strokeWidth={1.25}
                   strokeDasharray="4 3"
                   fill="none"
                   isAnimationActive={false}
                   dot={false}
                   activeDot={{
                     r: 2.5,
-                    fill: "#6B7280",
+                    fill: "rgba(39,37,30,0.4)",
                     stroke: "#FFFFFF",
-                    strokeWidth: 2,
+                    strokeWidth: 1.5,
                   }}
                   connectNulls={false}
                 />
               ) : null}
 
+              {/* Main line on top */}
               <Area
                 type="monotone"
                 dataKey="value"
-                stroke={`url(#${strokeGradientId})`}
-                strokeWidth={1.75}
+                stroke={chartColor}
+                strokeWidth={1.25}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 fill="none"
                 isAnimationActive={false}
                 dot={false}
                 activeDot={{
-                  r: 3,
-                  fill: "#27251E",
+                  r: 3.5,
+                  fill: chartColor,
                   stroke: "#FFFFFF",
                   strokeWidth: 2,
                 }}
@@ -357,7 +346,7 @@ export function PerplexityExpandedHabitChart({
           )}
         </ResponsiveContainer>
       ) : (
-        <div className="flex h-full items-center justify-center border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
+        <div className="flex h-full items-center justify-center text-[12px] text-[rgba(39,37,30,0.4)]">
           No data for selected range
         </div>
       )}

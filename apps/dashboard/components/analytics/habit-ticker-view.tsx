@@ -16,6 +16,7 @@ interface HabitTickerCardProps {
   absoluteChange: number;
   chartData: { value: number }[];
   currentValue: number;
+  higherIsBetter?: boolean | null;
   onClick?: () => void;
   onRemove?: () => void;
   darkMode?: boolean;
@@ -28,6 +29,7 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
   absoluteChange,
   chartData,
   currentValue,
+  higherIsBetter,
   onClick,
   onRemove,
 }) => {
@@ -40,6 +42,7 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
       absoluteChange={absoluteChange}
       chartData={chartData}
       isPositive={percentChange >= 0}
+      higherIsBetter={higherIsBetter}
       onClick={onClick}
       onRemove={onRemove}
     />
@@ -58,6 +61,7 @@ interface HabitTickerGridProps {
     prev_7_days_avg: number;
     weekly_amount_change_pct: number;
     chartData: { value: number }[];
+    higherIsBetter?: boolean | null;
   }>;
   onHabitClick?: (habitId: string) => void;
   onHabitRemove?: (habitId: string) => void;
@@ -105,6 +109,7 @@ export const HabitTickerGrid: React.FC<HabitTickerGridProps> = ({
               absoluteChange={absoluteChange}
               chartData={habit.chartData || []}
               currentValue={currentValue}
+              higherIsBetter={habit.higherIsBetter}
               onClick={() => onHabitClick?.(habit.habit_id)}
               onRemove={onHabitRemove ? () => onHabitRemove(habit.habit_id) : undefined}
               darkMode={darkMode}

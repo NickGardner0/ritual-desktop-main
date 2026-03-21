@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { API_CONFIG } from '@/lib/api-config';
+import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 
 /**
  * PUT /api/watcher/devices/[deviceId]/settings
@@ -11,22 +12,19 @@ export async function PUT(
   { params }: { params: Promise<{ deviceId: string }> }
 ) {
   try {
-    const { userId } = await auth();
+    const { userId, getToken } = await auth();
 
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { deviceId } = await params;
+    const token = await getToken();
     const body = await request.json();
 
     const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/watcher/devices/${deviceId}/settings`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId,
-        'X-Internal-Key': process.env.INTERNAL_API_KEY || '',
-      },
+      headers: buildBackendAuthHeaders({ userId, token }),
       body: JSON.stringify(body),
     });
 
@@ -43,4 +41,3 @@ export async function PUT(
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

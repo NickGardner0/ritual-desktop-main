@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { startTransition, useState, useCallback, useEffect } from 'react';
 import type {
   KanbanBoard as KanbanBoardType,
   KanbanCard,
@@ -85,6 +85,7 @@ function normalizeCard(card: Partial<KanbanCard>): KanbanCard {
     order: card.order ?? 0,
     linkedMetricId: card.linkedMetricId,
     linkedMetricTarget: card.linkedMetricTarget,
+    priority: (card.priority && [1, 2, 3, 4].includes(card.priority) ? card.priority : 4) as 1 | 2 | 3 | 4,
     energyCost: card.energyCost ?? 'medium',
     streak: card.streak ?? 0,
     isRecurring: card.isRecurring ?? false,
@@ -183,7 +184,9 @@ export function useKanbanBoard(userId: string | undefined) {
 
   useEffect(() => {
     if (!userId) return;
-    setBoard(loadBoard(userId));
+    startTransition(() => {
+      setBoard(loadBoard(userId));
+    });
   }, [userId]);
 
   const updateBoardState = useCallback(
@@ -196,6 +199,12 @@ export function useKanbanBoard(userId: string | undefined) {
     },
     [userId]
   );
+
+  const resetBoard = useCallback(() => {
+    const next = buildDefaultBoard();
+    setBoard(next);
+    if (userId) saveBoard(userId, next);
+  }, [userId]);
 
   const updateMeta = useCallback(
     (updates: Partial<KanbanBoardType['meta']>) => {
@@ -313,6 +322,7 @@ export function useKanbanBoard(userId: string | undefined) {
           KanbanCard,
           | 'title'
           | 'description'
+          | 'priority'
           | 'energyCost'
           | 'linkedMetricId'
           | 'linkedMetricTarget'
@@ -337,6 +347,7 @@ export function useKanbanBoard(userId: string | undefined) {
           order,
           linkedMetricId: data.linkedMetricId,
           linkedMetricTarget: data.linkedMetricTarget,
+          priority: data.priority ?? 4,
           energyCost: data.energyCost ?? 'medium',
           streak: 0,
           isRecurring: data.isRecurring ?? false,
@@ -693,6 +704,7 @@ export function useKanbanBoard(userId: string | undefined) {
     meta: board.meta,
     columns: board.columns,
     cards: board.cards,
+    resetBoard,
     updateMeta,
     addBoardLabel,
     addColumn,

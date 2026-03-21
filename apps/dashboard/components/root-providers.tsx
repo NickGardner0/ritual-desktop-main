@@ -9,6 +9,7 @@ import { OpenPanelProvider } from '@/components/openpanel-provider';
 import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
+import { DesktopUpdater } from '@/components/desktop-updater';
 import { showMainWindow } from '@/lib/tauri-utils';
 import {
   ensureAutoSemanticBackfillOnLaunch,
@@ -52,7 +53,9 @@ export function RootProviders({ children }: { children: ReactNode }) {
     if (isTransparencyProbe) {
       window.sessionStorage.setItem('ritual_transparency_probe', '1');
       document.documentElement.dataset.transparencyProbe = '1';
-      console.log('🧪 Transparency probe UI enabled');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🧪 Transparency probe UI enabled');
+      }
     } else {
       window.sessionStorage.removeItem('ritual_transparency_probe');
       delete document.documentElement.dataset.transparencyProbe;
@@ -90,6 +93,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
           <OpenPanelProvider>
           <QueryProvider>
             <HabitsProvider>
+              <DesktopUpdater />
               <MemoryCloudUploader />
               {children}
             </HabitsProvider>

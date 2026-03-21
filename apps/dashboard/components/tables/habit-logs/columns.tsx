@@ -19,34 +19,28 @@ import {
   Copy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { HabitLog } from '@/app/(dashboard)/activity/activity-client';
-
-const CATEGORY_CONFIG: Record<string, { swatchClass: string }> = {
-  productivity: { swatchClass: 'bg-sky-400' },
-  fitness: { swatchClass: 'bg-emerald-400' },
-  'fitness & health': { swatchClass: 'bg-emerald-400' },
-  education: { swatchClass: 'bg-indigo-400' },
-  learning: { swatchClass: 'bg-indigo-400' },
-  experiments: { swatchClass: 'bg-violet-400' },
-  health: { swatchClass: 'bg-rose-400' },
-  wellness: { swatchClass: 'bg-teal-400' },
-  custom: { swatchClass: 'bg-amber-400' },
-  manual: { swatchClass: 'bg-amber-400' },
-  default: { swatchClass: 'bg-gray-400' },
-};
+import {
+  getCategoryFillClass,
+  normalizeCategoryLabel,
+} from '@/lib/category-token';
+import { formatSourceLabel } from '@/lib/source-label';
+import type { HabitLog } from '@/app/(dashboard)/activity/logs-client';
 
 const STATUS_CONFIG = {
   completed: {
     label: 'Completed',
     dotClass: 'bg-emerald-500',
+    badgeClass: 'bg-emerald-50 text-emerald-700 ring-emerald-200/80',
   },
   skipped: {
     label: 'Skipped',
     dotClass: 'bg-amber-500',
+    badgeClass: 'bg-amber-50 text-amber-700 ring-amber-200/80',
   },
   missed: {
     label: 'Missed',
     dotClass: 'bg-rose-500',
+    badgeClass: 'bg-rose-50 text-rose-700 ring-rose-200/80',
   },
 };
 
@@ -74,7 +68,7 @@ export const SelectCell = memo(({
     <Checkbox
       checked={checked}
       onCheckedChange={onChange}
-      className="rounded-none border-gray-400 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
+      className="rounded-sm border-black/15 data-[state=checked]:border-neutral-900 data-[state=checked]:bg-neutral-900"
     />
   </div>
 ));
@@ -93,7 +87,13 @@ export const DateCell = memo(({ date }: { date: string }) => {
   }
 
   return (
-    <span className={isValidDate ? 'text-sm text-gray-900 font-normal tabular-nums whitespace-nowrap' : 'text-sm text-gray-400 whitespace-nowrap'}>
+    <span
+      className={
+        isValidDate
+          ? 'whitespace-nowrap text-[13px] font-normal tabular-nums text-neutral-900'
+          : 'whitespace-nowrap text-[13px] text-neutral-400'
+      }
+    >
       {displayDate}
     </span>
   );
@@ -128,7 +128,13 @@ export const TimeCell = memo(({ completedAt }: { completedAt?: string }) => {
   }
 
   return (
-    <span className={isFormattedTime ? 'text-sm text-gray-900 font-normal tabular-nums whitespace-nowrap' : 'text-sm text-gray-400 whitespace-nowrap'}>
+    <span
+      className={
+        isFormattedTime
+          ? 'whitespace-nowrap text-[13px] tabular-nums text-neutral-500'
+          : 'whitespace-nowrap text-[13px] text-neutral-400'
+      }
+    >
       {displayTime}
     </span>
   );
@@ -141,7 +147,7 @@ export const HabitCell = memo(({
   habitName: string; 
   icon?: string;
 }) => (
-  <span className="text-sm text-gray-900 truncate block">
+  <span className="block truncate text-[14px] font-normal text-neutral-900">
     {habitName}
   </span>
 ));
@@ -163,13 +169,13 @@ export const ValueCell = memo(({
     
     if (hours >= 1) {
       return (
-        <span className="text-sm text-gray-900 font-normal tabular-nums">
+        <span className="block max-w-full truncate whitespace-nowrap text-[14px] font-normal tabular-nums text-neutral-900">
           {hours.toFixed(1)} Hours
         </span>
       );
     } else {
       return (
-        <span className="text-sm text-gray-900 font-normal tabular-nums">
+        <span className="block max-w-full truncate whitespace-nowrap text-[14px] font-normal tabular-nums text-neutral-900">
           {Math.round(minutes)} Minutes
         </span>
       );
@@ -179,13 +185,13 @@ export const ValueCell = memo(({
   if (amount !== undefined && amount > 0) {
     const unit = unitType || '';
     return (
-      <span className="text-sm text-gray-900 font-normal tabular-nums">
+      <span className="block max-w-full truncate whitespace-nowrap text-[14px] font-normal tabular-nums text-neutral-900">
         {amount.toFixed(amount < 10 ? 1 : 0)} {unit}
       </span>
     );
   }
   
-  return <span className="text-sm text-gray-400">—</span>;
+  return <span className="block max-w-full truncate whitespace-nowrap text-[14px] text-neutral-400">—</span>;
 });
 ValueCell.displayName = 'ValueCell';
 
@@ -205,18 +211,12 @@ function formatLogValue(log: HabitLog): string {
 }
 
 export const CategoryCell = memo(({ category }: { category: string }) => {
-  const config = CATEGORY_CONFIG[category.toLowerCase()] || CATEGORY_CONFIG.default;
-  
-  // Normalize category text: "PRODUCTIVITY" or "productivity" -> "Productivity"
-  const normalizedCategory = category
-    .toLowerCase()
-    .split(' ')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-  
+  const normalizedCategory = normalizeCategoryLabel(category);
+
   return (
-    <div className="flex items-center min-w-0">
-      <span className="text-sm font-normal text-gray-900 truncate block">
+    <div className="flex min-w-0 items-center gap-2">
+      <span className={cn('mt-px h-2.5 w-2.5 shrink-0 rounded-none', getCategoryFillClass(category))} />
+      <span className="block truncate text-[14px] leading-none text-neutral-700">
         {normalizedCategory}
       </span>
     </div>
@@ -228,8 +228,14 @@ export const StatusCell = memo(({ status }: { status: 'completed' | 'skipped' | 
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.completed;
   
   return (
-    <div className="flex items-center min-w-0">
-      <span className="text-sm font-normal text-gray-900 truncate">
+    <div className="flex min-w-0 items-center">
+      <span
+        className={cn(
+          'inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[12px] font-normal ring-1 ring-inset',
+          config.badgeClass,
+        )}
+      >
+        <span className={cn('h-1.5 w-1.5 rounded-full', config.dotClass)} />
         {config.label}
       </span>
     </div>
@@ -237,12 +243,12 @@ export const StatusCell = memo(({ status }: { status: 'completed' | 'skipped' | 
 });
 StatusCell.displayName = 'StatusCell';
 
-export const SourceCell = memo(({ source }: { source?: string }) => {
+export const SourceCell = memo(({ source, habitName }: { source?: string; habitName?: string }) => {
   const displaySource = source || 'manual';
-  
+
   return (
-    <span className="text-sm text-gray-900 font-normal capitalize truncate block min-w-0">
-      {displaySource}
+    <span className="block min-w-0 truncate text-[14px] text-neutral-500">
+      {formatSourceLabel(displaySource, habitName)}
     </span>
   );
 });
@@ -256,7 +262,7 @@ export const NotesCell = memo(({ notes }: { notes?: string }) => {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="text-sm text-gray-900 font-normal truncate max-w-[150px] block cursor-help">
+        <span className="block max-w-[150px] cursor-help truncate text-[14px] text-neutral-700">
           {notes}
         </span>
       </TooltipTrigger>
@@ -285,22 +291,25 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 border border-transparent hover:border-gray-300 text-gray-400 hover:text-gray-700 transition-opacity flex items-center justify-center"
+          className="flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-neutral-400 opacity-0 transition-all group-hover:opacity-100 hover:border-black/10 hover:bg-neutral-100 hover:text-neutral-700 focus-visible:opacity-100"
           aria-label="Log actions"
         >
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[200px] rounded-none border-gray-300">
+      <DropdownMenuContent
+        align="end"
+        className="w-[200px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+      >
         <DropdownMenuItem
-          className="rounded-none"
+          className="rounded-sm"
           onClick={() => copyToClipboard(log.habit_name)}
         >
           <Copy className="w-3.5 h-3.5 mr-2" />
           Copy habit name
         </DropdownMenuItem>
         <DropdownMenuItem
-          className="rounded-none"
+          className="rounded-sm"
           onClick={() => copyToClipboard(formatLogValue(log))}
         >
           <Copy className="w-3.5 h-3.5 mr-2" />
@@ -308,7 +317,7 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
         </DropdownMenuItem>
         {log.notes && log.notes !== 'none' && (
           <DropdownMenuItem
-            className="rounded-none"
+            className="rounded-sm"
             onClick={() => copyToClipboard(log.notes || '')}
           >
             <Copy className="w-3.5 h-3.5 mr-2" />

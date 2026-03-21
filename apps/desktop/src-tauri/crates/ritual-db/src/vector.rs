@@ -1536,6 +1536,13 @@ impl<'a> VectorOps<'a> {
         embedding_service: &EmbeddingService,
         limit: usize,
     ) -> Result<(usize, usize, usize)> {
+        // Skip local embedding when cloud-only mode is active.
+        // Chunks are still built and synced to the Python backend for
+        // OpenAI embedding → Turbopuffer. Local 384-dim vectors are redundant.
+        if std::env::var("RITUAL_SKIP_LOCAL_EMBEDDINGS").unwrap_or_default() == "1" {
+            return Ok((0, 0, 0));
+        }
+
         if !self.table_exists("search_chunks").await?
             || !self.table_exists("chunk_embeddings").await?
         {

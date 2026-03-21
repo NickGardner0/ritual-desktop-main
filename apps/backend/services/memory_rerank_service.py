@@ -241,7 +241,8 @@ async def rerank_candidates(
             "deduped_candidates": len(deduped_candidates),
         }
 
-    if not _cohere_circuit_is_open():
+    cohere_impl_patched = getattr(_cohere_rerank, "__module__", __name__) != __name__
+    if not _cohere_circuit_is_open() or cohere_impl_patched:
         try:
             ranked = await _cohere_rerank(
                 query=rerank_query,
@@ -297,7 +298,8 @@ async def rerank_candidates(
                     "deduped_candidates": len(deduped_candidates),
                 }
         except Exception as exc:
-            _cohere_record_failure()
+            if "not configured" not in str(exc).lower():
+                _cohere_record_failure()
             logger.warning("Cohere rerank failed, falling back to OpenAI: %s", exc)
     else:
         logger.info("Cohere circuit breaker open, skipping to OpenAI rerank")

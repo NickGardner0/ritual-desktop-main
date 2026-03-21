@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import './globals.css'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
 import { RootProviders } from '@/components/root-providers'
-import { GeistSans } from 'geist/font/sans'
 
 export const metadata: Metadata = {
   title: 'Ritual Desktop',
@@ -15,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`desktop ${GeistSans.variable}`} suppressHydrationWarning>
+    <html lang="en" className="desktop" suppressHydrationWarning>
       <head>
         <meta name="view-transition" content="same-origin" />
         {/* Preload critical fonts to prevent FOUT (Flash of Unstyled Text) */}

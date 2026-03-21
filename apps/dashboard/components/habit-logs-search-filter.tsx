@@ -1,18 +1,54 @@
 'use client';
 
+import { formatISO, parseISO } from 'date-fns';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Search, SlidersHorizontal, Plus, Trash2 } from 'lucide-react';
+import {
+  Search,
+  SlidersHorizontal,
+  Plus,
+  Trash2,
+  CalendarRange,
+  BadgeCheck,
+  Layers3,
+  AppWindow,
+  ClipboardList,
+  Bookmark,
+  Check,
+  X,
+} from 'lucide-react';
 import { useDebounce } from '@/hooks/use-debounce';
 import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Calendar } from '@/components/ui/calendar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  getCategoryFillClass,
+  groupCategoriesByLabel,
+  normalizeCategoryLabel,
+  toggleCategoryGroup,
+} from '@/lib/category-token';
+import {
+  groupSourcesByLabel,
+  toggleSourceGroup,
+} from '@/lib/source-label';
 import { cn } from '@/lib/utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type {
   BuiltInFilterPresetId,
   FilterState,
   SavedFilterView,
-} from '@/app/(dashboard)/activity/activity-client';
+} from '@/app/(dashboard)/activity/logs-client';
 
 interface Suggestion {
   type: 'habit' | 'date';
@@ -37,18 +73,309 @@ interface Props {
 
 type ArrayFilterKey = 'categories' | 'habits' | 'statuses' | 'sources';
 
+type AppliedFilterChip = {
+  id: string;
+  label: string;
+  onRemove: () => void;
+};
+
 const STATUS_OPTIONS = [
   { id: 'completed', label: 'Completed' },
   { id: 'skipped', label: 'Skipped' },
   { id: 'missed', label: 'Missed' },
 ] as const;
 
+const DATE_PRESET_OPTIONS = [
+  { id: 'today', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: '7d', label: 'Last 7 days' },
+  { id: '30d', label: 'Last 30 days' },
+  { id: '90d', label: 'Last 90 days' },
+  { id: 'clear', label: 'Clear range' },
+] as const;
+
+function colorFromLabel(label: string) {
+  let hash = 0;
+  for (let index = 0; index < label.length; index += 1) {
+    hash = label.charCodeAt(index) + ((hash << 5) - hash);
+  }
+  return `hsl(${Math.abs(hash) % 360} 55% 48%)`;
+}
+
 function toLocalDateString(date: Date): string {
   return date.toLocaleDateString('en-CA');
 }
 
-function isToggleKey(event: React.KeyboardEvent) {
-  return event.key === 'Enter' || event.key === ' ';
+function formatDateLabel(value: string) {
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
+function formatDateRangeLabel(start: string | null, end: string | null) {
+  if (!start && !end) return null;
+  if (start && end && start === end) return formatDateLabel(start);
+  if (start && end) return `${formatDateLabel(start)} - ${formatDateLabel(end)}`;
+  if (start) return `From ${formatDateLabel(start)}`;
+  return end ? `Until ${formatDateLabel(end)}` : null;
+}
+
+function updateArrayFilter(
+  value: string,
+  currentValues: string[] | null | undefined,
+  onFilterChange: (filters: Partial<FilterState>) => void,
+  key: ArrayFilterKey,
+) {
+  const normalizedValues = currentValues ?? null;
+  const nextValues = normalizedValues?.includes(value)
+    ? normalizedValues.filter((item) => item !== value).length > 0
+      ? normalizedValues.filter((item) => item !== value)
+      : null
+    : [...(normalizedValues ?? []), value];
+
+  onFilterChange({ [key]: nextValues } as Partial<FilterState>);
+}
+
+function SearchableList({
+  items,
+  placeholder,
+  selectedValues,
+  onToggle,
+}: {
+  items: Array<{
+    id: string;
+    label: string;
+    color?: string;
+    fillClass?: string;
+    rawValues?: string[];
+  }>;
+  placeholder: string;
+  selectedValues: string[] | null | undefined;
+  onToggle: (item: {
+    id: string;
+    label: string;
+    color?: string;
+    fillClass?: string;
+    rawValues?: string[];
+  }) => void;
+}) {
+  const [query, setQuery] = useState('');
+
+  const filteredItems = useMemo(() => {
+    if (!query.trim()) return items;
+    const normalizedQuery = query.toLowerCase();
+    return items.filter((item) => item.label.toLowerCase().includes(normalizedQuery));
+  }, [items, query]);
+
+  return (
+    <div className="w-[260px]">
+      <div className="border-b border-black/10 p-3">
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={placeholder}
+          className="h-8 rounded-none border-black/10 px-3 text-xs focus-visible:border-neutral-300 focus-visible:ring-0"
+        />
+      </div>
+      <div className="max-h-[320px] overflow-y-auto p-1">
+        {filteredItems.length > 0 ? (
+          filteredItems.map((item) => {
+            const checked = item.rawValues
+              ? item.rawValues.some((value) => selectedValues?.includes(value))
+              : selectedValues?.includes(item.id) || false;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onToggle(item)}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-neutral-900 transition-colors hover:bg-[#F5F5F5]',
+                  checked && 'bg-[#F5F5F5]',
+                )}
+              >
+                <span
+                  className={cn('h-2.5 w-2.5 shrink-0 rounded-none', item.fillClass)}
+                  style={item.color ? { backgroundColor: item.color } : undefined}
+                />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                {checked ? <Check className="h-3.5 w-3.5 text-neutral-900" /> : null}
+              </button>
+            );
+          })
+        ) : (
+          <div className="px-3 py-2 text-[13px] text-neutral-500">No results found.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilterMenuItem({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger className="px-2 py-1.5 text-sm text-neutral-950 focus:bg-[#F5F5F5] data-[state=open]:bg-[#F5F5F5]">
+          <Icon className="mr-2 h-4 w-4 stroke-[1.75] text-neutral-950" />
+          <span>{label}</span>
+        </DropdownMenuSubTrigger>
+        <DropdownMenuPortal>
+          <DropdownMenuSubContent
+            sideOffset={14}
+            alignOffset={-4}
+            className="rounded-none border border-black/10 bg-white p-0 shadow-[0_12px_30px_-12px_rgba(15,23,42,0.18)]"
+          >
+            {children}
+          </DropdownMenuSubContent>
+        </DropdownMenuPortal>
+      </DropdownMenuSub>
+    </DropdownMenuGroup>
+  );
+}
+
+function FilterCheckboxItem({
+  checked,
+  label,
+  onCheckedChange,
+  className,
+}: {
+  checked: boolean;
+  label: string;
+  onCheckedChange: () => void;
+  className?: string;
+}) {
+  return (
+    <DropdownMenuCheckboxItem
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      onSelect={(event) => event.preventDefault()}
+      className={cn(
+        'rounded-none py-2 pl-4 pr-10 text-[13px] text-neutral-900 focus:bg-[#F5F5F5]',
+        className,
+      )}
+    >
+      {label}
+    </DropdownMenuCheckboxItem>
+  );
+}
+
+function InlineDateRangeFilter({
+  start,
+  end,
+  onSelect,
+}: {
+  start: string | null | undefined;
+  end: string | null | undefined;
+  onSelect: (range: { start: string | null; end: string | null }) => void;
+}) {
+  return (
+    <div className="flex w-fit max-w-[calc(100vw-120px)] flex-col bg-white">
+      <div className="border-b border-black/10 p-3">
+        <Select
+          onValueChange={(value) => {
+            const now = new Date();
+
+            if (value === 'clear') {
+              onSelect({ start: null, end: null });
+              return;
+            }
+
+            if (value === 'today') {
+              const today = formatISO(now, { representation: 'date' });
+              onSelect({ start: today, end: today });
+              return;
+            }
+
+            if (value === 'yesterday') {
+              const yesterday = new Date(now);
+              yesterday.setDate(yesterday.getDate() - 1);
+              const day = formatISO(yesterday, { representation: 'date' });
+              onSelect({ start: day, end: day });
+              return;
+            }
+
+            const daysBack = value === '7d' ? 7 : value === '30d' ? 30 : 90;
+            const from = new Date(now);
+            from.setDate(from.getDate() - daysBack);
+
+            onSelect({
+              start: formatISO(from, { representation: 'date' }),
+              end: formatISO(now, { representation: 'date' }),
+            });
+          }}
+        >
+          <SelectTrigger className="h-8 w-[240px] rounded-none border-black/10 text-xs focus:ring-0 focus:ring-offset-0">
+            <SelectValue placeholder="Select preset" />
+          </SelectTrigger>
+          <SelectContent className="rounded-none border-black/10">
+            {DATE_PRESET_OPTIONS.map((preset) => (
+              <SelectItem key={preset.id} value={preset.id} className="text-[13px]">
+                {preset.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Calendar
+        mode="range"
+        initialFocus
+        numberOfMonths={2}
+        toDate={new Date()}
+        defaultMonth={start ? parseISO(start) : new Date()}
+        selected={{
+          from: start ? parseISO(start) : undefined,
+          to: end ? parseISO(end) : undefined,
+        }}
+        onSelect={(range) => {
+          if (!range) return;
+
+          onSelect({
+            start: range.from ? formatISO(range.from, { representation: 'date' }) : null,
+            end: range.to ? formatISO(range.to, { representation: 'date' }) : null,
+          });
+        }}
+        className="w-fit p-3"
+        classNames={{
+          months: 'flex flex-col gap-4 md:flex-row md:gap-5',
+          month: 'w-[264px] space-y-3',
+          caption: 'relative flex h-9 items-center justify-center px-9 pt-0',
+          caption_label: 'text-sm font-medium text-neutral-950',
+          nav: 'absolute inset-x-0 top-0 flex h-9 items-center justify-between',
+          nav_button:
+            'flex h-7 w-7 items-center justify-center rounded-none border border-black/10 bg-white p-0 opacity-100 hover:bg-[#F5F5F5]',
+          nav_button_previous: 'absolute left-0 top-1',
+          nav_button_next: 'absolute right-0 top-1',
+          head_row: 'flex',
+          head_cell: 'w-8 text-[0.8rem] font-normal text-[#7C7C7C]',
+          row: 'mt-2 flex w-full',
+          cell:
+            'h-8 w-8 p-0 text-center text-sm [&:has([aria-selected].day-range-end)]:rounded-none [&:has([aria-selected].day-outside)]:bg-[#DCDCDC]/50 [&:has([aria-selected])]:bg-[#E7E7E7] first:[&:has([aria-selected])]:rounded-none last:[&:has([aria-selected])]:rounded-none',
+          day: 'h-8 w-8 rounded-none p-0 text-sm font-normal text-neutral-950 hover:bg-[#F1F1F1] aria-selected:opacity-100',
+          day_selected:
+            'bg-[#DCDCDC] text-neutral-950 hover:bg-[#DCDCDC] hover:text-neutral-950 focus:bg-[#DCDCDC] focus:text-neutral-950',
+          day_today: 'bg-transparent text-neutral-950',
+          day_outside: 'text-[#B4B4B4] aria-selected:bg-[#DCDCDC]/50',
+          day_disabled: 'text-[#D0D0D0]',
+          day_range_middle: 'bg-[#E7E7E7] text-neutral-950',
+        }}
+      />
+    </div>
+  );
 }
 
 export function HabitLogsSearchFilter({
@@ -82,21 +409,36 @@ export function HabitLogsSearchFilter({
     if ((filters.q || '') !== searchInput) {
       setSearchInput(filters.q || '');
     }
-  }, [filters.q]);
+  }, [filters.q, searchInput]);
 
   const hasAnyFilters = useMemo(() => {
     if (filters.q) return true;
     if (filters.start || filters.end) return true;
-    return (filters.categories?.length || 0) > 0 ||
+
+    return (
+      (filters.categories?.length || 0) > 0 ||
       (filters.habits?.length || 0) > 0 ||
       (filters.statuses?.length || 0) > 0 ||
-      (filters.sources?.length || 0) > 0;
+      (filters.sources?.length || 0) > 0
+    );
+  }, [filters]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.start || filters.end) count += 1;
+    if (filters.q) count += 1;
+    count += groupCategoriesByLabel(filters.categories || []).length;
+    count += filters.habits?.length || 0;
+    count += filters.statuses?.length || 0;
+    count += groupSourcesByLabel(filters.sources || []).length;
+    return count;
   }, [filters]);
 
   const clearAllFilters = useCallback(() => {
     setSearchInput('');
     setSuggestions([]);
     setShowSuggestions(false);
+    setSelectedIndex(-1);
     onFilterChange({
       q: null,
       start: null,
@@ -126,7 +468,7 @@ export function HabitLogsSearchFilter({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [searchInput, clearAllFilters]);
+  }, [clearAllFilters, searchInput]);
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -145,10 +487,10 @@ export function HabitLogsSearchFilter({
         let habitSuggestions: Suggestion[] = [];
         if (habitResponse.ok) {
           const data = await habitResponse.json();
-          habitSuggestions = (data.hits || []).map((h: any) => ({
+          habitSuggestions = (data.hits || []).map((habit: any) => ({
             type: 'habit' as const,
-            text: h.name,
-            id: h.id,
+            text: habit.name,
+            id: habit.id,
           }));
         }
 
@@ -190,8 +532,8 @@ export function HabitLogsSearchFilter({
   }, [debouncedSearch, filters.q, onFilterChange]);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setShowSuggestions(false);
       }
     };
@@ -199,20 +541,6 @@ export function HabitLogsSearchFilter({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const toggleArrayFilter = useCallback(
-    (key: ArrayFilterKey, value: string) => {
-      const current = filters[key] ?? [];
-      const next = current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value];
-
-      onFilterChange({
-        [key]: next.length > 0 ? next : null,
-      } as Partial<FilterState>);
-    },
-    [filters, onFilterChange],
-  );
 
   const applyDatePreset = useCallback(
     (preset: 'today' | 'yesterday' | '7d' | '30d' | '90d' | 'clear') => {
@@ -248,17 +576,20 @@ export function HabitLogsSearchFilter({
     [onFilterChange],
   );
 
-  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchInput(e.target.value);
+  const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchInput(event.target.value);
     setShowSuggestions(true);
     setSelectedIndex(-1);
   }, []);
 
-  const handleSearchSubmit = useCallback((e?: React.FormEvent) => {
-    e?.preventDefault();
-    setShowSuggestions(false);
-    onFilterChange({ q: searchInput || null });
-  }, [searchInput, onFilterChange]);
+  const handleSearchSubmit = useCallback(
+    (event?: React.FormEvent) => {
+      event?.preventDefault();
+      setShowSuggestions(false);
+      onFilterChange({ q: searchInput || null });
+    },
+    [onFilterChange, searchInput],
+  );
 
   const handleSaveView = useCallback(() => {
     const trimmed = viewNameInput.trim();
@@ -267,341 +598,408 @@ export function HabitLogsSearchFilter({
     setViewNameInput('');
   }, [onSaveCurrentView, viewNameInput]);
 
-  const handleSelectSuggestion = useCallback((suggestion: Suggestion) => {
-    setShowSuggestions(false);
+  const handleSelectSuggestion = useCallback(
+    (suggestion: Suggestion) => {
+      setShowSuggestions(false);
 
-    if (suggestion.type === 'habit') {
-      setSearchInput(suggestion.text);
-      onFilterChange({
-        q: suggestion.text,
-        habits: suggestion.id ? [suggestion.id] : null,
+      if (suggestion.type === 'habit') {
+        setSearchInput(suggestion.text);
+        onFilterChange({
+          q: suggestion.text,
+          habits: suggestion.id ? [suggestion.id] : null,
+        });
+        return;
+      }
+
+      const now = new Date();
+      let start: string | null = null;
+      let end: string | null = null;
+
+      if (suggestion.text === 'Today') {
+        start = end = toLocalDateString(now);
+      } else if (suggestion.text === 'Yesterday') {
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        start = end = toLocalDateString(yesterday);
+      } else if (suggestion.text === 'Last 7 days') {
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        start = toLocalDateString(weekAgo);
+        end = toLocalDateString(now);
+      } else if (suggestion.text === 'Last 30 days') {
+        const monthAgo = new Date(now);
+        monthAgo.setDate(monthAgo.getDate() - 30);
+        start = toLocalDateString(monthAgo);
+        end = toLocalDateString(now);
+      }
+
+      setSearchInput('');
+      onFilterChange({ q: null, start, end });
+    },
+    [onFilterChange],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (!showSuggestions || suggestions.length === 0) {
+        if (event.key === 'Enter') handleSearchSubmit();
+        return;
+      }
+
+      switch (event.key) {
+        case 'ArrowDown':
+          event.preventDefault();
+          setSelectedIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          setSelectedIndex((prev) => Math.max(prev - 1, -1));
+          break;
+        case 'Enter':
+          event.preventDefault();
+          if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+            handleSelectSuggestion(suggestions[selectedIndex]);
+          } else {
+            handleSearchSubmit();
+          }
+          break;
+        case 'Escape':
+          setShowSuggestions(false);
+          break;
+        case 'Tab':
+          if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+            event.preventDefault();
+            handleSelectSuggestion(suggestions[selectedIndex]);
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [handleSearchSubmit, handleSelectSuggestion, selectedIndex, showSuggestions, suggestions],
+  );
+
+  const habitNameById = useMemo(() => new Map(habits.map((habit) => [habit.id, habit.name])), [habits]);
+  const categoryItems = useMemo(
+    () =>
+      groupCategoriesByLabel(categories).map((group) => ({
+        id: group.id,
+        label: group.label,
+        rawValues: group.rawValues,
+        fillClass: getCategoryFillClass(group.rawValues[0]),
+      })),
+    [categories],
+  );
+  const sourceItems = useMemo(
+    () =>
+      groupSourcesByLabel(sources).map((group) => ({
+        id: group.id,
+        label: group.label,
+        rawValues: group.rawValues,
+        color: colorFromLabel(group.label),
+      })),
+    [sources],
+  );
+  const habitItems = useMemo(
+    () =>
+      habits.map((habit) => ({
+        id: habit.id,
+        label: habit.name,
+        color: colorFromLabel(habit.category || habit.name),
+      })),
+    [habits],
+  );
+
+  const appliedFilterChips = useMemo<AppliedFilterChip[]>(() => {
+    const chips: AppliedFilterChip[] = [];
+
+    if (filters.q) {
+      chips.push({
+        id: 'q',
+        label: `Search: ${filters.q}`,
+        onRemove: () => {
+          setSearchInput('');
+          onFilterChange({ q: null });
+        },
       });
-      return;
     }
 
-    const now = new Date();
-    let start: string | null = null;
-    let end: string | null = null;
-
-    if (suggestion.text === 'Today') {
-      start = end = toLocalDateString(now);
-    } else if (suggestion.text === 'Yesterday') {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      start = end = toLocalDateString(yesterday);
-    } else if (suggestion.text === 'Last 7 days') {
-      const weekAgo = new Date(now);
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      start = toLocalDateString(weekAgo);
-      end = toLocalDateString(now);
-    } else if (suggestion.text === 'Last 30 days') {
-      const monthAgo = new Date(now);
-      monthAgo.setDate(monthAgo.getDate() - 30);
-      start = toLocalDateString(monthAgo);
-      end = toLocalDateString(now);
+    const dateRangeLabel = formatDateRangeLabel(filters.start, filters.end);
+    if (dateRangeLabel) {
+      chips.push({
+        id: 'date-range',
+        label: dateRangeLabel,
+        onRemove: () => onFilterChange({ start: null, end: null }),
+      });
     }
 
-    setSearchInput('');
-    onFilterChange({ q: null, start, end });
-  }, [onFilterChange]);
+    (filters.statuses || []).forEach((status) => {
+      chips.push({
+        id: `status-${status}`,
+        label: STATUS_OPTIONS.find((option) => option.id === status)?.label || normalizeCategoryLabel(status),
+        onRemove: () => updateArrayFilter(status, filters.statuses, onFilterChange, 'statuses'),
+      });
+    });
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) {
-      if (e.key === 'Enter') handleSearchSubmit();
-      return;
-    }
+    groupCategoriesByLabel(filters.categories || []).forEach((group) => {
+      chips.push({
+        id: `category-${group.id}`,
+        label: group.label,
+        onRemove: () => {
+          const nextValues = (filters.categories || []).filter((value) => !group.rawValues.includes(value));
+          onFilterChange({ categories: nextValues.length > 0 ? nextValues : null });
+        },
+      });
+    });
 
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setSelectedIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setSelectedIndex((prev) => Math.max(prev - 1, -1));
-        break;
-      case 'Enter':
-        e.preventDefault();
-        if (selectedIndex >= 0 && suggestions[selectedIndex]) {
-          handleSelectSuggestion(suggestions[selectedIndex]);
-        } else {
-          handleSearchSubmit();
-        }
-        break;
-      case 'Escape':
-        setShowSuggestions(false);
-        break;
-      case 'Tab':
-        if (selectedIndex >= 0 && suggestions[selectedIndex]) {
-          e.preventDefault();
-          handleSelectSuggestion(suggestions[selectedIndex]);
-        }
-        break;
-    }
-  }, [showSuggestions, suggestions, selectedIndex, handleSearchSubmit, handleSelectSuggestion]);
+    groupSourcesByLabel(filters.sources || []).forEach((group) => {
+      chips.push({
+        id: `source-${group.id}`,
+        label: group.label,
+        onRemove: () => {
+          const nextValues = (filters.sources || []).filter((value) => !group.rawValues.includes(value));
+          onFilterChange({ sources: nextValues.length > 0 ? nextValues : null });
+        },
+      });
+    });
+
+    (filters.habits || []).forEach((habitId) => {
+      chips.push({
+        id: `habit-${habitId}`,
+        label: habitNameById.get(habitId) || 'Habit',
+        onRemove: () => updateArrayFilter(habitId, filters.habits, onFilterChange, 'habits'),
+      });
+    });
+
+    return chips;
+  }, [filters, habitNameById, onFilterChange]);
 
   return (
-    <div ref={containerRef} className="relative w-full md:w-[350px]">
-      <form onSubmit={handleSearchSubmit}>
-        <Search className="absolute pointer-events-none left-3 top-[11px] w-4 h-4 text-gray-500 z-10" />
-        <Input
-          ref={inputRef}
-          placeholder="Search logs, habits, notes..."
-          className="pl-9 pr-8 rounded-none border-gray-200 focus:ring-0 focus:border-gray-300 h-9 w-full text-sm"
-          value={searchInput}
-          onChange={handleSearchChange}
-          onFocus={() => setShowSuggestions(true)}
-          onKeyDown={handleKeyDown}
-          autoComplete="off"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-        />
+    <div ref={containerRef} className="relative w-full max-w-[350px]">
+      <DropdownMenu open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+        <form onSubmit={handleSearchSubmit} className="relative">
+          <Search className="pointer-events-none absolute left-4 top-[10px] h-4 w-4 stroke-[1.75] text-neutral-700" />
+          <Input
+            ref={inputRef}
+            placeholder="Search habits, logs, notes..."
+            className="h-9 w-full rounded-none border-black/10 pl-10 pr-9 text-sm text-neutral-900 placeholder:text-neutral-400 focus-visible:border-neutral-300 focus-visible:ring-0"
+            value={searchInput}
+            onChange={handleSearchChange}
+            onFocus={() => setShowSuggestions(true)}
+            onKeyDown={handleKeyDown}
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+          />
 
-        {isLoading && (
-          <BrailleSpinner className="absolute right-8 top-[10px] text-sm text-gray-400" />
-        )}
+          {isLoading ? (
+            <BrailleSpinner className="absolute right-10 top-[9px] text-sm text-neutral-400" />
+          ) : null}
 
-        <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-          <PopoverTrigger asChild>
+          <DropdownMenuTrigger asChild>
             <button
               type="button"
               className={cn(
-                'absolute z-10 right-3 top-[10px] opacity-50 transition-opacity duration-300 hover:opacity-100',
-                hasAnyFilters && 'opacity-100 text-gray-900',
-                isFilterOpen && 'opacity-100 text-gray-900',
+                'absolute right-3 top-[9px] z-10 text-neutral-900 opacity-60 transition-opacity duration-200 hover:opacity-100',
+                hasAnyFilters && 'opacity-100',
+                isFilterOpen && 'opacity-100',
               )}
               aria-label="Filters"
             >
-              <SlidersHorizontal className="w-4 h-4" />
+              <SlidersHorizontal className="h-4 w-4 stroke-[1.75]" />
             </button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            sideOffset={10}
-            className="w-[350px] rounded-none border-gray-200 p-0 bg-white"
-          >
-              <div className="max-h-[440px] overflow-y-auto">
-                <div className="p-3 border-b border-gray-200">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Views</div>
-                  <div className="grid grid-cols-2 gap-1.5 mb-2">
-                    {builtInPresets.map((preset) => {
-                      const isActive = activeViewId === `preset:${preset.id}`;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => onApplyPreset(preset.id)}
-                          className={cn(
-                            'h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8] text-left px-2',
-                            isActive && 'bg-[#F2F2F2] text-gray-900',
-                          )}
-                        >
-                          {preset.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+          </DropdownMenuTrigger>
+        </form>
 
-                  <div className="space-y-1 max-h-24 overflow-y-auto mb-2">
-                    {savedViews.map((view) => {
+        <DropdownMenuContent
+          className="w-[350px] rounded-none border-black/10 p-1 shadow-[0_12px_30px_-12px_rgba(15,23,42,0.18)]"
+          align="end"
+          sideOffset={14}
+          alignOffset={-11}
+        >
+          <FilterMenuItem icon={Bookmark} label="Views">
+            <div className="w-[320px] space-y-3 p-4">
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">
+                  Built-in
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {builtInPresets.map((preset) => {
+                    const isActive = activeViewId === `preset:${preset.id}`;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => onApplyPreset(preset.id)}
+                        className={cn(
+                          'rounded-none border px-3 py-1.5 text-left text-[12px] transition-colors',
+                          isActive
+                            ? 'border-neutral-900 bg-neutral-900 text-white'
+                            : 'border-black/10 text-neutral-800 hover:bg-[#F5F5F5]',
+                        )}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-400">
+                  Saved
+                </div>
+                <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+                  {savedViews.length > 0 ? (
+                    savedViews.map((view) => {
                       const isActive = activeViewId === view.id;
                       return (
                         <div
                           key={view.id}
                           className={cn(
-                            'flex items-center border border-transparent',
-                            isActive && 'border-gray-200 bg-[#F7F7F7]',
+                            'flex items-center gap-2 border px-2 py-1.5',
+                            isActive ? 'border-neutral-300 bg-[#F7F7F7]' : 'border-black/10',
                           )}
                         >
                           <button
                             type="button"
                             onClick={() => onApplySavedView(view.id)}
-                            className="flex-1 px-2 py-1 text-left text-xs text-gray-700 hover:bg-[#F8F8F8]"
-                          >
-                            {view.name}
-                          </button>
+                          className="min-w-0 flex-1 truncate text-left text-[12px] text-neutral-800"
+                        >
+                          {view.name}
+                        </button>
                           <button
                             type="button"
                             onClick={() => onDeleteSavedView(view.id)}
-                            className="h-6 w-6 text-gray-400 hover:text-gray-700 inline-flex items-center justify-center"
+                            className="inline-flex h-6 w-6 items-center justify-center text-neutral-500 transition-colors hover:bg-[#F5F5F5] hover:text-neutral-900"
                             aria-label={`Delete ${view.name}`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       );
-                    })}
-                    {savedViews.length === 0 && (
-                      <div className="px-1 text-xs text-gray-500">No saved views</div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <Input
-                      value={viewNameInput}
-                      onChange={(event) => setViewNameInput(event.target.value)}
-                      placeholder="Save current view"
-                      className="h-8 rounded-none border-gray-200 text-xs"
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          handleSaveView();
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveView}
-                      className="h-8 px-2 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8] inline-flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Save
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-3 border-b border-gray-200">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Quick Date</div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <button type="button" onClick={() => applyDatePreset('today')} className="h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8]">Today</button>
-                    <button type="button" onClick={() => applyDatePreset('yesterday')} className="h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8]">Yesterday</button>
-                    <button type="button" onClick={() => applyDatePreset('7d')} className="h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8]">Last 7d</button>
-                    <button type="button" onClick={() => applyDatePreset('30d')} className="h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8]">Last 30d</button>
-                    <button type="button" onClick={() => applyDatePreset('90d')} className="h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8]">Last 90d</button>
-                    <button type="button" onClick={() => applyDatePreset('clear')} className="h-7 border border-gray-200 text-xs text-gray-700 hover:bg-[#F8F8F8]">Clear</button>
-                  </div>
-                </div>
-
-                <div className="p-3 border-b border-gray-200">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Status</div>
-                  <div className="space-y-1">
-                    {STATUS_OPTIONS.map((status) => {
-                      const checked = filters.statuses?.includes(status.id) || false;
-                      return (
-                        <div
-                          key={status.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => toggleArrayFilter('statuses', status.id)}
-                          onKeyDown={(event) => {
-                            if (!isToggleKey(event)) return;
-                            event.preventDefault();
-                            toggleArrayFilter('statuses', status.id);
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#F8F8F8]"
-                        >
-                          <Checkbox checked={checked} className="pointer-events-none rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900" />
-                          <span className="text-sm text-gray-900">{status.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="p-3 border-b border-gray-200">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Categories</div>
-                  <div className="max-h-28 overflow-y-auto space-y-1">
-                    {categories.map((category) => {
-                      const checked = filters.categories?.includes(category) || false;
-                      return (
-                        <div
-                          key={category}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => toggleArrayFilter('categories', category)}
-                          onKeyDown={(event) => {
-                            if (!isToggleKey(event)) return;
-                            event.preventDefault();
-                            toggleArrayFilter('categories', category);
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#F8F8F8]"
-                        >
-                          <Checkbox checked={checked} className="pointer-events-none rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900" />
-                          <span className="text-sm text-gray-900">{category}</span>
-                        </div>
-                      );
-                    })}
-                    {categories.length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-gray-500">No categories available</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="p-3 border-b border-gray-200">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Sources</div>
-                  <div className="max-h-24 overflow-y-auto space-y-1">
-                    {sources.map((source) => {
-                      const checked = filters.sources?.includes(source) || false;
-                      return (
-                        <div
-                          key={source}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => toggleArrayFilter('sources', source)}
-                          onKeyDown={(event) => {
-                            if (!isToggleKey(event)) return;
-                            event.preventDefault();
-                            toggleArrayFilter('sources', source);
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#F8F8F8]"
-                        >
-                          <Checkbox checked={checked} className="pointer-events-none rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900" />
-                          <span className="text-sm text-gray-900 capitalize">{source}</span>
-                        </div>
-                      );
-                    })}
-                    {sources.length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-gray-500">No sources available</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="p-3">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Habits</div>
-                  <div className="max-h-36 overflow-y-auto space-y-1">
-                    {habits.map((habit) => {
-                      const checked = filters.habits?.includes(habit.id) || false;
-                      return (
-                        <div
-                          key={habit.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => toggleArrayFilter('habits', habit.id)}
-                          onKeyDown={(event) => {
-                            if (!isToggleKey(event)) return;
-                            event.preventDefault();
-                            toggleArrayFilter('habits', habit.id);
-                          }}
-                          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-[#F8F8F8]"
-                        >
-                          <Checkbox checked={checked} className="pointer-events-none rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900" />
-                          <span className="text-sm text-gray-900 truncate">{habit.name}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    })
+                  ) : (
+                    <p className="text-[13px] text-neutral-500">No saved views yet.</p>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={viewNameInput}
+                  onChange={(event) => setViewNameInput(event.target.value)}
+                  placeholder="Save current view"
+                  className="h-8 rounded-none border-black/10 text-[12px] focus-visible:border-neutral-300 focus-visible:ring-0"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      handleSaveView();
+                    }
+                  }}
+                />
                 <button
                   type="button"
-                  onClick={clearAllFilters}
-                  className="text-xs text-gray-500 hover:text-gray-900"
+                  onClick={handleSaveView}
+                  className="inline-flex h-8 items-center gap-1.5 border border-black/10 px-3 text-[12px] text-neutral-800 transition-colors hover:bg-[#F5F5F5]"
                 >
-                  Clear all filters
+                  <Plus className="h-3.5 w-3.5" />
+                  Save
                 </button>
-                {hasAnyFilters && (
-                  <span className="text-xs text-gray-500">Filters active</span>
-                )}
               </div>
-          </PopoverContent>
-        </Popover>
-      </form>
+            </div>
+          </FilterMenuItem>
 
-      {showSuggestions && suggestions.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 shadow-sm max-h-64 overflow-y-auto">
+          <FilterMenuItem icon={CalendarRange} label="Date">
+            <InlineDateRangeFilter
+              start={filters.start}
+              end={filters.end}
+              onSelect={(range) => onFilterChange(range)}
+            />
+          </FilterMenuItem>
+
+          <FilterMenuItem icon={BadgeCheck} label="Status">
+            <div className="max-h-[320px] overflow-y-auto p-1">
+              {STATUS_OPTIONS.map((status) => (
+                <FilterCheckboxItem
+                  key={status.id}
+                  checked={filters.statuses?.includes(status.id) || false}
+                  label={status.label}
+                  onCheckedChange={() =>
+                    updateArrayFilter(status.id, filters.statuses, onFilterChange, 'statuses')
+                  }
+                />
+              ))}
+            </div>
+          </FilterMenuItem>
+
+          <FilterMenuItem icon={Layers3} label="Categories">
+            <SearchableList
+              items={categoryItems}
+              placeholder="Search category"
+              selectedValues={filters.categories}
+              onToggle={(item) =>
+                onFilterChange({
+                  categories: toggleCategoryGroup(item.rawValues ?? [item.id], filters.categories),
+                })
+              }
+            />
+          </FilterMenuItem>
+
+          <FilterMenuItem icon={AppWindow} label="Sources">
+            <SearchableList
+              items={sourceItems}
+              placeholder="Search source"
+              selectedValues={filters.sources}
+              onToggle={(item) =>
+                onFilterChange({
+                  sources: toggleSourceGroup(item.rawValues ?? [item.id], filters.sources),
+                })
+              }
+            />
+          </FilterMenuItem>
+
+          <FilterMenuItem icon={ClipboardList} label="Habits">
+            <SearchableList
+              items={habitItems}
+              placeholder="Search habit"
+              selectedValues={filters.habits}
+              onToggle={(item) => updateArrayFilter(item.id, filters.habits, onFilterChange, 'habits')}
+            />
+          </FilterMenuItem>
+
+          <DropdownMenuSeparator className="mx-0 my-0 bg-black/10" />
+
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] text-neutral-800 transition-colors hover:bg-[#F5F5F5]"
+          >
+            <span>Clear all filters</span>
+            {hasAnyFilters ? <span className="text-[12px] text-neutral-400">{activeFilterCount} active</span> : null}
+          </button>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {appliedFilterChips.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {appliedFilterChips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={chip.onRemove}
+              className="inline-flex items-center gap-1.5 border border-black/10 bg-white px-2.5 py-1 text-[12px] text-neutral-600 transition-colors hover:bg-[#F5F5F5] hover:text-neutral-900"
+            >
+              <span className="max-w-[180px] truncate">{chip.label}</span>
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {showSuggestions && suggestions.length > 0 ? (
+        <div className="absolute z-50 mt-2 w-full border border-black/10 bg-white p-1 shadow-[0_12px_30px_-12px_rgba(15,23,42,0.18)]">
           {suggestions.map((suggestion, index) => (
             <button
               key={`${suggestion.type}-${suggestion.text}-${index}`}
@@ -609,15 +1007,22 @@ export function HabitLogsSearchFilter({
               onClick={() => handleSelectSuggestion(suggestion)}
               onMouseEnter={() => setSelectedIndex(index)}
               className={cn(
-                'w-full px-3 py-1.5 text-left text-sm transition-colors',
-                selectedIndex === index ? 'text-gray-900 bg-[#F7F7F7]' : 'text-gray-500 hover:text-gray-900',
+                'flex w-full items-center px-3 py-2 text-left text-[14px] transition-colors',
+                selectedIndex === index
+                  ? 'bg-[#F5F5F5] text-neutral-900'
+                  : 'text-neutral-700 hover:bg-[#F5F5F5] hover:text-neutral-900',
               )}
             >
-              {suggestion.text}
+              {suggestion.type === 'habit' ? (
+                <ClipboardList className="mr-2 h-4 w-4 stroke-[1.75] text-neutral-700" />
+              ) : (
+                <CalendarRange className="mr-2 h-4 w-4 stroke-[1.75] text-neutral-700" />
+              )}
+              <span>{suggestion.text}</span>
             </button>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

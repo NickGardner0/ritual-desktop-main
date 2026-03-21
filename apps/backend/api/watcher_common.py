@@ -116,6 +116,7 @@ class MemoryQueryRequest(BaseModel):
     days_back: Optional[int] = 7
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    timezone: Optional[str] = None
     group_by: Optional[str] = "app"
     limit: Optional[int] = 20
 

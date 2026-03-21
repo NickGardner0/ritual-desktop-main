@@ -7,7 +7,7 @@
 'use client'
 
 import React from 'react'
-import { Globe, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { BarChart, Bar, XAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import { msToHuman } from '@/lib/computerActivity/derive'
 import type { BreakdownPoint, UsageBreakdownKind } from '@ritual/shared-contracts/computer-activity'
@@ -22,6 +22,7 @@ interface UsageBreakdownCardProps {
   endDate: string
   points: BreakdownPoint[]
   totalSeconds: number
+  totalMs?: number
   isLoading: boolean
   error?: string | null
   hint?: string | null
@@ -32,10 +33,6 @@ function formatLocalDate(value: string): string {
   const [year, month, day] = value.split('-').map(Number)
   const date = new Date(year, month - 1, day)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function formatDuration(seconds: number): string {
-  return msToHuman(seconds * 1000, true)
 }
 
 function LoadingBars() {
@@ -67,7 +64,7 @@ function UsageTooltip({ active, payload }: any) {
       }}
     >
       <div className="font-medium text-gray-900">{data.label}</div>
-      <div className="text-gray-600">Total: {formatDuration(data.seconds)}</div>
+      <div className="text-gray-600">Total: {msToHuman(data.activeMs || data.seconds * 1000, true)}</div>
       <div className="text-gray-500">
         {data.startTime && data.endTime ? `${data.startTime}–${data.endTime}` : 'No active sessions'}
       </div>
@@ -84,25 +81,27 @@ export function UsageBreakdownCard({
   endDate,
   points,
   totalSeconds,
+  totalMs: totalMsProp,
   isLoading,
   error,
   hint,
   onClose,
 }: UsageBreakdownCardProps) {
-  const maxSeconds = Math.max(...points.map(point => point.seconds), 1)
-  const avgSeconds = points.length ? Math.round(totalSeconds / points.length) : 0
-  const isEmpty = !isLoading && !error && totalSeconds === 0
+  const totalMs = totalMsProp ?? totalSeconds * 1000
+  const avgMs = points.length ? Math.round(totalMs / points.length) : 0
+  const isEmpty = !isLoading && !error && totalMs === 0
   const isApp = kind === 'app'
   const chartData = points.map((point) => ({
     date: point.date,
     label: formatLocalDate(point.date),
     seconds: point.seconds,
+    activeMs: point.activeMs,
     startTime: point.startTime,
     endTime: point.endTime,
   }))
 
   return (
-    <div className="border border-gray-200 bg-white px-3 py-3">
+    <div className="rounded-sm border border-[rgba(39,37,30,0.07)] bg-[rgba(39,26,0,0.02)] px-3 py-3">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2">
           <div className="mt-0.5 text-gray-400">
@@ -120,26 +119,26 @@ export function UsageBreakdownCard({
             )}
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900">
-              {label} — Daily usage ({rangeLabel})
+            <p className="text-[13px] font-medium tracking-[-0.02em] text-[#27251E]">
+              {label} · Daily usage ({rangeLabel})
             </p>
-            <p className="text-xs text-gray-400">
+            <p className="text-[11px] text-[rgba(39,37,30,0.42)]">
               {formatLocalDate(startDate)} → {formatLocalDate(endDate)}
             </p>
           </div>
         </div>
         <div className="flex items-start gap-2 text-right">
           <div>
-            <p className="text-xs text-gray-400">Total</p>
-            <p className="text-sm font-medium text-gray-900 tabular-nums">
-              {formatDuration(totalSeconds)}
+            <p className="text-[11px] text-[rgba(39,37,30,0.42)]">Total</p>
+            <p className="text-[13px] font-medium text-[#27251E] tabular-nums">
+              {msToHuman(totalMs, true)}
             </p>
           </div>
           {onClose && (
             <button
               type="button"
               onClick={onClose}
-              className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+              className="rounded-sm p-1 text-[rgba(39,37,30,0.42)] transition-colors hover:text-[#27251E]"
               aria-label="Close breakdown"
             >
               <X className="w-4 h-4" />
@@ -149,7 +148,7 @@ export function UsageBreakdownCard({
       </div>
 
       {hint && (
-        <p className="mt-2 text-xs text-gray-400">{hint}</p>
+        <p className="mt-2 text-[11px] text-[rgba(39,37,30,0.42)]">{hint}</p>
       )}
 
       <div className="mt-3">
@@ -187,8 +186,8 @@ export function UsageBreakdownCard({
         )}
 
         {!isLoading && !error && !isEmpty && (
-          <div className="flex items-center justify-between mt-2 text-[11px] text-gray-400">
-            <span>Avg/day: {formatDuration(avgSeconds)}</span>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-[rgba(39,37,30,0.42)]">
+            <span className="tabular-nums">Avg/day: {msToHuman(avgMs, true)}</span>
             <span>
               {points.length} {points.length === 1 ? 'day' : 'days'}
             </span>

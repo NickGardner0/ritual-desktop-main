@@ -2,6 +2,7 @@
 
 import { memo, useCallback } from 'react';
 import { format, formatISO, isToday } from 'date-fns';
+import { HeartRateCalendarOverlay } from '@/components/biometrics/heart-rate-calendar-overlay';
 import { cn } from '@/lib/utils';
 import type { HabitLog } from './tracker-events';
 import type { WeekScheduledItem } from './calendar-week-view';
@@ -27,6 +28,12 @@ type CalendarDayProps = {
   onScheduledItemClick?: (item: WeekScheduledItem) => void;
   onDayBlockEditorOpen?: (date: Date) => void;
   onHover?: (date: Date | null, data: HabitLog[]) => void;
+  heartRateSummary?: {
+    averageBpm: number;
+    minBpm: number;
+    maxBpm: number;
+    sampleCount: number;
+  };
 };
 
 export const CalendarDay = memo(function CalendarDay({
@@ -44,6 +51,7 @@ export const CalendarDay = memo(function CalendarDay({
   onScheduledItemClick,
   onDayBlockEditorOpen,
   onHover,
+  heartRateSummary,
 }: CalendarDayProps) {
   const isCurrentMonth = date.getMonth() === currentDate.getMonth();
   const isDayToday = isToday(date);
@@ -114,7 +122,7 @@ export const CalendarDay = memo(function CalendarDay({
               event.stopPropagation();
               onDayBlockEditorOpen?.(date);
             }}
-            className="flex h-5 w-5 items-center justify-center text-[14px] leading-none text-[#8A8A8A] opacity-70 transition-opacity hover:text-[#111827] md:opacity-0 md:group-hover:opacity-100"
+            className="flex h-5 w-5 items-center justify-center rounded-sm text-[14px] leading-none text-[#8A8A8A] opacity-70 transition-opacity hover:text-[#111827] md:opacity-0 md:group-hover:opacity-100"
           >
             +
           </button>
@@ -135,7 +143,7 @@ export const CalendarDay = memo(function CalendarDay({
                   event.stopPropagation();
                   onScheduledItemClick?.(item);
                 }}
-                className="w-full truncate border border-[#111827]/20 bg-[#111827] px-1.5 py-0.5 text-left text-[10px] font-medium text-white"
+                className="w-full truncate rounded-sm border border-[#111827]/20 bg-[#111827] px-1.5 py-0.5 text-left text-[10px] font-medium text-white"
                 title={item.title}
               >
                 {item.title}
@@ -149,6 +157,8 @@ export const CalendarDay = memo(function CalendarDay({
             )}
           </div>
         )}
+
+        {/* HeartRateCalendarOverlay removed — HR data shown in daily summary instead */}
       </div>
     </div>
   );

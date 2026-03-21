@@ -88,7 +88,7 @@ def create_search_router(
             from sqlalchemy import select
 
             from database.connection import get_db_session
-            from database.models import AIMessageDB, HabitDB, HabitLogDB
+            from database.models import AIConversationDB, AIMessageDB, HabitDB, HabitLogDB
 
             user_id = current_user["id"]
             indexed_counts = {"habits": 0, "logs": 0, "messages": 0}
@@ -151,10 +151,33 @@ def create_search_router(
                 await search_service.bulk_index_logs(log_docs, user_id)
                 indexed_counts["logs"] = len(log_docs)
 
+                messages_result = await session.execute(
+                    select(AIMessageDB, AIConversationDB.user_id)
+                    .join(AIConversationDB, AIMessageDB.conversation_id == AIConversationDB.id)
+                    .where(AIConversationDB.user_id == user_id)
+                )
+                messages = messages_result.all()
+
+                for message, _ in messages:
+                    await search_service.index_ai_message(
+                        {
+                            "id": message.id,
+                            "conversation_id": message.conversation_id,
+                            "role": message.role,
+                            "content": message.content,
+                            "created_at": message.created_at,
+                        },
+                        user_id,
+                    )
+                indexed_counts["messages"] = len(messages)
+
             return {
                 "success": True,
                 "indexed": indexed_counts,
-                "message": f"Indexed {indexed_counts['habits']} habits and {indexed_counts['logs']} logs",
+                "message": (
+                    f"Indexed {indexed_counts['habits']} habits, "
+                    f"{indexed_counts['logs']} logs, and {indexed_counts['messages']} messages"
+                ),
             }
 
         except Exception as e:

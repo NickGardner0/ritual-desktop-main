@@ -66,11 +66,13 @@ export async function GET(request: NextRequest) {
 // Fallback quick actions when backend is unavailable
 function getQuickActions(query: string) {
   const actions = [
-    { id: "log-habit", name: "Log a habit", keywords: ["log", "track", "add"], action: "open_logger", icon: "plus" },
+    { id: "log-habit", name: "Log a habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
     { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
-    { id: "view-analytics", name: "View analytics", keywords: ["stats", "charts"], action: "navigate", path: "/analytics", icon: "bar-chart" },
+    { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
+    { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
     { id: "ai-assistant", name: "Ask AI assistant", keywords: ["ai", "chat", "ask"], action: "navigate", path: "/chat", icon: "bot" },
-    { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "open_import", icon: "upload" },
+    { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
+    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
     { id: "connect-wearables", name: "Connect wearables", keywords: ["whoop", "oura", "garmin"], action: "navigate", path: "/integrations", icon: "watch" },
   ];
 
@@ -84,4 +86,3 @@ function getQuickActions(query: string) {
     )
     .slice(0, 5);
 }
-

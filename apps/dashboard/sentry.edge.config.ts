@@ -17,7 +17,4 @@ if (SENTRY_DSN) {
     // Setting this option to true will print useful information to the console while you're setting up Sentry.
     debug: false,
   });
-} else {
-  console.log('Sentry DSN not configured. Error tracking is disabled.');
 }
-

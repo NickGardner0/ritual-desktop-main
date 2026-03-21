@@ -1,9 +1,13 @@
 import { withSentryConfig } from '@sentry/nextjs';
 import bundleAnalyzer from '@next/bundle-analyzer';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === 'true',
 });
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(configDir, '../..');
 
 const corsAllowOrigin =
   process.env.CORS_ALLOW_ORIGIN ||
@@ -16,6 +20,10 @@ const nextConfig = {
   reactStrictMode: true,
   // Hide Next.js floating dev indicator launcher in development.
   devIndicators: false,
+  outputFileTracingRoot: repoRoot,
+  turbopack: {
+    root: repoRoot,
+  },
   
   experimental: {
     optimizePackageImports: [

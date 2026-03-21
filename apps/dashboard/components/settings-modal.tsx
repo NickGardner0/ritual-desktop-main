@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { startTransition, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch, Video, Mic, Check } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
@@ -10,24 +10,27 @@ import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleHealthSyncStatus } from './apple-health-sync-status';
 import { RecorderSettings } from './screen-recorder';
 
+type SettingsView = 'account' | 'computer-tracking' | 'apple-health' | 'screen-recording' | 'voice-logging';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOpen?: () => void;
+  initialView?: SettingsView;
 }
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
-  { value: 'geist-sans', label: 'Geist Sans' },
+  { value: 'system-ui', label: 'System UI' },
 ];
 
 const SETTINGS_PANEL_CLASS =
-  'relative bg-[#FCFCFB] w-full max-w-[520px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-none z-10 overflow-hidden max-h-[520px] flex flex-col';
+  'relative bg-[#FCFCFB] w-full max-w-[460px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-sm z-10 overflow-hidden max-h-[480px] flex flex-col';
 const SETTINGS_HEADER_CLASS =
-  'flex items-center justify-between px-4 py-2 border-b border-gray-200/70 bg-[#FCFCFB]';
-const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-none transition-colors hover:bg-gray-100';
+  'flex items-center justify-between pl-2.5 pr-4 py-1.5 border-b border-gray-200/70 bg-[#FCFCFB]';
+const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-none transition-colors';
 
-export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, onOpen, initialView }: SettingsModalProps) {
   const { user } = useUser();
   const { signOut, openUserProfile } = useClerk();
   const router = useRouter();
@@ -35,8 +38,17 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
-  const [currentView, setCurrentView] = useState<'account' | 'computer-tracking' | 'apple-health' | 'screen-recording' | 'voice-logging'>('account');
+  const [currentView, setCurrentView] = useState<SettingsView>('account');
   const wasOpenRef = useRef(false);
+
+  // When opening with initialView, switch to that view
+  useEffect(() => {
+    if (isOpen && initialView) {
+      startTransition(() => {
+        setCurrentView(initialView);
+      });
+    }
+  }, [isOpen, initialView]);
 
   // Call onOpen when modal opens to close sidebar
   useEffect(() => {
@@ -53,7 +65,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
   
   if (!isOpen) return null;
 
-  // Computer Tracking View
+  // Computer Use View
   if (currentView === 'computer-tracking') {
     const modalContent = (
       <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -73,7 +85,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             >
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Computer Tracking</h2>
+            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Computer Use</h2>
             <div className="w-6" />
           </div>
 
@@ -233,7 +245,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             onClick={handleClose}
             className={SETTINGS_HEADER_BUTTON_CLASS}
           >
-            <X className="w-5 h-5 text-gray-600" />
+            <X className="w-4 h-4 text-gray-600" />
           </button>
           <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Settings</h2>
           <div className="w-6" />
@@ -242,7 +254,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
         {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto">
           {/* Profile Section */}
-          <div className="px-4 py-3 flex items-center gap-2.5 border-b border-gray-200/60">
+          <div className="px-4 py-2 flex items-center gap-2.5 border-b border-gray-200/60">
             <div className="w-10 h-10 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
               {userInitial}
             </div>
@@ -260,7 +272,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
           {/* Settings Items */}
           <div className="px-4">
             {/* AI Data Retention */}
-            <div className="py-2.5 flex items-center justify-between border-b border-gray-200/60">
+            <div className="py-2 flex items-center justify-between border-b border-gray-200/60">
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-gray-500" />
                 <span className="text-[13px] font-medium text-gray-900 tracking-tight">AI Data Retention</span>
@@ -280,7 +292,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             </div>
 
             {/* App Font */}
-            <div className="py-2.5 flex items-center justify-between border-b border-gray-200/60">
+            <div className="py-2 flex items-center justify-between border-b border-gray-200/60">
               <div className="flex items-center gap-2">
                 <Type className="w-4 h-4 text-gray-500" />
                 <span className="text-[13px] font-medium text-gray-900 tracking-tight">App Font</span>
@@ -290,7 +302,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
                   onClick={() => setShowFontDropdown(!showFontDropdown)}
                   className="flex items-center gap-1 text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
                 >
-                  <span className={font === 'geist-sans' ? 'font-geist' : ''}>
+                  <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
                     {fontOptions.find(f => f.value === font)?.label}
                   </span>
                   <ChevronRight className="w-4 h-4" />
@@ -301,7 +313,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
                       className="fixed inset-0 z-10" 
                       onClick={() => setShowFontDropdown(false)} 
                     />
-                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg z-20 min-w-[140px] py-1">
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg z-20 min-w-[170px] py-1">
                       {fontOptions.map((option) => (
                         <button
                           key={option.value}
@@ -311,7 +323,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
                           }}
                           className={`w-full px-3 py-1.5 text-[13px] text-left hover:bg-gray-50 flex items-center justify-between ${
                             font === option.value ? 'text-gray-900' : 'text-gray-600'
-                          } ${option.value === 'geist-sans' ? 'font-geist' : ''}`}
+                          } ${option.value === 'system-ui' ? 'font-system-ui' : ''}`}
                         >
                           {option.label}
                           {font === option.value && (
@@ -325,14 +337,14 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
               </div>
             </div>
 
-            {/* Computer Tracking */}
+            {/* Computer Use */}
             <button 
               onClick={() => setCurrentView('computer-tracking')}
-              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Computer Tracking</span>
+                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Computer Use</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
@@ -340,7 +352,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Screen Recording */}
             <button 
               onClick={() => setCurrentView('screen-recording')}
-              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Video className="w-4 h-4 text-gray-500" />
@@ -352,7 +364,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Voice Logging */}
             <button 
               onClick={() => setCurrentView('voice-logging')}
-              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Mic className="w-4 h-4 text-gray-500" />
@@ -364,7 +376,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Apple Health Sync */}
             <button 
               onClick={() => setCurrentView('apple-health')}
-              className="w-full py-2.5 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <Watch className="w-4 h-4 text-gray-500" />
@@ -376,7 +388,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Clear History */}
             <button
               onClick={handleClearHistory}
-              className="w-full py-2.5 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <Trash2 className="w-4 h-4 text-gray-500" />
               <span className="text-[13px] font-medium text-gray-900 tracking-tight">Clear History</span>
@@ -385,7 +397,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Delete Account */}
             <button
               onClick={handleDeleteAccount}
-              className="w-full py-2.5 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <AlertTriangle className="w-4 h-4 text-red-500" />
               <span className="text-[13px] font-medium text-red-500 tracking-tight">Delete Account</span>
@@ -394,7 +406,7 @@ export function SettingsModal({ isOpen, onClose, onOpen }: SettingsModalProps) {
             {/* Sign Out */}
             <button
               onClick={handleSignOut}
-              className="w-full py-2.5 flex items-center gap-2 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-2 flex items-center gap-2 hover:bg-gray-50/40 transition-colors"
             >
               <LogOut className="w-4 h-4 text-gray-500" />
               <span className="text-[13px] font-medium text-gray-900 tracking-tight">Sign Out</span>

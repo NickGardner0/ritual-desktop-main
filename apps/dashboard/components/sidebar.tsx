@@ -32,7 +32,7 @@ export function Sidebar() {
           <img 
             src="/images/eclipse.svg" 
             alt="Ritual Logo" 
-            className="w-[27px] h-[27px] flex-shrink-0"
+            className="w-[24px] h-[24px] flex-shrink-0"
           />
         </Link>
       </div>

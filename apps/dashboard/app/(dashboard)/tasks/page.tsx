@@ -13,14 +13,14 @@ export const metadata: Metadata = {
 
 function TasksLoading() {
   return (
-    <div className="flex h-full flex-col bg-background">
-      <div className="flex items-center justify-between border-b border-border px-6 py-3">
-        <div className="h-5 w-32 animate-pulse rounded bg-muted" />
-        <div className="h-8 w-52 animate-pulse rounded bg-muted" />
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+        <div className="h-10 w-72 animate-pulse rounded-sm bg-muted" />
       </div>
-      <div className="flex flex-1 gap-4 p-6">
+      <div className="flex flex-1 gap-4 p-5">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="min-w-[280px] flex-1 animate-pulse rounded border border-border bg-muted/20 p-4" />
+          <div key={i} className="min-w-[260px] flex-1 animate-pulse rounded-sm border border-border bg-muted/20 p-4" />
         ))}
       </div>
     </div>

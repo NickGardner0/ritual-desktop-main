@@ -5,6 +5,7 @@ export interface Habit {
   icon?: string
   is_custom?: boolean
   integration_source?: string
+  metric_type?: string
   created_at?: string
   updated_at?: string
   user_id?: string

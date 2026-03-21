@@ -300,6 +300,19 @@ fn is_terminal_style_context(bundle_id: Option<&str>, window_title: Option<&str>
             .contains("terminal")
 }
 
+fn is_browser_context(bundle_id: Option<&str>, _window_title: Option<&str>) -> bool {
+    let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
+    bundle.contains("safari")
+        || bundle.contains("chrome")
+        || bundle.contains("firefox")
+        || bundle.contains("brave")
+        || bundle.contains("arc")
+        || bundle.contains("edge")
+        || bundle.contains("opera")
+        || bundle.contains("orion")
+        || bundle.contains("vivaldi")
+}
+
 fn is_task_manager_context(bundle_id: Option<&str>, window_title: Option<&str>) -> bool {
     let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
     bundle.contains("things")
@@ -390,6 +403,15 @@ fn is_known_window_chrome_noise(
         return true;
     }
     if lowered.contains("this button also has an action to zoom the window") {
+        return true;
+    }
+    // Common browser chrome noise
+    if matches!(
+        lowered.as_str(),
+        "back" | "forward" | "reload" | "share" | "extensions" | "downloads"
+            | "new tab" | "close tab" | "bookmark this tab" | "show all tabs"
+            | "address and search bar" | "search or enter website name"
+    ) {
         return true;
     }
     if attribute == "AXHelp" && matches!(source, "window" | "sibling" | "visible_descendant") {
@@ -538,6 +560,14 @@ fn candidate_priority(
     }
     if is_task_manager && source == "parent" && text.len() >= 30 {
         priority += 0.05;
+    }
+    // Browser content: boost longer text from page content areas
+    let is_browser = is_browser_context(bundle_id, window_title);
+    if is_browser && text.len() >= 80 && is_contextual_source {
+        priority += 0.10;
+    }
+    if is_browser && matches!(attribute, "AXValue" | "AXSelectedText") && text.len() >= 40 {
+        priority += 0.08;
     }
     priority.clamp(0.0, 1.2)
 }
@@ -801,7 +831,22 @@ fn finalize_accessibility_text(
         quality += 0.05;
     }
     if bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex") {
-        quality = quality.max(if joined.len() >= 80 { 0.86 } else { 0.82 });
+        // Only apply quality floor for editors when we have genuine AX content
+        // (selected text, document identity, or rich text from the editor body).
+        // When the capture is thin (just metadata/window title), let the quality
+        // reflect the actual capture so the vision fallback can supplement it.
+        let has_genuine_content = selected_text_present
+            || document_identity.is_some()
+            || document_path.is_some()
+            || contextual_long_count >= 2;
+        if has_genuine_content {
+            quality = quality.max(if joined.len() >= 80 { 0.86 } else { 0.82 });
+        }
+        // Even without genuine content, editor captures with basic metadata
+        // should have a modest floor so we don't completely discard them
+        else if joined.len() >= 40 {
+            quality = quality.max(0.55);
+        }
     }
     if joined.len() < 40 {
         quality = quality.min(0.72);
@@ -821,6 +866,18 @@ fn finalize_accessibility_text(
     }
     if joined.len() >= 800 {
         ax_richness += 0.05;
+    }
+    // For Cursor/Code/Codex with thin captures (no selected text, no document
+    // identity, short text), cap richness score so vision fallback can run.
+    // This is critical: Electron-based editors often have poor AX coverage,
+    // and the vision fallback is the only way to capture actual code content.
+    if (bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex"))
+        && !selected_text_present
+        && document_identity.is_none()
+        && document_path.is_none()
+        && joined.len() < 200
+    {
+        ax_richness = ax_richness.min(0.45);
     }
 
     FocusedTextInfo {
@@ -1365,14 +1422,19 @@ pub fn get_focused_text_info(
             );
             let mut visited = HashSet::new();
             let is_editor = is_editor_style_context(bundle_id, window_title);
-            let mut node_budget = if is_editor { 40 } else { 24 };
+            let is_browser = is_browser_context(bundle_id, window_title);
+            let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
+            let is_electron_editor = is_editor
+                && (bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex"));
+            // Browsers have deeply nested DOMs — need higher budgets to reach page content
+            let mut node_budget = if is_electron_editor { 60 } else if is_browser { 50 } else if is_editor { 40 } else { 24 };
             collect_visible_descendants(
                 window_element,
                 &mut candidates,
                 &mut visited,
                 &mut node_budget,
-                if is_editor { 3 } else { 2 },
-                if is_editor { 16 } else { 14 },
+                if is_electron_editor { 5 } else if is_browser { 4 } else if is_editor { 3 } else { 2 },
+                if is_electron_editor { 24 } else if is_browser { 20 } else if is_editor { 16 } else { 14 },
             );
             CFRelease(window_element as *const _);
         }
@@ -1387,7 +1449,15 @@ pub fn get_focused_text_info(
                         || matches!(*attr, "AXDocument" | "AXFilename"))
             });
         if weak_editor_capture {
-            collect_related_process_candidates(pid, bundle_id, &mut candidates, 2, 10);
+            // For Cursor/Code/Codex, use deeper traversal since Electron-based
+            // editors have deeply nested AX trees where code content hides
+            let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
+            let (depth, children) = if bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex") {
+                (4, 20) // Deeper + wider traversal for Electron editors
+            } else {
+                (2, 10)
+            };
+            collect_related_process_candidates(pid, bundle_id, &mut candidates, depth, children);
         }
 
         for ancestor in ancestors {

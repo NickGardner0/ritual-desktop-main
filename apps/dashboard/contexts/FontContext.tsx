@@ -1,8 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type FontOption = 'fk-grotesk' | 'geist-sans';
+export type FontOption = 'fk-grotesk' | 'system-ui';
 
 interface FontContextType {
   font: FontOption;
@@ -16,18 +16,27 @@ const FONT_STORAGE_KEY = 'ritual-font-preference';
 
 const fontClasses: Record<FontOption, string> = {
   'fk-grotesk': 'font-sans',
-  'geist-sans': 'font-geist',
+  'system-ui': 'font-system-ui',
 };
 
 export function FontProvider({ children }: { children: ReactNode }) {
-  const [font, setFontState] = useState<FontOption>('fk-grotesk');
-
-  useEffect(() => {
-    const stored = localStorage.getItem(FONT_STORAGE_KEY);
-    if (stored === 'fk-grotesk' || stored === 'geist-sans') {
-      setFontState(stored);
+  const [font, setFontState] = useState<FontOption>(() => {
+    if (typeof window === 'undefined') {
+      return 'fk-grotesk';
     }
-  }, []);
+
+    const stored = localStorage.getItem(FONT_STORAGE_KEY);
+    if (stored === 'geist-sans' || stored === 'neue-haas') {
+      localStorage.setItem(FONT_STORAGE_KEY, 'system-ui');
+      return 'system-ui';
+    }
+
+    if (stored === 'fk-grotesk' || stored === 'system-ui') {
+      return stored;
+    }
+
+    return 'fk-grotesk';
+  });
 
   // Save font preference to localStorage when it changes
   const setFont = (newFont: FontOption) => {

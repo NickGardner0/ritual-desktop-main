@@ -93,7 +93,7 @@ export function DetachedSidebarShell() {
   return (
     <aside
       className={cn(
-        "sidebar-vibrancy h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-center flex z-[1002] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+        "sidebar-vibrancy h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-center flex z-[1002] transition-all duration-200 ease-standard",
         "bg-background border-r border-gray-300",
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}
@@ -102,7 +102,7 @@ export function DetachedSidebarShell() {
     >
       <div
         className={cn(
-          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center bg-background border-b border-gray-300 transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center bg-background border-b border-gray-300 transition-all duration-200 ease-standard",
           isExpanded ? "w-full" : "w-[69px]",
         )}
       >
@@ -111,7 +111,7 @@ export function DetachedSidebarShell() {
           onClick={() => navigate("/dashboard")}
           className="absolute left-1/2 -translate-x-1/2 top-[58%] -translate-y-1/2 transition-none"
         >
-          <img src="/images/eclipse.svg" alt="Ritual Logo" className="w-[36px] h-[36px] flex-shrink-0" />
+          <img src="/images/eclipse.svg" alt="Ritual Logo" className="w-[32px] h-[32px] flex-shrink-0" />
         </button>
       </div>
 
@@ -127,7 +127,7 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                        "h-[40px] transition-all duration-200 ease-standard",
                         isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px] rounded-none",
                       )}
                     />

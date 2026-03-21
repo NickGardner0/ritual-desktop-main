@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('start_date');
     const endDate = searchParams.get('end_date');
     const habitId = searchParams.get('habit_id');
+    const habitIdsParam = searchParams.get('habit_ids');
 
     const requestedDaysBack = Number.parseInt(searchParams.get('days_back') || '30', 10);
     const daysBack = Number.isFinite(requestedDaysBack)
@@ -37,11 +38,22 @@ export async function GET(request: NextRequest) {
 
     const params = new URLSearchParams({
       user_id: userId,
-      output,
     });
 
     if (habitId) {
       params.set('habit_id', habitId);
+    } else if (habitIdsParam) {
+      const normalizedHabitIds = Array.from(
+        new Set(
+          habitIdsParam
+            .split(',')
+            .map(id => id.trim())
+            .filter(Boolean)
+        )
+      );
+      if (normalizedHabitIds.length > 0) {
+        params.set('habit_ids', normalizedHabitIds.join(','));
+      }
     }
 
     if (startDate && endDate) {
@@ -51,7 +63,8 @@ export async function GET(request: NextRequest) {
       params.set('days_back', String(daysBack));
     }
 
-    const url = `${TINYBIRD_URL}/v0/pipes/habit_daily_values.json?${params.toString()}`;
+    const pipeName = output === 'daily' ? 'habit_daily_series' : 'habit_daily_values';
+    const url = `${TINYBIRD_URL}/v0/pipes/${pipeName}.json?${params.toString()}`;
 
     const response = await fetch(url, {
       headers: {
@@ -74,7 +87,9 @@ export async function GET(request: NextRequest) {
       data: payload.data || [],
       meta: {
         user_id: userId,
+        pipe: pipeName,
         habit_id: habitId,
+        habit_ids: habitId ? null : (params.get('habit_ids') || null),
         start_date: startDate,
         end_date: endDate,
         days_back: startDate && endDate ? null : daysBack,

@@ -857,7 +857,7 @@ fn dominant_title(snapshot: &ContextSnapshot) -> Option<String> {
 fn representative_text(snapshot: &ContextSnapshot) -> Option<String> {
     let raw = snapshot.visible_text_raw.trim();
     if !raw.is_empty() {
-        return Some(clip_text(raw, 1200));
+        return Some(clip_text(raw, 2500));
     }
     dominant_title(snapshot)
 }
@@ -893,7 +893,114 @@ fn build_contextual_text(session: &ContextSession, raw_text: &str) -> String {
     if !raw_text.trim().is_empty() {
         parts.push(format!("Visible content: {}", raw_text.trim()));
     }
+
+    // Extract structured artifacts from raw text for better search relevance
+    let extracted = extract_contextual_artifacts(raw_text);
+    if !extracted.files.is_empty() {
+        parts.push(format!("Files: {}", extracted.files.join(", ")));
+    }
+    if !extracted.commands.is_empty() {
+        parts.push(format!("Commands: {}", extracted.commands.join(", ")));
+    }
+    if !extracted.errors.is_empty() {
+        parts.push(format!("Errors: {}", extracted.errors.join(", ")));
+    }
+    if !extracted.git_ops.is_empty() {
+        parts.push(format!("Git: {}", extracted.git_ops.join(", ")));
+    }
+
     parts.join(" | ")
+}
+
+struct ExtractedArtifacts {
+    files: Vec<String>,
+    commands: Vec<String>,
+    errors: Vec<String>,
+    git_ops: Vec<String>,
+}
+
+fn extract_contextual_artifacts(text: &str) -> ExtractedArtifacts {
+    use std::collections::HashSet;
+
+    let file_extensions = [
+        ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".toml", ".json",
+        ".yaml", ".yml", ".sql", ".css", ".scss", ".html", ".sh", ".swift",
+        ".go", ".rb", ".java", ".c", ".cpp", ".h",
+    ];
+
+    let command_prefixes = [
+        "cargo ", "npm ", "pnpm ", "pytest ", "python ", "uv ", "git ",
+        "bun ", "make ", "docker ", "brew ",
+    ];
+
+    let error_markers = [
+        "fatal:", "error:", "panic:", "exception:", "failed:", "crash:",
+        "traceback:", "abort:", "fatal ", "error ", "panic ",
+    ];
+
+    let git_ops = [
+        "git push", "git pull", "git commit", "git merge", "git rebase",
+        "git checkout", "git stash",
+    ];
+
+    let mut files: HashSet<String> = HashSet::new();
+    let mut commands: HashSet<String> = HashSet::new();
+    let mut errors: HashSet<String> = HashSet::new();
+    let mut git: HashSet<String> = HashSet::new();
+
+    let text_lower = text.to_lowercase();
+
+    // Extract file references
+    for word in text.split_whitespace() {
+        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
+        for ext in &file_extensions {
+            if clean.ends_with(ext) && clean.len() > ext.len() + 1 && files.len() < 16 {
+                files.insert(clean.to_string());
+            }
+        }
+    }
+
+    // Extract commands
+    for prefix in &command_prefixes {
+        for (idx, _) in text_lower.match_indices(prefix) {
+            if commands.len() >= 8 {
+                break;
+            }
+            let snippet: String = text[idx..].chars().take(60).take_while(|c| *c != '\n').collect();
+            let trimmed = snippet.trim();
+            if !trimmed.is_empty() {
+                commands.insert(trimmed.to_string());
+            }
+        }
+    }
+
+    // Extract error markers
+    for marker in &error_markers {
+        for (idx, _) in text_lower.match_indices(marker) {
+            if errors.len() >= 6 {
+                break;
+            }
+            let snippet: String = text[idx..].chars().take(80).take_while(|c| *c != '\n').collect();
+            let trimmed = snippet.trim();
+            if !trimmed.is_empty() {
+                errors.insert(trimmed.to_string());
+            }
+        }
+    }
+
+    // Extract git operations
+    for op in &git_ops {
+        if text_lower.contains(op) && git.len() < 6 {
+            git.insert(op.to_string());
+        }
+    }
+
+    ExtractedArtifacts {
+        files: files.into_iter().collect(),
+        commands: commands.into_iter().collect(),
+        errors: errors.into_iter().collect(),
+        git_ops: git.into_iter().collect(),
+    }
 }
 
 fn clip_text(value: &str, limit: usize) -> String {

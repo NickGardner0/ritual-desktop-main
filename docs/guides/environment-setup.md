@@ -227,6 +227,7 @@ DEBUG=false
 INTERNAL_API_KEY=
 CORS_ORIGINS=https://yourdomain.com,tauri://localhost
 TOKEN_ENCRYPTION_KEY=generate-with-python-c-"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+TURSO_LOCAL_ENCRYPTION_KEY=generate-with-openssl-rand-base64-32
 ```
 
 ---

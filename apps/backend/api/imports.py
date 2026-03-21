@@ -891,13 +891,12 @@ def create_imports_router(
     
                     habit_for_tinybird = await habits_service.get_habit_by_id(habit_id, user_id)
                     if habit_for_tinybird and tinybird_service:
-                        synced_count = 0
+                        tinybird_payloads: List[Dict[str, Any]] = []
                         for log_result in result.results:
                             if log_result.status in ["inserted", "updated"] and log_result.log_id:
                                 log_data = logs[log_result.index] if log_result.index < len(logs) else None
                                 if log_data:
-                                    try:
-                                        await tinybird_service.ingest_habit_log({
+                                    tinybird_payloads.append({
                                             'id': log_result.log_id,
                                             'habit_id': habit_id,
                                             'habit_name': habit_for_tinybird.name,
@@ -911,12 +910,20 @@ def create_imports_router(
                                             'completed_at': datetime.utcnow().isoformat(),
                                             'source': log_data.source or f'{run.source.value}_import'
                                         })
-                                        synced_count += 1
-                                    except Exception as tb_err:
-                                        logger.warning(f"⚠️ Tinybird sync error for log {log_result.log_id}: {tb_err}")
-    
-                        if synced_count > 0:
-                            logger.info(f"📊 Synced {synced_count} logs to Tinybird for habit '{habit_for_tinybird.name}'")
+
+                        if tinybird_payloads:
+                            try:
+                                sync_result = await tinybird_service.ingest_habit_logs_batch(tinybird_payloads)
+                                synced_count = int(sync_result.get("total_ingested") or 0)
+                                if not sync_result.get("success"):
+                                    logger.warning(
+                                        f"⚠️ Tinybird batch sync had errors for habit '{habit_for_tinybird.name}': "
+                                        f"{sync_result.get('errors') or sync_result.get('error')}"
+                                    )
+                                if synced_count > 0:
+                                    logger.info(f"📊 Synced {synced_count} logs to Tinybird for habit '{habit_for_tinybird.name}'")
+                            except Exception as tb_err:
+                                logger.warning(f"⚠️ Tinybird batch sync error for import habit '{habit_for_tinybird.name}': {tb_err}")
     
                 processed = summary.imported + summary.updated + summary.skipped + summary.errors
                 await import_service.update_import_progress(run_id, processed, total_items)

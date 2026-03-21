@@ -350,8 +350,8 @@ export default function IconPicker({
                     setOpen(false);
                     setSearch('');
                   }}
-                  className={`w-full px-3 text-left transition-colors hover:bg-gray-50 ${
-                    isSelected ? 'bg-gray-100' : ''
+                  className={`w-full px-3 text-left transition-colors hover:bg-[#F3F3F3] ${
+                    isSelected ? 'bg-[#F3F3F3]' : ''
                   }`}
                 >
                   <span className="flex items-center gap-3">
@@ -359,9 +359,6 @@ export default function IconPicker({
                       {renderIcon(icon)}
                     </span>
                     <span className="text-sm text-gray-900">{icon.label}</span>
-                    <span className="ml-auto text-[11px] uppercase tracking-wide text-gray-400">
-                      {icon.provider}
-                    </span>
                   </span>
                 </button>
               );
@@ -369,7 +366,7 @@ export default function IconPicker({
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-16">
-            <div className="mb-4 grid h-16 w-16 place-items-center bg-gray-100">
+            <div className="mb-4 grid h-16 w-16 place-items-center bg-[#F3F3F3]">
               <Search className="h-8 w-8 text-gray-400" />
             </div>
             <p className="mb-1 text-sm font-medium text-gray-900">No icons found</p>
@@ -378,11 +375,6 @@ export default function IconPicker({
         )}
       </div>
 
-      <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-        {search.trim()
-          ? `Showing ${list.length} of ${ALL_ICON_OPTIONS.length} icons`
-          : `${lucideIconEntries.length} Lucide + ${materialIconEntries.length} Material icons`}
-      </div>
     </div>
   );
 
@@ -399,7 +391,7 @@ export default function IconPicker({
         onMouseDown={(event) => event.stopPropagation()}
         className={
           anchorClassName ??
-          'flex w-full items-center justify-between border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none'
+          'flex w-full items-center justify-between border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-700 hover:bg-[#F3F3F3] focus:outline-none'
         }
       >
         <span className="flex items-center gap-2">

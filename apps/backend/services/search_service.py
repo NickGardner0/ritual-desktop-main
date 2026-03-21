@@ -18,6 +18,7 @@ import os
 import json
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Literal
 import typesense
@@ -144,14 +145,19 @@ UNIT_ABBREVIATIONS = {
 
 # Quick action items for command palette
 QUICK_ACTIONS = [
-    {"id": "log-habit", "name": "Log a habit", "keywords": ["log", "track", "add", "record"], "action": "open_logger", "icon": "plus"},
-    {"id": "search-logs", "name": "Search logs", "keywords": ["find", "search", "history"], "action": "navigate", "path": "/activity", "icon": "search"},
-    {"id": "view-analytics", "name": "View analytics", "keywords": ["stats", "charts", "graphs", "analytics"], "action": "navigate", "path": "/analytics", "icon": "bar-chart"},
+    {"id": "log-habit", "name": "Log a habit", "keywords": ["log", "track", "add", "record", "capture"], "action": "navigate", "path": "/dashboard?view=overview&compose=log", "icon": "plus"},
+    {"id": "search-logs", "name": "Search logs", "keywords": ["find", "search", "history", "logs", "activity"], "action": "navigate", "path": "/activity", "icon": "search"},
+    {"id": "open-overview", "name": "Open overview", "keywords": ["home", "dashboard", "overview", "index"], "action": "navigate", "path": "/dashboard?view=overview", "icon": "list"},
+    {"id": "view-metrics", "name": "View metrics", "keywords": ["stats", "charts", "graphs", "analytics", "metrics"], "action": "navigate", "path": "/dashboard?view=metrics", "icon": "bar-chart"},
+    {"id": "open-calendar", "name": "Open calendar", "keywords": ["calendar", "schedule", "plan", "events"], "action": "navigate", "path": "/calendar", "icon": "calendar"},
+    {"id": "open-tasks", "name": "Open tasks", "keywords": ["tasks", "todo", "kanban", "board"], "action": "navigate", "path": "/tasks", "icon": "list"},
     {"id": "ai-assistant", "name": "Ask AI assistant", "keywords": ["ai", "chat", "ask", "help", "analyze"], "action": "navigate", "path": "/chat", "icon": "bot"},
-    {"id": "import-data", "name": "Import data", "keywords": ["import", "upload", "csv", "health"], "action": "open_import", "icon": "upload"},
-    {"id": "connect-wearables", "name": "Connect wearables", "keywords": ["whoop", "oura", "garmin", "apple", "health", "connect"], "action": "navigate", "path": "/integrations", "icon": "watch"},
-    {"id": "settings", "name": "Settings", "keywords": ["settings", "preferences", "config"], "action": "open_settings", "icon": "settings"},
-    {"id": "export-data", "name": "Export data", "keywords": ["export", "download", "backup"], "action": "export", "icon": "download"},
+    {"id": "import-data", "name": "Import data", "keywords": ["import", "upload", "csv", "health", "backfill"], "action": "navigate", "path": "/dashboard?view=overview&openImport=1", "icon": "upload"},
+    {"id": "connect-wearables", "name": "Open integrations", "keywords": ["whoop", "oura", "garmin", "apple", "health", "connect", "integrations"], "action": "navigate", "path": "/integrations", "icon": "watch"},
+    {"id": "settings", "name": "Settings", "keywords": ["settings", "preferences", "config", "account"], "action": "navigate", "path": "/dashboard?openSettings=account", "icon": "settings"},
+    {"id": "computer-settings", "name": "Computer use settings", "keywords": ["computer", "watcher", "screen", "tracking", "activity"], "action": "navigate", "path": "/dashboard?openSettings=computer-tracking", "icon": "monitor"},
+    {"id": "apple-health-settings", "name": "Apple Health settings", "keywords": ["apple", "health", "watch", "sync"], "action": "navigate", "path": "/dashboard?openSettings=apple-health", "icon": "watch"},
+    {"id": "screen-recording-settings", "name": "Screen recording settings", "keywords": ["screen", "recording", "recorder", "privacy"], "action": "navigate", "path": "/dashboard?openSettings=screen-recording", "icon": "eye"},
 ]
 
 
@@ -754,6 +760,15 @@ class SearchService:
                 "per_page": limit,
             })
             result["logs"] = self._format_results(logs_result)
+
+            messages_result = self.client.collections["ai_messages"].documents.search({
+                "q": "*",
+                "query_by": "content",
+                "filter_by": f"user_id:={user_id}",
+                "sort_by": "created_at:desc",
+                "per_page": min(limit, 5),
+            })
+            result["conversations"] = self._format_results(messages_result)
             
         except Exception as e:
             logger.error(f"❌ Failed to get recent items: {e}")
@@ -830,6 +845,46 @@ class SearchService:
                 return f"{val_str}{abbrev} of {name_lower}"
             else:
                 return f"{val_str} {abbrev} of {name_lower}"
+
+    def _normalize_suggestion_text(self, value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", (value or "").lower())).strip()
+
+    def _score_suggestion_text(self, query: str, candidate: str) -> int:
+        normalized_query = self._normalize_suggestion_text(query)
+        normalized_candidate = self._normalize_suggestion_text(candidate)
+
+        if not normalized_query or not normalized_candidate:
+            return 0
+
+        score = 0
+        if normalized_candidate == normalized_query:
+            score += 240
+        if normalized_candidate.startswith(normalized_query):
+            score += 180
+        elif normalized_query in normalized_candidate:
+            score += 90
+
+        query_tokens = [token for token in normalized_query.split(" ") if token]
+        candidate_tokens = [token for token in normalized_candidate.split(" ") if token]
+        ordered_matches = 0
+        search_index = 0
+
+        for token in query_tokens:
+            if token in candidate_tokens:
+                score += 30
+            elif any(candidate_token.startswith(token) for candidate_token in candidate_tokens):
+                score += 20
+            elif token in normalized_candidate:
+                score += 10
+
+            found_index = normalized_candidate.find(token, search_index)
+            if found_index >= 0:
+                ordered_matches += 1
+                search_index = found_index + len(token)
+
+        score += ordered_matches * 12
+        score -= max(0, len(candidate_tokens) - len(query_tokens)) * 2
+        return score
 
     async def _get_habit_common_values(
         self, user_id: str, habit_id: str, limit: int = 20
@@ -908,6 +963,7 @@ class SearchService:
         # ── User is typing: phrase match + habit name search ──
         if query:
             matched_habit = None  # Will be: {id, name, unit_type}
+            habit_search_hits: List[Dict[str, Any]] = []
             
             # Strategy 1: Search log_phrases for learned patterns
             try:
@@ -957,13 +1013,18 @@ class SearchService:
                         "query_by": "name,name_lowercase,aliases,category",
                         "filter_by": f"user_id:={user_id} && is_active:=true",
                         "sort_by": "_text_match:desc,last_logged_at:desc",
-                        "per_page": 1,
+                        "per_page": 4,
                         "prefix": True,
                         "typo_tokens_threshold": 1,
                     })
-                    
-                    if habit_result.get("found", 0) > 0:
-                        h = habit_result["hits"][0]["document"]
+
+                    habit_search_hits = [
+                        hit["document"]
+                        for hit in habit_result.get("hits", [])
+                    ]
+
+                    if habit_search_hits:
+                        h = habit_search_hits[0]
                         matched_habit = {
                             "id": h["id"],
                             "name": h["name"],
@@ -1003,7 +1064,38 @@ class SearchService:
                         "habit_name": matched_habit["name"],
                         "unit_type": matched_habit["unit_type"],
                     }]
-            
+
+            if habit_search_hits:
+                suggestions = []
+                for habit_doc in habit_search_hits:
+                    common_values = await self._get_habit_common_values(
+                        user_id, habit_doc["id"]
+                    )
+                    if common_values:
+                        suggestions.append({
+                            "text": self._format_value_suggestion(
+                                common_values[0],
+                                habit_doc.get("unit_type", ""),
+                                habit_doc["name"],
+                            ),
+                            "type": "log_phrase",
+                            "habit_id": habit_doc["id"],
+                            "habit_name": habit_doc["name"],
+                            "unit_type": habit_doc.get("unit_type", ""),
+                            "value": common_values[0],
+                        })
+                    else:
+                        suggestions.append({
+                            "text": habit_doc["name"],
+                            "type": "habit",
+                            "habit_id": habit_doc["id"],
+                            "habit_name": habit_doc["name"],
+                            "unit_type": habit_doc.get("unit_type", ""),
+                        })
+
+                if suggestions:
+                    return suggestions[:4]
+
             # No match at all: return empty
             return []
 
@@ -1108,12 +1200,30 @@ class SearchService:
 
         # If user is typing, filter by query match
         if query:
-            query_lower = query.lower()
-            filtered = [
-                s for s in all_suggestions
-                if query_lower in s["text"].lower()
+            scored = []
+            for suggestion in all_suggestions:
+                score = self._score_suggestion_text(
+                    query,
+                    " ".join(
+                        part for part in [
+                            suggestion.get("text", ""),
+                            suggestion.get("habit_name", ""),
+                        ] if part
+                    ),
+                )
+                if score > 0:
+                    scored.append((score, suggestion))
+
+            scored.sort(key=lambda item: item[0], reverse=True)
+            if scored:
+                return [suggestion for _, suggestion in scored[:5]]
+
+            query_text = query.strip()
+            return [
+                {"text": f"What patterns do you see around {query_text}?", "type": "question"},
+                {"text": f"How has {query_text} changed over time?", "type": "question"},
+                {"text": f"When was {query_text} strongest for me?", "type": "question"},
             ]
-            return filtered[:5]
 
         # Empty state: pick a diverse set using day-of-year rotation
         # This gives consistent suggestions within a day but variety across days

@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 // Loading skeleton for calendar - Midday style
 function CalendarLoading() {
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="flex min-h-full flex-col bg-background">
       {/* Header skeleton */}
       <div className="flex items-center justify-between px-6 py-6">
         {/* Duration skeleton */}
@@ -53,7 +53,7 @@ function CalendarLoading() {
 
 export default function CalendarPage() {
   return (
-    <div className="flex-1 overflow-hidden bg-background h-full">
+    <div className="flex min-h-full flex-col bg-background">
       <Suspense fallback={<CalendarLoading />}>
         <CalendarClient />
       </Suspense>

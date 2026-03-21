@@ -18,6 +18,10 @@ from database.models import WhoopIntegrationDB
 from database.connection import get_db_session
 from services.tinybird_service import TinybirdService
 from services.token_crypto import token_crypto
+from services.unified_wearables_service import (
+    wearable_connection_service,
+    wearable_sync_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +153,15 @@ class WhoopService:
                 integration = result.scalar_one_or_none()
                 
                 expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+                reconnected = False
+                provider_user_changed = False
                 
                 if integration:
+                    reconnected = not bool(integration.is_active)
+                    provider_user_changed = (
+                        bool(integration.whoop_user_id)
+                        and integration.whoop_user_id != whoop_user_id
+                    )
                     # Update existing integration
                     integration.access_token = self._encrypt_token(access_token)
                     integration.refresh_token = self._encrypt_token(refresh_token) if refresh_token else None
@@ -158,6 +169,10 @@ class WhoopService:
                     integration.whoop_user_id = whoop_user_id
                     integration.is_active = True
                     integration.connected_at = datetime.utcnow()
+                    if reconnected or provider_user_changed:
+                        # A reconnect should behave like a fresh connection so the next
+                        # sync performs a proper backfill instead of a tiny incremental pull.
+                        integration.last_sync_at = None
                     logger.info(f"✅ Updated Whoop integration for user {user_id}")
                 else:
                     # Create new integration
@@ -176,6 +191,22 @@ class WhoopService:
                 
                 await session.commit()
                 await session.refresh(integration)
+                await wearable_connection_service.get_or_create_connection(
+                    user_id=user_id,
+                    provider="whoop",
+                    auth_method="oauth",
+                    provider_user_id=whoop_user_id,
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    token_expires_at=expires_at,
+                    settings={
+                        "whoop_sync_hour": integration.whoop_sync_hour or 9,
+                        "sync_hour": integration.whoop_sync_hour or 9,
+                        "auto_sync_enabled": True,
+                    },
+                    status="active",
+                    reset_sync_state=reconnected or provider_user_changed,
+                )
                 return integration
                 
             except SQLAlchemyError as e:
@@ -211,6 +242,7 @@ class WhoopService:
                     .values(is_active=False)
                 )
                 await session.commit()
+                await wearable_connection_service.disconnect(user_id, "whoop")
                 logger.info(f"✅ Disconnected Whoop integration for user {user_id}")
                 return True
             except SQLAlchemyError as e:
@@ -267,6 +299,22 @@ class WhoopService:
                         .values(**update_values)
                     )
                     await session.commit()
+
+                await wearable_connection_service.get_or_create_connection(
+                    user_id=integration.user_id,
+                    provider="whoop",
+                    auth_method="oauth",
+                    provider_user_id=integration.whoop_user_id,
+                    access_token=new_access_token,
+                    refresh_token=new_refresh_token or integration.refresh_token,
+                    token_expires_at=datetime.utcnow() + timedelta(seconds=new_expires_in),
+                    settings={
+                        "whoop_sync_hour": integration.whoop_sync_hour or 9,
+                        "sync_hour": integration.whoop_sync_hour or 9,
+                        "auto_sync_enabled": True,
+                    },
+                    status="active",
+                )
                 
                 logger.info(f"✅ Refreshed Whoop access token for user {integration.user_id}")
                 return new_access_token
@@ -591,19 +639,65 @@ class WhoopService:
                         logger.info(f"✅ Whoop data synced to Tinybird for analytics")
                     except Exception as tb_error:
                         logger.warning(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
-                
-                # Store data in Turso database for dashboard display
+
                 try:
-                    await self._sync_to_habit_logs(
+                    await wearable_sync_service.ingest_whoop_data(
                         user_id=user_id,
+                        provider_user_id=integration.whoop_user_id if integration else user_id,
                         recovery_data=recovery_data,
                         sleep_data=sleep_data,
                         workout_data=workout_data,
-                        cycle_data=cycle_data
+                        cycle_data=cycle_data,
+                        access_token=access_token,
+                        refresh_token=integration.refresh_token if integration else None,
+                        token_expires_at=integration.token_expires_at if integration else None,
                     )
-                    logger.info(f"✅ Whoop data synced to Turso habit_logs for dashboard")
+                    logger.info("✅ Whoop data synced through canonical wearable storage")
                 except Exception as db_error:
-                    logger.warning(f"⚠️  Database sync failed (non-fatal): {str(db_error)}")
+                    logger.warning(f"⚠️  Canonical wearable sync failed (non-fatal): {str(db_error)}")
+
+                try:
+                    latest_cycle_date = None
+                    if cycle_data and cycle_data.get("records"):
+                        latest_cycle_date = max(
+                            (
+                                str(record.get("start", ""))[:10]
+                                for record in cycle_data["records"]
+                                if record.get("start")
+                            ),
+                            default=None,
+                        )
+                    latest_sleep_date = None
+                    if sleep_data and sleep_data.get("records"):
+                        latest_sleep_date = max(
+                            (
+                                str(record.get("start", ""))[:10]
+                                for record in sleep_data["records"]
+                                if record.get("start")
+                            ),
+                            default=None,
+                        )
+
+                    if integration:
+                        await wearable_connection_service.get_or_create_connection(
+                            user_id=user_id,
+                            provider="whoop",
+                            auth_method="oauth",
+                            provider_user_id=integration.whoop_user_id,
+                            access_token=access_token,
+                            refresh_token=integration.refresh_token,
+                            token_expires_at=integration.token_expires_at,
+                            settings={
+                                "whoop_sync_hour": integration.whoop_sync_hour or 9,
+                                "sync_hour": integration.whoop_sync_hour or 9,
+                                "auto_sync_enabled": True,
+                                "latest_upstream_cycle_date": latest_cycle_date,
+                                "latest_upstream_sleep_date": latest_sleep_date,
+                            },
+                            status="active",
+                        )
+                except Exception as connection_error:
+                    logger.warning(f"⚠️  Failed to persist Whoop upstream sync metadata: {str(connection_error)}")
                 
             except Exception as e:
                 logger.warning(f"⚠️  Error fetching Whoop data: {str(e)}")
@@ -818,6 +912,7 @@ class WhoopService:
                             cycle_date_map[str(cycle.get('id'))] = days[0]
                 
                 logs_created = 0
+                tinybird_payloads = []
                 
                 # Sync Sleep Duration
                 if sleep_data and sleep_data.get('records'):
@@ -881,26 +976,22 @@ class WhoopService:
                                     existing.log_metadata = metadata_json  # Note: using log_metadata in SQLAlchemy
                                     logger.info(f"🔄 Updated sleep log for {sleep_date}: {total_sleep_minutes} minutes")
                                     
-                                    # Sync to Tinybird
                                     if self.tinybird_enabled:
-                                        try:
-                                            await self.tinybird.ingest_habit_log({
-                                                'id': existing.id,
-                                                'habit_id': existing.habit_id,
-                                                'habit_name': habit.name,
-                                                'user_id': user_id,
-                                                'date': existing.date,
-                                                'duration': existing.duration,
-                                                'amount': existing.amount,
-                                                'unit': habit.unit_type,
-                                                'status': existing.status,
-                                                'notes': existing.notes,
-                                                'completed_at': existing.completed_at,
-                                                'source': 'whoop',
-                                                'metadata': metadata_json
-                                            })
-                                        except Exception as tb_error:
-                                            logger.warning(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
+                                        tinybird_payloads.append({
+                                            'id': existing.id,
+                                            'habit_id': existing.habit_id,
+                                            'habit_name': habit.name,
+                                            'user_id': user_id,
+                                            'date': existing.date,
+                                            'duration': existing.duration,
+                                            'amount': existing.amount,
+                                            'unit': habit.unit_type,
+                                            'status': existing.status,
+                                            'notes': existing.notes,
+                                            'completed_at': existing.completed_at,
+                                            'source': 'whoop',
+                                            'metadata': metadata_json
+                                        })
                                 else:
                                     # Prepare metadata with sleep timestamps
                                     metadata = {
@@ -929,26 +1020,22 @@ class WhoopService:
                                     logs_created += 1
                                     logger.info(f"✅ Created sleep log for {sleep_date}: {total_sleep_minutes} minutes")
                                     
-                                    # Sync to Tinybird
                                     if self.tinybird_enabled:
-                                        try:
-                                            await self.tinybird.ingest_habit_log({
-                                                'id': new_log.id,
-                                                'habit_id': new_log.habit_id,
-                                                'habit_name': habit.name,
-                                                'user_id': user_id,
-                                                'date': new_log.date,
-                                                'duration': new_log.duration,
-                                                'amount': new_log.amount,
-                                                'unit': habit.unit_type,
-                                                'status': new_log.status,
-                                                'notes': new_log.notes,
-                                                'completed_at': new_log.completed_at,
-                                                'source': 'whoop',
-                                                'metadata': metadata_json
-                                            })
-                                        except Exception as tb_error:
-                                            logger.warning(f"⚠️  Tinybird sync failed for sleep log (non-fatal): {str(tb_error)}")
+                                        tinybird_payloads.append({
+                                            'id': new_log.id,
+                                            'habit_id': new_log.habit_id,
+                                            'habit_name': habit.name,
+                                            'user_id': user_id,
+                                            'date': new_log.date,
+                                            'duration': new_log.duration,
+                                            'amount': new_log.amount,
+                                            'unit': habit.unit_type,
+                                            'status': new_log.status,
+                                            'notes': new_log.notes,
+                                            'completed_at': new_log.completed_at,
+                                            'source': 'whoop',
+                                            'metadata': metadata_json
+                                        })
                             
                             break  # Only process one sleep habit
                 
@@ -1046,9 +1133,24 @@ class WhoopService:
                 # Steps tracking should be done manually or via other integrations (Apple Watch, Fitbit)
                 # Commit all changes
                 await session.commit()
+
+                if self.tinybird_enabled and tinybird_payloads:
+                    try:
+                        result = await self.tinybird.ingest_habit_logs_batch(tinybird_payloads)
+                        if not result.get("success"):
+                            logger.warning(
+                                "⚠️  Tinybird batch sync failed for Whoop sleep logs (non-fatal): %s",
+                                result.get("errors") or result.get("error"),
+                            )
+                    except Exception as tb_error:
+                        logger.warning(f"⚠️  Tinybird batch sync failed for Whoop sleep logs (non-fatal): {str(tb_error)}")
+
                 logger.info(f"💾 Created {logs_created} new habit logs in Turso database")
                 
             except Exception as e:
                 await session.rollback()
                 logger.error(f"❌ Error syncing to habit_logs: {str(e)}")
                 raise
+
+
+whoop_service = WhoopService()

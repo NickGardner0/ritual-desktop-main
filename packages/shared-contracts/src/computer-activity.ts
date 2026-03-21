@@ -85,6 +85,15 @@ export interface MicroMetrics {
   totalAfkMs: number
 }
 
+export type ActivityBreakdownSource = 'desktop' | 'iphone'
+
+export interface ActivityBreakdownCapabilities {
+  supportsDomains: boolean
+  domainDisclosure?: string | null
+  isConnected?: boolean
+  setupHref?: string | null
+}
+
 // ============================================================
 // 1.4 Complete view model
 // ============================================================
@@ -100,8 +109,15 @@ export interface ComputerActivityViewModel {
     end: number
     preset: TimeRangePreset
   }
+  source?: ActivityBreakdownSource
+  capabilities?: ActivityBreakdownCapabilities
   isLoading: boolean
   error?: string | null
+}
+
+export interface ActivityBreakdownViewModel extends ComputerActivityViewModel {
+  source: ActivityBreakdownSource
+  capabilities: ActivityBreakdownCapabilities
 }
 
 // ============================================================
@@ -148,6 +164,7 @@ export type UsageBreakdownKind = 'app' | 'website'
 export interface BreakdownPoint {
   date: string // YYYY-MM-DD
   seconds: number
+  activeMs: number
   startTime?: string | null
   endTime?: string | null
 }
@@ -159,6 +176,7 @@ export interface BreakdownResponse {
   end: string
   points: BreakdownPoint[]
   totalSeconds: number
+  totalMs: number
 }
 
 // ============================================================
@@ -181,4 +199,3 @@ export const KIND_COLORS_ACCENT: Record<SessionKind, string> = {
   idle: '#D1D5DB',   // gray-300
   other: '#9CA3AF',  // gray-400
 }
-

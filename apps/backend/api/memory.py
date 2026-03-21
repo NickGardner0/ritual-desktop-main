@@ -248,6 +248,7 @@ async def query_memory(
             days_back=request.days_back or 7,
             start_date=request.start_date,
             end_date=request.end_date,
+            timezone=request.timezone,
             group_by=request.group_by or "app",
             limit=request.limit or 20,
         )

@@ -70,7 +70,7 @@ export function DeepDrillDrawer({
         </div>
         <button
           onClick={onClose}
-          className="p-1 hover:bg-gray-200 rounded transition-colors"
+          className="p-1 rounded transition-colors"
           aria-label="Close details"
         >
           <X className="w-4 h-4 text-gray-400" />

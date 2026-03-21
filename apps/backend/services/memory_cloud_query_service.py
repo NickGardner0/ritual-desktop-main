@@ -458,8 +458,8 @@ def _build_citations(items: List[Dict[str, Any]], limit: int = 8) -> List[Dict[s
     citations: List[Dict[str, Any]] = []
     for item in items[: max(1, limit)]:
         snippet = _citation_source_text(item)
-        if len(snippet) > 420:
-            snippet = f"{snippet[:420].rstrip()}..."
+        if len(snippet) > 800:
+            snippet = f"{snippet[:800].rstrip()}..."
         citations.append(
             {
                 "chunk_id": item.get("chunk_id"),
@@ -548,23 +548,10 @@ async def query_semantic_cloud(
     context_version_mix: Dict[str, int] = {}
 
     try:
-        # Prioritize embedding chunks that overlap the user's query window so
-        # they are available in Turbopuffer *before* we query.
-        try:
-            await asyncio.wait_for(
-                process_embedding_jobs_freshness_first(
-                    start_ms=start_ms, end_ms=end_ms, batch_size=8,
-                ),
-                timeout=5.0,
-            )
-        except Exception:
-            pass
-
-        # Then do a general small drain to keep the broader queue moving.
-        try:
-            await asyncio.wait_for(process_embedding_jobs_with_guard(batch_size=16), timeout=2.0)
-        except Exception:
-            pass
+        # NOTE: Embedding drain at query time removed for performance.
+        # The background embedding worker handles this asynchronously.
+        # A slight delay (1-5 min) for very recent captures to be searchable
+        # is acceptable — most queries are for past days.
 
         query_profile = build_query_semantic_profile(query)
         broad_overview = intent == "broad_overview"

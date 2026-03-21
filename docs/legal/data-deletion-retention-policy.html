@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Data Deletion and Retention Policy | Ritual</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="legal-policy.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Data Deletion and Retention Policy | Ritual</h1>
+</header>
+<h1 id="ritual-data-deletion-and-retention-policy">Ritual Data Deletion and Retention Policy</h1>
+<h2 id="purpose">Purpose</h2>
+<p>This Data Deletion and Retention Policy explains how Ritual retains, deletes, and manages user data across its applications, integrations, local software, backend systems, and supporting infrastructure.</p>
+<p>Ritual's goal is to retain personal data only for as long as reasonably necessary to provide the Services, support user-requested features, maintain security and service integrity, comply with legal obligations, resolve disputes, and enforce agreements.</p>
+<h2 id="scope">Scope</h2>
+<p>This policy applies to data processed by Ritual's:</p>
+<ul>
+<li>web and desktop applications</li>
+<li>backend APIs and hosted services</li>
+<li>iOS companion application</li>
+<li>local desktop tracking and recorder features</li>
+<li>connected health, wearable, and financial integrations</li>
+<li>analytics, monitoring, and support systems used to operate the Services</li>
+</ul>
+<h2 id="retention-principles">Retention Principles</h2>
+<p>Ritual follows these retention principles:</p>
+<ul>
+<li>retain data only as long as reasonably necessary for the relevant feature or operational purpose</li>
+<li>minimize storage of high-sensitivity data where a less sensitive derived value will satisfy the product need</li>
+<li>separate active product data from short-lived operational and diagnostic data where practical</li>
+<li>stop future ingestion when a user disconnects an integration or revokes permissions</li>
+<li>honor verified deletion requests subject to technical, contractual, and legal limitations</li>
+</ul>
+<h2 id="data-categories-and-retention-approach">Data Categories and Retention Approach</h2>
+<h3 id="1-account-and-authentication-data">1. Account and Authentication Data</h3>
+<p>Ritual retains account profile information, account identifiers, and authentication-related metadata while an account remains active and for a reasonable period thereafter as necessary to maintain account integrity, security, dispute resolution, and legal compliance.</p>
+<h3 id="2-habit-logs-and-user-created-content">2. Habit Logs and User-Created Content</h3>
+<p>Habit logs, categories, notes, and other user-created records are retained as part of a user's account data until deleted by the user, deleted as part of an account deletion workflow, or no longer required for product operation.</p>
+<h3 id="3-health-wearable-and-biometric-data">3. Health, Wearable, and Biometric Data</h3>
+<p>Health, wearable, and biometric data imported into Ritual is retained while the relevant feature remains active and for so long as needed to provide analytics, history, and user-requested product functionality, unless deleted as part of a supported deletion workflow or verified account deletion request.</p>
+<p>If a provider is disconnected, Ritual will generally stop future syncs for that provider. Historical data already imported into Ritual may remain stored unless deleted through a supported deletion path or account deletion request.</p>
+<h3 id="4-financial-data">4. Financial Data</h3>
+<p>If a user connects Plaid, Ritual may retain:</p>
+<ul>
+<li>connection and account metadata</li>
+<li>normalized transaction records required for spending rollups, sync integrity, deduplication, troubleshooting, and user history</li>
+<li>derived daily spending habit logs and related metadata</li>
+</ul>
+<p>Ritual minimizes financial use by limiting the product purpose of Plaid data to spending-tracking features selected by the user. Disconnecting Plaid stops future syncs, but historical data already imported into Ritual may remain stored until deleted through a supported deletion path, data cleanup process, or verified account deletion request.</p>
+<h3 id="5-desktop-activity-screen-time-and-recorder-data">5. Desktop Activity, Screen Time, and Recorder Data</h3>
+<p>Desktop activity, screen-time, screenshot, OCR, and memory-related data may be stored locally on the user's device and, where enabled, may also be processed through Ritual cloud services.</p>
+<p>Some local recorder and memory data is subject to product-configured retention windows. For example, certain local recorder configurations use a default retention period for thumbnails and OCR-related data. Local cleanup jobs may remove old data automatically based on configured retention settings.</p>
+<h3 id="6-operational-logs-diagnostics-and-security-records">6. Operational Logs, Diagnostics, and Security Records</h3>
+<p>Ritual retains logs, error records, operational metrics, and security-relevant records for limited periods as reasonably necessary for reliability, debugging, abuse prevention, incident response, and compliance.</p>
+<h2 id="data-deletion">Data Deletion</h2>
+<h3 id="user-initiated-deletion">User-Initiated Deletion</h3>
+<p>Ritual may support user-initiated deletion through actions such as:</p>
+<ul>
+<li>deleting user-created content</li>
+<li>disconnecting integrations</li>
+<li>disabling local tracking features</li>
+<li>requesting deletion of account data or the account itself</li>
+</ul>
+<p>Where a deletion request is made, Ritual may require sufficient information to verify the identity and authority of the requester before acting.</p>
+<h3 id="integration-disconnects">Integration Disconnects</h3>
+<p>Disconnecting an integration generally:</p>
+<ul>
+<li>revokes the connection's active status within Ritual</li>
+<li>stops future syncs and ingestion from that provider</li>
+</ul>
+<p>Disconnecting an integration does not necessarily delete historical data already imported into Ritual unless Ritual specifically performs a deletion workflow for that data or the user submits a verified deletion or account deletion request.</p>
+<h3 id="account-deletion">Account Deletion</h3>
+<p>When Ritual processes a verified account deletion request, Ritual will take reasonable steps to delete or de-identify the user's account data from active systems, subject to:</p>
+<ul>
+<li>data required for legal compliance</li>
+<li>fraud prevention, abuse prevention, or security obligations</li>
+<li>backup, archival, or disaster recovery constraints</li>
+<li>technical limitations in third-party systems or processor environments</li>
+</ul>
+<p>Residual copies may persist temporarily in backups, logs, caches, or disaster recovery systems until those systems cycle out the relevant data in the ordinary course.</p>
+<h2 id="enforcement-and-review">Enforcement and Review</h2>
+<p>Ritual reviews this policy at least annually and when introducing material changes to:</p>
+<ul>
+<li>data architecture</li>
+<li>new categories of sensitive information</li>
+<li>new vendors or integration flows</li>
+<li>deletion or retention workflows</li>
+<li>legal or regulatory obligations</li>
+</ul>
+<p>Retention and deletion practices are enforced through a combination of application logic, local cleanup behavior, integration disconnect flows, operational procedures, and verified account or data deletion handling.</p>
+<h2 id="operationalization-in-ritual">Operationalization in Ritual</h2>
+<p>Examples of this policy being operationalized in Ritual include:</p>
+<ul>
+<li>local recorder retention settings for screenshots, thumbnails, and OCR-related data</li>
+<li>integration disconnect flows for Plaid and wearable providers</li>
+<li>backend deletion paths for certain biometric data categories</li>
+<li>retention-oriented cleanup jobs for selected memory and local-device data paths</li>
+<li>account-scoped application data storage and provider-scoped sync controls</li>
+</ul>
+<p>Representative implementation references:</p>
+<ul>
+<li><code>apps/backend/services/financial_connection_service.py</code></li>
+<li><code>apps/backend/api/financial.py</code></li>
+<li><code>apps/backend/services/biometrics_service.py</code></li>
+<li><code>apps/backend/services/memory_retention_service.py</code></li>
+<li><code>apps/desktop/src-tauri/bin/ritual-recorder/src/config.rs</code></li>
+<li><code>apps/desktop/src-tauri/bin/ritual-recorder/src/storage.rs</code></li>
+<li><code>apps/desktop/src-tauri/src/watcher.rs</code></li>
+</ul>
+<h2 id="contact">Contact</h2>
+<p>Questions or verified deletion requests relating to this policy may be submitted through Ritual's support or contact channels made available within the product or on Ritual's website.</p>
+</body>
+</html>

@@ -20,29 +20,26 @@
 
 import React from 'react'
 import { ComputerActivityPanel } from '@/components/computer-activity'
+import type { TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
 
 interface ComputerActivityProps {
   startDate?: string
   endDate?: string
   daysBack?: number
-  onDismiss?: () => void
-  isVisible?: boolean
+  /** When provided, the panel uses this preset and hides its own range picker */
+  externalRange?: TimeRangePreset
+  /** When provided, renders a close button in the header */
+  onClose?: () => void
 }
 
 /**
  * Main export - wraps the new ComputerActivityPanel
  */
 export function ComputerActivitySection({
-  onDismiss,
-  isVisible = true,
+  externalRange,
+  onClose,
 }: ComputerActivityProps) {
-  if (!isVisible) return null
-  
-  return (
-    <ComputerActivityPanel 
-      onDismiss={onDismiss}
-    />
-  )
+  return <ComputerActivityPanel externalRange={externalRange} onClose={onClose} />
 }
 
 // Default export for backward compatibility

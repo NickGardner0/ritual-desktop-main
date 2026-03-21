@@ -148,6 +148,22 @@ class ConversationService:
             conversation.updated_at = datetime.utcnow()
             
             await session.commit()
+
+            try:
+                from services.search_service import search_service
+
+                await search_service.index_ai_message(
+                    {
+                        "id": message.id,
+                        "conversation_id": conversation_id,
+                        "role": role,
+                        "content": content,
+                        "created_at": message.created_at,
+                    },
+                    user_id,
+                )
+            except Exception:
+                pass
             
             return self._serialize_message(message)
     
@@ -350,4 +366,3 @@ class ConversationService:
 
 # Singleton instance
 conversation_service = ConversationService()
-

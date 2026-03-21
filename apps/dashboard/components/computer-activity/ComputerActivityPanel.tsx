@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Monitor, RefreshCw, X } from 'lucide-react'
-import { TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
+import { ActivityBreakdownSource, TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
 import { useComputerActivity } from '@/lib/computerActivity/useComputerActivity'
 import { RankedBars } from './RankedBars'
 import { UsageBreakdownCard } from './UsageBreakdownCard'
@@ -29,6 +29,7 @@ function formatActiveTime(ms: number): { value: string; unit: string } {
 }
 
 const TIME_RANGES: TimeRangePreset[] = ['6H', '12H', '1D', '7D', '30D', '90D', 'ALL']
+const SOURCE_OPTIONS: ActivityBreakdownSource[] = ['desktop', 'iphone']
 
 type UsageBreakdownSelection =
   | { kind: 'app'; key: string; label: string }
@@ -63,30 +64,44 @@ function diffDaysInclusive(start: string, end: string): number {
 
 interface ComputerActivityPanelProps {
   className?: string
-  onDismiss?: () => void
+  /** When provided, the panel uses this preset and hides its own range picker */
+  externalRange?: TimeRangePreset
+  /** When provided, renders a close button in the header */
+  onClose?: () => void
 }
 
-export function ComputerActivityPanel({ 
+export function ComputerActivityPanel({
   className = '',
-  onDismiss,
+  externalRange,
+  onClose,
 }: ComputerActivityPanelProps) {
+  const [source, setSource] = useState<ActivityBreakdownSource>('desktop')
   const [usageSelection, setUsageSelection] = useState<UsageBreakdownSelection>(null)
   const [isUsageExpanded, setIsUsageExpanded] = useState(false)
   const appCardRef = useRef<HTMLDivElement | null>(null)
   const websiteCardRef = useRef<HTMLDivElement | null>(null)
-  
+  const hasExternalRange = externalRange !== undefined
+
   const {
     viewModel,
     range,
     setRange,
     refresh,
   } = useComputerActivity({
-    initialRange: '1D',
+    initialRange: externalRange ?? '1D',
+    source,
     autoRefresh: true,
     refreshIntervalMs: 60000,
   })
+
+  // Sync with external range when it changes
+  useEffect(() => {
+    if (externalRange !== undefined && externalRange !== range) {
+      setRange(externalRange)
+    }
+  }, [externalRange, range, setRange])
   
-  const { header, segments, apps, domains, isLoading, error } = viewModel
+  const { header, apps, domains, isLoading, error, capabilities } = viewModel
 
   const breakdownRange = useMemo(() => {
     const start = toLocalDateString(viewModel.range.start)
@@ -137,6 +152,7 @@ export function ComputerActivityPanel({
   }, [range, viewModel.range.start, viewModel.range.end])
 
   const { data: breakdownData, isLoading: isBreakdownLoading, error: breakdownError } = useUsageBreakdown({
+    source,
     kind: usageSelection?.kind ?? 'app',
     key: usageSelection?.key ?? '',
     start: breakdownRange.start,
@@ -159,6 +175,12 @@ export function ComputerActivityPanel({
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [isUsageExpanded, usageSelection])
 
+  useEffect(() => {
+    if (source === 'iphone' && (range === '6H' || range === '12H')) {
+      setRange('1D')
+    }
+  }, [source, range, setRange])
+
   const handleUsageSelect = useCallback((kind: 'app' | 'website', key: string, label: string) => {
     setUsageSelection((prev) => {
       if (prev && prev.kind === kind && prev.key === key) {
@@ -170,56 +192,86 @@ export function ComputerActivityPanel({
       return { kind, key, label }
     })
   }, [])
+
+  const handleSourceChange = useCallback((nextSource: ActivityBreakdownSource) => {
+    setUsageSelection(null)
+    setIsUsageExpanded(false)
+    setSource(nextSource)
+  }, [])
   
-  const hasData = segments.length > 0 || apps.length > 0 || domains.length > 0
+  const hasData = apps.length > 0 || domains.length > 0 || header.primaryValueMs > 0
+  const isIphone = source === 'iphone'
+  const showIphoneSetup = isIphone && !isLoading && !capabilities?.isConnected
+  const showIphoneWebsiteDisclosure = isIphone && !capabilities?.supportsDomains && domains.length === 0
+  const visibleTimeRanges = isIphone
+    ? TIME_RANGES.filter((preset) => preset !== '6H' && preset !== '12H')
+    : TIME_RANGES
   
   // Format active time for display
   const activeTime = formatActiveTime(header.primaryValueMs)
   
   return (
-    <div className={`bg-white border border-gray-200 rounded-sm ${className}`}>
+    <div className={`rounded-sm border border-gray-200 bg-white ${className}`}>
       {/* Header */}
-      <div className="px-5 pt-4 pb-3">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-medium text-gray-900">Activity Breakdown</h2>
-          <div className="flex items-center gap-1">
+      <div className="border-b border-[rgba(39,37,30,0.07)] px-4 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <h2 className="text-[15px] font-medium tracking-[-0.02em] text-[#27251E]">Computer Time</h2>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center overflow-hidden rounded-sm border border-[rgba(39,37,30,0.09)] bg-white">
+              {SOURCE_OPTIONS.map((option, index) => (
+                <button
+                  key={option}
+                  onClick={() => handleSourceChange(option)}
+                  className={`px-3 py-1.5 text-[12px] capitalize tracking-[-0.02em] transition-colors ${
+                    source === option
+                      ? 'bg-[rgba(39,37,30,0.06)] font-medium text-[#27251E]'
+                      : 'bg-white text-[rgba(39,37,30,0.5)] hover:bg-[rgba(39,37,30,0.03)] hover:text-[#27251E]'
+                  } ${index !== 0 ? 'border-l border-[rgba(39,37,30,0.09)]' : ''}`}
+                >
+                  {option === 'iphone' ? 'iPhone' : 'Desktop'}
+                </button>
+              ))}
+            </div>
+
+            {!hasExternalRange && (
+              <div className="flex items-center overflow-hidden rounded-sm border border-[rgba(39,37,30,0.09)] bg-white">
+                {visibleTimeRanges.map((r, index) => (
+                  <button
+                    key={r}
+                    onClick={() => setRange(r)}
+                    className={`px-2.5 py-1.5 text-[12px] tracking-[-0.02em] transition-colors ${
+                      range === r
+                        ? 'bg-[rgba(39,37,30,0.06)] font-medium text-[#27251E]'
+                        : 'bg-white text-[rgba(39,37,30,0.5)] hover:bg-[rgba(39,37,30,0.03)] hover:text-[#27251E]'
+                    } ${index !== 0 ? 'border-l border-[rgba(39,37,30,0.09)]' : ''}`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <button
               onClick={refresh}
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] transition-colors"
+              className="inline-flex h-[31px] w-[31px] items-center justify-center rounded-sm border border-[rgba(39,37,30,0.09)] bg-white text-[rgba(39,37,30,0.42)] transition-colors hover:bg-[rgba(39,37,30,0.03)] hover:text-[#27251E]"
               title="Refresh data"
               disabled={isLoading}
             >
-              {isLoading ? <BrailleSpinner className="text-sm text-gray-600" /> : <RefreshCw className="w-4 h-4" />}
+              {isLoading ? <BrailleSpinner className="text-sm text-gray-600" /> : <RefreshCw className="h-3.5 w-3.5" />}
             </button>
-            {onDismiss && (
-              <button
-                onClick={onDismiss}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-[#F3F3F3] transition-colors"
-                title="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
 
-        {/* Filters Row */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Time Range Selector */}
-          <div className="flex items-center border border-gray-200 rounded-sm overflow-hidden">
-            {TIME_RANGES.map((r, index) => (
+            {onClose ? (
               <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`px-2.5 py-1.5 text-xs transition-colors ${
-                  range === r
-                    ? 'bg-[#F3F3F3] text-gray-900 font-medium'
-                    : 'bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F3F3F3]'
-                } ${index !== 0 ? 'border-l border-gray-200' : ''}`}
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-[31px] w-[31px] items-center justify-center rounded-sm border border-[rgba(39,37,30,0.09)] bg-white text-[rgba(39,37,30,0.42)] transition-colors hover:text-[#27251E]"
+                aria-label="Close expanded view"
               >
-                {r}
+                <X className="h-3.5 w-3.5" />
               </button>
-            ))}
+            ) : null}
+
           </div>
         </div>
       </div>
@@ -243,45 +295,67 @@ export function ComputerActivityPanel({
           </button>
         </div>
       )}
-      
-      {/* Empty State */}
-      {!isLoading && !error && !hasData && (
+
+      {showIphoneSetup && (
         <div className="flex flex-col items-center justify-center h-48 px-5 text-center">
           <Monitor className="w-10 h-10 text-gray-200 mb-3" />
-          <p className="text-sm text-gray-500 mb-1">No activity tracked</p>
+          <p className="text-sm text-gray-600 mb-1">No iPhone Screen Time data yet</p>
+          <p className="text-xs text-gray-400 max-w-sm mb-4">
+            Connect the Ritual iPhone companion and enable Screen Time access to see iPhone activity here.
+          </p>
+          <a
+            href={capabilities?.setupHref || '/integrations'}
+            className="inline-flex items-center px-3 py-2 text-xs font-medium text-gray-900 border border-gray-200 rounded-sm hover:bg-[#F3F3F3] transition-colors"
+          >
+            Open Integrations
+          </a>
+        </div>
+      )}
+      
+      {/* Empty State */}
+      {!isLoading && !error && !hasData && !showIphoneSetup && (
+        <div className="flex flex-col items-center justify-center h-48 px-5 text-center">
+          <Monitor className="w-10 h-10 text-gray-200 mb-3" />
+          <p className="text-sm text-gray-500 mb-1">{isIphone ? 'No iPhone activity tracked' : 'No activity tracked'}</p>
           <p className="text-xs text-gray-400 max-w-sm">
-            Enable Ritual Watcher in Settings → Computer Tracking to start monitoring.
+            {isIphone
+              ? 'Open the Ritual iPhone companion and keep Screen Time sync enabled to populate this view.'
+              : 'Enable Ritual Watcher in Settings → Computer Use to start monitoring.'}
           </p>
         </div>
       )}
       
       {/* Content */}
       {!error && hasData && (
-        <div className="px-5 pb-5 space-y-4">
-          {/* Active Time Summary Card */}
-          <div className="rounded-sm border border-gray-200 bg-white px-4 py-3">
-            <div className="flex min-w-0 items-baseline gap-2.5">
-              <span className="text-[26px] font-semibold leading-none tracking-[-0.04em] text-[#111827] tabular-nums">
+        <div className="space-y-4 px-4 pb-4 pt-4">
+          {isIphone && (
+            <div className="text-[12px] font-medium tracking-[-0.02em] text-[rgba(39,37,30,0.46)]">
+              From Ritual iPhone companion via Screen Time
+            </div>
+          )}
+
+          <div className="rounded-sm border border-gray-200 bg-white px-5 py-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[rgba(39,37,30,0.42)]">
+              Active Time
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-[30px] font-semibold leading-none tracking-[-0.04em] text-[#27251E] tabular-nums">
                 {activeTime.value}
-                <span className="ml-[1px] text-[16px] font-medium text-[rgba(39,37,30,0.7)]">
-                  {activeTime.unit}
-                </span>
               </span>
-              <span className="text-[13px] font-medium tracking-[-0.02em] text-[rgba(39,37,30,0.56)]">
-                Active time
+              <span className="text-[14px] font-medium leading-[18px] text-[rgba(39,37,30,0.62)]">
+                {activeTime.unit}
               </span>
             </div>
-
-            <div className="mt-2 text-[12px] font-medium tracking-[-0.02em] text-[rgba(39,37,30,0.46)]">
-              Across the selected range
+            <div className="mt-3 text-[12px] font-medium tracking-[-0.02em] text-[rgba(39,37,30,0.56)]">
+              Across selected range
             </div>
           </div>
 
           {/* App Usage Section - Two Cards */}
           <div className="grid md:grid-cols-2 gap-4">
             {/* TOP APPS Card */}
-            <div className="p-4 border border-gray-200 bg-white rounded-sm" ref={appCardRef}>
-              <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+            <div className="rounded-sm border border-gray-200 bg-white p-4" ref={appCardRef}>
+              <h3 className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-[rgba(39,37,30,0.42)]">
                 Top Apps
               </h3>
               <RankedBars 
@@ -307,6 +381,7 @@ export function ComputerActivityPanel({
                     endDate={breakdownRange.end}
                     points={breakdownData?.points || []}
                     totalSeconds={breakdownData?.totalSeconds || 0}
+                    totalMs={breakdownData?.totalMs}
                     isLoading={isBreakdownLoading}
                     error={breakdownError instanceof Error ? breakdownError.message : null}
                     hint={breakdownRange.hint}
@@ -317,17 +392,29 @@ export function ComputerActivityPanel({
             </div>
             
             {/* TOP WEBSITES Card */}
-            <div className="p-4 border border-gray-200 bg-white rounded-sm" ref={websiteCardRef}>
-              <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
+            <div className="rounded-sm border border-gray-200 bg-white p-4" ref={websiteCardRef}>
+              <h3 className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-[rgba(39,37,30,0.42)]">
                 Top Websites
               </h3>
-              <RankedBars 
-                items={domains} 
-                maxVisible={Infinity} 
-                type="domains"
-                selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
-                onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
-              />
+              {showIphoneWebsiteDisclosure ? (
+                <div className="py-8 text-center">
+                  <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-gray-100 flex items-center justify-center">
+                    <Monitor className="w-5 h-5 text-gray-300" />
+                  </div>
+                  <p className="text-sm text-gray-500 mb-2">No mobile website detail yet</p>
+                  <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                    {capabilities?.domainDisclosure}
+                  </p>
+                </div>
+              ) : (
+                <RankedBars 
+                  items={domains} 
+                  maxVisible={Infinity} 
+                  type="domains"
+                  selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
+                  onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
+                />
+              )}
               {usageSelection?.kind === 'website' && (
                 <div
                   className={`transition-all duration-200 ease-out overflow-hidden ${
@@ -344,9 +431,10 @@ export function ComputerActivityPanel({
                     endDate={breakdownRange.end}
                     points={breakdownData?.points || []}
                     totalSeconds={breakdownData?.totalSeconds || 0}
+                    totalMs={breakdownData?.totalMs}
                     isLoading={isBreakdownLoading}
                     error={breakdownError instanceof Error ? breakdownError.message : null}
-                    hint={breakdownRange.hint}
+                    hint={isIphone ? (capabilities?.domainDisclosure || breakdownRange.hint) : breakdownRange.hint}
                     onClose={() => setIsUsageExpanded(false)}
                   />
                 </div>

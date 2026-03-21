@@ -20,8 +20,10 @@ import {
   isYesterday,
   isTomorrow,
   differenceInDays,
+  parseISO,
 } from 'date-fns';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { useHeartRateRange } from '@/hooks/useHeartRateRange';
 
 import { CalendarHeader } from './calendar-header';
 import { CalendarMonthView } from './calendar-month-view';
@@ -420,7 +422,7 @@ export function CalendarClient() {
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [range, setRange] = useState<[string, string] | null>(null);
-  const [weekStartsOnMonday, setWeekStartsOnMonday] = useState(false);
+  const weekStartsOnMonday = false;
 
   // Drag selection state
   const [isDragging, setIsDragging] = useState(false);
@@ -432,6 +434,11 @@ export function CalendarClient() {
   // Hover state for the bottom panel (like Lumen)
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [hoveredData, setHoveredData] = useState<HabitLog[]>([]);
+
+  // AI day summary state
+  const [aiSummary, setAiSummary] = useState<string>('');
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const aiAbortRef = useRef<AbortController | null>(null);
   const [taskComposer, setTaskComposer] = useState<TaskComposerState | null>(null);
   const [isSavingTaskComposer, setIsSavingTaskComposer] = useState(false);
   const [taskComposerError, setTaskComposerError] = useState<string | null>(null);
@@ -665,6 +672,15 @@ export function CalendarClient() {
     staleTime: 30 * 1000,
   });
 
+  const heartRateRangeQuery = useHeartRateRange(
+    {
+      start: dateRange.start.toISOString(),
+      end: dateRange.end.toISOString(),
+      resolution: '1m',
+    },
+    !!user?.id,
+  );
+
   // Create habit map
   const habitMap = useMemo(() => {
     const map = new Map<string, Habit>();
@@ -698,6 +714,47 @@ export function CalendarClient() {
   const calendarDays = useMemo(() => {
     return eachDayOfInterval({ start: dateRange.start, end: dateRange.end });
   }, [dateRange]);
+
+  const heartRateSummariesByDay = useMemo(() => {
+    const grouped = new Map<string, {
+      totalWeightedBpm: number;
+      minBpm: number;
+      maxBpm: number;
+      sampleCount: number;
+    }>();
+
+    for (const point of heartRateRangeQuery.data?.points ?? []) {
+      if (!('bucket_start' in point) || !point.bucket_start || point.sample_count == null || point.bpm_avg == null) {
+        continue;
+      }
+
+      const dayKey = format(new Date(point.bucket_start), 'yyyy-MM-dd');
+      const existing = grouped.get(dayKey) ?? {
+        totalWeightedBpm: 0,
+        minBpm: Number.POSITIVE_INFINITY,
+        maxBpm: Number.NEGATIVE_INFINITY,
+        sampleCount: 0,
+      };
+
+      existing.totalWeightedBpm += point.bpm_avg * point.sample_count;
+      existing.sampleCount += point.sample_count;
+      existing.minBpm = Math.min(existing.minBpm, point.bpm_min ?? point.bpm_avg);
+      existing.maxBpm = Math.max(existing.maxBpm, point.bpm_max ?? point.bpm_avg);
+      grouped.set(dayKey, existing);
+    }
+
+    return new Map(
+      Array.from(grouped.entries()).map(([dayKey, value]) => [
+        dayKey,
+        {
+          averageBpm: value.sampleCount > 0 ? value.totalWeightedBpm / value.sampleCount : 0,
+          minBpm: Number.isFinite(value.minBpm) ? value.minBpm : 0,
+          maxBpm: Number.isFinite(value.maxBpm) ? value.maxBpm : 0,
+          sampleCount: value.sampleCount,
+        },
+      ]),
+    );
+  }, [heartRateRangeQuery.data]);
 
   // First week for headers
   const firstWeek = useMemo(() => {
@@ -769,6 +826,76 @@ export function CalendarClient() {
     setCurrentDate(new Date());
   }, []);
 
+  // AI day summary: fetch when selectedDate changes
+  useEffect(() => {
+    // Abort any previous stream
+    aiAbortRef.current?.abort();
+    setAiSummary('');
+    setAiSummaryLoading(false);
+
+    if (!selectedDate) return;
+
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+
+    const dayLogs = logsByDate.get(selectedDate) || [];
+    const dayMetrics = aggregateTooltipMetrics(dayLogs);
+
+    // Build simple metrics array for the API
+    const metricsPayload = dayMetrics.map((m) => ({
+      name: formatTooltipMetricName(m),
+      value: formatTooltipMetricValue(m),
+    }));
+
+    setAiSummaryLoading(true);
+
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch('/api/calendar/summary', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            date: selectedDate,
+            habitMetrics: metricsPayload,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok || !res.body) {
+          console.error('AI summary fetch failed:', res.status, res.statusText);
+          setAiSummary('');
+          setAiSummaryLoading(false);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let full = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          full += decoder.decode(value, { stream: true });
+          setAiSummary(full);
+        }
+
+        setAiSummaryLoading(false);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('AI summary error:', err);
+        }
+        setAiSummaryLoading(false);
+      }
+    })();
+
+    return () => controller.abort();
+  }, [selectedDate]);
+
   // Keyboard navigation
   useHotkeys('arrowLeft', () => navigatePrevious(), {
     enabled: !selectedDate,
@@ -825,15 +952,6 @@ export function CalendarClient() {
       setRange(null);
     }
   }, []);
-
-  const handleSettingsChange = useCallback(
-    (settings: { weekStartsOnMonday?: boolean }) => {
-      if (settings.weekStartsOnMonday !== undefined) {
-        setWeekStartsOnMonday(settings.weekStartsOnMonday);
-      }
-    },
-    []
-  );
 
   // Handle day hover for the bottom panel
   const handleDayHover = useCallback((date: Date | null, data: HabitLog[]) => {
@@ -1103,10 +1221,10 @@ export function CalendarClient() {
         type="button"
         aria-label="Close block editor"
         onClick={closeTaskComposer}
-        className="absolute inset-0"
+        className="absolute inset-0 rounded-sm"
       />
 
-      <div className="relative w-full max-w-[500px] border border-gray-300 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.14)] selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]">
+      <div className="relative w-full max-w-[500px] rounded-sm border border-gray-300 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.14)] selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]">
         <div className="border-b border-gray-200 px-3 py-2.5">
           <p className="text-sm font-medium text-gray-900">
             {taskComposer.id ? 'Edit block' : 'New block'}
@@ -1210,7 +1328,7 @@ export function CalendarClient() {
               type="button"
               onClick={deleteTaskComposer}
               disabled={isSavingTaskComposer}
-              className="h-8 border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-8 rounded-sm border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Delete
             </button>
@@ -1223,7 +1341,7 @@ export function CalendarClient() {
               type="button"
               onClick={closeTaskComposer}
               disabled={isSavingTaskComposer}
-              className="h-8 border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-8 rounded-sm border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancel
             </button>
@@ -1231,7 +1349,7 @@ export function CalendarClient() {
               type="button"
               onClick={saveTaskComposer}
               disabled={isSavingTaskComposer}
-              className="h-8 border border-black bg-black px-3 text-sm text-white hover:bg-[#111827] disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-8 border border-black bg-black px-3 text-sm text-white rounded-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSavingTaskComposer
                 ? 'Saving...'
@@ -1246,9 +1364,16 @@ export function CalendarClient() {
   ) : null;
 
   return (
-    <div ref={ref} className="h-full flex flex-col bg-background">
+    <div
+      ref={ref}
+      className={
+        viewMode === 'month'
+          ? 'flex min-h-full flex-col bg-background'
+          : 'flex h-full min-h-0 flex-col bg-background'
+      }
+    >
       {/* Header */}
-      <div className="px-6 pt-6">
+      <div className="shrink-0 px-6">
         <CalendarHeader
           currentDate={currentDate}
           viewMode={viewMode}
@@ -1257,13 +1382,11 @@ export function CalendarClient() {
           onNavigatePrevious={navigatePrevious}
           onNavigateNext={navigateNext}
           onNavigateToToday={navigateToToday}
-          onSettingsChange={handleSettingsChange}
         />
       </div>
 
-      {/* Calendar Grid */}
-      <div className="px-6 overflow-auto">
-        {viewMode === 'month' ? (
+      {viewMode === 'month' ? (
+        <div className="px-6 pb-16">
           <div className="relative">
             <CalendarMonthView
               firstWeek={firstWeek}
@@ -1283,6 +1406,7 @@ export function CalendarClient() {
               onScheduledItemClick={handleScheduledItemClick}
               onDayBlockEditorOpen={openMonthDayBlockEditor}
               onDayHover={handleDayHover}
+              heartRateSummariesByDay={heartRateSummariesByDay}
               onWeekClick={(_weekNumber, weekStart) => {
                 const weekEnd = endOfWeek(weekStart, { weekStartsOn: weekStartsOnMonday ? 1 : 0 });
                 setRange([
@@ -1294,8 +1418,213 @@ export function CalendarClient() {
             />
             {taskComposerModal}
           </div>
-        ) : (
-          <div className="relative">
+
+          {/* Hover panel - like Lumen (shows below calendar on left) */}
+          {hoveredDate && !selectedDate && !validRange && (
+            <div className="mt-4">
+              <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
+                <p className="font-medium text-foreground font-mono text-lg">
+                  {format(hoveredDate, 'EEE, MMM d')}
+                </p>
+                <p className="text-sm text-[#878787] mt-1">
+                  {formatDistanceToNow(hoveredDate, { addSuffix: true })}
+                </p>
+                {hoveredData.length > 0 ? (
+                  <div className="mt-4 space-y-1">
+                    {(() => {
+                      const totalDur = hoveredData.reduce((acc, log) => acc + (log.duration || 0), 0);
+                      const hrs = Math.floor(totalDur / 3600);
+                      const mins = Math.floor((totalDur % 3600) / 60);
+                      return (
+                        <>
+                          {totalDur > 0 && (
+                            <p className="text-sm text-[#878787]">
+                              {hrs > 0 ? `${hrs}h ` : ''}{mins}m tracked
+                            </p>
+                          )}
+                          <p className="text-sm text-[#878787]">
+                            {hoveredData.length} {hoveredData.length === 1 ? 'entry' : 'entries'}
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[#878787] mt-4 font-mono">
+                    Empty note
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Selected day panel */}
+          {selectedDate && (
+            <div ref={selectedDayPanelRef} className="mt-4 flex items-start gap-3">
+              {/* Metrics tooltip — left side */}
+              <div
+                className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] shrink-0"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <p className="font-medium text-foreground font-mono text-lg">
+                    {format(parseISO(selectedDate), 'EEE, MMM d')}
+                  </p>
+                  <button
+                    onClick={() => setSelectedDate(null)}
+                    aria-label="Close tooltip"
+                    className="rounded-sm text-lg leading-none text-[#878787] transition-colors hover:text-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="text-sm text-[#878787]">
+                  {(() => {
+                    const date = parseISO(selectedDate);
+                    if (isToday(date)) return 'Today';
+                    if (isYesterday(date)) return 'Yesterday';
+                    if (isTomorrow(date)) return 'Tomorrow';
+                    const daysDiff = differenceInDays(new Date(), date);
+                    if (daysDiff > 0 && daysDiff <= 7) return `${daysDiff} days ago`;
+                    if (daysDiff < 0 && daysDiff >= -7) return `In ${Math.abs(daysDiff)} days`;
+                    return formatDistanceToNow(date, { addSuffix: true });
+                  })()}
+                </p>
+
+                {(() => {
+                  const dayLogs = logsByDate.get(selectedDate) || [];
+                  const dayMetrics = aggregateTooltipMetrics(dayLogs);
+
+                  if (dayMetrics.length === 0) {
+                    return (
+                      <p className="text-sm text-[#878787] mt-4 font-mono">
+                        Empty note
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div className="mt-4 space-y-2 max-h-64 overflow-y-auto">
+                      {dayMetrics.map((metric) => (
+                        <div
+                          key={metric.key}
+                          className="flex items-center justify-between text-sm transition-colors duration-150 hover:text-[#27251E] cursor-default group"
+                        >
+                          <span className="font-medium">{formatTooltipMetricName(metric)}</span>
+                          <span className="text-[#878787] group-hover:text-[#27251E] transition-colors duration-150">
+                            {formatTooltipMetricValue(metric)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Daily Summary panel — right side, fills remaining space */}
+              <div className="relative border border-gray-300 dark:border-gray-700 bg-white p-5 flex-1 max-h-[320px] overflow-y-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-[rgba(39,37,30,0.35)]">
+                    Daily Summary
+                  </p>
+                  <button
+                    onClick={() => setSelectedDate(null)}
+                    aria-label="Close summary"
+                    className="rounded-sm text-lg leading-none text-[#878787] transition-colors hover:text-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+                {aiSummaryLoading ? (
+                  <p className="text-[13px] text-[rgba(39,37,30,0.35)] animate-pulse">
+                    {aiSummary || 'Thinking...'}
+                  </p>
+                ) : aiSummary ? (
+                  <div className="text-[13px] leading-[1.6] tracking-[-0.1px] text-[#27251E] space-y-2">
+                    {aiSummary.split('\n').filter(Boolean).map((line, i) => {
+                      // Parse inline markdown: **bold**, *italic*, `code`
+                      const parseInline = (text: string) => {
+                        const tokens = text.split(/(\*\*.*?\*\*|\*.*?\*|`[^`]+`)/g);
+                        return tokens.map((tok, j) => {
+                          if (tok.startsWith('**') && tok.endsWith('**')) {
+                            return <strong key={j} className="font-semibold text-[#27251E]">{tok.slice(2, -2)}</strong>;
+                          }
+                          if (tok.startsWith('*') && tok.endsWith('*') && !tok.startsWith('**')) {
+                            return <em key={j} className="text-[11px] not-italic text-[#878787] tracking-wide block -mt-1 mb-0.5">{tok.slice(1, -1)}</em>;
+                          }
+                          if (tok.startsWith('`') && tok.endsWith('`')) {
+                            return <code key={j} className="px-1 py-0.5 rounded bg-[#f0ede8] text-[#535353] font-mono text-[12px]">{tok.slice(1, -1)}</code>;
+                          }
+                          return <span key={j}>{tok}</span>;
+                        });
+                      };
+                      return <p key={i}>{parseInline(line)}</p>;
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* Range selection panel */}
+          {validRange && (
+            <div className="mt-4">
+              <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="font-medium text-foreground font-mono text-lg">
+                    {format(new Date(validRange[0]), 'MMM d')} - {format(new Date(validRange[1]), 'MMM d')}
+                  </p>
+                  <button
+                    onClick={() => setRange(null)}
+                    className="rounded-sm text-xs text-[#878787] transition-colors hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <p className="text-sm text-[#878787]">
+                  {format(new Date(validRange[0]), 'yyyy')}
+                </p>
+
+                {(() => {
+                  let totalRangeDuration = 0;
+                  let totalRangeLogs = 0;
+
+                  const startDate = new Date(validRange[0]);
+                  const endDate = new Date(validRange[1]);
+                  const daysInRange = eachDayOfInterval({
+                    start: startDate,
+                    end: endDate,
+                  });
+
+                  daysInRange.forEach((day) => {
+                    const dateKey = format(day, 'yyyy-MM-dd');
+                    const dayLogs = logsByDate.get(dateKey) || [];
+                    totalRangeLogs += dayLogs.length;
+                    dayLogs.forEach((log) => {
+                      totalRangeDuration += log.duration || 0;
+                    });
+                  });
+
+                  const hours = Math.floor(totalRangeDuration / 3600);
+                  const minutes = Math.floor((totalRangeDuration % 3600) / 60);
+
+                  return (
+                    <div className="mt-4 space-y-1">
+                      <p className="text-sm text-[#878787]">
+                        {hours}h {minutes}m tracked
+                      </p>
+                      <p className="text-sm text-[#878787]">
+                        {totalRangeLogs} {totalRangeLogs === 1 ? 'entry' : 'entries'} over {daysInRange.length} days
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 px-6 pb-6">
+          <div className="relative h-full">
             <CalendarWeekView
               weekDays={weekDays}
               currentDate={currentDate}
@@ -1306,168 +1635,8 @@ export function CalendarClient() {
             />
             {taskComposerModal}
           </div>
-        )}
-
-      {/* Hover panel - like Lumen (shows below calendar on left) */}
-      {viewMode === 'month' && hoveredDate && !selectedDate && !validRange && (
-        <div className="px-6 mt-4">
-          <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
-            <p className="font-medium text-foreground font-mono text-lg">
-              {format(hoveredDate, 'EEE, MMM d')}
-            </p>
-            <p className="text-sm text-[#878787] mt-1">
-              {formatDistanceToNow(hoveredDate, { addSuffix: true })}
-            </p>
-            {hoveredData.length > 0 ? (
-              <div className="mt-4 space-y-1">
-                {(() => {
-                  const totalDur = hoveredData.reduce((acc, log) => acc + (log.duration || 0), 0);
-                  const hrs = Math.floor(totalDur / 3600);
-                  const mins = Math.floor((totalDur % 3600) / 60);
-                  return (
-                    <>
-                      {totalDur > 0 && (
-                        <p className="text-sm text-[#878787]">
-                          {hrs > 0 ? `${hrs}h ` : ''}{mins}m tracked
-                        </p>
-                      )}
-                      <p className="text-sm text-[#878787]">
-                        {hoveredData.length} {hoveredData.length === 1 ? 'entry' : 'entries'}
-                      </p>
-                    </>
-                  );
-                })()}
-              </div>
-            ) : (
-              <p className="text-sm text-[#878787] mt-4 font-mono">
-                Empty note
-              </p>
-            )}
-          </div>
         </div>
       )}
-
-      {/* Selected day panel */}
-      {viewMode === 'month' && selectedDate && (
-        <div className="px-6 mt-4">
-          <div
-            ref={selectedDayPanelRef}
-            className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]"
-          >
-            <div className="flex items-center justify-between mb-1">
-              <p className="font-medium text-foreground font-mono text-lg">
-                {format(new Date(selectedDate), 'EEE, MMM d')}
-              </p>
-              <button
-                onClick={() => setSelectedDate(null)}
-                aria-label="Close tooltip"
-                className="text-lg leading-none text-[#878787] hover:text-foreground transition-colors"
-              >
-                ×
-              </button>
-            </div>
-            <p className="text-sm text-[#878787]">
-              {(() => {
-                const date = new Date(selectedDate);
-                if (isToday(date)) return 'Today';
-                if (isYesterday(date)) return 'Yesterday';
-                if (isTomorrow(date)) return 'Tomorrow';
-                const daysDiff = differenceInDays(new Date(), date);
-                if (daysDiff > 0 && daysDiff <= 7) return `${daysDiff} days ago`;
-                if (daysDiff < 0 && daysDiff >= -7) return `In ${Math.abs(daysDiff)} days`;
-                return formatDistanceToNow(date, { addSuffix: true });
-              })()}
-            </p>
-
-            {(() => {
-              const dayLogs = logsByDate.get(selectedDate) || [];
-              const dayMetrics = aggregateTooltipMetrics(dayLogs);
-
-              if (dayMetrics.length === 0) {
-                return (
-                  <p className="text-sm text-[#878787] mt-4 font-mono">
-                    Empty note
-                  </p>
-                );
-              }
-
-              return (
-                <div className="mt-4 space-y-2 max-h-32 overflow-y-auto">
-                  {dayMetrics.map((metric) => (
-                    <div
-                      key={metric.key}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="font-medium">{formatTooltipMetricName(metric)}</span>
-                      <span className="text-[#878787]">
-                        {formatTooltipMetricValue(metric)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
-
-      {/* Range selection panel */}
-      {viewMode === 'month' && validRange && (
-        <div className="px-6 mt-4">
-          <div className="border border-gray-300 dark:border-gray-700 bg-background p-5 w-[340px] min-h-[180px]">
-            <div className="flex items-center justify-between mb-1">
-              <p className="font-medium text-foreground font-mono text-lg">
-                {format(new Date(validRange[0]), 'MMM d')} - {format(new Date(validRange[1]), 'MMM d')}
-              </p>
-              <button
-                onClick={() => setRange(null)}
-                className="text-xs text-[#878787] hover:text-foreground transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-            <p className="text-sm text-[#878787]">
-              {format(new Date(validRange[0]), 'yyyy')}
-            </p>
-
-            {(() => {
-              let totalRangeDuration = 0;
-              let totalRangeLogs = 0;
-
-              const startDate = new Date(validRange[0]);
-              const endDate = new Date(validRange[1]);
-              const daysInRange = eachDayOfInterval({
-                start: startDate,
-                end: endDate,
-              });
-
-              daysInRange.forEach((day) => {
-                const dateKey = format(day, 'yyyy-MM-dd');
-                const dayLogs = logsByDate.get(dateKey) || [];
-                totalRangeLogs += dayLogs.length;
-                dayLogs.forEach((log) => {
-                  totalRangeDuration += log.duration || 0;
-                });
-              });
-
-              const hours = Math.floor(totalRangeDuration / 3600);
-              const minutes = Math.floor((totalRangeDuration % 3600) / 60);
-
-              return (
-                <div className="mt-4 space-y-1">
-                  <p className="text-sm text-[#878787]">
-                    {hours}h {minutes}m tracked
-                  </p>
-                  <p className="text-sm text-[#878787]">
-                    {totalRangeLogs} {totalRangeLogs === 1 ? 'entry' : 'entries'} over {daysInRange.length} days
-                  </p>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
-      </div>
     </div>
   );
 }

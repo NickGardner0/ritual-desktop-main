@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 
@@ -20,12 +21,7 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "X-User-ID": userId,
-        "X-Internal-Key": process.env.INTERNAL_API_KEY || "",
-      },
+      headers: buildBackendAuthHeaders({ userId, token }),
     });
 
     if (!response.ok) {
@@ -46,4 +42,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

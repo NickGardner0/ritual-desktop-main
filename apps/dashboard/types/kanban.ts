@@ -1,6 +1,14 @@
 export type EnergyCost = 'low' | 'medium' | 'high';
 export type KanbanVisibility = 'private' | 'shared';
 export type DueDateFilter = 'overdue' | 'today' | 'upcoming' | 'no-date';
+export type Priority = 1 | 2 | 3 | 4;
+
+export const PRIORITY_CONFIG: Record<Priority, { label: string; color: string; flag: string }> = {
+  1: { label: 'Urgent', color: '#999', flag: '' },
+  2: { label: 'High', color: '#999', flag: '' },
+  3: { label: 'Medium', color: '#bbb', flag: '' },
+  4: { label: 'Low', color: '#ccc', flag: '' },
+};
 
 export interface KanbanCardReflection {
   rating: number;
@@ -56,6 +64,7 @@ export interface KanbanCard {
   order: number;
   linkedMetricId?: string;
   linkedMetricTarget?: number;
+  priority: Priority;
   energyCost: EnergyCost;
   streak: number;
   isRecurring: boolean;

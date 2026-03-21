@@ -7,7 +7,7 @@ import asyncio
 import httpx
 import json
 
-async def test_endpoint(client: httpx.AsyncClient, endpoint: str, description: str):
+async def exercise_endpoint(client: httpx.AsyncClient, endpoint: str, description: str):
     """Test a single endpoint"""
     try:
         print(f"🔄 Testing {description}...")
@@ -45,7 +45,7 @@ async def main():
         total = len(endpoints)
         
         for endpoint, description in endpoints:
-            if await test_endpoint(client, endpoint, description):
+            if await exercise_endpoint(client, endpoint, description):
                 passed += 1
             print()  # Add spacing between tests
     

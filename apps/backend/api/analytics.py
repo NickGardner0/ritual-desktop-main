@@ -92,6 +92,15 @@ def create_analytics_router(
                 days_back=days_back,
             )
         except Exception:
+            logger.exception(
+                "Analytics stats failed for user=%s habit_id=%s habit_name=%s start=%s end=%s days_back=%s",
+                current_user["id"],
+                habit_id,
+                habit_name,
+                start_date,
+                end_date,
+                days_back,
+            )
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.get("/daily-breakdown")
@@ -117,6 +126,16 @@ def create_analytics_router(
                 timezone=timezone,
             )
         except Exception:
+            logger.exception(
+                "Analytics daily breakdown failed for user=%s habit_id=%s habit_name=%s start=%s end=%s days_back=%s timezone=%s",
+                current_user["id"],
+                habit_id,
+                habit_name,
+                start_date,
+                end_date,
+                days_back,
+                timezone,
+            )
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.post("/tinybird-backfill")

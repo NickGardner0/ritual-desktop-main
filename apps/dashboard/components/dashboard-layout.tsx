@@ -21,6 +21,24 @@ const CommandPalette = dynamic(
   { ssr: false }
 );
 
+/** Syncs route to detached sidebar - uses useSearchParams so must be in Suspense */
+function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolean }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (!detachedSidebarMode || !isTauri()) return;
+    (async () => {
+      const { WebviewWindow } = await import('@tauri-apps/api/window');
+      const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
+      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      await sidebarWindow?.emit('sidebar:route', route);
+    })();
+  }, [detachedSidebarMode, pathname, searchParams]);
+
+  return null;
+}
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
@@ -34,8 +52,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
   const lastDashboardRefreshRef = useRef(0);
 
@@ -185,20 +201,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [detachedSidebarMode]);
 
-  useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
-    (async () => {
-      const { WebviewWindow } = await import('@tauri-apps/api/window');
-      const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
-      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
-      await sidebarWindow?.emit('sidebar:route', route);
-    })();
-  }, [detachedSidebarMode, pathname, searchParams]);
-
   const contentOffset = !isFullScreenChat ? (detachedSidebarMode ? detachedSidebarWidth : 70) : 0;
 
   return (
     <div className={`app-container flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
+      {/* Sync route to detached sidebar (useSearchParams requires Suspense) */}
+      <Suspense fallback={null}>
+        <SidebarRouteSync detachedSidebarMode={detachedSidebarMode} />
+      </Suspense>
       {/* Handle URL search parameters (wrapped in Suspense for prerendering) */}
       <Suspense fallback={null}>
         <DashboardSearchHandler 
@@ -222,23 +232,25 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Top Header - Midday Style - Hidden in Full-Screen Chat */}
         {!isFullScreenChat && (
         <header className="content-opaque px-5 h-[56px] flex items-center bg-white">
-          <div className="flex items-center justify-between w-full translate-y-[6px]">
-            {/* Left side - Quick Actions buttons */}
-            <div className="flex items-center space-x-2.5">
-              {/* Quick Actions Button - Command Palette with Search */}
+          <div className="relative flex items-center w-full translate-y-[6px]">
+            {/* Left zone — Search + page-specific left actions */}
+            <div className="flex items-center space-x-2.5 min-w-0">
               <div>
-                <CommandPalette 
-                  className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-300 shadow-sm hover:bg-[#F5F5F5] rounded-sm"
+                <CommandPalette
+                  className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-[#F0F0F0]/60 shadow-sm hover:bg-[#E8E8E8]/80 rounded-sm"
                   initialOpen={shouldOpenWhoopModal}
                 />
               </div>
-
-              {/* Slot for page-specific left-side actions (e.g. + button) */}
               <div id="header-left-slot" className="flex items-center space-x-2.5" />
             </div>
 
-            {/* Right side - reserved for page-specific controls rendered via portal */}
-            <div id="header-right-slot" className="flex items-center gap-2" />
+            {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
+            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+              <div id="header-center-slot" className="pointer-events-auto flex items-center" />
+            </div>
+
+            {/* Right zone — Date picker, + button, etc. */}
+            <div id="header-right-slot" className="ml-auto flex items-center gap-2 min-w-0" />
           </div>
         </header>
         )}

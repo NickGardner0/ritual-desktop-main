@@ -50,6 +50,11 @@
       "path": {
         "all": true
       },
+      "process": {
+        "all": false,
+        "relaunch": true,
+        "exit": false
+      },
       "window": {
         "all": false,
         "create": true,
@@ -107,7 +112,7 @@
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,
-        "signingIdentity": null
+        "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
       },
       "resources": [],
       "shortDescription": "",
@@ -122,10 +127,12 @@
       "csp": "default-src 'self'; connect-src 'self' https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://*.clerk.accounts.dev http://localhost:3000 http://127.0.0.1:3000 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
     },
     "updater": {
-      "active": false,
-      "endpoints": [],
+      "active": true,
+      "endpoints": [
+        "https://github.com/NickGardner0/ritual-desktop-main/releases/latest/download/latest.json"
+      ],
       "dialog": false,
-      "pubkey": ""
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM2QjBCMjlGMjgxMDZFNQpSV1RsQm9IeUtRdHJETnZrdkdGMk91bzJ3dy9yYXdHT0hqOTRoUVRoT05JZzdTY1FvWHZEeGlIbQo="
     },
     "systemTray": {
       "iconPath": "icons/tray-iconTemplate@2x.png",
@@ -135,6 +142,7 @@
     "windows": [
       {
         "label": "main",
+        "userAgent": "RitualDesktop/0.1.0",
         "fullscreen": false,
         "height": 800,
         "resizable": true,

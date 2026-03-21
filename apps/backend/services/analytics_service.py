@@ -12,14 +12,15 @@ All calculations follow the rule: Average = Total / Days with Data (not per entr
 
 import math
 import logging
+import json
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any, Tuple
 from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 
 from database.connection import get_db_session
-from database.models import HabitDB, HabitLogDB
+from database.models import HabitDB, HabitLogDB, WearableConnectionDB, WearableEventDB, WearableSampleDB
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,109 @@ class AnalyticsService:
             return True
 
         return False
+
+    def _format_display_date(self, value: str) -> str:
+        try:
+            parsed = date.fromisoformat(value)
+            return parsed.strftime("%b %d, %Y")
+        except Exception:
+            return value
+
+    async def _build_wearable_sync_context(
+        self,
+        *,
+        session: AsyncSession,
+        user_id: str,
+        habit: HabitDB,
+        end_dt: date,
+    ) -> Optional[Dict[str, Any]]:
+        provider = (habit.integration_source or "").strip().lower()
+        if provider not in {"whoop", "oura", "garmin", "apple_health", "fitbit"}:
+            return None
+        if not self._use_max_duration_per_day(habit):
+            return None
+
+        connection_result = await session.execute(
+            select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == user_id,
+                WearableConnectionDB.provider == provider,
+            )
+        )
+        connection = connection_result.scalar_one_or_none()
+        if connection is None:
+            return None
+
+        settings: Dict[str, Any] = {}
+        if connection.settings_json:
+            try:
+                settings = json.loads(connection.settings_json)
+            except Exception:
+                settings = {}
+
+        latest_sleep_date = settings.get("latest_upstream_sleep_date")
+        if not latest_sleep_date:
+            latest_sleep_result = await session.execute(
+                select(func.max(WearableEventDB.attributed_date)).where(
+                    WearableEventDB.user_id == user_id,
+                    WearableEventDB.provider == provider,
+                    WearableEventDB.event_type == "sleep_total",
+                    WearableEventDB.deleted_at.is_(None),
+                )
+            )
+            latest_sleep_date = latest_sleep_result.scalar_one_or_none()
+
+        latest_event_result = await session.execute(
+            select(func.max(WearableEventDB.attributed_date)).where(
+                WearableEventDB.user_id == user_id,
+                WearableEventDB.provider == provider,
+                WearableEventDB.deleted_at.is_(None),
+            )
+        )
+        latest_sample_result = await session.execute(
+            select(func.max(WearableSampleDB.attributed_date)).where(
+                WearableSampleDB.user_id == user_id,
+                WearableSampleDB.provider == provider,
+                WearableSampleDB.deleted_at.is_(None),
+            )
+        )
+        latest_event_date = latest_event_result.scalar_one_or_none()
+        latest_sample_date = latest_sample_result.scalar_one_or_none()
+        latest_data_date = max([value for value in [latest_event_date, latest_sample_date] if value], default=None)
+
+        provider_label = "Whoop" if provider == "whoop" else provider.replace("_", " ").title()
+        is_upstream_stale = False
+        missing_dates: List[str] = []
+        message = None
+
+        if latest_sleep_date and latest_sleep_date < end_dt.isoformat():
+            missing_cursor = date.fromisoformat(latest_sleep_date) + timedelta(days=1)
+            while missing_cursor <= end_dt:
+                missing_dates.append(missing_cursor.isoformat())
+                missing_cursor += timedelta(days=1)
+
+            if provider == "whoop":
+                is_upstream_stale = True
+                message = (
+                    f"{provider_label} has not returned sleep after "
+                    f"{self._format_display_date(latest_sleep_date)} yet."
+                )
+            else:
+                message = (
+                    f"Latest {provider_label} sleep data currently available is "
+                    f"{self._format_display_date(latest_sleep_date)}."
+                )
+
+        return {
+            "provider": provider,
+            "provider_label": provider_label,
+            "latest_data_date": latest_data_date,
+            "latest_sleep_date": latest_sleep_date,
+            "latest_sync_at": connection.last_sync_at.isoformat() if connection.last_sync_at else None,
+            "last_successful_sync_at": connection.last_successful_sync_at.isoformat() if connection.last_successful_sync_at else None,
+            "is_upstream_stale": is_upstream_stale,
+            "missing_dates": missing_dates,
+            "message": message,
+        }
     
     # ====================
     # CORE STATISTICS
@@ -190,6 +294,22 @@ class AnalyticsService:
             )
             logs_result = await session.execute(logs_query)
             logs = logs_result.scalars().all()
+
+            event_ids = [
+                log.origin_record_id
+                for log in logs
+                if log.origin_record_kind == "event" and log.origin_record_id
+            ]
+            event_time_map: Dict[str, WearableEventDB] = {}
+            if event_ids:
+                events_result = await session.execute(
+                    select(WearableEventDB).where(WearableEventDB.id.in_(event_ids))
+                )
+                event_time_map = {
+                    event.id: event
+                    for event in events_result.scalars().all()
+                    if event and event.deleted_at is None
+                }
             
             # Aggregate by date
             daily_data = self._aggregate_by_date(habit, logs)
@@ -315,6 +435,42 @@ class AnalyticsService:
                             sleep_end = sleep_end_raw
                     except:
                         pass
+
+                if (not sleep_start or not sleep_end) and log.origin_record_kind == "event" and log.origin_record_id:
+                    source_event = event_time_map.get(log.origin_record_id)
+                    if source_event:
+                        def format_event_time(dt_value):
+                            if not dt_value:
+                                return None
+                            try:
+                                event_dt = dt_value
+                                if user_tz:
+                                    try:
+                                        from zoneinfo import ZoneInfo
+                                        utc = ZoneInfo('UTC')
+                                        if event_dt.tzinfo is None:
+                                            event_dt = event_dt.replace(tzinfo=utc)
+                                        event_dt = event_dt.astimezone(user_tz)
+                                    except:
+                                        try:
+                                            import pytz
+                                            utc = pytz.UTC
+                                            if event_dt.tzinfo is None:
+                                                event_dt = utc.localize(event_dt)
+                                            event_dt = event_dt.astimezone(user_tz)
+                                        except:
+                                            pass
+
+                                hour = event_dt.hour
+                                minute = event_dt.minute
+                                period = "am" if hour < 12 else "pm"
+                                display_hour = hour % 12 or 12
+                                return f"{display_hour}:{minute:02d}{period}"
+                            except Exception:
+                                return None
+
+                        sleep_start = sleep_start or format_event_time(source_event.start_time)
+                        sleep_end = sleep_end or format_event_time(source_event.end_time)
                 
                 logs_by_local_date[local_date].append({
                     "time": log_time,
@@ -382,6 +538,12 @@ class AnalyticsService:
             
             # Determine if this is a duration-based habit (hours) or amount-based
             is_duration = any(d.get("duration_seconds", 0) > 0 for d in local_daily_data.values())
+            sync_context = await self._build_wearable_sync_context(
+                session=session,
+                user_id=user_id,
+                habit=habit,
+                end_dt=end_dt,
+            )
             
             return {
                 "success": True,
@@ -398,6 +560,7 @@ class AnalyticsService:
                 "days_with_data": len(local_daily_data),
                 "total": round(total, 2),
                 "average_per_day": round(avg, 2),
+                "sync_context": sync_context,
                 "data": [
                     {
                         "date": local_date_str,

@@ -31,7 +31,4 @@ if (SENTRY_DSN) {
       return event;
     },
   });
-} else {
-  console.log('Sentry DSN not configured. Error tracking is disabled.');
 }
-

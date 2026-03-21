@@ -10,12 +10,19 @@ from sqlalchemy import select
 
 from database.connection import get_db_session
 from database.models import WhoopIntegrationDB
+from services.unified_wearables_service import wearable_connection_service
 
 logger = logging.getLogger(__name__)
 
 
 class WhoopSyncHourUpdate(BaseModel):
     sync_hour: int
+
+
+class WhoopBulkSyncRequest(BaseModel):
+    daysBack: Optional[int] = None
+    hour: Optional[int] = None
+    forceFullSync: bool = False
 
 
 def create_whoop_router(
@@ -69,17 +76,29 @@ def create_whoop_router(
     async def whoop_status(current_user=Depends(get_current_user)):
         try:
             integration = await whoop_service.get_integration(current_user["id"])
+            canonical = await wearable_connection_service.get_connection(current_user["id"], "whoop")
             if not integration:
-                return {"connected": False}
+                if not canonical:
+                    return {"connected": False}
+                return {
+                    "connected": canonical.status == "active",
+                    "whoop_user_id": canonical.provider_user_id,
+                    "connected_at": canonical.created_at.isoformat(),
+                    "last_sync_at": canonical.last_sync_at.isoformat() if canonical.last_sync_at else None,
+                    "is_active": canonical.status == "active",
+                    "sync_hour": 9,
+                }
 
             return {
                 "connected": True,
-                "whoop_user_id": integration.whoop_user_id,
+                "whoop_user_id": canonical.provider_user_id if canonical and canonical.provider_user_id else integration.whoop_user_id,
                 "connected_at": integration.connected_at.isoformat(),
                 "last_sync_at": (
-                    integration.last_sync_at.isoformat() if integration.last_sync_at else None
+                    canonical.last_sync_at.isoformat()
+                    if canonical and canonical.last_sync_at
+                    else (integration.last_sync_at.isoformat() if integration.last_sync_at else None)
                 ),
-                "is_active": integration.is_active,
+                "is_active": canonical.status == "active" if canonical else integration.is_active,
                 "sync_hour": integration.whoop_sync_hour or 9,
             }
         except Exception:
@@ -117,6 +136,7 @@ def create_whoop_router(
 
     @router.post("/sync-all")
     async def whoop_sync_all(
+        payload: Optional[WhoopBulkSyncRequest] = None,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
         try:
@@ -136,8 +156,26 @@ def create_whoop_router(
 
             sync_results = []
             for integration in integrations:
+                canonical = await wearable_connection_service.get_connection(integration.user_id, "whoop")
+                settings = {}
+                if canonical and canonical.settings_json:
+                    try:
+                        import json
+                        settings = json.loads(canonical.settings_json)
+                    except Exception:
+                        settings = {}
+                enabled = bool(settings.get("auto_sync_enabled", True))
+                configured_hour = settings.get("sync_hour", settings.get("whoop_sync_hour", integration.whoop_sync_hour or 9))
+                if not enabled:
+                    continue
+                if payload and payload.hour is not None and int(configured_hour) != int(payload.hour):
+                    continue
                 try:
-                    result = await whoop_service.sync_whoop_data(integration.user_id)
+                    result = await whoop_service.sync_whoop_data(
+                        integration.user_id,
+                        days_back=payload.daysBack if payload else None,
+                        force_full_sync=payload.forceFullSync if payload else False,
+                    )
                     sync_results.append(
                         {
                             "user_id": integration.user_id,
@@ -213,6 +251,18 @@ def create_whoop_router(
 
                 integration.whoop_sync_hour = update_data.sync_hour
                 await session.commit()
+
+            canonical = await wearable_connection_service.get_connection(current_user["id"], "whoop")
+            if canonical:
+                await wearable_connection_service.get_or_create_connection(
+                    user_id=current_user["id"],
+                    provider="whoop",
+                    auth_method=canonical.auth_method,
+                    provider_user_id=canonical.provider_user_id,
+                    token_expires_at=canonical.token_expires_at,
+                    settings={"whoop_sync_hour": update_data.sync_hour},
+                    status=canonical.status,
+                )
 
             logger.info(
                 "Updated Whoop sync hour to %s for user %s",

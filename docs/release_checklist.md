@@ -35,6 +35,15 @@
 - [ ] Schema migrations applied
 - [ ] `DATABASE_URL` points to production
 - [ ] Backup configured
+- [ ] `TURSO_LOCAL_ENCRYPTION_KEY` set in production
+
+### Production Plaid
+- [ ] Production Plaid access approved
+- [ ] `PLAID_CLIENT_ID` and `PLAID_SECRET` set
+- [ ] `PLAID_ENV=production`
+- [ ] `PLAID_REDIRECT_URI` points to production integration URL
+- [ ] `PLAID_WEBHOOK_URL` points to production backend webhook URL
+- [ ] `TOKEN_ENCRYPTION_KEY` set
 
 ### Production Whoop
 - [ ] OAuth app approved by Whoop
@@ -178,6 +187,9 @@ curl https://api.ritual.so/health
 - [ ] CORS allows production domain
 - [ ] Rate limiting configured
 - [ ] SSL certificate valid
+- [ ] Admin/vendor accounts use MFA for critical systems
+- [ ] Plaid tokens encrypted at rest
+- [ ] Embedded Turso replica encrypted at rest
 
 ---
 

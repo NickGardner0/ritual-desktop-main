@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Timer,
@@ -59,10 +59,10 @@ const items = [
     path: "/dashboard",
     name: "Index",
   },
-  {
-    path: "/tasks",
-    name: "Tasks",
-  },
+  // {
+  //   path: "/tasks",
+  //   name: "Tasks",
+  // },
   {
     path: "/activity",
     name: "Logs",
@@ -137,7 +137,7 @@ const ChildItem = ({
           className={cn(
             "ml-[35px] mr-[15px] h-[32px] flex items-center",
             "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
-            "transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+            "transition-all duration-200 ease-standard",
             showChild
               ? "opacity-100 translate-x-0"
               : "opacity-0 -translate-x-2",
@@ -228,7 +228,7 @@ const Item = ({
           {/* Keep a stable click target in both modes without active borders */}
           <div
             className={cn(
-              "h-[40px] transition-all duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]",
+              "h-[40px] transition-all duration-200 ease-standard",
               isExpanded 
                 ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
                 : "ml-[15px] w-[40px] rounded-none",
@@ -279,7 +279,7 @@ const Item = ({
       {hasChildren && (
         <div
           className={cn(
-            "transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden",
+            "transition-all duration-300 ease-standard overflow-hidden",
             shouldShowChildren ? "max-h-96 mt-1" : "max-h-0",
           )}
         >
@@ -311,9 +311,31 @@ type Props = {
 
 export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | 'screen-recording' | 'voice-logging' | undefined>(undefined);
   const { getToken } = useAuth();
+
+  // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
+  useEffect(() => {
+    const view = searchParams.get('openSettings');
+    if (
+      view === 'account' ||
+      view === 'computer-tracking' ||
+      view === 'apple-health' ||
+      view === 'screen-recording' ||
+      view === 'voice-logging'
+    ) {
+      setSettingsInitialView(view);
+      setShowSettingsModal(true);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('openSettings');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
+    }
+  }, [searchParams, pathname, router]);
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
@@ -406,9 +428,11 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
           isOpen={showSettingsModal} 
           onClose={() => {
             setShowSettingsModal(false);
+            setSettingsInitialView(undefined);
             onCloseSidebar?.();
           }}
           onOpen={onCloseSidebar}
+          initialView={settingsInitialView}
         />
       )}
     </div>

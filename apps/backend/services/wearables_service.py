@@ -15,18 +15,26 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.connection import get_db_session
 from database.models import (
     WearableDeviceDB,
+    WearableConnectionDB,
+    WearableEventDB,
     WearableMetricDB,
     WearableIngestEventDB,
+    WearableSampleDB,
     HabitDB,
     HabitLogDB,
 )
 from services.token_crypto import token_crypto
+from services.unified_wearables_service import (
+    wearable_connection_service,
+    wearable_query_service,
+    wearable_sync_service,
+)
 from schemas.wearables_apple import (
     NormalizedMetricSchema,
     AppleIngestRequest,
@@ -80,16 +88,14 @@ class WearablesService:
             from services.tinybird_service import TinybirdService
             tinybird = TinybirdService()
             
-            # Sync all pending items
-            for log_data in self._pending_tinybird_syncs:
-                try:
-                    await tinybird.ingest_habit_log(log_data)
-                except Exception as e:
-                    logger.warning(f"⚠️ Tinybird sync error for log: {e}")
-            
-            logger.info(f"📊 Tinybird force flush: {count} logs synced")
+            result = await tinybird.ingest_habit_logs_batch(self._pending_tinybird_syncs)
+            total_ingested = int(result.get("total_ingested") or 0)
+            if not result.get("success"):
+                logger.warning(f"⚠️ Tinybird force flush had errors: {result.get('errors')}")
+
+            logger.info(f"📊 Tinybird force flush: {total_ingested}/{count} logs synced")
             self._pending_tinybird_syncs = []
-            return count
+            return total_ingested
         except Exception as e:
             logger.warning(f"⚠️ Tinybird force flush failed: {e}")
             return 0
@@ -107,14 +113,12 @@ class WearablesService:
             from services.tinybird_service import TinybirdService
             tinybird = TinybirdService()
             
-            # Sync batch to Tinybird
-            for log_data in batch:
-                try:
-                    await tinybird.ingest_habit_log(log_data)
-                except Exception as e:
-                    logger.warning(f"⚠️ Tinybird batch sync error for log: {e}")
-            
-            logger.info(f"📊 Tinybird batch sync: {len(batch)} logs")
+            result = await tinybird.ingest_habit_logs_batch(batch)
+            total_ingested = int(result.get("total_ingested") or 0)
+            if not result.get("success"):
+                logger.warning(f"⚠️ Tinybird batch sync had errors: {result.get('errors')}")
+
+            logger.info(f"📊 Tinybird batch sync: {total_ingested}/{len(batch)} logs")
         except Exception as e:
             logger.warning(f"⚠️ Tinybird batch sync failed: {e}")
             # Re-queue failed items (up to a limit to prevent infinite loops)
@@ -129,7 +133,10 @@ class WearablesService:
         self,
         user_id: str,
         device_name: str,
-        platform: str
+        platform: str,
+        *,
+        provider: str = "apple_health",
+        create_connection: bool = True,
     ) -> Tuple[str, str]:
         """
         Register a new device for a user.
@@ -143,15 +150,27 @@ class WearablesService:
         
         # Encrypt secrets at rest before storing in the database.
         device_secret_hash = token_crypto.encrypt(device_secret)
+        connection_id: Optional[str] = None
+        if create_connection:
+            connection = await wearable_connection_service.get_or_create_connection(
+                user_id=user_id,
+                provider=provider,
+                auth_method="sdk",
+                status="active",
+            )
+            connection_id = connection.id
         
         async with get_db_session() as session:
             device = WearableDeviceDB(
                 id=device_id,
                 user_id=user_id,
+                provider=provider,
+                connection_id=connection_id,
                 device_name=device_name,
                 platform=platform,
                 device_secret_hash=device_secret_hash,
                 registered_at=datetime.now(timezone.utc),
+                last_seen_at=datetime.now(timezone.utc),
                 is_active=True
             )
             session.add(device)
@@ -168,15 +187,18 @@ class WearablesService:
             )
             return result.scalar_one_or_none()
     
-    async def get_user_devices(self, user_id: str) -> List[WearableDeviceDB]:
+    async def get_user_devices(self, user_id: str, provider: Optional[str] = None) -> List[WearableDeviceDB]:
         """Get all devices for a user"""
         async with get_db_session() as session:
-            result = await session.execute(
+            query = (
                 select(WearableDeviceDB)
                 .where(WearableDeviceDB.user_id == user_id)
                 .where(WearableDeviceDB.is_active == True)
                 .order_by(WearableDeviceDB.registered_at.desc())
             )
+            if provider:
+                query = query.where(WearableDeviceDB.provider == provider)
+            result = await session.execute(query)
             return list(result.scalars().all())
     
     async def deactivate_device(self, device_id: str, user_id: str) -> bool:
@@ -438,8 +460,25 @@ class WearablesService:
             logger.warning(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
             return True, [], "Already processed (idempotency)"
         
-        # 4. Ingest metrics (store in wearable_metrics table)
-        results = await self.ingest_metrics(user_id, request.device_id, request.metrics)
+        # 4. Backfill legacy Apple rows into canonical storage once, then ingest the batch canonically.
+        try:
+            await wearable_sync_service.backfill_legacy_apple_metrics(user_id)
+        except Exception as exc:
+            logger.warning("⚠️ Legacy Apple backfill skipped: %s", exc)
+
+        stored_records = await wearable_sync_service.ingest_apple_metrics(
+            user_id=user_id,
+            device_id=request.device_id,
+            metrics=request.metrics,
+        )
+        results = [
+            AppleIngestResult(
+                index=idx,
+                success=True,
+                stored_id=stored_id,
+            )
+            for idx, (stored_id, _kind) in enumerate(stored_records)
+        ]
         
         # 5. Record ingest event
         success_count = sum(1 for r in results if r.success)
@@ -457,14 +496,6 @@ class WearablesService:
         
         logger.info(f"✅ Ingested {success_count}/{len(request.metrics)} metrics for device {request.device_id}")
         
-        # 6. Convert metrics to habit_logs (for dashboard & analytics)
-        if success_count > 0:
-            try:
-                log_result = await self.create_habit_logs_from_metrics(user_id, request.metrics)
-                logger.info(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
-            except Exception as e:
-                logger.warning(f"⚠️ Error creating habit logs (non-fatal): {e}")
-        
         return success_count > 0, results, None
     
     # ================================
@@ -481,53 +512,33 @@ class WearablesService:
         Also deletes corresponding habit_logs.
         """
         results: List[DeleteResult] = []
-        
-        async with get_db_session() as session:
-            for external_id in external_ids:
-                try:
-                    # Find the metric
-                    result = await session.execute(
-                        select(WearableMetricDB)
-                        .where(WearableMetricDB.user_id == user_id)
-                        .where(WearableMetricDB.external_id == external_id)
-                    )
-                    metric = result.scalar_one_or_none()
-                    
-                    if not metric:
-                        results.append(DeleteResult(
+
+        for external_id in external_ids:
+            try:
+                deleted = await wearable_sync_service.delete_records_by_external_ids(
+                    user_id=user_id,
+                    provider="apple_health",
+                    external_ids=[external_id],
+                )
+                if deleted["samples"] == 0 and deleted["events"] == 0:
+                    results.append(
+                        DeleteResult(
                             external_id=external_id,
                             success=True,
-                            error="Not found (already deleted)"
-                        ))
-                        continue
-                    
-                    # Delete the metric
-                    await session.delete(metric)
-                    
-                    # Also delete corresponding habit_log if exists
-                    # (This is approximate - we match by date and metric type)
-                    log_result = await session.execute(
-                        select(HabitLogDB)
-                        .where(HabitLogDB.source == "apple_health")
-                        .where(HabitLogDB.date == metric.start_time.strftime('%Y-%m-%d'))
-                        # Note: Would need habit_id matching metric_type lookup
+                            error="Not found (already deleted)",
+                        )
                     )
-                    
-                    await session.commit()
-                    
-                    results.append(DeleteResult(
-                        external_id=external_id,
-                        success=True
-                    ))
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Error deleting metric {external_id}: {e}")
-                    results.append(DeleteResult(
+                    continue
+                results.append(DeleteResult(external_id=external_id, success=True))
+            except Exception as e:
+                logger.warning(f"⚠️ Error deleting metric {external_id}: {e}")
+                results.append(
+                    DeleteResult(
                         external_id=external_id,
                         success=False,
-                        error=str(e)
-                    ))
-        
+                        error=str(e),
+                    )
+                )
         return results
     
     async def process_ingest_request_v2(
@@ -570,10 +581,23 @@ class WearablesService:
             logger.warning(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
             return True, [], [], [], "Already processed (idempotency)"
         
+        try:
+            await wearable_sync_service.backfill_legacy_apple_metrics(user_id)
+        except Exception as exc:
+            logger.warning("⚠️ Legacy Apple backfill skipped for V2 ingest: %s", exc)
+
         # 4. Process added metrics
         added_results: List[AppleIngestResult] = []
         if request.added:
-            added_results = await self.ingest_metrics(user_id, request.device_id, request.added)
+            added_records = await wearable_sync_service.ingest_apple_metrics(
+                user_id=user_id,
+                device_id=request.device_id,
+                metrics=request.added,
+            )
+            added_results = [
+                AppleIngestResult(index=idx, success=True, stored_id=stored_id)
+                for idx, (stored_id, _kind) in enumerate(added_records)
+            ]
         
         # 5. Process deleted metrics
         deleted_results: List[DeleteResult] = []
@@ -587,7 +611,15 @@ class WearablesService:
             for metric in request.modified:
                 if metric.external_id:
                     await self.delete_metrics_by_external_ids(user_id, [metric.external_id])
-            modified_results = await self.ingest_metrics(user_id, request.device_id, request.modified)
+            modified_records = await wearable_sync_service.ingest_apple_metrics(
+                user_id=user_id,
+                device_id=request.device_id,
+                metrics=request.modified,
+            )
+            modified_results = [
+                AppleIngestResult(index=idx, success=True, stored_id=stored_id)
+                for idx, (stored_id, _kind) in enumerate(modified_records)
+            ]
         
         # 7. Record ingest event
         total_ops = len(request.added) + len(request.deleted) + len(request.modified)
@@ -608,15 +640,6 @@ class WearablesService:
         )
         
         logger.info(f"✅ V2 Ingest: {added_success} added, {deleted_success} deleted, {modified_success} modified")
-        
-        # 8. Convert metrics to habit_logs (for added and modified)
-        all_metrics = list(request.added) + list(request.modified)
-        if all_metrics:
-            try:
-                log_result = await self.create_habit_logs_from_metrics(user_id, all_metrics)
-                logger.info(f"📊 Habit logs: {log_result['created']} created, {log_result['skipped']} skipped")
-            except Exception as e:
-                logger.warning(f"⚠️ Error creating habit logs (non-fatal): {e}")
         
         return total_success > 0, added_results, deleted_results, modified_results, None
     
@@ -646,23 +669,52 @@ class WearablesService:
             )
             last_event = events_result.scalar_one_or_none()
             
-            # Count metrics synced today
+            connection = None
+            if device.connection_id:
+                connection_result = await session.execute(
+                    select(WearableConnectionDB).where(WearableConnectionDB.id == device.connection_id)
+                )
+                connection = connection_result.scalar_one_or_none()
+
+            # Count canonical records synced today
             today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            metrics_result = await session.execute(
-                select(WearableMetricDB)
-                .where(WearableMetricDB.device_id == device_id)
-                .where(WearableMetricDB.created_at >= today_start)
+            sample_count_result = await session.execute(
+                select(func.count(WearableSampleDB.id)).where(
+                    WearableSampleDB.user_id == user_id,
+                    WearableSampleDB.provider == "apple_health",
+                    WearableSampleDB.created_at >= today_start,
+                    WearableSampleDB.deleted_at.is_(None),
+                    WearableSampleDB.connection_id == device.connection_id if device.connection_id else True,
+                )
             )
-            metrics_today = len(list(metrics_result.scalars().all()))
+            event_count_result = await session.execute(
+                select(func.count(WearableEventDB.id)).where(
+                    WearableEventDB.user_id == user_id,
+                    WearableEventDB.provider == "apple_health",
+                    WearableEventDB.created_at >= today_start,
+                    WearableEventDB.deleted_at.is_(None),
+                    WearableEventDB.connection_id == device.connection_id if device.connection_id else True,
+                )
+            )
+            metrics_today = int(sample_count_result.scalar() or 0) + int(event_count_result.scalar() or 0)
+            last_successful_sync = (
+                connection.last_successful_sync_at.isoformat() if connection and connection.last_successful_sync_at else None
+            )
+            last_error = None
+            if connection and connection.last_error_json:
+                try:
+                    last_error = json.loads(connection.last_error_json).get("message")
+                except Exception:
+                    last_error = connection.last_error_json
             
             return {
                 "device_id": device.id,
                 "device_name": device.device_name,
                 "platform": device.platform,
                 "is_connected": device.is_active,
-                "last_successful_sync": device.last_sync_at.isoformat() if device.last_sync_at else None,
+                "last_successful_sync": last_successful_sync or (device.last_sync_at.isoformat() if device.last_sync_at else None),
                 "last_sync_attempt": last_event.received_at.isoformat() if last_event else None,
-                "last_error": None if last_event and last_event.status == "success" else (last_event.status if last_event else None),
+                "last_error": last_error or (None if last_event and last_event.status == "success" else (last_event.status if last_event else None)),
                 "metrics_synced_today": metrics_today,
                 "background_sync_enabled": True,
                 "offline_queue_count": 0  # Would need client to report this
@@ -680,24 +732,16 @@ class WearablesService:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         limit: int = 100
-    ) -> List[WearableMetricDB]:
-        """Query metrics for a user with optional filters"""
-        async with get_db_session() as session:
-            query = select(WearableMetricDB).where(WearableMetricDB.user_id == user_id)
-            
-            if source:
-                query = query.where(WearableMetricDB.source == source)
-            if metric_type:
-                query = query.where(WearableMetricDB.metric_type == metric_type)
-            if start_date:
-                query = query.where(WearableMetricDB.start_time >= start_date)
-            if end_date:
-                query = query.where(WearableMetricDB.end_time <= end_date)
-            
-            query = query.order_by(WearableMetricDB.start_time.desc()).limit(limit)
-            
-            result = await session.execute(query)
-            return list(result.scalars().all())
+    ) -> List[WearableSampleDB]:
+        """Compatibility wrapper returning canonical wearable samples."""
+        return await wearable_query_service.get_samples(
+            user_id=user_id,
+            provider=source,
+            metric_type=metric_type,
+            start_time=start_date,
+            end_time=end_date,
+            limit=limit,
+        )
     
     # ================================
     # Convert Metrics to Habit Logs

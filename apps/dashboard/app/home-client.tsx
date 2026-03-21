@@ -2,7 +2,7 @@
 
 import { useUser, useAuth, SignIn, SignUp } from '@clerk/nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { setStandardWindowSize, setOnboardingWindowSize } from '@/lib/tauri-utils';
 import { ArrowRight } from 'lucide-react';
@@ -18,6 +18,16 @@ import {
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const TOTAL_PAGES = 4;
+
+/** Shared “Welcome to Ritual” hero on Get Started + Sign In home */
+const HOME_WELCOME_LOGO_PX = 42;
+const homeWelcomeHeadingStyle: CSSProperties = {
+  fontSize: '32px',
+  lineHeight: '1.2',
+  WebkitFontSmoothing: 'antialiased',
+  letterSpacing: '-0.01em',
+  fontWeight: 500,
+};
 
 export function HomeClient() {
   const { isSignedIn, isLoaded, user } = useUser();
@@ -239,13 +249,13 @@ export function HomeClient() {
             {/* Page 1: Welcome */}
             {currentPage === 1 && (
               <div className="animate-in fade-in duration-500 flex flex-col items-center">
-                <div className="mb-6">
+                <div className="mb-5">
                   <img
                     ref={logoRef}
                     src="/images/eclipse.svg"
                     alt="Ritual Logo"
-                    width={46}
-                    height={46}
+                    width={HOME_WELCOME_LOGO_PX}
+                    height={HOME_WELCOME_LOGO_PX}
                     className="cursor-pointer"
                     style={{
                       transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
@@ -253,13 +263,7 @@ export function HomeClient() {
                     }}
                   />
                 </div>
-                <h1 className="text-gray-900 mb-8" style={{
-                  fontSize: '32px',
-                  lineHeight: '1.2',
-                  WebkitFontSmoothing: 'antialiased',
-                  letterSpacing: '-0.01em',
-                  fontWeight: 500
-                }}>
+                <h1 className="text-gray-900 mb-8" style={homeWelcomeHeadingStyle}>
                   Welcome to Ritual
                 </h1>
               </div>
@@ -278,7 +282,7 @@ export function HomeClient() {
                   <div className="mt-10 flex flex-col items-center gap-4">
                     <button
                       onClick={handleNext}
-                      className="px-4 py-2 bg-black text-white rounded-none hover:bg-[#1f2937] transition-colors flex items-center gap-2 text-sm font-medium"
+                      className="px-4 py-2 bg-black text-white rounded-sm transition-colors flex items-center gap-2 text-sm font-medium"
                     >
                       Next
                       <ArrowRight className="w-4 h-4" />
@@ -365,7 +369,7 @@ export function HomeClient() {
               <div className="flex items-center justify-center">
                 <button
                   onClick={handleNext}
-                  className="px-12 py-2.5 bg-black text-white rounded-sm shadow transition-colors duration-200 hover:bg-[#5a5855] flex items-center justify-center text-sm font-medium"
+                  className="px-12 py-2.5 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium"
                   style={{ fontWeight: 500 }}
                 >
                   {currentPage === 1 && 'Get Started'}
@@ -412,8 +416,8 @@ export function HomeClient() {
               ref={logoRef}
               src="/images/eclipse.svg"
               alt="Ritual Logo"
-              width={40}
-              height={40}
+              width={HOME_WELCOME_LOGO_PX}
+              height={HOME_WELCOME_LOGO_PX}
               className="cursor-pointer"
               style={{
                 transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
@@ -422,19 +426,13 @@ export function HomeClient() {
             />
           </div>
 
-          <h1 className="text-gray-900 mb-6" style={{
-            fontSize: '26px',
-            lineHeight: '1.2',
-            WebkitFontSmoothing: 'antialiased',
-            letterSpacing: '-0.01em',
-            fontWeight: 500
-          }}>
+          <h1 className="text-gray-900 mb-8" style={homeWelcomeHeadingStyle}>
             Welcome to Ritual
           </h1>
 
           <Link
             href="/sign-in"
-            className="inline-flex items-center justify-center bg-black text-white px-10 py-2 rounded-sm font-medium text-sm shadow transition-colors duration-200 hover:bg-[#5a5855]"
+            className="inline-flex items-center justify-center bg-black text-white px-10 py-2 rounded-sm font-medium text-sm shadow transition-colors duration-200 hover:bg-[#27251E]"
             style={{
               userSelect: 'none',
               fontWeight: 500

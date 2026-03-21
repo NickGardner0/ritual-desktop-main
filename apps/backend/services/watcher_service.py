@@ -514,6 +514,7 @@ class WatcherService:
         limit: int = 10,
         kind: Optional[str] = None,
         key: Optional[str] = None,
+        refresh_before_read: bool = False,
     ) -> List[Dict[str, Any]]:
         return await _get_computer_activity_pipe_rows_impl(
             self,
@@ -524,6 +525,7 @@ class WatcherService:
             limit=limit,
             kind=kind,
             key=key,
+            refresh_before_read=refresh_before_read,
         )
     
     # ============================================================

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Ritual Consumer MFA Implementation</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="plaid-security-package.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Ritual Consumer MFA Implementation</h1>
+</header>
+<h1 id="ritual-consumer-mfa-implementation">Ritual Consumer MFA Implementation</h1>
+<p>Version: 1.0<br />
+Effective Date: 2026-03-18<br />
+Owner: Nicholas Gardner, Founder, Ritual</p>
+<h2 id="overview">Overview</h2>
+<p>Ritual uses Clerk for consumer authentication on its web and mobile applications.</p>
+<p>For higher-sensitivity financial connectivity features, Ritual requires that the consumer account have multi-factor authentication enabled before the Plaid Link flow can be surfaced from the product.</p>
+<h2 id="mfa-strategy">MFA Strategy</h2>
+<p>Ritual’s current consumer MFA implementation is based on Clerk’s supported MFA methods:</p>
+<ul>
+<li>authenticator application (TOTP)</li>
+<li>SMS verification code</li>
+<li>backup codes</li>
+</ul>
+<p>Ritual’s recommended production configuration is:</p>
+<ul>
+<li>enable Authenticator application</li>
+<li>enable Backup codes</li>
+<li>optionally enable SMS verification code if desired</li>
+<li>enable Require multi-factor authentication in Clerk</li>
+</ul>
+<h2 id="product-enforcement">Product Enforcement</h2>
+<p>Ritual’s product-side controls for Plaid are:</p>
+<ul>
+<li>Ritual uses Clerk-authenticated sessions for access to the application</li>
+<li>the Plaid integration checks whether the authenticated user has MFA enabled</li>
+<li>if MFA is not enabled, Ritual does not surface the bank connection flow and instead directs the user to account security settings to complete MFA setup first</li>
+</ul>
+<p>This creates an explicit control that prevents users without MFA-enabled accounts from initiating the Plaid connection flow from within Ritual.</p>
+<h2 id="user-experience">User Experience</h2>
+<p>If a user has not enabled MFA:</p>
+<ul>
+<li>the Plaid / Spending integration card shows an MFA requirement state</li>
+<li>the Plaid details panel indicates that MFA must be enabled before bank connections are available</li>
+<li>the user is directed to Clerk account security settings to configure MFA</li>
+</ul>
+<p>If a user has MFA enabled:</p>
+<ul>
+<li>the user can proceed to the Plaid connection flow normally</li>
+</ul>
+<h2 id="current-implementation-references">Current Implementation References</h2>
+<ul>
+<li><code>apps/dashboard/app/(dashboard)/integrations/integrations-client.tsx</code></li>
+<li><code>apps/dashboard/components/settings-modal.tsx</code></li>
+<li><code>apps/backend/services/auth_service.py</code></li>
+<li><code>apps/backend/api/financial.py</code></li>
+</ul>
+<h2 id="important-note-for-vendor-questionnaires">Important Note for Vendor Questionnaires</h2>
+<p>Ritual can currently support an honest response of:</p>
+<p><code>Yes - Non-phishing-resistant multi-factor authentication is performed</code></p>
+<p>based on Clerk’s currently supported MFA methods such as TOTP and SMS.</p>
+<p>Ritual should not represent this control as phishing-resistant MFA unless the authentication flow is changed to a qualifying phishing-resistant control and that control is enforced before Plaid Link is surfaced.</p>
+</body>
+</html>

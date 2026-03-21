@@ -55,6 +55,100 @@ def _extract_parent_context(value: str) -> str:
     return context_text[:240]
 
 
+def _contextual_rewrite_enabled() -> bool:
+    return (os.getenv("RITUAL_CONTEXTUAL_REWRITE", "1")).strip() == "1"
+
+
+async def _contextual_rewrite_batch(
+    texts: List[str],
+    client: AsyncOpenAI,
+) -> List[str]:
+    """Add a semantic context prefix to each chunk before embedding.
+
+    Uses GPT-4o-mini to generate a 1-sentence context line that explains
+    WHAT the user was doing, not just what apps were open. This dramatically
+    improves embedding quality for retrieval.
+
+    Example:
+      Input:  "Context: Cursor / main.rs — ritual-desktop-main | Title: main.rs ..."
+      Output: "[Working on accessibility text extraction in the ritual-desktop Rust watcher] Context: Cursor / main.rs ..."
+    """
+    if not _contextual_rewrite_enabled() or not texts:
+        return texts
+
+    # Build a single batch prompt for efficiency
+    # Process up to 20 chunks per LLM call to keep costs low
+    rewritten = list(texts)  # start with originals as fallback
+    batch_size = 40  # Process more chunks per LLM call for faster throughput
+
+    for batch_start in range(0, len(texts), batch_size):
+        batch = texts[batch_start : batch_start + batch_size]
+        if not batch:
+            continue
+
+        # Skip chunks that are too short to benefit from rewriting
+        indices_to_rewrite = []
+        for i, text in enumerate(batch):
+            if len(text.strip()) >= 40:
+                indices_to_rewrite.append(i)
+
+        if not indices_to_rewrite:
+            continue
+
+        chunks_for_llm = [batch[i] for i in indices_to_rewrite]
+        numbered = "\n---\n".join(
+            f"CHUNK {j+1}:\n{text[:600]}" for j, text in enumerate(chunks_for_llm)
+        )
+
+        try:
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You add semantic context to screen activity chunks to improve search retrieval. "
+                            "For each chunk, write ONE short sentence (max 20 words) describing what the user was DOING, "
+                            "based on the app name, window title, and visible text. "
+                            "Focus on the TASK, not the tool. Examples:\n"
+                            '- "Editing accessibility text extraction in the ritual-desktop Rust watcher"\n'
+                            '- "Researching contextual retrieval techniques for AI search systems"\n'
+                            '- "Configuring Plaid API credentials for financial data integration"\n'
+                            '- "Reviewing pull request for kanban board drag-and-drop feature"\n'
+                            "Reply with one line per chunk, numbered to match. No other text."
+                        ),
+                    },
+                    {"role": "user", "content": numbered},
+                ],
+                temperature=0.1,
+                max_tokens=800,
+                timeout=15,
+            )
+
+            result_text = (response.choices[0].message.content or "").strip()
+            lines = [l.strip() for l in result_text.split("\n") if l.strip()]
+
+            for line_idx, line in enumerate(lines):
+                if line_idx >= len(indices_to_rewrite):
+                    break
+                # Strip leading "CHUNK N:" or "1." numbering
+                clean = line
+                for prefix in [f"CHUNK {line_idx+1}:", f"{line_idx+1}.", f"{line_idx+1})"]:
+                    if clean.upper().startswith(prefix.upper()):
+                        clean = clean[len(prefix):].strip()
+                        break
+
+                if clean and len(clean) >= 10:
+                    global_idx = batch_start + indices_to_rewrite[line_idx]
+                    rewritten[global_idx] = f"[{clean}] {texts[global_idx]}"
+
+        except Exception as exc:
+            logger.warning("Contextual rewrite batch failed (non-fatal): %s", exc)
+            # Fall through — use original texts
+
+    return rewritten
+
+
 async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
     """
     Process pending chunk embeddings and upsert into Turbopuffer.
@@ -170,10 +264,12 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
         )
 
     # Embed in one batch call.
-    texts = [
+    raw_texts = [
         str(r.get("contextual_text_compact") or r.get("text_compact") or "").strip()
         for r in rows
     ]
+    # Contextual rewriting: add semantic context prefix before embedding
+    texts = await _contextual_rewrite_batch(raw_texts, client)
     try:
         embeddings = await client.embeddings.create(model=_openai_embed_model(), input=texts)
     except Exception as exc:
@@ -210,6 +306,8 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
             contextual_text_compact = str(row.get("contextual_text_compact") or row.get("text_compact") or "").strip()
             raw_text_compact = str(row.get("raw_text_compact") or "").strip()
             text_compact = contextual_text_compact
+            # Use the contextually-rewritten text (with semantic prefix) for search
+            rewritten_text = texts[idx] if idx < len(texts) else text_compact
             if not text_compact:
                 skipped += 1
                 conn.execute(
@@ -262,11 +360,11 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
                         "window_title": str(row.get("window_title") or ""),
                         "document_title": str(row.get("document_title") or ""),
                         "browser_domain": str(row.get("browser_domain") or ""),
-                        "text_compact": contextual_text_compact,
+                        "text_compact": rewritten_text,
                         "raw_text_compact": raw_text_compact,
-                        "contextual_text_compact": contextual_text_compact,
+                        "contextual_text_compact": rewritten_text,
                         "raw_visible_text": raw_text_compact,
-                        "contextual_retrieval_text": contextual_text_compact,
+                        "contextual_retrieval_text": rewritten_text,
                         "parent_context": _extract_parent_context(contextual_text_compact),
                         "context_version": int(row.get("context_version") or 1),
                         "session_key": str(row.get("session_key") or row.get("session_id") or ""),
@@ -452,10 +550,12 @@ async def process_embedding_jobs_freshness_first(
             [(now_ms, now_ms, jid) for jid in job_ids],
         )
 
-    texts = [
+    raw_texts = [
         str(r.get("contextual_text_compact") or r.get("text_compact") or "").strip()
         for r in rows
     ]
+    # Contextual rewriting: add semantic context prefix before embedding
+    texts = await _contextual_rewrite_batch(raw_texts, client)
     try:
         embeddings = await client.embeddings.create(model=_openai_embed_model(), input=texts)
     except Exception as exc:
@@ -480,6 +580,8 @@ async def process_embedding_jobs_freshness_first(
             ).strip()
             raw_text_compact = str(row.get("raw_text_compact") or "").strip()
             text_compact = contextual_text_compact
+            # Use the contextually-rewritten text (with semantic prefix)
+            rewritten_text = texts[idx] if idx < len(texts) else text_compact
             if not text_compact:
                 rc = int(row.get("retry_count") or 0) + 1
                 failed += 1
@@ -533,11 +635,11 @@ async def process_embedding_jobs_freshness_first(
                         "window_title": str(row.get("window_title") or ""),
                         "document_title": str(row.get("document_title") or ""),
                         "browser_domain": str(row.get("browser_domain") or ""),
-                        "text_compact": text_compact,
+                        "text_compact": rewritten_text,
                         "raw_text_compact": raw_text_compact,
-                        "contextual_text_compact": contextual_text_compact,
+                        "contextual_text_compact": rewritten_text,
                         "raw_visible_text": raw_text_compact,
-                        "contextual_retrieval_text": contextual_text_compact,
+                        "contextual_retrieval_text": rewritten_text,
                         "parent_context": _extract_parent_context(contextual_text_compact),
                         "context_version": int(row.get("context_version") or 1),
                         "session_key": str(row.get("session_key") or row.get("session_id") or ""),

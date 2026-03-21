@@ -215,7 +215,13 @@ impl RitualDatabase {
     }
     
     /// Initialize the embedding service (lazy, call when needed)
+    /// When RITUAL_SKIP_LOCAL_EMBEDDINGS=1, skip model download + init entirely.
+    /// Chunks are still built and synced to the cloud for OpenAI embedding.
     pub async fn init_embedding_service(&self) -> Result<()> {
+        if std::env::var("RITUAL_SKIP_LOCAL_EMBEDDINGS").unwrap_or_default() == "1" {
+            info!("Skipping local embedding service init (cloud-only mode)");
+            return Ok(());
+        }
         let mut service = self.embedding_service.write().await;
         if service.is_none() {
             info!("Initializing embedding service...");

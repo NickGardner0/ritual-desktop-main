@@ -7,4 +7,6 @@ export { ReflectionForm } from './ReflectionForm';
 export { StreakIndicator } from './StreakIndicator';
 export { MetricLinker } from './MetricLinker';
 export { LogPrompt } from './LogPrompt';
+export { KanbanListView } from './KanbanListView';
+export { NewTaskDialog } from './NewTaskDialog';
 export type { HabitOption } from './MetricLinker';

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Calendar,
   CheckSquare,
@@ -10,6 +10,7 @@ import {
   Target,
   Trash2,
 } from 'lucide-react';
+import { PriorityIcon, NoPriorityIcon } from './kanban-icons';
 import {
   Sheet,
   SheetContent,
@@ -28,7 +29,9 @@ import type {
   KanbanLabel,
   KanbanColumn,
   EnergyCost,
+  Priority,
 } from '@/types/kanban';
+import { PRIORITY_CONFIG } from '@/types/kanban';
 import type { HabitOption } from './MetricLinker';
 
 interface KanbanCardDialogProps {
@@ -75,34 +78,52 @@ function ChecklistBlock({
   onDeleteItem: (itemId: string) => void;
 }) {
   const [newItemTitle, setNewItemTitle] = useState('');
+  const completedCount = checklist.items.filter((item) => item.completed).length;
 
   return (
     <div className="rounded-sm border border-border bg-white p-3">
-      <div className="flex items-start justify-between gap-3">
-        <input
-          value={checklist.title}
-          onChange={(event) => onUpdateTitle(event.target.value)}
-          className="w-full bg-transparent text-sm font-medium text-[#111827] focus:outline-none"
-        />
-        <button
-          type="button"
-          onClick={onDelete}
-          className="rounded-sm p-1 text-[rgba(39,37,30,0.42)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
-          aria-label={`Delete checklist ${checklist.title}`}
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <input
+            value={checklist.title}
+            onChange={(event) => onUpdateTitle(event.target.value)}
+            className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#111827] focus:outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-[rgba(39,37,30,0.5)]">
+            {completedCount}/{checklist.items.length}
+          </span>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded-sm p-1 text-[rgba(39,37,30,0.42)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
+            aria-label={`Delete checklist ${checklist.title}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 space-y-2">
         {checklist.items.map((item) => (
-          <div key={item.id} className="flex items-center gap-2 rounded-sm bg-[#FBFBF8] px-2.5 py-2">
-            <Checkbox checked={item.completed} onCheckedChange={() => onToggleItem(item.id)} />
-            <span className="flex-1 text-sm text-[#111827]">{item.title}</span>
+          <div
+            key={item.id}
+            className="flex items-center gap-3 rounded-sm border border-border bg-white px-3 py-2"
+          >
+            <Checkbox
+              checked={item.completed}
+              onCheckedChange={() => onToggleItem(item.id)}
+            />
+            <span
+              className={item.completed ? 'flex-1 text-sm text-[rgba(39,37,30,0.42)] line-through' : 'flex-1 text-sm text-[#111827]'}
+            >
+              {item.title}
+            </span>
             <button
               type="button"
               onClick={() => onDeleteItem(item.id)}
-              className="rounded-sm p-1 text-[rgba(39,37,30,0.36)] transition-colors hover:bg-white hover:text-[#111827]"
+              className="rounded-sm p-1 text-[rgba(39,37,30,0.36)] transition-colors hover:bg-[#F5F5F2] hover:text-[#111827]"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -164,30 +185,17 @@ export function KanbanCardDialog({
   onToggleChecklistItem,
   onDeleteChecklistItem,
 }: KanbanCardDialogProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [energyCost, setEnergyCost] = useState<EnergyCost>('medium');
-  const [linkedMetricId, setLinkedMetricId] = useState<string | null>(null);
-  const [linkedMetricTarget, setLinkedMetricTarget] = useState<number | undefined>();
-  const [isRecurring, setIsRecurring] = useState(false);
-  const [dueDate, setDueDate] = useState('');
+  const [title, setTitle] = useState(card?.title ?? '');
+  const [description, setDescription] = useState(card?.description ?? '');
+  const [priority, setPriority] = useState<Priority>(card?.priority ?? 4);
+  const [energyCost, setEnergyCost] = useState<EnergyCost>(card?.energyCost ?? 'medium');
+  const [linkedMetricId, setLinkedMetricId] = useState<string | null>(card?.linkedMetricId ?? null);
+  const [linkedMetricTarget, setLinkedMetricTarget] = useState<number | undefined>(card?.linkedMetricTarget);
+  const [isRecurring, setIsRecurring] = useState(card?.isRecurring ?? false);
+  const [dueDate, setDueDate] = useState(card?.dueDate ?? '');
   const [commentDraft, setCommentDraft] = useState('');
   const [checklistTitle, setChecklistTitle] = useState('');
   const [newLabelName, setNewLabelName] = useState('');
-
-  useEffect(() => {
-    if (!card) return;
-    setTitle(card.title);
-    setDescription(card.description ?? '');
-    setEnergyCost(card.energyCost);
-    setLinkedMetricId(card.linkedMetricId ?? null);
-    setLinkedMetricTarget(card.linkedMetricTarget);
-    setIsRecurring(card.isRecurring);
-    setDueDate(card.dueDate ?? '');
-    setCommentDraft('');
-    setChecklistTitle('');
-    setNewLabelName('');
-  }, [card]);
 
   const linkedMetric = useMemo(
     () => habits.find((habit) => habit.id === linkedMetricId),
@@ -204,7 +212,7 @@ export function KanbanCardDialog({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-[620px] max-w-[94vw] overflow-y-auto border-l border-border bg-[#FCFCFB] px-0"
+        className="w-[620px] max-w-[94vw] overflow-y-auto border-l border-border bg-white px-0"
       >
         <div className="border-b border-border px-6 py-5">
           <SheetHeader className="space-y-1">
@@ -217,7 +225,7 @@ export function KanbanCardDialog({
               />
             </SheetTitle>
             <SheetDescription className="text-[13px] text-[rgba(39,37,30,0.56)]">
-              Edit details, capture notes, and track completion context without leaving the board.
+              Edit task details, notes, and checklist items.
             </SheetDescription>
           </SheetHeader>
         </div>
@@ -260,6 +268,35 @@ export function KanbanCardDialog({
                   }}
                   className="rounded-sm border-border pl-9"
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-[12px] uppercase tracking-[0.12em] text-[rgba(39,37,30,0.46)]">
+                Priority
+              </Label>
+              <div className="flex gap-2">
+                {([1, 2, 3, 4] as Priority[]).map((p) => {
+                  const cfg = PRIORITY_CONFIG[p];
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => {
+                        setPriority(p);
+                        persist({ priority: p }, `Set priority to ${cfg.label}`);
+                      }}
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-sm border px-3 py-2 text-sm transition-colors ${
+                        priority === p
+                          ? 'border-[#27251E] bg-[#F5F5F2] text-[#111827]'
+                          : 'border-border bg-white text-[rgba(39,37,30,0.56)] hover:bg-[#F5F5F2]'
+                      }`}
+                    >
+                      {p < 4 ? <PriorityIcon priority={p} size={14} /> : <NoPriorityIcon size={14} />}
+                      {cfg.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

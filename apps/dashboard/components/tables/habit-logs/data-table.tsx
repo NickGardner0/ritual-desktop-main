@@ -34,12 +34,11 @@ import {
   HabitCell,
   ValueCell,
   CategoryCell,
-  StatusCell,
   SourceCell,
   NotesCell,
   ActionsCell,
 } from './columns';
-import type { HabitLog, TableDensity } from '@/app/(dashboard)/activity/activity-client';
+import type { HabitLog, TableDensity } from '@/app/(dashboard)/activity/logs-client';
 
 interface DataTableProps {
   logs: HabitLog[];
@@ -82,7 +81,7 @@ type ColumnConfig = {
   resizable: boolean;
 };
 
-const COLUMN_RESIZE_STORAGE_KEY = 'ritual:logs:column-widths:v4';
+const COLUMN_RESIZE_STORAGE_KEY = 'ritual:logs:column-widths:v5';
 
 const COLUMNS: ColumnConfig[] = [
   {
@@ -132,9 +131,9 @@ const COLUMNS: ColumnConfig[] = [
   {
     id: 'value',
     label: 'Value',
-    defaultWidth: 130,
-    minWidth: 100,
-    maxWidth: 320,
+    defaultWidth: 168,
+    minWidth: 140,
+    maxWidth: 340,
     sortable: true,
     sticky: false,
     align: 'left',
@@ -157,17 +156,6 @@ const COLUMNS: ColumnConfig[] = [
     defaultWidth: 180,
     minWidth: 140,
     maxWidth: 500,
-    sortable: true,
-    sticky: false,
-    align: 'left',
-    resizable: true,
-  },
-  {
-    id: 'status',
-    label: 'Status',
-    defaultWidth: 140,
-    minWidth: 115,
-    maxWidth: 320,
     sortable: true,
     sticky: false,
     align: 'left',
@@ -197,8 +185,8 @@ const COLUMNS: ColumnConfig[] = [
   },
 ];
 
-const STATUS_OPTIONS: HabitLog['status'][] = ['completed', 'skipped', 'missed'];
 const LEFT_STICKY_COLUMNS: string[] = [];
+const TABLE_BORDER_CLASS = 'border-[#e6e6e6]';
 
 function readStoredColumnWidths(): Record<string, number> {
   if (typeof window === 'undefined') {
@@ -237,6 +225,7 @@ function SortButton({
   sortDirection,
   align,
   onSort,
+  hideIndicator = false,
   children,
 }: {
   column: string;
@@ -244,6 +233,7 @@ function SortButton({
   sortDirection: 'asc' | 'desc';
   align: ColumnAlign;
   onSort: (column: string) => void;
+  hideIndicator?: boolean;
   children: React.ReactNode;
 }) {
   const isActive = sortColumn === column;
@@ -252,13 +242,13 @@ function SortButton({
     <Button
       variant="ghost"
       className={cn(
-        'p-0 h-auto hover:bg-transparent text-[15px] font-normal text-gray-500 hover:text-gray-900 flex items-center gap-1 w-full',
+        'flex h-auto w-full items-center gap-1 p-0 text-[14px] font-normal tracking-normal text-neutral-700 hover:bg-transparent hover:text-neutral-900',
         align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start',
       )}
       onClick={() => onSort(column)}
     >
       <span className="truncate">{children}</span>
-      {isActive ? (
+      {isActive && !hideIndicator ? (
         sortDirection === 'asc' ? (
           <ArrowUp className="w-3 h-3 text-gray-500" />
         ) : (
@@ -318,7 +308,7 @@ function InlineDateEditor({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="rounded-none border-gray-200 bg-white p-2 w-[210px]"
+        className="w-[220px] rounded-sm border border-black/10 bg-white p-2 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="space-y-2">
@@ -326,13 +316,13 @@ function InlineDateEditor({
             type="date"
             value={draftDate}
             onChange={(event) => setDraftDate(event.target.value)}
-            className="h-8 w-full border border-gray-300 bg-white px-2 text-sm outline-none"
+            className="h-8 w-full rounded-sm border border-black/10 bg-white px-3 text-sm outline-none"
           />
           <div className="flex items-center justify-end gap-1">
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="h-7 px-2 border border-gray-300 text-xs text-gray-700 hover:bg-[#F5F5F5]"
+              className="h-7 rounded-sm border border-black/10 px-3 text-xs text-neutral-700 hover:bg-neutral-50"
             >
               Cancel
             </button>
@@ -347,7 +337,7 @@ function InlineDateEditor({
                 setOpen(false);
               }}
               disabled={isUpdating || !draftDate}
-              className="h-7 px-2 border border-gray-900 bg-gray-900 text-xs text-white hover:bg-black disabled:opacity-50"
+              className="h-7 rounded-sm border border-neutral-900 bg-neutral-900 px-3 text-xs text-white disabled:opacity-50"
             >
               Save
             </button>
@@ -358,69 +348,16 @@ function InlineDateEditor({
   );
 }
 
-function InlineStatusEditor({
-  status,
-  density,
-  isUpdating,
-  onSelect,
-}: {
-  status: HabitLog['status'];
-  density: TableDensity;
-  isUpdating: boolean;
-  onSelect: (nextStatus: HabitLog['status']) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-          className={cn(
-            'group inline-flex w-full min-w-0 items-center justify-between gap-2 text-left text-gray-700 hover:text-gray-900',
-            density === 'compact' ? 'h-6' : 'h-7',
-          )}
-          disabled={isUpdating}
-        >
-          <span className="min-w-0">
-            <StatusCell status={status} />
-          </span>
-          {isUpdating ? (
-            <BrailleSpinner className="text-sm text-gray-500" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5 shrink-0 text-gray-400 opacity-0 transition-opacity group-hover:opacity-70" />
-          )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="rounded-none border-gray-200 bg-white w-[170px]">
-        {STATUS_OPTIONS.map((option) => (
-          <DropdownMenuItem
-            key={option}
-            className="rounded-none"
-            onClick={() => {
-              if (option !== status) {
-                onSelect(option);
-              }
-            }}
-          >
-            <span className="flex-1">
-              <StatusCell status={option} />
-            </span>
-            {status === option && <Check className="w-3.5 h-3.5 text-gray-700" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function InlineSourceEditor({
   source,
+  habitName,
   sourceOptions,
   density,
   isUpdating,
   onSelect,
 }: {
   source?: string;
+  habitName?: string;
   sourceOptions: string[];
   density: TableDensity;
   isUpdating: boolean;
@@ -441,7 +378,7 @@ function InlineSourceEditor({
           disabled={isUpdating}
         >
           <span className="min-w-0">
-            <SourceCell source={currentSource} />
+            <SourceCell source={currentSource} habitName={habitName} />
           </span>
           {isUpdating ? (
             <BrailleSpinner className="text-sm text-gray-500" />
@@ -450,11 +387,14 @@ function InlineSourceEditor({
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="rounded-none border-gray-200 bg-white w-[180px]">
+      <DropdownMenuContent
+        align="start"
+        className="w-[190px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+      >
         {sourceOptions.map((option) => (
           <DropdownMenuItem
             key={option}
-            className="rounded-none"
+            className="rounded-sm"
             onClick={() => {
               if (option !== currentSource) {
                 onSelect(option);
@@ -661,8 +601,8 @@ export function HabitLogsDataTable({
     window.addEventListener('mouseup', onMouseUp);
   }, [columnById, getColumnWidth]);
 
-  const tableHeaderHeight = density === 'compact' ? 'h-[44px]' : 'h-[50px]';
-  const tableRowHeight = density === 'compact' ? 'h-[44px]' : 'h-[52px]';
+  const tableHeaderHeight = density === 'compact' ? 'h-[42px]' : 'h-[46px]';
+  const tableRowHeight = density === 'compact' ? 'h-[42px]' : 'h-[46px]';
   const headerCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
   const bodyCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
 
@@ -781,17 +721,20 @@ export function HabitLogsDataTable({
       >
         <div
           ref={scrollViewportRef}
-          className="overflow-x-auto overscroll-x-none h-[calc(100%-60px)] border border-gray-200 scrollbar-hide bg-white"
+          className={cn(
+            'h-[calc(100%-60px)] overflow-x-auto overscroll-x-none rounded-sm border bg-white shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] scrollbar-hide',
+            TABLE_BORDER_CLASS,
+          )}
         >
-          <table className="table-fixed w-max min-w-full caption-bottom text-sm">
+          <table className="w-max min-w-full table-fixed border-separate border-spacing-0 caption-bottom text-sm">
             <colgroup>
               {visibleColumns.map((column) => (
                 <col key={`col-${column.id}`} style={getColumnStyle(column.id)} />
               ))}
             </colgroup>
 
-            <TableHeader className="border-0 sticky top-0 z-20 bg-white [&_tr]:border-gray-200 [&_th]:border-r [&_th]:border-r-gray-200 [&_th:last-child]:border-r-0">
-              <TableRow className={cn('hover:bg-transparent border-gray-200', tableHeaderHeight)}>
+            <TableHeader className="sticky top-0 z-20 border-0 bg-white">
+              <TableRow className={cn('hover:bg-transparent', TABLE_BORDER_CLASS, tableHeaderHeight)}>
                 {visibleColumns.map((column) => {
                   const stickyClass = column.stickyRight
                     ? 'md:sticky md:right-0 z-[19]'
@@ -803,8 +746,9 @@ export function HabitLogsDataTable({
                     <TableHead
                       key={column.id}
                       className={cn(
-                        'relative bg-white text-[15px] font-normal text-gray-500 border-gray-200',
-                        'after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-gray-200 last:after:hidden',
+                        'relative border-b border-r-0 bg-white text-neutral-500 last:border-r-0',
+                        'after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-[#e6e6e6] last:after:hidden',
+                        TABLE_BORDER_CLASS,
                         headerCellPadding,
                         getAlignmentClass(column.align),
                         stickyClass,
@@ -827,11 +771,14 @@ export function HabitLogsDataTable({
                           sortDirection={sortDirection}
                           align={column.align}
                           onSort={onSort}
+                          hideIndicator={column.id === 'date'}
                         >
                           {column.label}
                         </SortButton>
                       ) : (
-                        <span className="truncate block">{column.label}</span>
+                        <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
+                          {column.label}
+                        </span>
                       )}
 
                       {column.resizable && (
@@ -842,7 +789,7 @@ export function HabitLogsDataTable({
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                           aria-label={`Resize ${column.label} column`}
                         >
-                          <span className="absolute left-1/2 top-0 -translate-x-1/2 h-full w-px bg-gray-300" />
+                          <span className={cn('absolute left-1/2 top-0 h-full w-px -translate-x-1/2', 'bg-[#e6e6e6]')} />
                         </button>
                       )}
                     </TableHead>
@@ -861,10 +808,11 @@ export function HabitLogsDataTable({
                   <TableRow
                     key={log.id}
                     className={cn(
-                      'group cursor-default select-none border-gray-200 hover:bg-[#FAFAFA]',
+                      'group cursor-default select-none transition-colors hover:bg-neutral-50/80',
+                      TABLE_BORDER_CLASS,
                       tableRowHeight,
-                      isSelected && 'bg-[#F7F7F7]',
-                      isActiveRow && 'bg-[#FAFAFA]',
+                      isSelected && 'bg-neutral-50',
+                      isActiveRow && 'bg-neutral-50/80',
                     )}
                     onClick={(event) => {
                       if (event.shiftKey && lastClickedIndex !== null) {
@@ -882,17 +830,19 @@ export function HabitLogsDataTable({
 
                       const stickyBg = column.sticky || column.stickyRight
                         ? isSelected
-                          ? 'bg-[#F7F7F7]'
+                          ? 'bg-neutral-50'
                           : 'bg-white'
                         : '';
 
                       const cellClassName = cn(
                         bodyCellPadding,
-                        'border-gray-200',
+                        'relative border-b border-r-0 last:border-r-0',
+                        'after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-[#e6e6e6] last:after:hidden',
+                        TABLE_BORDER_CLASS,
                         getAlignmentClass(column.align),
                         stickyClass,
                         stickyBg,
-                        'group-hover:bg-[#FAFAFA]',
+                        'group-hover:bg-neutral-50/80',
                         column.id === 'select' && 'text-center',
                       );
 
@@ -992,23 +942,6 @@ export function HabitLogsDataTable({
                         );
                       }
 
-                      if (column.id === 'status') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-status`}
-                            className={cellClassName}
-                            style={getStickyStyle('status')}
-                          >
-                            <InlineStatusEditor
-                              status={log.status}
-                              density={density}
-                              isUpdating={isRowUpdating}
-                              onSelect={(nextStatus) => onQuickEdit(log, { status: nextStatus })}
-                            />
-                          </TableCell>
-                        );
-                      }
-
                       if (column.id === 'source') {
                         return (
                           <TableCell
@@ -1018,6 +951,7 @@ export function HabitLogsDataTable({
                           >
                             <InlineSourceEditor
                               source={log.integration_source}
+                              habitName={log.habit_name}
                               sourceOptions={sourceOptions}
                               density={density}
                               isUpdating={isRowUpdating}

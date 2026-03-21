@@ -20,6 +20,44 @@ import { useAnalytics } from '@/lib/analytics';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
+/**
+ * Fetch with automatic retry on 401/403 using a fresh token.
+ * Reduces stale-token errors on initial load or after app was backgrounded.
+ */
+async function fetchWithAuthRetry(
+  url: string,
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  options?: RequestInit
+): Promise<Response> {
+  const token = await getToken();
+  if (!token) throw new Error('No auth token available');
+
+  let response = await fetch(url, {
+    ...options,
+    headers: {
+      ...options?.headers,
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if ((response.status === 401 || response.status === 403) && response.url.includes('/api/')) {
+    const freshToken = await getToken({ skipCache: true });
+    if (freshToken) {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          ...options?.headers,
+          Authorization: `Bearer ${freshToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+    }
+  }
+
+  return response;
+}
+
 // Query Keys (following Midday's pattern)
 export const habitKeys = {
   all: ['habits'] as const,
@@ -52,16 +90,12 @@ export function useHabitsQuery() {
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
-      const token = await getToken();
-      if (!token) throw new Error('No auth token available');
       console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress);
 
-      const response = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const response = await fetchWithAuthRetry(
+        `${PYTHON_API_BASE}/api/habits`,
+        getToken
+      );
 
       if (!response.ok) {
         throw new Error(`Failed to fetch habits: ${response.status}`);
@@ -88,16 +122,12 @@ export function useHabitLogsQuery() {
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
-      const token = await getToken();
-      if (!token) throw new Error('No auth token available');
       console.log('🔄 [React Query] Fetching habit logs...');
 
-      const response = await fetch(`${PYTHON_API_BASE}/api/habit-logs`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const response = await fetchWithAuthRetry(
+        `${PYTHON_API_BASE}/api/habit-logs`,
+        getToken
+      );
 
       if (!response.ok) {
         throw new Error(`Failed to fetch habit logs: ${response.status}`);

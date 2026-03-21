@@ -175,8 +175,8 @@ export function RankedBars({
   
   return (
     <div className={className}>
-      <div className="space-y-2.5">
-        {visibleItems.map((item) => {
+      <div className="space-y-1.5">
+        {visibleItems.map((item, index) => {
           const percentage = (item.valueMs / maxValue) * 100
           const isSelected = selectedKey === item.key
           const isInteractive = Boolean(onSelect)
@@ -186,20 +186,24 @@ export function RankedBars({
             <Row
               key={item.key}
               type={isInteractive ? 'button' : undefined}
-              className={`group flex w-full items-center gap-2.5 py-0.5 -mx-1 px-1 transition-colors text-left ${
+              className={`group grid w-full grid-cols-[16px_20px_minmax(0,1fr)_84px_52px] items-center gap-3 rounded-sm px-2 py-1.5 text-left transition-colors ${
                 isInteractive ? 'cursor-pointer appearance-none bg-transparent border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-default'
-              } ${isSelected ? 'bg-[#F3F3F3]' : 'hover:bg-[#F3F3F3]/50'}`}
+              } ${isSelected ? 'bg-[rgba(39,37,30,0.05)]' : 'hover:bg-[rgba(39,37,30,0.025)]'}`}
               aria-expanded={isInteractive ? isSelected : undefined}
               onMouseEnter={(e) => handleMouseEnter(item, e)}
               onMouseLeave={handleMouseLeave}
               onClick={isInteractive ? () => onSelect?.(item) : undefined}
             >
+              <span className="text-[11px] tabular-nums text-[rgba(39,37,30,0.24)]">
+                {index + 1}
+              </span>
+
               {/* App/Domain icon */}
               {type === 'domains' ? (
                 <img
                   src={`https://www.google.com/s2/favicons?domain=${item.label}&sz=64`}
                   alt=""
-                  className="w-5 h-5 flex-shrink-0 rounded"
+                  className="h-5 w-5 flex-shrink-0 rounded-sm"
                   onError={(e) => {
                     e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
                   }}
@@ -208,25 +212,22 @@ export function RankedBars({
                 <AppIcon 
                   appName={item.label} 
                   bundleId={item.key}
-                  className="w-5 h-5 rounded flex-shrink-0"
+                  className="h-5 w-5 flex-shrink-0 rounded-sm"
                 />
               )}
               
-              {/* Name - fixed width for alignment */}
-              <span className="text-[13px] text-gray-700 truncate w-[120px] flex-shrink-0">
+              <span className="min-w-0 truncate text-[13px] text-[rgba(39,37,30,0.82)]">
                 {item.label}
               </span>
               
-              {/* Progress bar */}
-              <div className="flex-1 h-2.5 relative">
+              <div className="relative h-[8px] overflow-hidden rounded-[2px] bg-[rgba(39,37,30,0.06)]">
                 <div
-                  className="absolute inset-y-0 left-0 bg-gray-800 transition-all duration-300 group-hover:bg-gray-600"
+                  className="absolute inset-y-0 left-0 rounded-[2px] bg-[#1F2937] transition-all duration-300 group-hover:bg-[#27251E]"
                   style={{ width: `${Math.max(percentage, 2)}%` }}
                 />
               </div>
               
-              {/* Duration */}
-              <span className="text-[13px] text-gray-500 tabular-nums text-right min-w-[44px]">
+              <span className="min-w-[52px] text-right text-[13px] tabular-nums text-[rgba(39,37,30,0.6)]">
                 {msToHuman(item.valueMs, true)}
               </span>
             </Row>
@@ -249,8 +250,8 @@ export function RankedBars({
       )}
       
       {/* Total footer */}
-      <div className="flex justify-end pt-2 mt-2">
-        <span className="text-xs text-gray-400">
+      <div className="mt-3 flex justify-start border-t border-[rgba(39,37,30,0.06)] pt-3">
+        <span className="text-[11px] text-[rgba(39,37,30,0.42)]">
           {items.length} {type === 'domains' ? 'site' : 'app'}{items.length !== 1 ? 's' : ''} · {msToHuman(items.reduce((sum, item) => sum + item.valueMs, 0))}
         </span>
       </div>
@@ -285,4 +286,3 @@ export function RankedBars({
 }
 
 export default RankedBars
-

@@ -119,15 +119,16 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         ];
       case 'whoop':
         return [
-          { value: 'recovery', label: 'Recovery Score' },
-          { value: 'sleep-duration', label: 'Sleep Duration' },
+          { value: 'recovery', label: 'Recovery Score', metric_type: 'recovery_score', unit: 'Count' },
+          { value: 'sleep-duration', label: 'Sleep Duration', metric_type: 'sleep_total', unit: 'Hours' },
           { value: 'sleep-performance', label: 'Sleep Performance' },
           { value: 'bedtime', label: 'Bedtime' },
           { value: 'wake-time', label: 'Wake Time' },
-          { value: 'strain', label: 'Daily Strain' },
-          { value: 'resting-hr', label: 'Resting Heart Rate' },
-          { value: 'hrv', label: 'Heart Rate Variability (HRV)' },
-          { value: 'steps', label: 'Daily Steps' }
+          { value: 'heart-rate', label: 'Heart Rate', metric_type: 'heart_rate', unit: 'BPM' },
+          { value: 'strain', label: 'Daily Strain', metric_type: 'strain_score', unit: 'Count' },
+          { value: 'resting-hr', label: 'Resting Heart Rate', metric_type: 'resting_heart_rate', unit: 'BPM' },
+          { value: 'hrv', label: 'Heart Rate Variability (HRV)', metric_type: 'hrv', unit: 'HRV' },
+          { value: 'steps', label: 'Daily Steps', metric_type: 'steps', unit: 'Steps' }
         ];
       case 'fitbit':
         return [
@@ -143,6 +144,12 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           { value: 'vo2-max', label: 'VO2 Max' },
           { value: 'training-load', label: 'Training Load' },
           { value: 'body-battery', label: 'Body Battery' }
+        ];
+      case 'plaid':
+        return [
+          { value: 'spending', label: 'Daily Spending', metric_type: 'spending', unit: 'Dollars' },
+          { value: 'income', label: 'Income', metric_type: 'income', unit: 'Dollars' },
+          { value: 'savings', label: 'Savings Rate', metric_type: 'savings_rate', unit: 'Percentage' },
         ];
       case 'productivity':
         return productivityHabits || [];
@@ -242,66 +249,58 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     return getHabitsForCategory(selectedCategory || '');
   }, [searchQuery, searchResults, selectedCategory]);
   
-  // Floating positioning hook
+  // Constrain metric dropdown to card bounds (same approach as IconPicker)
   function useFloatingWithinCard(
     open: boolean,
     anchorRef: React.RefObject<HTMLElement | null>,
     cardRef: React.RefObject<HTMLElement | null>,
     desiredWidth = 320,
-    minHeight = 200
+    minHeight = 200,
+    maxDropdownHeight = 320
   ) {
     const [style, setStyle] = React.useState<React.CSSProperties>({});
 
     React.useLayoutEffect(() => {
       if (!open || !anchorRef.current || !cardRef.current) return;
 
-      const a = anchorRef.current.getBoundingClientRect();
-      const c = cardRef.current.getBoundingClientRect();
+      const anchorRect = anchorRef.current.getBoundingClientRect();
+      const cardRect = cardRef.current.getBoundingClientRect();
 
       const margin = 8;
-      const width = Math.max(desiredWidth, a.width);
-      const spaceBelow = c.bottom - a.bottom - margin;
-      const spaceAbove = a.top - c.top - margin;
-      // Always open downward for metric dropdown
-      const maxHeight = Math.max(
-        minHeight,
-        Math.floor(spaceBelow)
+      const width = Math.max(desiredWidth, anchorRect.width);
+
+      const spaceBelow = cardRect.bottom - anchorRect.bottom - margin;
+      const spaceAbove = anchorRect.top - cardRect.top - margin;
+      const openUp = spaceBelow < minHeight && spaceAbove > spaceBelow;
+
+      const maxHeight = Math.min(
+        maxDropdownHeight,
+        Math.floor(openUp ? spaceAbove - 8 : spaceBelow - 8)
       );
 
       const left = Math.min(
-        Math.max(a.left - c.left, margin),
-        c.width - width - margin
+        Math.max(anchorRect.left - cardRect.left, margin),
+        cardRect.width - width - margin
       );
 
-      const top = a.bottom - c.top + 4; // always open downward
+      const top = openUp
+        ? anchorRect.top - cardRect.top - maxHeight - 4
+        : anchorRect.bottom - cardRect.top + 4;
 
       setStyle({
         position: 'absolute',
         left,
         top,
         width,
-        maxHeight: Math.min(maxHeight, 280), // cap for exactly 7 rows (~40px each, no header)
+        maxHeight,
         overflowY: 'auto',
-        pointerEvents: 'auto',               // re-enable interactions
-        borderRadius: 0, // square borders as requested
+        pointerEvents: 'auto',
+        borderRadius: 2,
         boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
         background: 'white',
         border: '1px solid #e5e7eb',
       });
-    }, [open, anchorRef, cardRef, desiredWidth, minHeight]);
-
-    React.useEffect(() => {
-      if (!open) return;
-      const recalc = () => {
-        setStyle((s) => ({ ...s }));
-      };
-      window.addEventListener('resize', recalc);
-      window.addEventListener('scroll', recalc, true);
-      return () => {
-        window.removeEventListener('resize', recalc);
-        window.removeEventListener('scroll', recalc, true);
-      };
-    }, [open]);
+    }, [open, anchorRef, cardRef, desiredWidth, minHeight, maxDropdownHeight]);
 
     return style;
   }
@@ -310,8 +309,9 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     isMetricDropdownOpen,
     metricBtnRef,
     cardRef,
-    384,   // desired menu width
-    260    // minimum height we try to keep before flipping up
+    384,
+    200,
+    280
   );
 
   // Add ESC key handler and click outside handler
@@ -323,10 +323,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     };
 
     const handleClickOutside = (event: MouseEvent) => {
-      // Close metric dropdown if clicking outside
-      if (isMetricDropdownOpen && metricDropdownRef.current && !metricDropdownRef.current.contains(event.target as Node)) {
-        setIsMetricDropdownOpen(false);
-      }
+      if (!isMetricDropdownOpen) return;
+      const target = event.target as Node;
+      if (metricDropdownRef.current?.contains(target)) return;
+      if ((event.target as Element).closest?.('[data-metric-dropdown]')) return;
+      setIsMetricDropdownOpen(false);
     };
 
       if (isOpen) {
@@ -354,7 +355,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [appleWatchConnected, setAppleWatchConnected] = useState(false);
   const [appleWatchDeviceName, setAppleWatchDeviceName] = useState<string | null>(null);
 
-  // Check if Whoop, Apple Watch, and Computer Tracking are connected on mount and when modal opens
+  // Check if Whoop, Apple Watch, and Computer Use are connected on mount and when modal opens
   useEffect(() => {
     if (isOpen) {
       checkWhoopConnection();
@@ -373,7 +374,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         setComputerTrackingConnected(hasEnabledDevice);
       }
     } catch (error) {
-      console.error('Error checking Computer Tracking connection:', error);
+      console.error('Error checking Computer Use connection:', error);
       setComputerTrackingConnected(false);
     }
   }
@@ -462,42 +463,53 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     if (showCustomization) {
       setShowCustomization(false);
       setSelectedHabit(null);
-      setCustomHabitName(''); // Clear custom habit name
+      setCustomHabitName('');
+      // When coming from Custom (no habit list), go back to first screen; otherwise stay in category to show habit list
+      if (selectedCategory === 'custom') {
+        setSelectedCategory(null);
+        setSearchQuery('');
+      }
     } else {
       setSelectedCategory(null);
-      setSearchQuery(''); // Clear search when going back
+      setSearchQuery('');
     }
   };
   // Emoji functionality removed - now using enhanced IconPicker with Material Symbols
 
-  // Metric type options
+  // Metric type options - units of measurement only (not activities/habits)
   const metricOptions = [
     // General
     'Count', 'Sessions', 'Times', 'Percentage', 'Points', 'Score',
     // Time
-    'Minutes', 'Hours', 'Days', 'Weeks',
+    'Minutes', 'Hours', 'Days', 'Weeks', 'Fasting Hours',
     // Distance
-    'Miles', 'Kilometers', 'Meters', 'Steps', 'Laps',
+    'Miles', 'Kilometers', 'Meters', 'Steps', 'Laps', 'Floors', 'Yards',
     // Weight & Mass
-    'Pounds', 'Kilograms', 'Grams', 'Ounces', 'Milligrams',
+    'Pounds', 'Kilograms', 'Grams', 'Ounces', 'Milligrams', 'Micrograms',
     // Volume & Hydration
-    'Liters', 'Milliliters', 'Cups', 'Glasses', 'Ounces (fl)',
+    'Liters', 'Milliliters', 'Cups', 'Glasses', 'Ounces (fl)', 'Bottles',
     // Fitness
-    'Reps', 'Sets', 'Calories', 'BPM', 'Watts',
+    'Reps', 'Sets', 'Calories', 'BPM', 'Watts', 'Rounds',
     // Reading & Learning
-    'Pages', 'Chapters', 'Books', 'Articles', 'Lessons', 'Courses',
+    'Pages', 'Chapters', 'Books', 'Articles', 'Lessons', 'Courses', 'Videos', 'Episodes',
     // Productivity
     'Tasks', 'Projects', 'Emails', 'Calls', 'Meetings', 'Pomodoros',
     // Writing & Coding
     'Words', 'Lines', 'Characters', 'Commits', 'Pull Requests',
+    // Media (countable units)
+    'Songs', 'Films', 'Podcasts', 'Games',
     // Sleep & Wellness
     'Hours Slept', 'Sleep Score', 'HRV', 'Recovery Score',
+    // Health (measurement units)
+    'Blood Pressure', 'Blood Sugar', 'Temperature', 'mmHg',
+    // Nutrition & Supplements
+    'Servings', 'Doses', 'Pills', 'Capsules',
     // Finance
-    'Dollars', 'Transactions', 'Savings',
-    // Social
+    'Dollars', 'Transactions', 'Savings', 'Investments',
+    // Social (countable)
     'Connections', 'Messages', 'Posts',
     // Misc
-    'Items', 'Units', 'Servings', 'Doses', 'Breaks'
+    'Items', 'Units', 'Breaks'
   ];
 
   const handleCreateHabit = async () => {
@@ -520,19 +532,21 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         name: habitName,
         category: categoryMap[selectedCategory || 'productivity'] || 'manual',
         is_custom: selectedCategory === 'custom',
-        sensor_type: selectedCategory === 'applewatch' ? 'Apple Watch' 
+        sensor_type: selectedCategory === 'applewatch' ? 'Apple Watch'
                    : selectedCategory === 'whoop' ? 'Whoop'
                    : selectedCategory === 'oura' ? 'Oura'
                    : selectedCategory === 'fitbit' ? 'Fitbit'
                    : selectedCategory === 'garmin' ? 'Garmin'
+                   : selectedCategory === 'plaid' ? 'Plaid'
                    : 'Manual',
         icon: selectedIcon || 'lucide:layout-dashboard',
         unit_type: habitUnit,
-        integration_source: selectedCategory === 'whoop' ? 'whoop' 
+        integration_source: selectedCategory === 'whoop' ? 'whoop'
                           : selectedCategory === 'applewatch' ? 'apple_health'
                           : selectedCategory === 'oura' ? 'oura'
                           : selectedCategory === 'fitbit' ? 'fitbit'
                           : selectedCategory === 'garmin' ? 'garmin'
+                          : selectedCategory === 'plaid' ? 'plaid'
                           : null,
         // Store the metric type so iOS app knows which HealthKit data to sync
         metric_type: metricType
@@ -616,7 +630,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       
       <div 
         ref={cardRef}
-        className="relative bg-white w-[90vw] max-w-xl h-[560px] flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-none"
+        className="relative bg-white w-[90vw] max-w-lg flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-sm"
       >
         {/* floating layer that confines dropdowns to the card */}
         <div
@@ -625,7 +639,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         />
         
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 pt-5 pb-1 flex-shrink-0">
           {showComputerTracking ? (
             <div className="flex items-center gap-3">
               <button
@@ -636,7 +650,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
               </button>
-              <h2 className="text-lg font-medium text-gray-900">Computer Tracking</h2>
+              <h2 className="text-lg font-medium text-gray-900">Computer Use</h2>
             </div>
           ) : showCustomization ? (
             <button
@@ -660,8 +674,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 </button>
               )}
               <h2 className="text-lg font-medium text-gray-900">
-                {selectedCategory 
-                  ? selectedCategory === 'whoop' ? 'Whoop' 
+                {selectedCategory
+                  ? selectedCategory === 'whoop' ? 'Whoop'
                   : selectedCategory === 'fitness' ? 'Fitness & Health'
                   : selectedCategory === 'education' ? 'Learning'
                   : selectedCategory === 'experiments' ? 'Experiments'
@@ -672,10 +686,10 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             </div>
           )}
             <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+              onClick={onClose}
+              className="rounded-sm p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
             >
-            <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
         </div>
 
@@ -690,21 +704,21 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
         {!showCustomization && !showComputerTracking && selectedCategory && (
-          <div className="px-5 pb-2 flex-shrink-0">
+          <div className="px-4 pb-1.5 flex-shrink-0">
             <input
               type="text"
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-none focus:outline-none focus:border-gray-400 text-sm"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-sm focus:outline-none focus:border-gray-400 text-sm"
             />
           </div>
         )}
 
         {/* Content Area - Scrollable */}
-        <div className="flex-1 overflow-y-auto px-5 pb-3">
+        <div className="overflow-y-auto px-5 pb-5 min-h-0 max-h-[380px]">
           {showComputerTracking ? (
-            // Computer Tracking Settings View
+            // Computer Use Settings View
             <div className="py-2">
               {userId && (
                 <ComputerTrackingSettings 
@@ -717,13 +731,13 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               )}
             </div>
           ) : showCustomization ? (
-            // Habit Customization View - Redesigned per ChatGPT recommendations
-            <div className="flex flex-col h-full">
+            // Habit Customization View - matches main modal polish
+            <div className="flex flex-col h-full py-2">
               {/* Title */}
               <h3 className="text-lg font-medium text-gray-900 mb-5">Configure</h3>
               
-              {/* Form Fields - Tighter spacing */}
-              <div className="space-y-4">
+              {/* Form Fields */}
+              <div className="space-y-5">
                 {/* Title Input */}
                 <div className="flex items-center gap-4">
                   <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Title</label>
@@ -737,8 +751,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                       }
                     }}
                     readOnly={selectedCategory !== 'custom'}
-                    className={`flex-1 px-3 py-2 border border-gray-300 rounded-none text-sm font-normal text-gray-900 h-10 focus:outline-none focus:border-gray-400 ${
-                      selectedCategory === 'custom' ? 'bg-white' : 'bg-gray-50'
+                    className={`flex-1 px-3 py-2 border border-gray-300 rounded-sm text-sm font-normal text-gray-900 h-10 focus:outline-none focus:border-gray-400 ${
+                      selectedCategory === 'custom' ? 'bg-white' : 'bg-[#F3F3F3]'
                     }`}
                   />
                 </div>
@@ -750,7 +764,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     <IconPicker
                       value={selectedIcon}
                       onChange={(name) => setSelectedIcon(name)}
-                      anchorClassName="flex items-center justify-between w-full px-3 py-2 border border-gray-200 bg-white text-sm font-normal text-gray-700 hover:bg-gray-50 focus:outline-none h-10"
+                      anchorClassName="flex items-center justify-between w-full px-3 py-2 border border-gray-200 rounded-sm bg-white text-sm font-normal text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-10"
                       portalRef={floatingLayerRef}
                       withinCardRef={cardRef}
                       minMenuHeight={260}
@@ -767,16 +781,17 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                       <button
                         ref={metricBtnRef}
                         onClick={() => setIsMetricDropdownOpen((v) => !v)}
-                        className="flex items-center justify-between w-full px-3 py-2 border border-gray-200 rounded-none bg-white text-sm font-normal text-gray-700 hover:bg-gray-50 focus:outline-none h-10"
+                        className="flex items-center justify-between w-full px-3 py-2 border border-gray-200 rounded-sm bg-white text-sm font-normal text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-10"
                       >
                         <span>{selectedMetric}</span>
                         <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
                       </button>
 
                       {isMetricDropdownOpen &&
+                        typeof window !== 'undefined' &&
                         floatingLayerRef.current &&
                         createPortal(
-                          <div style={metricStyle} className="dropdown">
+                          <div style={metricStyle} data-metric-dropdown className="dropdown z-[10000] rounded-sm">
                             <div className="py-1">
                               {metricOptions.map((metric) => (
                                 <button
@@ -785,8 +800,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                                     setSelectedMetric(metric);
                                     setIsMetricDropdownOpen(false);
                                   }}
-                                  className={`flex items-center w-full px-3 py-2 text-sm font-normal hover:bg-gray-50 text-left ${
-                                    selectedMetric === metric ? 'bg-gray-100 text-gray-900' : 'text-gray-700'
+                                  className={`flex items-center w-full px-3 py-2 text-sm font-normal hover:bg-[#F3F3F3] text-left rounded-sm ${
+                                    selectedMetric === metric ? 'bg-[#F3F3F3] text-gray-900' : 'text-gray-700'
                                   }`}
                                 >
                                   {metric}
@@ -804,7 +819,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 <div className="flex items-center gap-4">
                   <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Start Date</label>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2.5 px-3 py-2 border border-gray-200 rounded-none bg-gray-50 text-sm font-normal text-gray-700 h-10">
+                    <div className="flex items-center gap-2.5 px-3 py-2 border border-gray-200 rounded-sm bg-[#F3F3F3] text-sm font-normal text-gray-700 h-10 focus-within:ring-1 focus-within:ring-gray-300">
                       <Calendar className="w-4 h-4 text-gray-500" />
                       <span>Today, {new Date().toLocaleDateString('en-US', { 
                         month: 'short', 
@@ -816,18 +831,18 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 </div>
               </div>
 
-              {/* Footer Buttons - Better placement */}
-              <div className="flex justify-end items-center gap-3 mt-auto pt-6">
+              {/* Footer Buttons */}
+              <div className="flex justify-end items-center gap-3 mt-auto pt-6 border-t border-gray-100">
                 <button
                   onClick={handleBack}
-                  className="px-4 py-2 text-sm font-normal text-gray-600 hover:text-gray-900 transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-[#F3F3F3] rounded-sm transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateHabit}
                   disabled={isCreating || (selectedCategory === 'custom' && !customHabitName.trim())}
-                  className="px-5 py-2 bg-black text-white text-sm font-normal hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-5 py-2 bg-gray-900 text-white text-sm font-medium rounded-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isCreating ? 'Starting...' : 'Start Tracking'}
                 </button>
@@ -835,43 +850,43 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             </div>
           ) : !selectedCategory ? (
             // Category Selection
-            <div>
+            <div className="pb-2">
                 {/* Custom - Manual */}
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <Plus className="w-6 h-6 text-gray-900" />
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <Plus className="w-5 h-5 text-gray-900" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Custom</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('custom')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Manual
                   </button>
                 </div>
 
-                {/* Computer Tracking - Only show on desktop (Tauri) */}
+                {/* Computer Use - Only show on desktop (Tauri) */}
                 {isTauri() && (
                   <div className="flex justify-between items-center h-11">
                     <div className="flex items-center">
-                      <div className="flex h-11 w-11 items-center justify-center">
-                        <Monitor className="w-6 h-6 text-gray-900" />
+                      <div className="flex w-9 shrink-0 items-center justify-center">
+                        <Monitor className="w-5 h-5 text-gray-900" />
                       </div>
-                      <p className="text-sm font-normal text-gray-900 ml-2.5">Computer Tracking</p>
+                      <p className="text-sm font-normal text-gray-900 ml-2.5">Computer Use</p>
                     </div>
                     {computerTrackingConnected ? (
                       <button 
                         onClick={() => setShowComputerTracking(true)}
-                        className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors mr-1"
+                        className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-sm hover:bg-lime-600 transition-colors"
                       >
                         Connected
                       </button>
                     ) : (
                       <button 
                         onClick={() => setShowComputerTracking(true)}
-                        className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                        className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                       >
                         Connect
                       </button>
@@ -882,13 +897,13 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 {/* Wearables & Devices - Connect */}
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-7 h-7" onError={(e) => {
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-5 h-5" onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
                         if (nextSibling) nextSibling.style.display = 'block';
                       }} />
-                      <svg className="w-6 h-6 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
                     </div>
@@ -896,7 +911,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('screentime')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Connect
                   </button>
@@ -904,8 +919,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <svg className="h-5 w-5" viewBox="0 0 814 1000" fill="currentColor">
                         <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/>
                       </svg>
                     </div>
@@ -914,7 +929,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   {appleWatchConnected ? (
                     <button 
                       onClick={() => handleCategorySelect('applewatch')}
-                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors mr-1"
+                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-sm hover:bg-lime-600 transition-colors"
                     >
                       Connected
                     </button>
@@ -930,7 +945,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                           'Your Apple Watch data syncs through your iPhone.'
                         );
                       }}
-                      className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                      className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                     >
                       Connect
                     </button>
@@ -939,14 +954,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <img src="/images/oura.svg" alt="Oura Ring" className="h-14" />
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <img src="/images/oura.svg" alt="Oura Ring" className="h-11" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Oura Ring</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('oura')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Connect
                   </button>
@@ -954,15 +969,15 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <img src="/images/whoop.svg" alt="Whoop" className="h-6" />
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <img src="/images/whoop.svg" alt="Whoop" className="h-5" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Whoop</p>
                   </div>
                   {whoopConnected ? (
                     <button 
                       onClick={() => handleCategorySelect('whoop')}
-                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-none hover:bg-lime-600 transition-colors mr-1"
+                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-sm hover:bg-lime-600 transition-colors"
                     >
                       Connected
                     </button>
@@ -970,7 +985,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     <button 
                       onClick={() => handleCategorySelect('whoop')}
                       disabled={whoopConnecting}
-                      className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50 mr-1"
+                      className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors disabled:opacity-50 mr-1"
                     >
                       {whoopConnecting ? 'Connecting...' : 'Connect'}
                     </button>
@@ -979,14 +994,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <img src="/images/fitbit.svg" alt="Fitbit" className="h-6" />
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <img src="/images/fitbit.svg" alt="Fitbit" className="h-5" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Fitbit</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('fitbit')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Connect
                   </button>
@@ -994,14 +1009,29 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
-                      <img src="/images/garmin.svg" alt="Garmin" className="h-6" />
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <img src="/images/garmin.svg" alt="Garmin" className="h-5" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Garmin</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => handleCategorySelect('garmin')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                  >
+                    Connect
+                  </button>
+                </div>
+
+                <div className="flex justify-between items-center h-11">
+                  <div className="flex items-center">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
+                      <img src="/images/plaid-mark.svg" alt="Plaid" className="h-5" />
+                    </div>
+                    <p className="text-sm font-normal text-gray-900 ml-2.5">Plaid</p>
+                  </div>
+                  <button
+                    onClick={() => handleCategorySelect('plaid')}
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Connect
                   </button>
@@ -1010,14 +1040,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 {/* Manual Tracking Categories */}
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
                       <Brain className="w-5 h-5 text-gray-900" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Productivity</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('productivity')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Manual
                   </button>
@@ -1025,14 +1055,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
                       <BookOpen className="w-5 h-5 text-gray-900" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Learning</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('education')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Manual
                   </button>
@@ -1040,14 +1070,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
                       <Activity className="w-5 h-5 text-gray-900" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Fitness & Health</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('fitness')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Manual
                   </button>
@@ -1055,14 +1085,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 <div className="flex justify-between items-center h-11">
                   <div className="flex items-center">
-                    <div className="flex h-11 w-11 items-center justify-center">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
                       <FlaskConical className="w-5 h-5 text-gray-900" />
                     </div>
                     <p className="text-sm font-normal text-gray-900 ml-2.5">Experiments</p>
                   </div>
                   <button 
                     onClick={() => handleCategorySelect('experiments')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors mr-1"
+                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
                   >
                     Manual
                   </button>
@@ -1078,7 +1108,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                       <button
                         onClick={() => handleHabitClick(habit)}
                         disabled={isCreating}
-                        className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-none hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                        className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
                       >
                         {isCreating ? 'Creating...' : 'Track'}
                       </button>

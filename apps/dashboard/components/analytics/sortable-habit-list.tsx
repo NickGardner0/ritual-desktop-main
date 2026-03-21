@@ -61,6 +61,7 @@ function getHabitIcon(name: string) {
 interface SortableHabitItemProps {
   habit: Habit;
   getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
+  getHabitMetricClassName: (habit: Habit) => string;
   scrubberHoveredDate: string | null;
   scrubberHoveredValues: Record<string, number> | null;
   activeTooltip: string | null;
@@ -79,6 +80,7 @@ interface SortableHabitItemProps {
 function SortableHabitItem({
   habit,
   getHabitMetricDisplay,
+  getHabitMetricClassName,
   scrubberHoveredDate,
   scrubberHoveredValues,
   activeTooltip,
@@ -115,18 +117,18 @@ function SortableHabitItem({
       }`}
     >
       <div className="flex items-center min-w-0 gap-1.5">
-        <span className="flex items-center justify-center w-5 h-5 flex-shrink-0">
+        <span className="flex items-center justify-center w-5 h-5 flex-shrink-0 self-center -translate-y-px">
           {habit.icon ? (
             /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
-              <span className="text-base leading-none">{habit.icon}</span>
+              <span className="text-base leading-none inline-flex items-center">{habit.icon}</span>
             ) : (
               <HabitIcon iconName={habit.icon} />
             )
           ) : (
-            <span className="text-base leading-none">{getHabitIcon(displayName)}</span>
+            <span className="text-base leading-none inline-flex items-center">{getHabitIcon(displayName)}</span>
           )}
         </span>
-        <span className="text-[17.5px] font-normal text-gray-900 truncate">{displayName}</span>
+        <span className="text-[17.5px] font-normal text-gray-900 truncate leading-none">{displayName}</span>
       </div>
       <div
         ref={metricTriggerRef}
@@ -137,12 +139,14 @@ function SortableHabitItem({
         }}
       >
         <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">
-          {getHabitMetricDisplay(
-            habit, 
-            scrubberHoveredDate && scrubberHoveredValues 
-              ? scrubberHoveredValues[habit.id || ''] 
-              : undefined
-          )}
+          <span className={getHabitMetricClassName(habit)}>
+            {getHabitMetricDisplay(
+              habit, 
+              scrubberHoveredDate && scrubberHoveredValues 
+                ? scrubberHoveredValues[habit.id || ''] 
+                : undefined
+            )}
+          </span>
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
@@ -194,6 +198,7 @@ export interface SortableHabitListProps {
   habits: Habit[];
   onReorder: (habits: Habit[]) => void;
   getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
+  getHabitMetricClassName: (habit: Habit) => string;
   scrubberHoveredDate: string | null;
   scrubberHoveredValues: Record<string, number> | null;
   activeTooltip: string | null;
@@ -213,6 +218,7 @@ export function SortableHabitList({
   habits,
   onReorder,
   getHabitMetricDisplay,
+  getHabitMetricClassName,
   scrubberHoveredDate,
   scrubberHoveredValues,
   activeTooltip,
@@ -250,13 +256,14 @@ export function SortableHabitList({
         strategy={verticalListSortingStrategy}
       >
         {habits.map((habit) => (
-          <SortableHabitItem
-            key={habit.id}
-            habit={habit}
-            getHabitMetricDisplay={getHabitMetricDisplay}
-            scrubberHoveredDate={scrubberHoveredDate}
-            scrubberHoveredValues={scrubberHoveredValues}
-            activeTooltip={activeTooltip}
+            <SortableHabitItem
+              key={habit.id}
+              habit={habit}
+              getHabitMetricDisplay={getHabitMetricDisplay}
+              getHabitMetricClassName={getHabitMetricClassName}
+              scrubberHoveredDate={scrubberHoveredDate}
+              scrubberHoveredValues={scrubberHoveredValues}
+              activeTooltip={activeTooltip}
             setActiveTooltip={setActiveTooltip}
             getHabitMetricStats={getHabitMetricStats}
             confirmDelete={confirmDelete}

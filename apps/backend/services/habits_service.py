@@ -5,6 +5,7 @@ Used by the FastAPI routers for habits and habit logs.
 
 import uuid
 import logging
+import json
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,15 @@ class HabitsService:
             logger.warning(f"⚠️  Tinybird service not available: {e}")
             self.tinybird = None
             self.tinybird_enabled = False
+
+    def _is_whoop_heart_rate_habit(self, habit: Habit) -> bool:
+        metric_type = (habit.metric_type or "").strip().lower()
+        integration_source = (habit.integration_source or "").strip().lower()
+        habit_name = (habit.name or "").strip().lower()
+        return (
+            integration_source == "whoop"
+            and (metric_type in {"heart_rate", "hr"} or habit_name == "heart rate")
+        )
     
     async def create_habit(self, habit_data: HabitCreate, user_id: str) -> Habit:
         """
@@ -96,6 +106,24 @@ class HabitsService:
                     await search_service.index_habit(habit.model_dump(), user_id)
                 except Exception as e:
                     logger.warning(f"⚠️  Search index failed for habit '{habit.name}': {e}")
+
+                if self._is_whoop_heart_rate_habit(habit):
+                    try:
+                        from services.biometrics_service import biometrics_service
+
+                        projected_count = await biometrics_service.sync_projected_heart_rate_habits(
+                            user_id,
+                            habit.id,
+                        )
+                        logger.info(
+                            "🫀 Backfilled %s projected heart-rate logs for WHOOP habit '%s'",
+                            projected_count,
+                            habit.name,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"⚠️  Heart-rate rollup projection failed for habit '{habit.name}': {e}"
+                        )
                 
                 return habit
                 
@@ -295,7 +323,92 @@ class HabitsService:
             except SQLAlchemyError as e:
                 await session.rollback()
                 raise Exception(f"Failed to log habit: {str(e)}")
-    
+
+    async def upsert_habit_log_rollup(
+        self,
+        *,
+        habit_id: str,
+        user_id: str,
+        date: str,
+        amount: Optional[float],
+        completed_at: Optional[str],
+        status: str,
+        source: str,
+        origin_record_kind: str,
+        origin_record_id: str,
+        notes: Optional[str] = None,
+        log_metadata: Optional[Dict[str, Any]] = None,
+    ) -> HabitLog:
+        """
+        Upsert a rollup-oriented habit log keyed by origin_record_kind/origin_record_id.
+        Used for provider-backed daily aggregates such as Plaid spending.
+        """
+        async with get_db_session() as session:
+            try:
+                habit = await self.get_habit_by_id(habit_id, user_id)
+                if not habit:
+                    raise Exception("Habit not found or not authorized")
+
+                result = await session.execute(
+                    select(HabitLogDB).where(
+                        HabitLogDB.habit_id == habit_id,
+                        HabitLogDB.origin_record_kind == origin_record_kind,
+                        HabitLogDB.origin_record_id == origin_record_id,
+                    )
+                )
+                log_db = result.scalar_one_or_none()
+                if log_db is None:
+                    log_db = HabitLogDB(
+                        id=str(uuid.uuid4()),
+                        habit_id=habit_id,
+                        habit_name=habit.name,
+                        origin_record_kind=origin_record_kind,
+                        origin_record_id=origin_record_id,
+                    )
+                    session.add(log_db)
+
+                log_db.habit_name = habit.name
+                log_db.duration = None
+                log_db.amount = amount
+                log_db.date = date
+                log_db.completed_at = completed_at
+                log_db.status = status
+                log_db.notes = notes
+                log_db.source = source
+                log_db.log_metadata = (
+                    json.dumps(log_metadata) if isinstance(log_metadata, dict) else log_metadata
+                )
+
+                await session.commit()
+                await session.refresh(log_db)
+
+                habit_log = habit_log_db_to_pydantic(log_db)
+
+                if self.tinybird_enabled:
+                    try:
+                        await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
+                    except Exception as e:
+                        logger.warning(
+                            "⚠️ Tinybird sync failed for rollup log %s: %s", log_db.id, e
+                        )
+
+                try:
+                    from services.search_service import search_service
+
+                    await search_service.index_habit_log(
+                        habit_log.model_dump(),
+                        user_id,
+                        habit_name=habit.name,
+                        category=habit.category,
+                    )
+                except Exception as e:
+                    logger.warning("⚠️ Search index failed for rollup log: %s", e)
+
+                return habit_log
+            except SQLAlchemyError as e:
+                await session.rollback()
+                raise Exception(f"Failed to upsert rollup habit log: {str(e)}")
+
     async def batch_log_habits(
         self, 
         items: List[Dict], 
@@ -397,13 +510,35 @@ class HabitsService:
 
                 # Sync to Tinybird for all created logs
                 if self.tinybird_enabled and prepared_logs:
-                    for _, log_db, habit in prepared_logs:
-                        try:
-                            await session.refresh(log_db)
-                            habit_log = habit_log_db_to_pydantic(log_db)
-                            await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
-                        except Exception as e:
-                            logger.warning(f"⚠️ Tinybird sync failed for log {log_db.id}: {e}")
+                    batch_payload = [
+                        {
+                            'id': log_db.id,
+                            'habit_id': log_db.habit_id,
+                            'habit_name': log_db.habit_name or habit.name,
+                            'user_id': user_id,
+                            'date': log_db.date,
+                            'duration': log_db.duration,
+                            'amount': log_db.amount,
+                            'unit': habit.unit_type,
+                            'status': log_db.status,
+                            'notes': log_db.notes,
+                            'source': log_db.source or 'manual',
+                            'completed_at': log_db.completed_at or log_db.date,
+                            'metadata': log_db.log_metadata,
+                            'integration_source': habit.integration_source,
+                            'metric_type': habit.metric_type,
+                        }
+                        for _, log_db, habit in prepared_logs
+                    ]
+                    try:
+                        result = await self.tinybird.ingest_habit_logs_batch(batch_payload)
+                        if not result.get("success"):
+                            logger.warning(
+                                "⚠️ Tinybird batch sync failed for batch_log_habits: %s",
+                                result.get("errors") or result.get("error"),
+                            )
+                    except Exception as e:
+                        logger.warning(f"⚠️ Tinybird batch sync failed for batch_log_habits: {e}")
                 
                 return {
                     "success": True,

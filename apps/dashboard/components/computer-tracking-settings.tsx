@@ -846,7 +846,7 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
         <button
           onClick={saveSettings}
           disabled={isSaving}
-          className="px-3 py-1.5 text-sm text-white bg-black hover:bg-gray-800 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+          className="px-3 py-1.5 text-sm text-white bg-black rounded-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
         >
           {isSaving && <BrailleSpinner className="text-xs text-white" />}
           Save

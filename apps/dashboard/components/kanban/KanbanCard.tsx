@@ -1,57 +1,36 @@
 'use client';
 
-import React from 'react';
-import {
-  Calendar,
-  CheckSquare,
-  MessageSquare,
-  MoreHorizontal,
-  Repeat2,
-  Target,
-} from 'lucide-react';
+import React, { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { StatusIcon, NoPriorityIcon, PriorityIcon } from './kanban-icons';
 import type { KanbanCard as KanbanCardType, KanbanLabel } from '@/types/kanban';
+
+function formatDate(dateStr?: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 interface KanbanCardProps {
   card: KanbanCardType;
-  labels: KanbanLabel[];
-  linkedMetricName?: string;
-  onOpen: (card: KanbanCardType) => void;
+  labels?: KanbanLabel[];
   onDelete: (card: KanbanCardType) => void;
-}
-
-function checklistSummary(card: KanbanCardType) {
-  const items = card.checklists.flatMap((checklist) => checklist.items);
-  const completed = items.filter((item) => item.completed).length;
-  return {
-    total: items.length,
-    completed,
-  };
-}
-
-function isOverdue(value?: string) {
-  if (!value) return false;
-  const dueDate = new Date(value);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return dueDate < today;
+  onUpdateTitle: (cardId: string, title: string) => void;
+  onClick?: (card: KanbanCardType) => void;
 }
 
 export function KanbanCard({
   card,
-  labels,
-  linkedMetricName,
-  onOpen,
+  labels = [],
   onDelete,
+  onUpdateTitle,
+  onClick,
 }: KanbanCardProps) {
+  const [editing, setEditing] = useState(false);
+  const [titleValue, setTitleValue] = useState(card.title);
+
   const {
     attributes,
     listeners,
@@ -61,139 +40,62 @@ export function KanbanCard({
     isDragging,
   } = useSortable({
     id: card.id,
-    data: {
-      type: 'card',
-      cardId: card.id,
-      columnId: card.columnId,
-    },
+    data: { type: 'card', cardId: card.id, columnId: card.columnId },
   });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  const activeLabels = labels.filter((label) => card.labelIds.includes(label.id));
-  const checklist = checklistSummary(card);
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  const createdDate = formatDate(card.createdAt);
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        'group rounded-sm border border-border bg-white shadow-[0_1px_0_rgba(39,37,30,0.03)] transition-all',
-        'hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(15,23,42,0.08)]',
-        isDragging && 'rotate-[0.8deg] opacity-60 shadow-[0_12px_24px_rgba(15,23,42,0.14)]'
+        'group relative flex flex-col gap-1.5 rounded-lg border border-[#ebebeb] bg-white px-3 py-2.5 cursor-pointer',
+        'transition-shadow hover:shadow-[0_1px_4px_rgba(0,0,0,0.04)]',
+        isDragging && 'opacity-40'
       )}
+      onClick={() => { if (!editing) onClick?.(card); }}
+      {...attributes}
+      {...listeners}
     >
-      <button
-        type="button"
-        onClick={() => onOpen(card)}
-        className="block w-full cursor-pointer px-4 py-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div
-            className="min-w-0 flex-1"
-            {...attributes}
-            {...listeners}
+      {/* Title row */}
+      <div className="flex items-start gap-2">
+        <StatusIcon columnId={card.columnId} size={14} className="mt-[3px] shrink-0" />
+
+        {editing ? (
+          <input
+            autoFocus
+            value={titleValue}
+            onChange={(e) => setTitleValue(e.target.value)}
+            onBlur={() => {
+              const v = titleValue.trim();
+              if (v) onUpdateTitle(card.id, v);
+              setEditing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); const v = titleValue.trim(); if (v) onUpdateTitle(card.id, v); setEditing(false); }
+              if (e.key === 'Escape') { setTitleValue(card.title); setEditing(false); }
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full bg-transparent text-[13px] text-[#1a1a1a] outline-none"
+          />
+        ) : (
+          <span
+            onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); }}
+            className="flex-1 text-[13px] leading-[1.45] text-[#1a1a1a]"
           >
-            <h3 className="text-[15px] font-medium leading-[1.35] text-[#111827]">
-              {card.title}
-            </h3>
-            {card.description ? (
-              <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[rgba(39,37,30,0.56)]">
-                {card.description}
-              </p>
-            ) : null}
-          </div>
+            {card.title}
+          </span>
+        )}
+      </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-              <button
-                type="button"
-                className="rounded-sm p-1 text-[rgba(39,37,30,0.36)] opacity-0 transition-colors hover:bg-[#F5F5F2] hover:text-[#111827] group-hover:opacity-100"
-                aria-label={`Open menu for ${card.title}`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="rounded-sm border-border">
-              <DropdownMenuItem onClick={() => onOpen(card)}>Open details</DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-red-600"
-                onClick={() => onDelete(card)}
-              >
-                Delete card
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+      {/* Bottom meta */}
+      {createdDate && (
+        <div className="flex items-center pl-[22px]">
+          <span className="text-[11px] text-[#bbb]">{createdDate}</span>
         </div>
-
-        {activeLabels.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {activeLabels.map((label) => (
-              <span
-                key={label.id}
-                className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-[rgba(39,37,30,0.66)]"
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: label.color }}
-                />
-                {label.name}
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-[rgba(39,37,30,0.54)]">
-            {linkedMetricName ? (
-              <span className="inline-flex items-center gap-1">
-                <Target className="h-3.5 w-3.5" />
-                {linkedMetricName}
-              </span>
-            ) : null}
-
-            {card.isRecurring ? (
-              <span className="inline-flex items-center gap-1">
-                <Repeat2 className="h-3.5 w-3.5" />
-                Recurring
-              </span>
-            ) : null}
-
-            {card.dueDate ? (
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1',
-                  isOverdue(card.dueDate) && 'text-[#b42318]'
-                )}
-              >
-                <Calendar className="h-3.5 w-3.5" />
-                {new Date(card.dueDate).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-            ) : null}
-          </div>
-
-          <div className="flex items-center gap-2 text-[11px] text-[rgba(39,37,30,0.52)]">
-            {checklist.total > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
-                <CheckSquare className="h-3.5 w-3.5" />
-                {checklist.completed}/{checklist.total}
-              </span>
-            ) : null}
-            {card.comments.length > 0 ? (
-              <span className="inline-flex items-center gap-1">
-                <MessageSquare className="h-3.5 w-3.5" />
-                {card.comments.length}
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </button>
+      )}
     </div>
   );
 }

@@ -1,10 +1,10 @@
 /**
- * ViewModeToggle - Midday-style segmented control
- * Switches between Overview and Metrics views
- * 
- * Matches Midday's clean, minimal toggle design with:
- * - Subtle background container
- * - Clear selected state with white background
+ * ViewModeToggle - Centered segmented tab bar
+ * Switches between Chat, Overview, and Metrics views
+ *
+ * Matches Claude desktop app's centered tab pattern with:
+ * - Clean segmented control
+ * - Clear selected state
  * - Smooth transitions
  */
 
@@ -13,7 +13,13 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-export type ViewMode = 'overview' | 'metrics';
+export type ViewMode = 'chat' | 'overview' | 'metrics';
+
+const TABS: { value: ViewMode; label: string }[] = [
+  { value: 'chat', label: 'Chat' },
+  { value: 'overview', label: 'Overview' },
+  { value: 'metrics', label: 'Metrics' },
+];
 
 interface ViewModeToggleProps {
   currentView: ViewMode;
@@ -27,44 +33,32 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
   className,
 }) => {
   return (
-    <div 
+    <div
       className={cn(
-        "inline-flex items-center",
+        "inline-flex items-center gap-0.5 rounded-sm bg-[#F0F0F0]/60 p-0.5",
         className
       )}
       role="tablist"
       aria-label="View mode"
     >
-      <button
-        role="tab"
-        aria-selected={currentView === 'overview'}
-        aria-controls="overview-panel"
-        onClick={() => onViewChange('overview')}
-        className={cn(
-          "h-8 px-3 text-[13px] font-normal border border-gray-200 transition-colors rounded-l-sm",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
-          currentView === 'overview'
-            ? "bg-[#F7F7F7] text-black border-gray-300"
-            : "bg-white text-gray-600 hover:text-black hover:bg-[#F7F7F7]"
-        )}
-      >
-        Overview
-      </button>
-      <button
-        role="tab"
-        aria-selected={currentView === 'metrics'}
-        aria-controls="metrics-panel"
-        onClick={() => onViewChange('metrics')}
-        className={cn(
-          "h-8 px-3 text-[13px] font-normal border border-gray-200 border-l-0 transition-colors rounded-r-sm",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
-          currentView === 'metrics'
-            ? "bg-[#F7F7F7] text-black border-gray-300"
-            : "bg-white text-gray-600 hover:text-black hover:bg-[#F7F7F7]"
-        )}
-      >
-        Metrics
-      </button>
+      {TABS.map((tab) => (
+        <button
+          key={tab.value}
+          role="tab"
+          aria-selected={currentView === tab.value}
+          aria-controls={`${tab.value}-panel`}
+          onClick={() => onViewChange(tab.value)}
+          className={cn(
+            "h-7 px-3 text-[13px] rounded-sm transition-all duration-150",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
+            currentView === tab.value
+              ? "bg-white text-black font-medium shadow-sm"
+              : "bg-transparent text-gray-700 font-normal hover:text-gray-900"
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   );
 };

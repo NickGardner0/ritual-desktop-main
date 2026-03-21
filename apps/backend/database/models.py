@@ -68,6 +68,8 @@ class HabitLogDB(Base):
     log_metadata = Column(Text)  # JSON string for additional data (e.g. Whoop sleep_onset, sleep_end)
     client_event_id = Column(String, nullable=True)  # Phase 5A: For idempotency checking
     source = Column(String, nullable=True)  # Phase 5A: Source of the log (ai_log_v2, screenshot, manual)
+    origin_record_kind = Column(String, nullable=True)  # sample, event
+    origin_record_id = Column(String, nullable=True)  # canonical wearable record ID
     
     # Import tracking fields (Phase: Robust Import System)
     import_run_id = Column(String, ForeignKey("import_runs.id", ondelete="SET NULL"), nullable=True)
@@ -242,6 +244,338 @@ class WhoopIntegrationDB(Base):
     user = relationship("UserDB", backref="whoop_integration")
 
 
+class WearableConnectionDB(Base):
+    """Canonical connection state for a wearable provider."""
+    __tablename__ = "wearable_connections"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False)
+    auth_method = Column(String, nullable=False)  # sdk, oauth, import
+    provider_user_id = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="active")  # active, paused, error, revoked
+    access_token = Column(String, nullable=True)
+    refresh_token = Column(String, nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
+    scopes_json = Column(Text, nullable=True)
+    settings_json = Column(Text, nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    last_successful_sync_at = Column(DateTime, nullable=True)
+    last_error_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+
+    __table_args__ = (
+        Index("idx_wearable_connections_user_provider", "user_id", "provider", unique=True),
+    )
+
+
+class WearableSourceDB(Base):
+    """Physical or logical origin for canonical wearable records."""
+    __tablename__ = "wearable_sources"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    source_kind = Column(String, nullable=False)  # device, account, import
+    external_source_id = Column(String, nullable=True)
+    external_source_name = Column(String, nullable=True)
+    device_name = Column(String, nullable=True)
+    device_model = Column(String, nullable=True)
+    device_type = Column(String, nullable=True)
+    platform = Column(String, nullable=True)
+    source_bundle_id = Column(String, nullable=True)
+    priority_rank = Column(Integer, nullable=False, default=100)
+    is_active = Column(Boolean, default=True)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+    connection = relationship("WearableConnectionDB")
+
+    __table_args__ = (
+        Index("idx_wearable_sources_user_provider_external", "user_id", "provider", "external_source_id", unique=False),
+    )
+
+
+class WearableRawPayloadDB(Base):
+    """Debug/audit store for upstream wearable payloads."""
+    __tablename__ = "wearable_raw_payloads"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    direction = Column(String, nullable=False)  # sdk_ingest, oauth_pull, webhook, import
+    external_id = Column(String, nullable=True)
+    payload_sha256 = Column(String, nullable=False)
+    payload_json = Column(Text, nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+    user = relationship("UserDB")
+    connection = relationship("WearableConnectionDB")
+
+    __table_args__ = (
+        Index("idx_wearable_raw_payloads_provider_received", "provider", "received_at"),
+    )
+
+
+class WearableSampleDB(Base):
+    """Canonical scalar and time-series wearable data."""
+    __tablename__ = "wearable_samples"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    source_id = Column(String, ForeignKey("wearable_sources.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    metric_type = Column(String, nullable=False)
+    provider_metric_type = Column(String, nullable=True)
+    external_id = Column(String, nullable=True)
+    recorded_at = Column(DateTime, nullable=True)
+    start_time = Column(DateTime, nullable=True)
+    end_time = Column(DateTime, nullable=True)
+    attributed_date = Column(String, nullable=True)
+    value = Column(Float, nullable=False)
+    unit = Column(String, nullable=False)
+    aggregation_kind = Column(String, nullable=False, default="point")
+    confidence = Column(Float, nullable=True)
+    timezone = Column(String, nullable=True)
+    attributes_json = Column(Text, nullable=True)
+    raw_payload_id = Column(String, ForeignKey("wearable_raw_payloads.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)
+
+    user = relationship("UserDB")
+    connection = relationship("WearableConnectionDB")
+    source = relationship("WearableSourceDB")
+    raw_payload = relationship("WearableRawPayloadDB")
+
+    __table_args__ = (
+        Index("idx_wearable_samples_user_metric_recorded", "user_id", "metric_type", "recorded_at"),
+        Index("idx_wearable_samples_user_provider_date", "user_id", "provider", "attributed_date"),
+        Index("idx_wearable_samples_user_provider_external", "user_id", "provider", "external_id"),
+    )
+
+
+class WearableEventDB(Base):
+    """Canonical interval-based wearable records such as sleep sessions and workouts."""
+    __tablename__ = "wearable_events"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    source_id = Column(String, ForeignKey("wearable_sources.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    event_type = Column(String, nullable=False)
+    provider_event_type = Column(String, nullable=True)
+    external_id = Column(String, nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    attributed_date = Column(String, nullable=True)
+    timezone = Column(String, nullable=True)
+    title = Column(String, nullable=True)
+    summary_value = Column(Float, nullable=True)
+    summary_unit = Column(String, nullable=True)
+    details_json = Column(Text, nullable=True)
+    raw_payload_id = Column(String, ForeignKey("wearable_raw_payloads.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)
+
+    user = relationship("UserDB")
+    connection = relationship("WearableConnectionDB")
+    source = relationship("WearableSourceDB")
+    raw_payload = relationship("WearableRawPayloadDB")
+
+    __table_args__ = (
+        Index("idx_wearable_events_user_type_start", "user_id", "event_type", "start_time"),
+        Index("idx_wearable_events_user_provider_external", "user_id", "provider", "external_id"),
+    )
+
+
+class WearableSyncCursorDB(Base):
+    """Per-provider cursor/checkpoint state."""
+    __tablename__ = "wearable_sync_cursors"
+
+    id = Column(String, primary_key=True)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=False)
+    source_id = Column(String, ForeignKey("wearable_sources.id"), nullable=True)
+    cursor_key = Column(String, nullable=False)
+    cursor_type = Column(String, nullable=False)  # anchor, page_token, timestamp, webhook_checkpoint
+    cursor_value = Column(Text, nullable=False)
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    connection = relationship("WearableConnectionDB")
+    source = relationship("WearableSourceDB")
+
+    __table_args__ = (
+        Index("idx_wearable_sync_cursors_unique", "connection_id", "source_id", "cursor_key", unique=True),
+    )
+
+
+class WearableSyncRunDB(Base):
+    """Observable sync runs for troubleshooting and resumability."""
+    __tablename__ = "wearable_sync_runs"
+
+    id = Column(String, primary_key=True)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    trigger = Column(String, nullable=False)  # manual, scheduled, webhook, background_sdk, backfill, import
+    status = Column(String, nullable=False, default="running")  # running, success, partial, failed
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    items_seen = Column(Integer, default=0)
+    items_written = Column(Integer, default=0)
+    items_updated = Column(Integer, default=0)
+    items_deleted = Column(Integer, default=0)
+    error_json = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+
+    connection = relationship("WearableConnectionDB")
+
+
+class FinancialConnectionDB(Base):
+    """Canonical connection state for a financial provider."""
+    __tablename__ = "financial_connections"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="active")  # active, paused, error, revoked
+    access_token = Column(Text, nullable=True)
+    item_id = Column(String, nullable=True)
+    institution_id = Column(String, nullable=True)
+    institution_name = Column(String, nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    last_successful_sync_at = Column(DateTime, nullable=True)
+    last_error_json = Column(Text, nullable=True)
+    settings_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+
+    __table_args__ = (
+        Index("idx_financial_connections_user_provider", "user_id", "provider", unique=True),
+    )
+
+
+class FinancialAccountDB(Base):
+    """Normalized financial accounts for a provider connection."""
+    __tablename__ = "financial_accounts"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("financial_connections.id"), nullable=False)
+    provider_account_id = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    official_name = Column(String, nullable=True)
+    mask = Column(String, nullable=True)
+    account_type = Column(String, nullable=False)
+    account_subtype = Column(String, nullable=True)
+    currency = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+    connection = relationship("FinancialConnectionDB")
+
+    __table_args__ = (
+        Index("idx_financial_accounts_user_provider_account", "user_id", "provider_account_id", unique=True),
+        Index("idx_financial_accounts_connection_active", "connection_id", "is_active"),
+    )
+
+
+class FinancialTransactionDB(Base):
+    """Raw normalized transactions used for financial rollups."""
+    __tablename__ = "financial_transactions"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("financial_connections.id"), nullable=False)
+    account_id = Column(String, ForeignKey("financial_accounts.id"), nullable=False)
+    provider_transaction_id = Column(String, nullable=False)
+    transaction_date = Column(String, nullable=False)
+    authorized_at = Column(DateTime, nullable=True)
+    posted_at = Column(DateTime, nullable=True)
+    name = Column(String, nullable=False)
+    merchant_name = Column(String, nullable=True)
+    amount = Column(Float, nullable=False)
+    currency = Column(String, nullable=True)
+    direction = Column(String, nullable=False)  # outflow, inflow
+    pending = Column(Boolean, default=False)
+    raw_category_json = Column(Text, nullable=True)
+    raw_transaction_code = Column(String, nullable=True)
+    counts_toward_spending = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+    connection = relationship("FinancialConnectionDB")
+    account = relationship("FinancialAccountDB")
+
+    __table_args__ = (
+        Index(
+            "idx_financial_transactions_user_provider_transaction",
+            "user_id",
+            "provider_transaction_id",
+            unique=True,
+        ),
+        Index("idx_financial_transactions_user_date", "user_id", "transaction_date"),
+        Index("idx_financial_transactions_user_spending", "user_id", "counts_toward_spending", "transaction_date"),
+    )
+
+
+class FinancialSyncCursorDB(Base):
+    """Per-connection cursor state for financial syncs."""
+    __tablename__ = "financial_sync_cursors"
+
+    id = Column(String, primary_key=True)
+    connection_id = Column(String, ForeignKey("financial_connections.id"), nullable=False)
+    cursor_key = Column(String, nullable=False)
+    cursor_value = Column(Text, nullable=False)
+    last_synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    connection = relationship("FinancialConnectionDB")
+
+    __table_args__ = (
+        Index("idx_financial_sync_cursors_connection_key", "connection_id", "cursor_key", unique=True),
+    )
+
+
+class FinancialSyncRunDB(Base):
+    """Observable sync runs for financial provider troubleshooting."""
+    __tablename__ = "financial_sync_runs"
+
+    id = Column(String, primary_key=True)
+    connection_id = Column(String, ForeignKey("financial_connections.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    trigger = Column(String, nullable=False)  # manual, backfill, scheduled
+    status = Column(String, nullable=False, default="running")  # running, success, partial, failed
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    items_seen = Column(Integer, default=0)
+    items_written = Column(Integer, default=0)
+    items_updated = Column(Integer, default=0)
+    items_deleted = Column(Integer, default=0)
+    error_json = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+
+    connection = relationship("FinancialConnectionDB")
+
+
 class IntegrationDB(Base):
     """Generic integration status row (provider-scoped per user)."""
     __tablename__ = "integrations"
@@ -254,62 +588,6 @@ class IntegrationDB(Base):
     metadata_json = Column("metadata", Text, nullable=True)
     last_sync_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
-
-    user = relationship("UserDB")
-
-
-class WeatherObservationDB(Base):
-    """Normalized current weather snapshots for dashboard + history."""
-    __tablename__ = "weather_observations"
-    __table_args__ = (
-        Index("idx_weather_observations_user_observed", "user_id", "observed_at"),
-    )
-
-    id = Column(String, primary_key=True)  # UUID
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    observed_at = Column(DateTime, nullable=False)
-    tz = Column(String, nullable=False)
-    location_label = Column(String, nullable=False)
-    condition_code = Column(String, nullable=False)
-
-    temperature_c = Column(Float, nullable=False)
-    feels_like_c = Column(Float, nullable=False)
-    humidity = Column(Float, nullable=False)
-    wind_speed_mps = Column(Float, nullable=False)
-    wind_gust_mps = Column(Float, nullable=True)
-    wind_direction_deg = Column(Float, nullable=False)
-    precip_probability = Column(Float, nullable=False)
-    precip_intensity = Column(Float, nullable=True)
-    cloud_cover = Column(Float, nullable=True)
-    pressure_hpa = Column(Float, nullable=True)
-    visibility_m = Column(Float, nullable=True)
-    source = Column(String, nullable=False, default="weatherkit")
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    user = relationship("UserDB")
-
-
-class WeatherDailyDB(Base):
-    """Daily summary values used by lightweight dashboard context card."""
-    __tablename__ = "weather_daily"
-    __table_args__ = (
-        Index("idx_weather_daily_user_date", "user_id", "date_local"),
-    )
-
-    id = Column(String, primary_key=True)  # UUID
-    user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    date_local = Column(String, nullable=False)  # YYYY-MM-DD
-    tz = Column(String, nullable=False)
-    location_label = Column(String, nullable=False)
-    condition_code = Column(String, nullable=True)
-    high_c = Column(Float, nullable=False)
-    low_c = Column(Float, nullable=False)
-    sunrise = Column(DateTime, nullable=True)
-    sunset = Column(DateTime, nullable=True)
-    uv_index_max = Column(Float, nullable=True)
-    source = Column(String, nullable=False, default="weatherkit")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("UserDB")
 
@@ -358,15 +636,20 @@ class WearableDeviceDB(Base):
     
     id = Column(String, primary_key=True)  # UUID
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False, default="apple_health")
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
     device_name = Column(String, nullable=False)  # e.g., "Nick's iPhone"
     platform = Column(String, nullable=False)  # ios, android
     device_secret_hash = Column(String, nullable=False)  # HMAC key (stored plaintext for now, can encrypt later)
     registered_at = Column(DateTime, default=datetime.utcnow)
     last_sync_at = Column(DateTime, nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    sdk_version = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     
     # Relationships - using back_populates instead of backref to avoid conflicts
     user = relationship("UserDB")  # No backref to avoid mapper conflicts
+    connection = relationship("WearableConnectionDB")
     metrics = relationship("WearableMetricDB", back_populates="device", cascade="all, delete-orphan")
     ingest_events = relationship("WearableIngestEventDB", back_populates="device", cascade="all, delete-orphan")
 
@@ -427,6 +710,131 @@ class WearableIngestEventDB(Base):
     
     # Relationships
     device = relationship("WearableDeviceDB", back_populates="ingest_events")
+
+
+class ScreenTimeRollupDB(Base):
+    """
+    Daily Screen Time rollups uploaded from the iPhone companion app.
+    Stores only aggregate usage, never raw URL/path/browser history.
+    """
+    __tablename__ = "screen_time_rollups"
+
+    id = Column(String, primary_key=True)  # UUID
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    device_id = Column(String, ForeignKey("wearable_devices.id"), nullable=False)
+    provider = Column(String, nullable=False, default="apple_screen_time")
+    day = Column(String, nullable=False)  # YYYY-MM-DD in device local time
+    timezone = Column(String, nullable=True)
+    breakdown_kind = Column(String, nullable=False)  # total, app, website
+    entity_key = Column(String, nullable=False)  # __total__, bundle id, or domain
+    entity_label = Column(String, nullable=False)  # display label for UI
+    active_seconds = Column(Integer, nullable=False, default=0)
+    sort_seconds = Column(Integer, nullable=False, default=0)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+    device = relationship("WearableDeviceDB")
+
+
+# ================================
+# HEART RATE BIOMETRICS - WHOOP BLE canonical stream
+# ================================
+
+class HeartRateSessionDB(Base):
+    """
+    Collector session created by the iPhone companion or optional Mac fallback.
+    """
+    __tablename__ = "heart_rate_sessions"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    source_type = Column(String, nullable=False)  # whoop_ble_ios, whoop_ble_mac
+    source_device_id = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="active")  # active, disconnected, ended
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=True)
+    app_version = Column(String, nullable=True)
+    device_model = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+
+    __table_args__ = (
+        Index("idx_heart_rate_sessions_user_started", "user_id", "started_at"),
+        Index("idx_heart_rate_sessions_user_status", "user_id", "status"),
+    )
+
+
+class HeartRateSampleDB(Base):
+    """
+    Raw live heart-rate samples received from BLE collectors.
+    """
+    __tablename__ = "heart_rate_samples"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    session_id = Column(String, ForeignKey("heart_rate_sessions.id"), nullable=False)
+    source_type = Column(String, nullable=False)
+    source_device_id = Column(String, nullable=False)
+    bpm_raw = Column(Integer, nullable=False)
+    bpm_display = Column(Integer, nullable=False)
+    quality_score = Column(Float, nullable=True)
+    is_outlier = Column(Boolean, nullable=False, default=False)
+    rr_intervals_json = Column(Text, nullable=True)
+    contact_detected = Column(Boolean, nullable=True)
+    received_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("UserDB")
+    session = relationship("HeartRateSessionDB")
+
+    __table_args__ = (
+        Index("idx_heart_rate_samples_user_received", "user_id", "received_at"),
+        Index("idx_heart_rate_samples_user_source_received", "user_id", "source_type", "received_at"),
+        Index("idx_heart_rate_samples_session_received", "session_id", "received_at"),
+    )
+
+
+class HeartRateRollup1mDB(Base):
+    """
+    One-minute rollups derived from raw heart-rate samples for charts and overlays.
+    """
+    __tablename__ = "heart_rate_1m_rollups"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    bucket_start = Column(DateTime, nullable=False)
+    source_preference = Column(String, nullable=False)
+    sample_count = Column(Integer, nullable=False)
+    bpm_avg = Column(Float, nullable=False)
+    bpm_min = Column(Integer, nullable=False)
+    bpm_max = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("UserDB")
+
+    __table_args__ = (
+        Index("idx_heart_rate_rollups_user_bucket_source", "user_id", "bucket_start", "source_preference", unique=True),
+    )
+
+
+class LiveBiometricsStateDB(Base):
+    """
+    Current live heart-rate snapshot per user.
+    """
+    __tablename__ = "live_biometrics_state"
+
+    user_id = Column(String, ForeignKey("users.id"), primary_key=True)
+    current_bpm = Column(Integer, nullable=True)
+    current_source_type = Column(String, nullable=True)
+    latest_sample_at = Column(DateTime, nullable=True)
+    connection_state = Column(String, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
 
 
 # ================================

@@ -1,20 +1,19 @@
 import { Suspense } from 'react';
-import { ActivityClient } from './activity-client';
+import { LogsClient } from './logs-client';
 import { ActivityLoading } from './loading';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Activity | Ritual',
+  title: 'Logs | Ritual',
   description: 'Browse and filter all your habit logs',
 };
 
-export default function ActivityPage() {
+export default function LogsPage() {
   return (
     <div className="flex-1 overflow-hidden">
       <Suspense fallback={<ActivityLoading />}>
-        <ActivityClient />
+        <LogsClient />
       </Suspense>
     </div>
   );
 }
-

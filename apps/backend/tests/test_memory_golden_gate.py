@@ -5,8 +5,10 @@ import sqlite3
 import sys
 import tempfile
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -67,7 +69,22 @@ def _is_high_conf_false_claim(case: Dict[str, Any], result: Dict[str, Any]) -> b
 
 
 def _create_default_golden_db(path: str) -> None:
-    now_ms = int(time.time() * 1000)
+    query_tz = ZoneInfo("America/New_York")
+    now_local = datetime.now(query_tz)
+    latest_local = max(
+        now_local - timedelta(minutes=1),
+        now_local.replace(hour=0, minute=1, second=0, microsecond=0),
+    )
+    day_start_local = latest_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    available_window_ms = max(int((latest_local - day_start_local).total_seconds() * 1000), 60_000)
+    usable_window_ms = min(2_000_000, available_window_ms)
+    row_offsets_ms = [
+        usable_window_ms,
+        int(usable_window_ms * 0.75),
+        int(usable_window_ms * 0.4),
+        int(usable_window_ms * 0.15),
+    ]
+    now_ms = int(latest_local.timestamp() * 1000)
     conn = sqlite3.connect(path)
     cur = conn.cursor()
     cur.execute(
@@ -106,7 +123,7 @@ def _create_default_golden_db(path: str) -> None:
     ocr_rows = [
         (
             1,
-            now_ms - 2_000_000,
+            now_ms - row_offsets_ms[0],
             "com.todesktop.230313mzl4w4u92",
             "Cursor",
             "Implement authentication login flow",
@@ -114,7 +131,7 @@ def _create_default_golden_db(path: str) -> None:
         ),
         (
             2,
-            now_ms - 1_700_000,
+            now_ms - row_offsets_ms[1],
             "com.google.Chrome",
             "Google Chrome",
             "Auth docs and signin bugfix notes",
@@ -122,7 +139,7 @@ def _create_default_golden_db(path: str) -> None:
         ),
         (
             3,
-            now_ms - 1_200_000,
+            now_ms - row_offsets_ms[2],
             "com.openai.chatgpt",
             "ChatGPT",
             "Weekly planning and time summary",
@@ -130,7 +147,7 @@ def _create_default_golden_db(path: str) -> None:
         ),
         (
             4,
-            now_ms - 1_500_000,
+            now_ms - row_offsets_ms[3],
             "com.todesktop.230313mzl4w4u92",
             "Cursor",
             "Refine authentication redirect callback",
@@ -161,8 +178,8 @@ def _create_default_golden_db(path: str) -> None:
         [
             (
                 1,
-                now_ms - 2_000_000,
-                now_ms - 1_900_000,
+                now_ms - row_offsets_ms[0],
+                now_ms - row_offsets_ms[0] + 100_000,
                 "com.todesktop.230313mzl4w4u92",
                 "Cursor",
                 "Implement authentication login flow",
@@ -172,8 +189,8 @@ def _create_default_golden_db(path: str) -> None:
             ),
             (
                 2,
-                now_ms - 1_700_000,
-                now_ms - 1_600_000,
+                now_ms - row_offsets_ms[1],
+                now_ms - row_offsets_ms[1] + 100_000,
                 "com.google.Chrome",
                 "Google Chrome",
                 "Auth docs and signin bugfix notes",
@@ -183,8 +200,8 @@ def _create_default_golden_db(path: str) -> None:
             ),
             (
                 3,
-                now_ms - 1_200_000,
-                now_ms - 1_100_000,
+                now_ms - row_offsets_ms[2],
+                now_ms - row_offsets_ms[2] + 100_000,
                 "com.openai.chatgpt",
                 "ChatGPT",
                 "Weekly planning and time summary",
@@ -194,8 +211,8 @@ def _create_default_golden_db(path: str) -> None:
             ),
             (
                 4,
-                now_ms - 1_500_000,
-                now_ms - 1_420_000,
+                now_ms - row_offsets_ms[3],
+                now_ms - row_offsets_ms[3] + 80_000,
                 "com.todesktop.230313mzl4w4u92",
                 "Cursor",
                 "Refine authentication redirect callback",
@@ -237,7 +254,11 @@ def test_memory_golden_gate() -> None:
     high_conf_false_claims = 0
     failures: List[str] = []
     original_db_override = os.environ.get("RITUAL_ACTIVITY_DB_PATH")
+    original_memory_db_override = os.environ.get("RITUAL_MEMORY_DB_PATH")
+    original_cloud_override = os.environ.get("RITUAL_MEMORY_CLOUD_ENABLED")
     os.environ["RITUAL_ACTIVITY_DB_PATH"] = db_path
+    os.environ["RITUAL_MEMORY_DB_PATH"] = db_path
+    os.environ["RITUAL_MEMORY_CLOUD_ENABLED"] = "false"
     try:
         for case in cases:
             query = str(case.get("query") or "").strip()
@@ -254,6 +275,7 @@ def test_memory_golden_gate() -> None:
                     days_back=int(case.get("days_back") or 7),
                     start_date=case.get("start_date"),
                     end_date=case.get("end_date"),
+                    timezone="America/New_York",
                     group_by=str(case.get("group_by") or "app"),
                     limit=int(case.get("limit") or 20),
                 )
@@ -272,6 +294,14 @@ def test_memory_golden_gate() -> None:
             os.environ.pop("RITUAL_ACTIVITY_DB_PATH", None)
         else:
             os.environ["RITUAL_ACTIVITY_DB_PATH"] = original_db_override
+        if original_memory_db_override is None:
+            os.environ.pop("RITUAL_MEMORY_DB_PATH", None)
+        else:
+            os.environ["RITUAL_MEMORY_DB_PATH"] = original_memory_db_override
+        if original_cloud_override is None:
+            os.environ.pop("RITUAL_MEMORY_CLOUD_ENABLED", None)
+        else:
+            os.environ["RITUAL_MEMORY_CLOUD_ENABLED"] = original_cloud_override
         if generated_tmp_dir is not None:
             generated_tmp_dir.cleanup()
 

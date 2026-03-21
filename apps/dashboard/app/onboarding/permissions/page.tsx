@@ -199,7 +199,7 @@ export default function PermissionsOnboardingPage() {
                     <button
                       onClick={() => void requestPermission(key)}
                       disabled={isRequesting}
-                      className="inline-flex shrink-0 items-center justify-center border border-black bg-black px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex shrink-0 items-center justify-center border border-black bg-black px-4 py-1.5 text-xs font-medium text-white rounded-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {isRequesting ? 'Requesting...' : 'Grant'}
                     </button>
@@ -227,7 +227,7 @@ export default function PermissionsOnboardingPage() {
             disabled={!allGranted || isChecking}
             className={`border px-8 py-2.5 text-sm font-medium transition-colors ${
               allGranted && !isChecking
-                ? 'border-black bg-black text-white hover:bg-gray-800'
+                ? 'border-black bg-black text-white rounded-sm'
                 : 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed'
             }`}
           >

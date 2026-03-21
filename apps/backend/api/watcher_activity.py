@@ -230,6 +230,202 @@ async def remove_app_exclusion(
 
 
 # ============================================================
+# SCREEN EVIDENCE (fast local OCR query for calendar summaries)
+# ============================================================
+
+@router.get("/screen-evidence")
+async def get_screen_evidence(
+    date: str,
+    limit: int = 20,
+    current_user=Depends(get_current_user),
+):
+    """
+    Fast endpoint returning OCR window titles and snippets for a specific date.
+    Reads directly from local memory.db — no cloud calls, sub-second response.
+    """
+    import sqlite3 as _sqlite3
+    from services.watcher_service_local_db import get_local_memory_db_path_impl
+
+    try:
+        db_path = get_local_memory_db_path_impl()
+        conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+        conn.row_factory = _sqlite3.Row
+
+        # Top window titles by frequency
+        rows = conn.execute(
+            """SELECT app_name, window_title, COUNT(*) as freq
+               FROM ocr_frames
+               WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
+                 AND app_name IS NOT NULL AND app_name != ''
+               GROUP BY app_name, window_title
+               ORDER BY freq DESC
+               LIMIT ?""",
+            (date, limit),
+        ).fetchall()
+
+        window_titles = [
+            {
+                "app_name": r["app_name"],
+                "window_title": r["window_title"] or "",
+                "frequency": r["freq"],
+            }
+            for r in rows
+        ]
+
+        # Representative OCR snippets — sample diverse content across the day
+        # Strategy: pick up to 3 snippets per window title (best by text length),
+        # with 800 chars each for richer context that lets the LLM understand WHAT was done
+        snippets = conn.execute(
+            """WITH ranked AS (
+                 SELECT app_name, window_title,
+                        substr(ocr_text, 1, 800) as snippet,
+                        timestamp,
+                        ROW_NUMBER() OVER (
+                          PARTITION BY app_name, window_title
+                          ORDER BY length(ocr_text) DESC
+                        ) as rn
+                 FROM ocr_frames
+                 WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
+                   AND ocr_text IS NOT NULL AND length(ocr_text) > 60
+                   AND window_title IS NOT NULL AND window_title != ''
+               )
+               SELECT app_name, window_title, snippet, timestamp
+               FROM ranked
+               WHERE rn <= 3
+               ORDER BY timestamp ASC
+               LIMIT 80""",
+            (date,),
+        ).fetchall()
+
+        ocr_snippets = [
+            {
+                "app_name": s["app_name"],
+                "window_title": s["window_title"],
+                "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
+                "time": s["timestamp"],
+            }
+            for s in snippets
+        ]
+
+        conn.close()
+
+        return {
+            "success": True,
+            "date": date,
+            "window_titles": window_titles,
+            "ocr_snippets": ocr_snippets,
+            "total_captures": sum(r["freq"] for r in rows),
+        }
+    except Exception as e:
+        logger.error(f"Screen evidence error: {e}")
+        return {
+            "success": False,
+            "date": date,
+            "window_titles": [],
+            "ocr_snippets": [],
+            "total_captures": 0,
+        }
+
+
+@router.get("/git-commits")
+async def get_git_commits(
+    date: str,
+    current_user=Depends(get_current_user),
+):
+    """
+    Get git commits from known project directories for a specific date.
+    Scans common project locations for repos and returns commit messages.
+    """
+    import subprocess
+    from pathlib import Path
+
+    try:
+        # Scan known project directories
+        home = Path.home()
+        candidate_dirs = [
+            home / "Desktop",
+            home / "Documents",
+            home / "Projects",
+            home / "Code",
+            home / "dev",
+            home / "src",
+            home / "repos",
+            home / "workspace",
+        ]
+
+        commits = []
+        seen_repos = set()
+
+        for parent in candidate_dirs:
+            if not parent.exists():
+                continue
+            # Check direct children for .git dirs (depth 1-2)
+            for candidate in list(parent.iterdir())[:50]:
+                if not candidate.is_dir():
+                    continue
+                git_dir = candidate / ".git"
+                if not git_dir.exists():
+                    # Check one level deeper
+                    for sub in list(candidate.iterdir())[:20]:
+                        if sub.is_dir() and (sub / ".git").exists():
+                            git_dir = sub / ".git"
+                            candidate = sub
+                            break
+                    else:
+                        continue
+                if not git_dir.exists():
+                    continue
+
+                repo_path = str(candidate.resolve())
+                if repo_path in seen_repos:
+                    continue
+                seen_repos.add(repo_path)
+
+                try:
+                    result = subprocess.run(
+                        [
+                            "git", "log",
+                            f"--since={date}T00:00:00",
+                            f"--until={date}T23:59:59",
+                            "--format=%H|%aI|%s",
+                            "--no-merges",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        cwd=repo_path,
+                        timeout=3,
+                    )
+                    if result.returncode != 0 or not result.stdout.strip():
+                        continue
+
+                    repo_name = candidate.name
+                    for line in result.stdout.strip().split("\n"):
+                        parts = line.split("|", 2)
+                        if len(parts) >= 3:
+                            commits.append({
+                                "repo": repo_name,
+                                "hash": parts[0][:8],
+                                "time": parts[1],
+                                "message": parts[2],
+                            })
+                except Exception:
+                    continue
+
+        # Sort by time, most recent first
+        commits.sort(key=lambda c: c.get("time", ""), reverse=True)
+
+        return {
+            "success": True,
+            "date": date,
+            "commits": commits[:30],
+            "repos_scanned": len(seen_repos),
+        }
+    except Exception as e:
+        logger.error(f"Git commits error: {e}")
+        return {"success": False, "date": date, "commits": [], "repos_scanned": 0}
+
+
+# ============================================================
 # COMPUTER ACTIVITY STATS (for Dashboard/Analytics)
 # ============================================================
 

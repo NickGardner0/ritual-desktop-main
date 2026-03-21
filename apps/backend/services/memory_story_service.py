@@ -125,10 +125,22 @@ FILE_PATH_RE = re.compile(
     r"\b((?:src|app|api|apps|components|crates|docs|lib|services|tests|bin)/[A-Za-z0-9_./-]+)\b",
     re.IGNORECASE,
 )
+# Match standalone filenames with code extensions (e.g. macos.rs, orchestrator.ts)
+STANDALONE_FILE_RE = re.compile(
+    r"\b([A-Za-z0-9_.-]+\.(?:rs|py|ts|tsx|js|jsx|md|toml|json|yaml|yml|sql|css|scss|html|sh|swift|go|rb|java|c|cpp|h))\b"
+)
 REPO_RE = re.compile(r"\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\b")
 ISSUE_RE = re.compile(r"(?:pull request|pr|issue|ticket)\s*#?\d+", re.IGNORECASE)
 BRANCH_RE = re.compile(r"\b(?:feature|fix|chore|release|hotfix)/[A-Za-z0-9._/-]+\b", re.IGNORECASE)
-COMMAND_RE = re.compile(r"\b(?:cargo|npm|pnpm|pytest|python|uv|git)\s+[A-Za-z0-9:._/-]+(?:\s+[A-Za-z0-9:._/-]+)?")
+COMMAND_RE = re.compile(r"\b(?:cargo|npm|pnpm|pytest|python|uv|git|bun|make|docker|brew)\s+[A-Za-z0-9:._/-]+(?:\s+[A-Za-z0-9:._/-]+)?")
+COMMIT_HASH_RE = re.compile(r"\b([a-f0-9]{7,40})\b")
+GIT_PUSH_RE = re.compile(r"\bgit\s+(?:push|pull|commit|merge|rebase|checkout|stash)\b", re.IGNORECASE)
+ERROR_CONTEXT_RE = re.compile(
+    r"(?:(?:fatal|error|panic|exception|failed|crash|traceback|abort)[\s:]+.{0,120})",
+    re.IGNORECASE,
+)
+TASK_DOC_RE = re.compile(r"\b(CODEX_TASK[A-Za-z0-9_./-]*\.md|TODO|FIXME|HACK|XXX)\b")
+ROUTE_COMPONENT_RE = re.compile(r"\b(?:(?:app|pages?|api)/\([^)]+\)/[A-Za-z0-9_.-]+|/api/[A-Za-z0-9_/-]+)\b")
 TITLE_SPLIT_RE = re.compile(r"\s*[|:>\-]\s*")
 PHRASE_SPLIT_RE = re.compile(r"\s*[|;:]\s*|(?:[?!]\s+)|(?:\.\s+)|(?:,\s+)")
 TOKEN_RE = re.compile(r"[a-z0-9./:_-]{3,}")
@@ -176,6 +188,26 @@ LOW_SIGNAL_EXACT = {
     "v0 by vercel - build agents",
     "youtube",
     "youtube shorts",
+    # UI chrome text commonly captured from app accessibility trees
+    "your turn",
+    "enter your turn",
+    "entering your turn in discussions",
+    "turn in discussions",
+    "ask permissions",
+    "inbox",
+    "compose",
+    "reply",
+    "forward",
+    "archive",
+    "drafts",
+    "starred",
+    "sent",
+    "primary",
+    "social",
+    "promotions",
+    "updates",
+    "loading",
+    "syncing",
 }
 
 LOW_SIGNAL_PATTERNS = (
@@ -235,6 +267,25 @@ LOW_SIGNAL_PATTERNS = (
     r"^\s*//",
     r"\bgoogle chrome\b.*\bgoogle chrome\b",
     r"\byoutube\b.*\byoutube\b",
+    # Conversational fragments from AI chat window titles (Claude, ChatGPT, etc.)
+    r"^(?:wait|hey|hi|ok|okay|sure|yeah|yes|no|hmm|oh)\b.{0,30}\b(?:before|let me|can you|i want|i need|do you)\b",
+    r"^(?:claude|chatgpt|gpt)\s+(?:wait|before|can you|help|please|i need|i want)\b",
+    r"^(?:wait before i|let me|hold on|one sec|actually|never mind)\b",
+    r"^(?:can you check|can you see|can you look|can you tell|can you show|can you make|can you fix)\b",
+    r"^(?:is it safe|is there a way|how do i|how can i|what happens if|why does|why is|why when)\b",
+    r"^(?:i[''']?m (?:going to|trying to|working on|looking at|wondering|not sure))\b",
+    r"^(?:this (?:looks|seems|is|doesn[''']t|isn[''']t|should|might))\b.{0,100}$",
+    r"^(?:great|perfect|awesome|nice|good|cool|thanks|thank you)\b.{0,60}$",
+    r"^(?:i just|i also|i have|i had|i was|i[''']ve been|i[''']ll)\b.{0,120}\b(?:run|test|check|see|look|try|query|ask)\b",
+    r"\b(?:run some new test queries|see all the updates|improvements you made)\b",
+    # UI chrome text from apps — navigation, buttons, tooltips, status indicators
+    r"^(?:turn|your turn|enter your turn|entering your turn)\b",
+    r"\b(?:reply|forward|archive|mark as read|snooze|compose|inbox|sent|drafts|starred|spam|trash|all mail)\b.{0,20}$",
+    r"^(?:home|settings|profile|notifications|search|menu|sidebar|toolbar|status bar|navigation)\b.{0,20}$",
+    r"\b(?:click here|tap to|swipe to|drag to|scroll to|press to|long press)\b",
+    r"^(?:loading|syncing|updating|refreshing|connecting|reconnecting)\b.{0,30}$",
+    r"\b(?:ask permissions|ask claude|new conversation|clear conversation|regenerate)\b",
+    r"\b(?:copy code|edit message|good response|bad response|retry|stop generating)\b",
 )
 
 APP_SHELL_TOKENS = {
@@ -331,6 +382,26 @@ def _is_low_signal_candidate(value: str, *, kind: str = "generic") -> bool:
     if not tokens:
         return True
     non_shell_tokens = [token for token in tokens if token not in APP_SHELL_TOKENS and token not in GENERIC_TOKENS]
+    # Reject conversational fragments for both task and title kinds
+    if kind in ("task", "title"):
+        if normalized.startswith("do you want to") or normalized.startswith("can you write me"):
+            return True
+        if re.match(r"^(what[‘’]s the best|what is the best|trying to find|best online)\b", normalized):
+            return True
+        # Reject AI chat window text, user messages to AI
+        if re.match(r"^(wait|hey|hi|ok|okay|sure|yeah|yes|no|hmm|oh|actually|never mind|hold on)\b", normalized):
+            return True
+        if re.match(r"^(can you|could you|would you|will you|please|i want|i need|i[‘’]m|i just|let me)\b", normalized):
+            return True
+        if re.match(r"^(great|perfect|awesome|nice|good|cool|thanks|thank you|this looks|this is)\b", normalized) and len(tokens) < 12:
+            return True
+        if re.match(r"^(why when|why does|why is|is it safe|how do i|how can i|what happens)\b", normalized):
+            return True
+        # Reject raw chat/conversation text that looks like user messages about the app itself
+        if re.match(r"^(claude |i just |i ran |just ran |i restarted |i asked )", normalized):
+            return True
+        if "what was i working on" in normalized or "what did i work on" in normalized:
+            return True
     if kind == "task":
         if len(tokens) < 3 and not non_shell_tokens:
             return True
@@ -339,9 +410,22 @@ def _is_low_signal_candidate(value: str, *, kind: str = "generic") -> bool:
             for action in ACTION_PATTERNS
         ) and not non_shell_tokens:
             return True
-        if normalized.startswith("do you want to") or normalized.startswith("can you write me"):
-            return True
-        if re.match(r"^(what['’]s the best|what is the best|trying to find|best online)\b", normalized):
+    # Reject raw page chrome / navigation dumps (e.g. "SUBMIT A FONT COLLECTIONS TOOLS LOG IN / SIGN UP SERIF SANS-SERIF")
+    upper_words = sum(1 for word in candidate.split() if word.isupper() and len(word) > 1)
+    if upper_words >= 4 and upper_words / max(len(candidate.split()), 1) > 0.5:
+        return True
+    # Reject raw page navigation text with login/signup/menu patterns
+    nav_keywords = {"log in", "sign up", "sign in", "submit", "subscribe", "collections", "serif", "sans-serif",
+                    "handwritten", "monospaced", "symbol", "new fonts", "font family", "download", "add to cart",
+                    "cookie", "accept all", "privacy policy", "terms of service", "skip to content"}
+    nav_hits = sum(1 for kw in nav_keywords if kw in normalized)
+    if nav_hits >= 2:
+        return True
+    # Reject text that is mostly a repetition of the same phrase (raw UI dumps)
+    if len(candidate) > 80:
+        words = candidate.split()
+        unique_ratio = len(set(w.lower() for w in words)) / max(len(words), 1)
+        if unique_ratio < 0.4:
             return True
     if kind == "title":
         if len(tokens) < 3 and len(non_shell_tokens) < 1:
@@ -387,6 +471,28 @@ def _candidate_specificity_score(value: str, *, kind: str = "generic") -> int:
     if _is_low_signal_candidate(candidate, kind=kind):
         score -= 6
     return score
+
+
+def _normalize_task_phrase_candidate(value: str) -> str:
+    candidate = _compact(value, 160)
+    if not candidate:
+        return ""
+    normalized = re.sub(
+        r"^(?:can|could|would)\s+you(?:\s+help\s+me)?\s+",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"^(?:please|help\s+me|i\s+need(?:\s+you)?\s+to|i\s+want(?:\s+you)?\s+to|let['’]s)\s+",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = _compact(normalized, 160)
+    if normalized and normalized != candidate:
+        normalized = normalized[0].upper() + normalized[1:]
+    return normalized or candidate
 
 
 def _normalize_story_snippet(value: str) -> str:
@@ -459,7 +565,7 @@ def _extract_specific_task_phrases(values: Sequence[str], limit: int = 8) -> Lis
         if not normalized:
             continue
         for phrase in PHRASE_SPLIT_RE.split(normalized):
-            candidate = _compact(phrase, 160)
+            candidate = _normalize_task_phrase_candidate(phrase)
             if len(candidate) < 10 or len(candidate) > 160:
                 continue
             if _is_low_signal_candidate(candidate, kind="task"):
@@ -485,11 +591,172 @@ def _extract_artifact_refs(values: Sequence[str]) -> List[str]:
     for value in values:
         text = str(value or "")
         artifacts.extend(FILE_PATH_RE.findall(text))
+        artifacts.extend(STANDALONE_FILE_RE.findall(text))
         artifacts.extend(REPO_RE.findall(text))
         artifacts.extend(ISSUE_RE.findall(text))
         artifacts.extend(BRANCH_RE.findall(text))
         artifacts.extend(COMMAND_RE.findall(text))
     return _dedupe(artifacts, limit=12)
+
+
+_NOISE_FILE_NAMES = {
+    "index.ts", "index.js", "index.tsx", "index.jsx",
+    "package.json", "readme.md", "tsconfig.json", "package-lock.json",
+    "yarn.lock", "pnpm-lock.yaml", ".gitignore", ".eslintrc.js",
+    ".prettierrc", "node_modules", "next.config.js", "vite.config.ts",
+    "manifest.json", "favicon.ico", "robots.txt", "sitemap.xml",
+}
+
+_NOISE_HEX_PREFIXES = {
+    "0000000", "fffffff", "1234567", "abcdef0",
+}
+
+# Common English words that happen to be 7+ hex chars
+_NOISE_HEX_WORDS = {
+    "abcdef", "badface", "acceded", "deface", "decade", "facade",
+    "defaced", "effaced", "feedbac",
+}
+
+
+def _artifact_confidence(kind: str, value: str, haystack: str) -> float:
+    """Score an artifact's likelihood of being a real, meaningful entity (0.0-1.0).
+
+    Distinguishes genuine artifacts from regex noise by applying domain-specific
+    heuristics per artifact kind.
+    """
+    v = value.strip().lower()
+    if kind == "file":
+        # Directory-qualified paths are high confidence
+        if "/" in v and len(v) > 8:
+            parts = [part for part in v.split("/") if part]
+            if (
+                len(parts) <= 2
+                and not any("." in part for part in parts)
+                and all(part in GENERIC_TOKENS or part in {"app", "apps", "api"} for part in parts)
+            ):
+                return 0.1
+            return 0.95
+        # Named code files with proper casing or underscores
+        if any(v.endswith(ext) for ext in (".rs", ".py", ".ts", ".tsx", ".go", ".swift")):
+            if "_" in v or len(v.split(".")[0]) > 4:
+                return 0.85
+        # Generic single-word filenames
+        if v.count(".") == 1 and len(v.split(".")[0]) <= 3:
+            return 0.3
+        return 0.7
+    if kind == "commit":
+        # Must have mixed hex digits, not all same char, not a noise prefix
+        if len(set(v)) <= 2:
+            return 0.1
+        if v[:7] in _NOISE_HEX_PREFIXES:
+            return 0.1
+        if v in _NOISE_HEX_WORDS:
+            return 0.1
+        # Longer hashes are more confident
+        return min(0.95, 0.5 + len(v) * 0.015)
+    if kind == "command":
+        # Commands with arguments are more specific
+        parts = v.split()
+        if len(parts) >= 2:
+            return min(0.95, 0.6 + len(parts) * 0.1)
+        return 0.4
+    if kind == "error":
+        # Errors with actual messages (not just the keyword) are more valuable
+        if len(v) > 20:
+            return 0.9
+        return 0.5
+    if kind == "git_operation":
+        return 0.85
+    if kind == "branch":
+        return 0.9
+    if kind == "issue":
+        return 0.85
+    if kind == "task_doc":
+        # Bare TODO/FIXME are low signal; CODEX_TASK*.md is high signal
+        if v in {"todo", "fixme", "hack", "xxx"}:
+            return 0.3
+        return 0.85
+    if kind == "route":
+        return 0.75
+    return 0.5
+
+
+def _extract_typed_artifacts(
+    values: Sequence[str],
+    *,
+    evidence_id: str = "",
+) -> List[Dict[str, Any]]:
+    """Extract structured, typed artifact objects from text values.
+
+    Each artifact gets a confidence score (0.0-1.0) from _artifact_confidence().
+    Only artifacts above the noise threshold (0.35) are included, and they're
+    sorted by confidence so downstream consumers get the most reliable entities first.
+    """
+    raw_artifacts: List[Dict[str, Any]] = []
+    seen_values: set = set()
+    haystack = " ".join(str(v or "") for v in values)
+
+    def _add(kind: str, value: str, context: str = "") -> None:
+        key = f"{kind}:{value.lower().strip()}"
+        if key in seen_values or len(value) < 3:
+            return
+        seen_values.add(key)
+        conf = _artifact_confidence(kind, value, haystack)
+        if conf < 0.35:
+            return
+        raw_artifacts.append({
+            "kind": kind,
+            "value": value.strip(),
+            "context": _compact(context, 120),
+            "source_evidence_id": evidence_id,
+            "confidence": round(conf, 2),
+        })
+
+    # File paths (directory-qualified)
+    for match in FILE_PATH_RE.findall(haystack):
+        _add("file", match)
+
+    # Standalone filenames with code extensions
+    for match in STANDALONE_FILE_RE.findall(haystack):
+        if match.lower() not in _NOISE_FILE_NAMES:
+            _add("file", match)
+
+    # Git commits (only plausible hex hashes, not common words)
+    for match in COMMIT_HASH_RE.findall(haystack):
+        if len(match) >= 7 and not match.isdigit() and any(c in match for c in "abcdef"):
+            _add("commit", match)
+
+    # Git operations (push, pull, merge, etc.)
+    for match in GIT_PUSH_RE.findall(haystack):
+        _add("git_operation", match)
+
+    # Commands
+    for match in COMMAND_RE.findall(haystack):
+        _add("command", match)
+
+    # Errors with context
+    for match in ERROR_CONTEXT_RE.findall(haystack):
+        _add("error", _compact(match, 160))
+
+    # Task doc references
+    for match in TASK_DOC_RE.findall(haystack):
+        _add("task_doc", match)
+
+    # Branches
+    for match in BRANCH_RE.findall(haystack):
+        _add("branch", match)
+
+    # Issues/PRs
+    for match in ISSUE_RE.findall(haystack):
+        _add("issue", match)
+
+    # Route/component patterns
+    for match in ROUTE_COMPONENT_RE.findall(haystack):
+        _add("route", match)
+
+    # Sort by confidence descending so best artifacts come first
+    raw_artifacts.sort(key=lambda a: -a["confidence"])
+    return raw_artifacts[:24]
 
 
 def _extract_action_refs(values: Sequence[str]) -> List[str]:
@@ -749,8 +1016,101 @@ def _extract_parent_context(value: str) -> str:
     if text.lower().startswith("context:"):
         text = text[len("Context:") :].strip()
     if "|" in text:
+        # Keep the first segment (app/domain/title context) as the primary parent context
         text = text.split("|", 1)[0].strip()
     return _compact(text, 220)
+
+
+def _extract_full_contextual_text(value: str) -> str:
+    """Return the full contextual retrieval text (all pipe-delimited segments) for artifact extraction."""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return ""
+    return _compact(text, 1200)
+
+
+_REPO_NAME_RE = re.compile(
+    r"\b(ritual-desktop-main|ritual-desktop|ritual-watcher|ritual-recorder|ritual-db|"
+    r"[A-Za-z0-9_-]+-(?:main|dev|staging|mono(?:repo)?)|"
+    r"(?:src|app|apps|crates|packages)/[A-Za-z0-9_-]+)\b"
+)
+
+_DOC_PATH_RE = re.compile(
+    r"(?:/Users/\w+/(?:Desktop|Documents|Projects?|Code|dev)/[A-Za-z0-9_./-]+)"
+)
+
+
+def _extract_canonical_identity(
+    *,
+    app_name: str,
+    window_title: str,
+    document_title: str,
+    document_path: str,
+    file_artifacts: Sequence[str],
+    branch_artifacts: Sequence[Dict[str, Any]],
+    snippet: str,
+) -> Dict[str, Any]:
+    """Extract a canonical identity for this evidence: repo, directory, branch, document.
+
+    This lets work items be grouped and stitched by *shared identity* rather than
+    just temporal proximity. Two evidence items in different apps (e.g. Cursor and
+    Terminal) that share the same repo root or branch are very likely the same
+    workstream.
+    """
+    identity: Dict[str, Any] = {}
+
+    # 1. Repo/project root from document_path or window_title
+    for source in [document_path, window_title, snippet]:
+        if not source:
+            continue
+        path_match = _DOC_PATH_RE.search(source)
+        if path_match:
+            path = path_match.group(0)
+            # Extract the repo/project directory (3rd or 4th segment)
+            parts = [p for p in path.split("/") if p]
+            # Find the first segment after Desktop/Documents/Projects/Code/dev
+            anchor_dirs = {"desktop", "documents", "projects", "project", "code", "dev"}
+            for i, part in enumerate(parts):
+                if part.lower() in anchor_dirs and i + 1 < len(parts):
+                    identity["repo_root"] = parts[i + 1]
+                    break
+            if "repo_root" in identity:
+                break
+
+    # 2. Repo name from patterns in text
+    if "repo_root" not in identity:
+        for source in [window_title, document_title, snippet]:
+            if not source:
+                continue
+            match = _REPO_NAME_RE.search(source)
+            if match:
+                identity["repo_root"] = match.group(1)
+                break
+
+    # 3. Branch from typed artifacts
+    if branch_artifacts:
+        first = branch_artifacts[0]
+        if isinstance(first, str):
+            identity["branch"] = first
+        elif isinstance(first, dict):
+            identity["branch"] = first.get("value") or str(first)
+        else:
+            identity["branch"] = str(first)
+
+    # 4. Primary file directory (most common directory prefix among file artifacts)
+    if file_artifacts:
+        dirs = []
+        for f in file_artifacts:
+            if "/" in f:
+                dirs.append(f.rsplit("/", 1)[0])
+        if dirs:
+            identity["primary_directory"] = Counter(dirs).most_common(1)[0][0]
+
+    # 5. Document identity from title (for research/browser work)
+    if document_title and not identity.get("repo_root"):
+        identity["document_key"] = _normalized_key(document_title)
+
+    return identity
 
 
 def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -763,11 +1123,16 @@ def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
         or item.get("contextual_retrieval_text")
         or ""
     )
+    full_contextual_text = _extract_full_contextual_text(
+        item.get("contextual_retrieval_text") or ""
+    )
     snippet = _normalize_story_snippet(item.get("snippet") or item.get("ocr_text") or "")
-    source_values = [parent_context, window_title, document_title, browser_domain, snippet]
+    source_values = [parent_context, window_title, document_title, browser_domain, snippet, full_contextual_text]
+    evidence_id = item.get("evidence_id") or f"e:{item.get('session_key') or app_name}:{_safe_int(item.get('timestamp'))}"
     semantic_kind = _infer_semantic_kind(app_name, source_values)
     task_phrases = _extract_specific_task_phrases(source_values, 6)
     artifact_refs = _extract_artifact_refs(source_values)
+    typed_artifacts = _extract_typed_artifacts(source_values, evidence_id=evidence_id)
     document_refs = _extract_document_refs(
         window_title=window_title,
         document_title=document_title,
@@ -797,6 +1162,26 @@ def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
         values=source_values,
         artifact_refs=artifact_refs,
     )
+    # Partition typed artifacts by kind for scoring and rendering
+    file_artifacts = [a for a in typed_artifacts if a["kind"] == "file"]
+    command_artifacts = [a for a in typed_artifacts if a["kind"] == "command"]
+    error_artifacts = [a for a in typed_artifacts if a["kind"] == "error"]
+    commit_artifacts = [a for a in typed_artifacts if a["kind"] == "commit"]
+    git_op_artifacts = [a for a in typed_artifacts if a["kind"] == "git_operation"]
+    task_doc_artifacts = [a for a in typed_artifacts if a["kind"] == "task_doc"]
+    branch_artifacts = [a for a in typed_artifacts if a["kind"] == "branch"]
+
+    # Extract canonical identity for grounded cross-app stitching
+    canonical_identity = _extract_canonical_identity(
+        app_name=app_name,
+        window_title=window_title or "",
+        document_title=document_title or "",
+        document_path=str(item.get("document_path") or ""),
+        file_artifacts=[a["value"] for a in file_artifacts],
+        branch_artifacts=branch_artifacts,
+        snippet=snippet or "",
+    )
+
     confidence = 0.35
     if semantic_kind != "general":
         confidence += 0.1
@@ -808,15 +1193,26 @@ def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
         confidence += 0.1
     if error_refs:
         confidence += 0.05
+    if file_artifacts:
+        confidence += 0.05
+    if commit_artifacts or git_op_artifacts:
+        confidence += 0.05
 
     enriched = dict(item)
     enriched.update(
         {
-            "evidence_id": item.get("evidence_id")
-            or f"e:{item.get('session_key') or app_name}:{_safe_int(item.get('timestamp'))}",
+            "evidence_id": evidence_id,
             "semantic_kind": semantic_kind,
             "task_phrases": task_phrases,
             "artifact_refs": artifact_refs,
+            "typed_artifacts": typed_artifacts,
+            "file_artifacts": [a["value"] for a in file_artifacts],
+            "command_artifacts": [a["value"] for a in command_artifacts],
+            "error_artifacts": [a["value"] for a in error_artifacts],
+            "commit_artifacts": [a["value"] for a in commit_artifacts],
+            "git_op_artifacts": [a["value"] for a in git_op_artifacts],
+            "task_doc_artifacts": [a["value"] for a in task_doc_artifacts],
+            "canonical_identity": canonical_identity,
             "document_refs": document_refs,
             "project_refs": project_refs,
             "action_refs": action_refs,
@@ -858,6 +1254,111 @@ def _work_item_seed(item: Dict[str, Any]) -> str:
     return f"{app_name} {kind} work"
 
 
+def _derive_workstream_title(work_item: Dict[str, Any]) -> str:
+    """Derive a concise workstream title from the dominant artifact cluster.
+
+    Produces titles like "Retrieval Pipeline Fixes", "Dashboard Auth Flow",
+    "Watcher Capture Improvements" by examining the primary directory,
+    file artifacts, and canonical identity to synthesize a topic-level label.
+    Falls back to _choose_work_item_title() if no artifact cluster is found.
+    """
+    identity = work_item.get("canonical_identity") or {}
+    files = work_item.get("file_artifacts") or []
+    commands = work_item.get("command_artifacts") or []
+    errors = work_item.get("error_artifacts") or []
+    commits = work_item.get("commit_artifacts") or []
+    tasks = work_item.get("specific_tasks") or []
+
+    # Try to derive a title from the dominant directory/module
+    dir_counts: Dict[str, int] = {}
+    for f in files:
+        parts = str(f).replace("\\", "/").split("/")
+        # Find the most specific meaningful directory (skip src/, app/, lib/)
+        meaningful_dirs = [p for p in parts[:-1] if p and p not in ("src", "app", "lib", "bin", "crates", "packages")]
+        if meaningful_dirs:
+            dir_key = meaningful_dirs[-1]  # deepest meaningful dir
+            dir_counts[dir_key] = dir_counts.get(dir_key, 0) + 1
+
+    dominant_dir = ""
+    if dir_counts:
+        dominant_dir = max(dir_counts, key=lambda k: dir_counts[k])
+
+    # Build a descriptive suffix from the nature of work
+    work_nature = ""
+    if errors:
+        work_nature = "Debugging"
+    elif commits:
+        work_nature = "Development"
+    elif any("test" in str(t).lower() for t in tasks):
+        work_nature = "Testing"
+    elif any("fix" in str(t).lower() or "bug" in str(t).lower() for t in tasks):
+        work_nature = "Bug Fixes"
+    elif any("refactor" in str(t).lower() for t in tasks):
+        work_nature = "Refactoring"
+    elif any("add" in str(t).lower() or "implement" in str(t).lower() or "create" in str(t).lower() for t in tasks):
+        work_nature = "Implementation"
+    elif any("update" in str(t).lower() or "change" in str(t).lower() or "modify" in str(t).lower() for t in tasks):
+        work_nature = "Updates"
+
+    # Prefer repo-based context
+    repo_root = str(identity.get("repo_root") or "")
+    primary_dir = str(identity.get("primary_directory") or "")
+    branch = str(identity.get("branch") or "")
+
+    # Try: "services/ Development" or "ritual-watcher Bug Fixes"
+    if dominant_dir and work_nature:
+        title = f"{dominant_dir} {work_nature}"
+        if len(title) <= 60:
+            return title.strip()
+
+    # Try: primary_directory + work_nature
+    if primary_dir and work_nature:
+        dir_label = primary_dir.replace("\\", "/").rstrip("/").split("/")[-1]
+        if dir_label and dir_label not in ("src", "app", "lib"):
+            title = f"{dir_label} {work_nature}"
+            if len(title) <= 60:
+                return title.strip()
+
+    # Try: branch name as workstream title (e.g. "feature/auth-flow" → "Auth Flow")
+    if branch and branch not in ("main", "master", "develop", "dev"):
+        branch_label = branch.split("/")[-1].replace("-", " ").replace("_", " ").title()
+        if len(branch_label) >= 4 and len(branch_label) <= 50:
+            return branch_label.strip()
+
+    # Try: dominant_dir alone but make it more descriptive
+    if dominant_dir and len(dominant_dir) >= 3:
+        # Use the most specific file name to make the title richer
+        file_basenames = [str(f).replace("\\", "/").split("/")[-1].rsplit(".", 1)[0] for f in files[:5]]
+        # Convert file names like "memory_story_service" → "Memory Story Service"
+        descriptive_files = [
+            fn.replace("-", " ").replace("_", " ").title()
+            for fn in file_basenames
+            if fn and len(fn) > 3 and fn.lower() not in ("index", "mod", "main", "lib", "utils", "helpers")
+        ]
+        if descriptive_files:
+            # Use the first descriptive file + work nature or "Changes"
+            suffix = work_nature or "Changes"
+            title = f"{descriptive_files[0]} {suffix}"
+            if len(title) <= 70:
+                return title.strip()
+        return f"{dominant_dir} Work".strip()
+
+    # Try: use the most prominent file if we have files but no directory
+    if files:
+        file_basenames = [str(f).replace("\\", "/").split("/")[-1].rsplit(".", 1)[0] for f in files[:3]]
+        descriptive_files = [
+            fn.replace("-", " ").replace("_", " ").title()
+            for fn in file_basenames
+            if fn and len(fn) > 3 and fn.lower() not in ("index", "mod", "main", "lib", "utils", "helpers")
+        ]
+        if descriptive_files:
+            suffix = work_nature or "Changes"
+            return f"{descriptive_files[0]} {suffix}".strip()
+
+    # Fall back to the standard title chooser
+    return _choose_work_item_title(work_item)
+
+
 def _choose_work_item_title(work_item: Dict[str, Any]) -> str:
     candidates: List[Tuple[int, str]] = []
     for task in work_item.get("specific_tasks") or []:
@@ -883,6 +1384,44 @@ def _normalized_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
 
+def _canonical_identity_overlap(existing_identity: Dict[str, Any], item_identity: Dict[str, Any]) -> float:
+    """Score how much two canonical identities overlap.
+
+    This is the core of semantically grounded cross-app stitching: items that
+    share a repo root, branch, or primary directory are very likely the same
+    workstream, even if they come from different apps (Cursor vs Terminal vs Chrome).
+    """
+    score = 0.0
+    if not existing_identity or not item_identity:
+        return 0.0
+
+    # Shared repo root is the strongest signal
+    existing_repo = str(existing_identity.get("repo_root") or "").lower()
+    item_repo = str(item_identity.get("repo_root") or "").lower()
+    if existing_repo and item_repo and existing_repo == item_repo:
+        score += 2.0
+
+    # Shared branch is very strong (implies same feature/task)
+    existing_branch = str(existing_identity.get("branch") or "").lower()
+    item_branch = str(item_identity.get("branch") or "").lower()
+    if existing_branch and item_branch and existing_branch == item_branch:
+        score += 1.5
+
+    # Shared primary directory (e.g. both in services/ or both in crates/ritual-db)
+    existing_dir = str(existing_identity.get("primary_directory") or "").lower()
+    item_dir = str(item_identity.get("primary_directory") or "").lower()
+    if existing_dir and item_dir and existing_dir == item_dir:
+        score += 0.8
+
+    # Shared document key (for research/browser items)
+    existing_doc = str(existing_identity.get("document_key") or "").lower()
+    item_doc = str(item_identity.get("document_key") or "").lower()
+    if existing_doc and item_doc and existing_doc == item_doc:
+        score += 1.2
+
+    return score
+
+
 def _item_similarity(existing: Dict[str, Any], item: Dict[str, Any]) -> float:
     existing_projects = set(value.lower() for value in existing.get("project_refs") or [])
     item_projects = set(value.lower() for value in item.get("project_refs") or [])
@@ -893,6 +1432,14 @@ def _item_similarity(existing: Dict[str, Any], item: Dict[str, Any]) -> float:
     existing_tasks = set(_normalized_key(value) for value in existing.get("task_phrases") or [])
     item_tasks = set(_normalized_key(value) for value in item.get("task_phrases") or [])
     overlap = 0.0
+
+    # Canonical identity overlap (repo, branch, directory) — strongest grouping signal
+    identity_overlap = _canonical_identity_overlap(
+        existing.get("canonical_identity") or {},
+        item.get("canonical_identity") or {},
+    )
+    overlap += identity_overlap
+
     if existing_projects & item_projects:
         overlap += 1.2
     if existing_artifacts & item_artifacts:
@@ -911,11 +1458,28 @@ def _item_similarity(existing: Dict[str, Any], item: Dict[str, Any]) -> float:
     item_domains = set(value.lower() for value in item.get("browser_domains") or [])
     existing_browser_only = str(existing.get("primary_app") or "").lower() == "google chrome" and len(existing.get("apps") or []) == 1
     item_browser_only = str(item.get("app_name") or "").lower() == "google chrome"
+    # Typed artifact overlap (file paths, commands, commits)
+    existing_files = set(v.lower() for v in existing.get("file_artifacts") or [])
+    item_files = set(v.lower() for v in item.get("file_artifacts") or [])
+    existing_commands = set(v.lower() for v in existing.get("command_artifacts") or [])
+    item_commands = set(v.lower() for v in item.get("command_artifacts") or [])
+    existing_commits = set(v.lower() for v in existing.get("commit_artifacts") or [])
+    item_commits = set(v.lower() for v in item.get("commit_artifacts") or [])
+    file_overlap = existing_files & item_files
+    if file_overlap:
+        overlap += min(1.5, len(file_overlap) * 0.5)
+    if existing_commands & item_commands:
+        overlap += 0.6
+    if existing_commits & item_commits:
+        overlap += 0.8
     has_real_overlap = bool(
         (existing_projects & item_projects)
         or (existing_artifacts & item_artifacts)
         or (existing_documents & item_documents)
         or (existing_tasks & item_tasks)
+        or file_overlap
+        or (existing_commits & item_commits)
+        or identity_overlap >= 1.5
     )
     if existing_domains & item_domains:
         overlap += 0.2
@@ -1085,8 +1649,46 @@ def _score_work_item(work_item: Dict[str, Any], execution_heavy_exists: bool) ->
     novelty_score = 0.6 if work_item.get("error_refs") else 0.0
     if any(action in {"submit", "ship", "deploy"} for action in (work_item.get("action_refs") or [])):
         novelty_score += 0.4
+    # Typed artifact density scoring
+    file_score = min(3.0, len(work_item.get("file_artifacts") or []) * 0.4)
+    command_score = min(2.0, len(work_item.get("command_artifacts") or []) * 0.5)
+    error_event_score = min(2.0, len(work_item.get("error_artifacts") or []) * 0.8)
+    commit_score = min(2.0, len(work_item.get("commit_artifacts") or []) * 0.6)
+    git_op_score = min(1.5, len(work_item.get("git_op_artifacts") or []) * 0.5)
+    task_doc_score = min(1.0, len(work_item.get("task_doc_artifacts") or []) * 0.4)
+
+    # Coherence bonus: reward work items that represent a unified workstream
+    # (have canonical identity, multi-app grounding, strong artifact structure)
+    coherence_bonus = 0.0
+    identity = work_item.get("canonical_identity") or {}
+    if identity.get("repo_root"):
+        coherence_bonus += 1.0  # Has a real project identity
+    if identity.get("branch"):
+        coherence_bonus += 0.8  # Working on a specific branch/feature
+    if identity.get("primary_directory"):
+        coherence_bonus += 0.4  # Focused on a specific code area
+    # Multi-app work with real artifacts is more coherent than single-app
+    num_apps = len(work_item.get("apps") or [])
+    num_artifacts = (
+        len(work_item.get("file_artifacts") or [])
+        + len(work_item.get("command_artifacts") or [])
+        + len(work_item.get("commit_artifacts") or [])
+    )
+    if num_apps >= 2 and num_artifacts >= 3:
+        coherence_bonus += 1.2  # Multi-app + artifact-rich = coherent workstream
+    elif num_apps >= 2 and num_artifacts >= 1:
+        coherence_bonus += 0.5
+    # Penalty for work items that are just a bag of unrelated snippets
+    snippet_only_penalty = 0.0
+    if (not work_item.get("file_artifacts")
+            and not work_item.get("command_artifacts")
+            and not work_item.get("commit_artifacts")
+            and not identity.get("repo_root")
+            and work_item.get("evidence_count", 0) >= 2):
+        snippet_only_penalty = 0.6  # Evidence but no structure = probably noise
+
     planning_penalty = 0.9 if execution_heavy_exists and work_item.get("story_kind") == "planning" else 0.0
-    generic_penalty = 0.8 if not work_item.get("specific_tasks") and not work_item.get("artifact_refs") else 0.0
+    generic_penalty = 0.8 if not work_item.get("specific_tasks") and not work_item.get("artifact_refs") and not work_item.get("file_artifacts") else 0.0
     browser_domains = {str(value or "").strip().lower() for value in (work_item.get("browser_domains") or []) if str(value or "").strip()}
     primary_app = str(work_item.get("primary_app") or "").strip().lower()
     browser_only_penalty = 0.0
@@ -1116,8 +1718,16 @@ def _score_work_item(work_item: Dict[str, Any], execution_heavy_exists: bool) ->
         + continuity_score
         + novelty_score
         + activity_bonus
+        + file_score
+        + command_score
+        + error_event_score
+        + commit_score
+        + git_op_score
+        + task_doc_score
+        + coherence_bonus
         - planning_penalty
-        - generic_penalty,
+        - generic_penalty
+        - snippet_only_penalty,
         3,
     ) - round(browser_only_penalty + low_signal_title_penalty, 3)
 
@@ -1136,6 +1746,60 @@ def _is_low_signal_browser_work_item(work_item: Dict[str, Any]) -> bool:
     if browser_domains & LOW_SIGNAL_BROWSER_DOMAINS and not work_item.get("artifact_refs"):
         return True
     return False
+
+
+def _is_brief_passive_visit(work_item: Dict[str, Any]) -> bool:
+    """Detect work items that represent brief, passive app visits with no
+    interaction evidence. These should be downgraded to 'briefly checked'
+    rather than presented as active work.
+
+    A visit is considered brief+passive when:
+    - Duration < 2 minutes AND evidence_count <= 1
+    - No typed artifacts (files, commands, commits, errors)
+    - No compose/edit indicators in snippets
+    """
+    duration_ms = _estimate_duration_ms(work_item)
+    evidence_count = int(work_item.get("evidence_count") or 0)
+
+    # If duration is significant or there are multiple evidence rows, not a brief visit
+    if duration_ms > 120_000 or evidence_count > 1:
+        return False
+
+    # If there are any typed artifacts, there was real interaction
+    has_artifacts = bool(
+        work_item.get("file_artifacts")
+        or work_item.get("command_artifacts")
+        or work_item.get("commit_artifacts")
+        or work_item.get("error_artifacts")
+        or work_item.get("git_op_artifacts")
+    )
+    if has_artifacts:
+        return False
+
+    # A concrete action phrase is enough evidence that the user was actively
+    # working, even when we only captured a single focused snapshot.
+    if work_item.get("specific_tasks") or work_item.get("action_refs"):
+        return False
+
+    return True
+
+
+# Apps where screen presence alone does NOT imply active work was done.
+# For these apps, we require interaction evidence (typing, composing, file edits)
+# before claiming the user "worked in" them.
+PASSIVE_PRESENCE_APPS = {
+    "mail", "gmail", "google chrome", "safari", "firefox",
+    "messages", "slack", "discord", "telegram",
+    "things", "things 3", "reminders", "todoist", "omnifocus",
+    "calendar", "fantastical", "notion",
+    "finder", "preview", "system preferences", "system settings",
+}
+
+# Apps where we can infer "task viewed/added" but not "task completed"
+TASK_MANAGER_APPS = {
+    "things", "things 3", "reminders", "todoist", "omnifocus",
+    "ticktick", "microsoft to do", "asana",
+}
 
 
 def _segment_label_for_work_item(work_item: Dict[str, Any], *, is_first: bool, is_last: bool) -> str:
@@ -1194,6 +1858,26 @@ def _claim_text_for_item(work_item: Dict[str, Any], is_main: bool) -> str:
     title = str(work_item.get("title") or "this workstream")
     story_kind = str(work_item.get("story_kind") or "general")
     tasks = work_item.get("specific_tasks") or []
+    primary_app = str(work_item.get("primary_app") or "").strip().lower()
+
+    # Task manager apps: only claim tasks were viewed/added, never that the
+    # underlying work was performed (unless corroborating evidence exists)
+    if primary_app in TASK_MANAGER_APPS:
+        has_corroborating_artifacts = bool(
+            work_item.get("file_artifacts")
+            or work_item.get("command_artifacts")
+            or work_item.get("commit_artifacts")
+        )
+        if not has_corroborating_artifacts:
+            app_display = str(work_item.get("primary_app") or "a task manager")
+            task_detail = f": \"{tasks[0]}\"" if tasks else ""
+            return f"You viewed or added tasks in {app_display}{task_detail}."
+
+    # Brief passive visits: use cautious language
+    if _is_brief_passive_visit(work_item) and primary_app in PASSIVE_PRESENCE_APPS:
+        app_display = str(work_item.get("primary_app") or "an app")
+        return f"You briefly checked {app_display}."
+
     if story_kind == "planning":
         prefix = "A notable planning thread was" if not is_main else "The clearest planning thread was"
         detail = f" around {tasks[0]}" if tasks else ""
@@ -1346,6 +2030,15 @@ def build_story_plan(
                 "title_candidates": [],
                 "supporting_snippets": [],
                 "capture_quality": 0.0,
+                # Typed artifact collections
+                "file_artifacts": [],
+                "command_artifacts": [],
+                "error_artifacts": [],
+                "commit_artifacts": [],
+                "git_op_artifacts": [],
+                "task_doc_artifacts": [],
+                # Canonical identity for grounded cross-app stitching
+                "canonical_identity": item.get("canonical_identity") or {},
             }
             work_items.append(work_item)
 
@@ -1377,6 +2070,20 @@ def build_story_plan(
         if item.get("snippet"):
             work_item["supporting_snippets"] = _dedupe(list(work_item.get("supporting_snippets") or []) + [str(item.get("snippet"))], limit=4)
         work_item["capture_quality"] = max(_safe_float(work_item.get("capture_quality")), _safe_float(item.get("capture_quality")))
+        # Merge canonical identity: prefer the most specific (has repo_root > directory > document_key)
+        existing_id = work_item.get("canonical_identity") or {}
+        new_id = item.get("canonical_identity") or {}
+        for key in ("repo_root", "branch", "primary_directory", "document_key"):
+            if not existing_id.get(key) and new_id.get(key):
+                existing_id[key] = new_id[key]
+        work_item["canonical_identity"] = existing_id
+        # Accumulate typed artifacts
+        work_item["file_artifacts"] = _dedupe(list(work_item.get("file_artifacts") or []) + list(item.get("file_artifacts") or []), limit=16)
+        work_item["command_artifacts"] = _dedupe(list(work_item.get("command_artifacts") or []) + list(item.get("command_artifacts") or []), limit=8)
+        work_item["error_artifacts"] = _dedupe(list(work_item.get("error_artifacts") or []) + list(item.get("error_artifacts") or []), limit=6)
+        work_item["commit_artifacts"] = _dedupe(list(work_item.get("commit_artifacts") or []) + list(item.get("commit_artifacts") or []), limit=6)
+        work_item["git_op_artifacts"] = _dedupe(list(work_item.get("git_op_artifacts") or []) + list(item.get("git_op_artifacts") or []), limit=6)
+        work_item["task_doc_artifacts"] = _dedupe(list(work_item.get("task_doc_artifacts") or []) + list(item.get("task_doc_artifacts") or []), limit=6)
 
     execution_heavy_exists = any(item.get("story_kind") not in {"planning", "communication"} and int(item.get("evidence_count") or 0) >= 2 for item in work_items)
     for work_item in work_items:
@@ -1562,7 +2269,16 @@ def build_story_plan(
             if str(item.get("activity_class") or "") not in PERSONAL_ACTIVITY_CLASSES
             if str(item.get("activity_class") or "") not in RESEARCH_ACTIVITY_CLASSES
             if not _is_low_signal_browser_work_item(item)
+            if not _is_brief_passive_visit(item)
             if item.get("story_kind") not in {"planning", "communication"}
+            # Exclude task phrases from task manager apps unless corroborated
+            # by real artifacts — otherwise task descriptions become false claims
+            if not (
+                str(item.get("primary_app") or "").strip().lower() in TASK_MANAGER_APPS
+                and not item.get("file_artifacts")
+                and not item.get("command_artifacts")
+                and not item.get("commit_artifacts")
+            )
             for task in (item.get("specific_tasks") or [])
         ],
         kind="task",
@@ -1630,43 +2346,184 @@ def build_story_plan(
         for item in ranked_work_items[:6]
     ]
 
+    def _serialize_work_item(item: Dict[str, Any], *, sequence_number: int = 0) -> Dict[str, Any]:
+        """Serialize a work item with typed artifacts for story plan output."""
+        # Use derived workstream title if we have artifacts, otherwise fall back to raw title
+        raw_title = item.get("title") or ""
+        workstream_title = _derive_workstream_title(item) if (
+            item.get("file_artifacts") or item.get("canonical_identity")
+        ) else raw_title
+        identity = item.get("canonical_identity") or {}
+
+        # Determine interaction level to help the renderer calibrate language
+        primary_app = str(item.get("primary_app") or "").strip().lower()
+        if _is_brief_passive_visit(item):
+            interaction_level = "passive_brief"
+        elif primary_app in TASK_MANAGER_APPS and not (
+            item.get("file_artifacts") or item.get("command_artifacts") or item.get("commit_artifacts")
+        ):
+            interaction_level = "task_viewed"
+        elif item.get("file_artifacts") or item.get("command_artifacts") or item.get("commit_artifacts"):
+            interaction_level = "active_editing"
+        else:
+            interaction_level = "present"
+
+        return {
+            "id": item.get("id"),
+            "label": workstream_title or raw_title,
+            "raw_title": raw_title,
+            "activity_class": item.get("activity_class"),
+            "story_kind": item.get("story_kind"),
+            "evidence_count": item.get("evidence_count"),
+            "apps": item.get("apps") or [],
+            "specific_tasks": item.get("specific_tasks") or [],
+            "artifact_refs": item.get("artifact_refs") or [],
+            "browser_domains": item.get("browser_domains") or [],
+            "session_keys": item.get("session_keys") or [],
+            "score_main_event": item.get("score_main_event"),
+            "confidence": item.get("confidence"),
+            "duration_ms": item.get("duration_ms"),
+            "start_ts": item.get("start_ts"),
+            "end_ts": item.get("end_ts"),
+            # Interaction level: "active_editing" | "present" | "passive_brief" | "task_viewed"
+            "interaction_level": interaction_level,
+            # Typed artifact summaries
+            "file_artifacts": item.get("file_artifacts") or [],
+            "command_artifacts": item.get("command_artifacts") or [],
+            "error_artifacts": item.get("error_artifacts") or [],
+            "commit_artifacts": item.get("commit_artifacts") or [],
+            "git_op_artifacts": item.get("git_op_artifacts") or [],
+            "task_doc_artifacts": item.get("task_doc_artifacts") or [],
+            # Canonical identity for richer rendering
+            "repo_root": identity.get("repo_root") or "",
+            "branch": identity.get("branch") or "",
+            "primary_directory": identity.get("primary_directory") or "",
+            # Workstream sequencing
+            "sequence_number": sequence_number,
+        }
+
+    # Build numbered workstreams: chronologically ordered work items
+    chronological_work_items = sorted(
+        [item for item in ranked_work_items if str(item.get("activity_class") or "") not in PERSONAL_ACTIVITY_CLASSES],
+        key=lambda item: _safe_int(item.get("start_ts")),
+    )
+    numbered_workstreams: List[Dict[str, Any]] = []
+    for seq_num, item in enumerate(chronological_work_items[:8], start=1):
+        numbered_workstreams.append(_serialize_work_item(item, sequence_number=seq_num))
+
+    # Build cross-app corroboration: for each primary app work item, find
+    # evidence from other apps that is SEMANTICALLY GROUNDED — not just temporally
+    # nearby. We require at least one of: shared repo root, shared file artifacts,
+    # shared branch, shared commit, or shared commands. Pure temporal overlap is
+    # insufficient and produces noisy, unrelated stitching.
+    corroborating_activity: List[Dict[str, Any]] = []
+    for item in ranked_work_items[:5]:
+        item_start = _safe_int(item.get("start_ts"))
+        item_end = _safe_int(item.get("end_ts"))
+        if not item_start or not item_end:
+            continue
+        primary_app = str(item.get("primary_app") or "").lower()
+        item_identity = item.get("canonical_identity") or {}
+        item_files = set(v.lower() for v in item.get("file_artifacts") or [])
+        item_commits = set(v.lower() for v in item.get("commit_artifacts") or [])
+        item_commands = set(v.lower() for v in item.get("command_artifacts") or [])
+
+        # Temporal window: 5 min for grounded corroboration
+        overlap_window_ms = 5 * 60 * 1000
+        for other in enriched_items:
+            other_app = str(other.get("app_name") or "").lower()
+            if other_app == primary_app:
+                continue
+            other_ts = _safe_int(other.get("timestamp"))
+            if not other_ts:
+                continue
+            if not (item_start - overlap_window_ms <= other_ts <= item_end + overlap_window_ms):
+                continue
+
+            # Require at least one semantic grounding signal
+            other_identity = other.get("canonical_identity") or {}
+            other_files = set(v.lower() for v in other.get("file_artifacts") or [])
+            other_commits = set(v.lower() for v in other.get("commit_artifacts") or [])
+            other_commands = set(v.lower() for v in other.get("command_artifacts") or [])
+
+            grounding_score = 0.0
+            grounding_reasons: List[str] = []
+
+            # Shared repo root
+            if (item_identity.get("repo_root") and other_identity.get("repo_root")
+                    and item_identity["repo_root"].lower() == other_identity["repo_root"].lower()):
+                grounding_score += 2.0
+                grounding_reasons.append("shared_repo")
+
+            # Shared branch
+            if (item_identity.get("branch") and other_identity.get("branch")
+                    and item_identity["branch"].lower() == other_identity["branch"].lower()):
+                grounding_score += 1.5
+                grounding_reasons.append("shared_branch")
+
+            # Shared file artifacts
+            shared_files = item_files & other_files
+            if shared_files:
+                grounding_score += min(1.5, len(shared_files) * 0.5)
+                grounding_reasons.append(f"shared_files:{len(shared_files)}")
+
+            # Shared commits
+            if item_commits & other_commits:
+                grounding_score += 1.0
+                grounding_reasons.append("shared_commits")
+
+            # Shared commands (weaker signal, but still grounding)
+            if item_commands & other_commands:
+                grounding_score += 0.4
+                grounding_reasons.append("shared_commands")
+
+            # For Terminal/iTerm, even without shared files, if we're in the same
+            # repo root, git ops and commands ARE the corroboration
+            if other_app in {"terminal", "iterm2", "warp"} and (other.get("command_artifacts") or other.get("git_op_artifacts")):
+                grounding_score += 0.5
+                grounding_reasons.append("terminal_with_artifacts")
+
+            # Require minimum grounding threshold
+            if grounding_score < 0.5:
+                continue
+
+            kind = "terminal" if other_app in {"terminal", "iterm2", "warp"} else "browser" if "chrome" in other_app or "safari" in other_app else "other"
+            corroborating_activity.append({
+                "work_item_id": item.get("id"),
+                "kind": kind,
+                "app_name": other.get("app_name"),
+                "timestamp": other_ts,
+                "commands": other.get("command_artifacts") or [],
+                "git_ops": other.get("git_op_artifacts") or [],
+                "errors": other.get("error_artifacts") or [],
+                "snippet": _compact(other.get("snippet") or other.get("window_title") or "", 120),
+                "grounding_score": round(grounding_score, 2),
+                "grounding_reasons": grounding_reasons,
+            })
+
+    # Deduplicate and limit corroborating activity, preferring highest grounding scores
+    seen_corr: set = set()
+    unique_corr: List[Dict[str, Any]] = []
+    corroborating_activity.sort(key=lambda c: -float(c.get("grounding_score") or 0.0))
+    for corr in corroborating_activity:
+        key = f"{corr.get('work_item_id')}:{corr.get('app_name')}:{corr.get('snippet', '')[:40]}"
+        if key not in seen_corr:
+            seen_corr.add(key)
+            unique_corr.append(corr)
+    corroborating_activity = unique_corr[:12]
+
+    # Aggregate all typed artifacts across top work items for top-level summaries
+    all_files = _dedupe([f for item in ranked_work_items[:6] for f in (item.get("file_artifacts") or [])], limit=16)
+    all_commands = _dedupe([c for item in ranked_work_items[:6] for c in (item.get("command_artifacts") or [])], limit=8)
+    all_errors = _dedupe([e for item in ranked_work_items[:6] for e in (item.get("error_artifacts") or [])], limit=6)
+    all_commits = _dedupe([c for item in ranked_work_items[:6] for c in (item.get("commit_artifacts") or [])], limit=6)
+    all_git_ops = _dedupe([g for item in ranked_work_items[:6] for g in (item.get("git_op_artifacts") or [])], limit=6)
+    all_task_docs = _dedupe([t for item in ranked_work_items[:6] for t in (item.get("task_doc_artifacts") or [])], limit=6)
+
     story_plan = {
         "renderer_kind": renderer_kind,
-        "main_event": (
-            {
-                "id": main_event.get("id"),
-                "label": main_event.get("title"),
-                "activity_class": main_event.get("activity_class"),
-                "story_kind": main_event.get("story_kind"),
-                "evidence_count": main_event.get("evidence_count"),
-                "apps": main_event.get("apps") or [],
-                "specific_tasks": main_event.get("specific_tasks") or [],
-                "artifact_refs": main_event.get("artifact_refs") or [],
-                "browser_domains": main_event.get("browser_domains") or [],
-                "session_keys": main_event.get("session_keys") or [],
-                "score_main_event": main_event.get("score_main_event"),
-                "confidence": main_event.get("confidence"),
-                "duration_ms": main_event.get("duration_ms"),
-            }
-            if main_event
-            else None
-        ),
-        "supporting_workstreams": [
-            {
-                "id": item.get("id"),
-                "label": item.get("title"),
-                "activity_class": item.get("activity_class"),
-                "story_kind": item.get("story_kind"),
-                "evidence_count": item.get("evidence_count"),
-                "apps": item.get("apps") or [],
-                "specific_tasks": item.get("specific_tasks") or [],
-                "artifact_refs": item.get("artifact_refs") or [],
-                "browser_domains": item.get("browser_domains") or [],
-                "confidence": item.get("confidence"),
-                "duration_ms": item.get("duration_ms"),
-            }
-            for item in supporting
-        ],
+        "main_event": _serialize_work_item(main_event, sequence_number=1) if main_event else None,
+        "supporting_workstreams": [_serialize_work_item(item, sequence_number=i + 2) for i, item in enumerate(supporting)],
         "research_browsing": [
             {
                 "id": item.get("id"),
@@ -1718,6 +2575,14 @@ def build_story_plan(
         ],
         "temporal_segments": temporal_segments,
         "main_workstreams": workstream_summary,
+        "numbered_workstreams": numbered_workstreams,
+        "corroborating_activity": corroborating_activity,
+        # Top-level typed artifact summaries
+        "files_touched": all_files,
+        "commands_run": all_commands,
+        "errors_encountered": all_errors,
+        "commits_and_pushes": all_commits + all_git_ops,
+        "task_docs_referenced": all_task_docs,
         "specific_tasks": concrete_tasks_completed[:12] or _dedupe(
             [task for item in ranked_work_items for task in (item.get("specific_tasks") or [])],
             limit=12,
@@ -1742,6 +2607,14 @@ def build_story_plan(
                 3,
             ),
             "generic_fallback_used": not bool(concrete_tasks_completed),
+            "typed_artifact_counts": {
+                "files": len(all_files),
+                "commands": len(all_commands),
+                "errors": len(all_errors),
+                "commits": len(all_commits),
+                "git_ops": len(all_git_ops),
+                "task_docs": len(all_task_docs),
+            },
         },
     }
     story_plan["renderer"] = _build_renderer_payload(

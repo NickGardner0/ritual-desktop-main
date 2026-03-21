@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Ritual Infrastructure and Data Protection Controls</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="plaid-security-package.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Ritual Infrastructure and Data Protection Controls</h1>
+</header>
+<h1 id="ritual-infrastructure-and-data-protection-controls">Ritual Infrastructure and Data Protection Controls</h1>
+<p>Company: Ritual<br />
+Prepared by: Nicholas Gardner, Founder<br />
+Effective Date: 2026-03-18<br />
+Document Version: 1.0</p>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>This document summarizes Ritual’s controls relevant to:</p>
+<ul>
+<li>multi-factor authentication for access to critical systems that store or process consumer financial data</li>
+<li>encryption in transit between clients and servers</li>
+<li>encryption at rest for consumer financial data received from Plaid</li>
+</ul>
+<h2 id="5-mfa-for-critical-systems">5. MFA for Critical Systems</h2>
+<p>Ritual requires multi-factor authentication for access to critical administrative systems that store, process, or control access to consumer financial data and supporting infrastructure.</p>
+<p>Critical systems include, as applicable:</p>
+<ul>
+<li>Plaid Dashboard</li>
+<li>Clerk</li>
+<li>database and infrastructure administration</li>
+<li>hosting and deployment systems</li>
+<li>analytics and operational systems with access to production data</li>
+<li>source control and secrets management systems used to administer production</li>
+</ul>
+<p>Ritual’s access control model is based on least privilege and limits production access to authorized operators with a legitimate business need.</p>
+<h2 id="6-encryption-in-transit">6. Encryption in Transit</h2>
+<p>Ritual uses encrypted transport for production communications between clients and servers.</p>
+<p>Current implementation details include:</p>
+<ul>
+<li>production frontend and backend endpoints are intended to be served over HTTPS</li>
+<li>backend-to-database sync for Turso embedded replica mode uses HTTPS sync URLs</li>
+<li>external service integrations are performed over vendor HTTPS endpoints</li>
+</ul>
+<p>Ritual’s production expectation is TLS 1.2 or better for client-server communication.</p>
+<h2 id="7-encryption-at-rest-for-plaid-data">7. Encryption at Rest for Plaid Data</h2>
+<p>Ritual applies encryption controls to sensitive financial integration data received from Plaid.</p>
+<p>Current controls include:</p>
+<ul>
+<li>Plaid access tokens and sensitive integration tokens are encrypted in application storage using <code>TOKEN_ENCRYPTION_KEY</code></li>
+<li>the embedded Turso local replica now supports encryption at rest through <code>TURSO_LOCAL_ENCRYPTION_KEY</code></li>
+<li>production operation is expected to enable both controls</li>
+</ul>
+<p>For Ritual’s Plaid-backed spending implementation, the system is intentionally scoped toward deriving daily spending totals rather than exposing a general-purpose transaction ledger.</p>
+<h2 id="operational-implementation-references">Operational Implementation References</h2>
+<ul>
+<li><code>apps/backend/services/token_crypto.py</code></li>
+<li><code>apps/backend/database/connection.py</code></li>
+<li><code>apps/backend/services/plaid_service.py</code></li>
+<li><code>apps/backend/api/financial.py</code></li>
+<li><code>apps/backend/.env.example</code></li>
+<li><code>docs/release_checklist.md</code></li>
+</ul>
+<h2 id="recommended-production-configuration">Recommended Production Configuration</h2>
+<p>Ritual’s production environment should include:</p>
+<ul>
+<li><code>TOKEN_ENCRYPTION_KEY</code></li>
+<li><code>TURSO_LOCAL_ENCRYPTION_KEY</code></li>
+<li><code>PLAID_ENV=production</code></li>
+<li><code>PLAID_CLIENT_ID</code></li>
+<li><code>PLAID_SECRET</code></li>
+<li><code>PLAID_REDIRECT_URI</code></li>
+<li><code>PLAID_WEBHOOK_URL</code></li>
+</ul>
+<h2 id="approval">Approval</h2>
+<p>Prepared by: Nicholas Gardner<br />
+Title: Founder<br />
+Company: Ritual<br />
+Date: 2026-03-18</p>
+</body>
+</html>

@@ -1,0 +1,122 @@
+DESCRIPTION >
+    Summary analytics for canonical WHOOP BLE heart-rate rollups.
+    Returns weighted period averages and period-over-period change.
+
+TOKEN "heart_rate_summary_read" READ
+
+NODE period_window
+SQL >
+    %
+    SELECT
+        {% if defined(start_date) %}
+        toDate({{ String(start_date) }})
+        {% else %}
+        today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+        {% end %} AS current_start,
+        {% if defined(end_date) %}
+        toDate({{ String(end_date) }})
+        {% else %}
+        today()
+        {% end %} AS current_end,
+        dateDiff(
+            'day',
+            {% if defined(start_date) %}
+            toDate({{ String(start_date) }})
+            {% else %}
+            today() - INTERVAL {{ Int32(days_back, 30) }} DAY
+            {% end %},
+            {% if defined(end_date) %}
+            toDate({{ String(end_date) }})
+            {% else %}
+            today()
+            {% end %}
+        ) + 1 AS period_days
+
+NODE deduplicated_rollups
+DESCRIPTION >
+    Keep the latest version of each logical rollup bucket after append-only re-syncs.
+
+SQL >
+    %
+    SELECT
+        id,
+        user_id,
+        bucket_start,
+        date,
+        source_type,
+        sample_count,
+        bpm_avg,
+        bpm_min,
+        bpm_max,
+        created_at
+    FROM heart_rate_1m_rollups
+    WHERE user_id = {{ String(user_id, required=True) }}
+      AND date >= (SELECT addDays(current_start, -period_days) FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+      {% if defined(source_type) %}
+      AND source_type = {{ String(source_type) }}
+      {% end %}
+    ORDER BY id, created_at DESC
+    LIMIT 1 BY id
+
+NODE daily_values
+SQL >
+    %
+    SELECT
+        date,
+        avgWeighted(bpm_avg, sample_count) AS daily_avg_bpm,
+        MIN(bpm_min) AS daily_min_bpm,
+        MAX(bpm_max) AS daily_max_bpm,
+        SUM(sample_count) AS total_samples
+    FROM deduplicated_rollups
+    GROUP BY date
+
+NODE current_period_summary
+SQL >
+    %
+    SELECT
+        AVG(daily_avg_bpm) AS current_avg_bpm,
+        MIN(daily_min_bpm) AS min_bpm,
+        MAX(daily_max_bpm) AS max_bpm,
+        SUM(total_samples) AS total_samples,
+        COUNT(*) AS days_with_data,
+        MIN(date) AS first_day,
+        MAX(date) AS last_day
+    FROM daily_values
+    WHERE date >= (SELECT current_start FROM period_window)
+      AND date <= (SELECT current_end FROM period_window)
+
+NODE previous_period_summary
+SQL >
+    %
+    SELECT
+        AVG(daily_avg_bpm) AS previous_avg_bpm,
+        COUNT(*) AS previous_days_with_data
+    FROM daily_values
+    WHERE date >= (SELECT addDays(current_start, -period_days) FROM period_window)
+      AND date < (SELECT current_start FROM period_window)
+
+NODE endpoint
+TYPE ENDPOINT
+SQL >
+    %
+    SELECT
+        c.current_avg_bpm,
+        c.min_bpm,
+        c.max_bpm,
+        c.total_samples,
+        c.days_with_data,
+        c.first_day,
+        c.last_day,
+        coalesce(p.previous_avg_bpm, 0) AS previous_avg_bpm,
+        coalesce(p.previous_days_with_data, 0) AS previous_days_with_data,
+        c.current_avg_bpm - coalesce(p.previous_avg_bpm, 0) AS absolute_change,
+        CASE
+            WHEN coalesce(p.previous_avg_bpm, 0) > 0
+            THEN ((c.current_avg_bpm - p.previous_avg_bpm) / p.previous_avg_bpm) * 100
+            WHEN c.current_avg_bpm > 0
+            THEN 100.0
+            ELSE 0.0
+        END AS change_pct
+    FROM current_period_summary c
+    CROSS JOIN previous_period_summary p

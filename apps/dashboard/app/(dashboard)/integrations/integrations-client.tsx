@@ -14,24 +14,34 @@
 
 import { useState, useEffect, memo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser, useClerk } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
-import { Monitor, ChevronLeft, CloudSun, AlertCircle, Trash2 } from 'lucide-react';
+import { Monitor } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
+import { useHabits } from '@/contexts/HabitsContext';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useHabits } from '@/contexts/HabitsContext';
-import { ComputerTrackingSettings } from '@/components/computer-tracking-settings';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import {
-  getLocationPermissionStatus,
-  requestCurrentLocation,
-  type LocationErrorCode,
-  type LocationPermissionState,
-} from '@/lib/location-utils';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { cn } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+declare global {
+  interface Window {
+    Plaid?: {
+      create: (config: {
+        token: string
+        onSuccess: (publicToken: string, metadata: any) => void | Promise<void>
+        onExit?: (error: any, metadata: any) => void
+      }) => {
+        open: () => void
+        destroy?: () => void
+      }
+    }
+  }
+}
 
 // Helper to convert 0-23 hour to 12-hour display string
 function formatHour(hour: number): string {
@@ -64,11 +74,25 @@ function formatRelativeTime(dateValue: string | null | undefined): string {
   return date.toLocaleString();
 }
 
-function getPermissionLabel(permission: LocationPermissionState): string {
-  if (permission === 'granted') return 'Granted';
-  if (permission === 'denied') return 'Denied';
-  if (permission === 'prompt') return 'Not requested';
-  return 'Unsupported';
+async function parseApiError(response: Response, fallbackMessage: string): Promise<string> {
+  try {
+    const payload = await response.json();
+    const detail = payload?.detail;
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail;
+    }
+    if (detail && typeof detail === 'object') {
+      return (
+        detail.display_message ||
+        detail.error_message ||
+        detail.message ||
+        fallbackMessage
+      );
+    }
+  } catch {
+    // ignore parse failures and fall back below
+  }
+  return fallbackMessage;
 }
 
 /**
@@ -133,8 +157,54 @@ function useAppleWatchStatus() {
   });
 }
 
+function useWearableConnections() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ['wearable-connections', user?.id],
+    queryFn: async () => {
+      const token = await getToken();
+      const response = await fetch(`${API_BASE_URL}/api/wearables/connections`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch wearable connections');
+      }
+
+      return response.json();
+    },
+    staleTime: 1000 * 30,
+    enabled: !!user?.id,
+  });
+}
+
+function useFinancialConnections() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ['financial-connections', user?.id],
+    queryFn: async () => {
+      const token = await getToken();
+      const response = await fetch(`${API_BASE_URL}/api/financial/connections`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch financial connections');
+      }
+
+      return response.json();
+    },
+    staleTime: 1000 * 30,
+    enabled: !!user?.id,
+  });
+}
+
 /**
- * Fetch Computer Tracking status with React Query
+ * Fetch Computer Use status with React Query
  * Checks for registered watcher devices (macOS desktop)
  */
 function useComputerTrackingStatus() {
@@ -169,29 +239,6 @@ function useComputerTrackingStatus() {
   });
 }
 
-function useWeatherStatus() {
-  const { user } = useUser();
-  const { getToken } = useAuth();
-
-  return useQuery({
-    queryKey: ['weather-status', user?.id],
-    queryFn: async () => {
-      const token = await getToken();
-      const response = await fetch(`${API_BASE_URL}/api/integrations/weather/status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch Weather status');
-      }
-
-      return response.json();
-    },
-    staleTime: 1000 * 60 * 2,
-    enabled: !!user?.id,
-  });
-}
-
 // Memoized integration card
 const IntegrationCard = memo(({
   logo,
@@ -202,25 +249,36 @@ const IntegrationCard = memo(({
   isConnecting,
   isSyncing,
   connectVariant = 'primary',
+  connectLabel = 'Connect',
+  syncLabel = 'Sync Now',
+  details,
   onConnect,
   onSync,
   onDisconnect,
-  onDetails
+  onDetails,
+  extraActions,
+  descriptionLineClamp = 2
 }: {
   logo: React.ReactNode
   title: string
   description: string
+  /** Card copy uses line-clamp; higher values avoid ellipsis on longer Plaid descriptions. */
+  descriptionLineClamp?: 2 | 3 | 4
   comingSoon?: boolean
   isConnected?: boolean
   isConnecting?: boolean
   isSyncing?: boolean
   connectVariant?: 'primary' | 'outline'
+  connectLabel?: string
+  syncLabel?: string
+  details?: React.ReactNode
   onConnect?: () => void
   onSync?: () => void
   onDisconnect?: () => void
   onDetails?: () => void
+  extraActions?: React.ReactNode
 }) => (
-  <div className="bg-white border border-gray-300 p-4 flex flex-col h-[200px] rounded-sm">
+  <div className="bg-white border border-gray-300 p-4 flex flex-col h-[248px] rounded-sm">
     <div className="h-10 mb-2 flex items-start">
       {logo}
     </div>
@@ -230,9 +288,22 @@ const IntegrationCard = memo(({
         <span className="ml-2 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">Coming soon</span>
       )}
     </div>
-    <p className="text-gray-500 text-xs mb-3 flex-grow line-clamp-2">
+    <p
+      className={cn(
+        'text-gray-500 text-xs mb-3 flex-grow',
+        descriptionLineClamp === 4 && 'line-clamp-4',
+        descriptionLineClamp === 3 && 'line-clamp-3',
+        descriptionLineClamp === 2 && 'line-clamp-2'
+      )}
+    >
       {description}
     </p>
+
+    {details ? (
+      <div className="mb-3">
+        {details}
+      </div>
+    ) : null}
 
     <div className="flex items-center gap-2 mt-auto">
       {isConnected ? (
@@ -257,28 +328,36 @@ const IntegrationCard = memo(({
                   Syncing...
                 </>
               ) : (
-                'Sync Now'
+                syncLabel
               )}
             </button>
           )}
-          <button
-            onClick={onDetails}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900"
-          >
-            Details
-          </button>
+          {onDetails && (
+            <button
+              onClick={onDetails}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900"
+            >
+              Details
+            </button>
+          )}
+          {extraActions}
         </>
       ) : comingSoon ? (
         <>
-          <button className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]">
+          <button
+            type="button"
+            className="px-3 py-1.5 text-sm bg-black text-white rounded-sm"
+          >
             Connect
           </button>
-          <button
-            onClick={onDetails}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
-          >
-            Details
-          </button>
+          {onDetails && (
+            <button
+              onClick={onDetails}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+            >
+              Details
+            </button>
+          )}
         </>
       ) : (
         <>
@@ -288,7 +367,7 @@ const IntegrationCard = memo(({
             className={
               connectVariant === 'outline'
                 ? "px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
-                : "px-3 py-1.5 text-sm bg-black text-white rounded-sm hover:bg-gray-800 disabled:opacity-50"
+                : "px-3 py-1.5 text-sm bg-black text-white rounded-sm disabled:opacity-50"
             }
           >
             {isConnecting ? (
@@ -297,15 +376,17 @@ const IntegrationCard = memo(({
                 Connecting...
               </>
             ) : (
-              'Connect'
+              connectLabel
             )}
           </button>
-          <button
-            onClick={onDetails}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
-          >
-            Details
-          </button>
+          {onDetails && (
+            <button
+              onClick={onDetails}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+            >
+              Details
+            </button>
+          )}
         </>
       )}
     </div>
@@ -321,40 +402,55 @@ IntegrationCard.displayName = 'IntegrationCard';
 export function IntegrationsClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const { openUserProfile } = useClerk();
   const { fetchHabits, fetchHabitLogs } = useHabits();
   const { data: whoopStatusData, isLoading, refetch: refetchWhoopStatus } = useWhoopStatus();
   const { data: appleWatchStatusData, isLoading: isLoadingAppleWatch, refetch: refetchAppleWatchStatus } = useAppleWatchStatus();
+  const { data: wearableConnectionsData, isLoading: isLoadingWearables, refetch: refetchWearableConnections } = useWearableConnections();
+  const { data: financialConnectionsData, isLoading: isLoadingFinancialConnections, refetch: refetchFinancialConnections } = useFinancialConnections();
   const { data: computerTrackingStatus, isLoading: isLoadingComputerTracking, refetch: refetchComputerTracking } = useComputerTrackingStatus();
-  const { data: weatherStatusData, isLoading: isLoadingWeather, refetch: refetchWeatherStatus } = useWeatherStatus();
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopSyncHour, setWhoopSyncHour] = useState(9); // Default to 9 AM
   const [whoopConnecting, setWhoopConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [plaidConnecting, setPlaidConnecting] = useState(false);
+  const [plaidSyncing, setPlaidSyncing] = useState(false);
+  const [plaidBackfilling, setPlaidBackfilling] = useState(false);
+  const [plaidSettingsSaving, setPlaidSettingsSaving] = useState(false);
+  const [plaidAccountSavingId, setPlaidAccountSavingId] = useState<string | null>(null);
   const [appleWatchSyncing, setAppleWatchSyncing] = useState(false);
-  const [weatherConnected, setWeatherConnected] = useState(false);
-  const [weatherConnecting, setWeatherConnecting] = useState(false);
-  const [weatherSyncing, setWeatherSyncing] = useState(false);
-  const [weatherPermission, setWeatherPermission] = useState<LocationPermissionState>('prompt');
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
+  const [wearableConnectingProvider, setWearableConnectingProvider] = useState<string | null>(null);
+  const [wearableSyncingProvider, setWearableSyncingProvider] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
-  const [showComputerTrackingSettings, setShowComputerTrackingSettings] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
 
   // Apple Watch connection state
   const appleWatchConnected = appleWatchStatusData?.connected || false;
-  const appleWatchDeviceName = appleWatchStatusData?.deviceName || 'Apple Watch';
   const appleWatchLastSync = appleWatchStatusData?.lastSyncAt;
 
-  // Computer Tracking connection state
+  // Computer Use connection state
   const computerTrackingConnected = computerTrackingStatus?.connected || false;
   const computerTrackingEnabled = computerTrackingStatus?.enabled || false;
-  const computerTrackingDeviceName = computerTrackingStatus?.deviceName || 'My Mac';
-  const weatherLastSync = weatherStatusData?.last_sync_at || null;
-  const weatherLastError = weatherStatusData?.last_error || null;
-  const weatherLocationLabel = weatherStatusData?.last_location_label || 'Near you';
-  const weatherStorePrecise = !!weatherStatusData?.store_precise_location;
+  const wearableConnections = wearableConnectionsData?.connections || [];
+  const findWearableConnection = (provider: string) => wearableConnections.find((item: any) => item.provider === provider);
+  const whoopConnection = findWearableConnection('whoop');
+  const appleHealthConnection = findWearableConnection('apple_health');
+  const ouraConnection = findWearableConnection('oura');
+  const garminConnection = findWearableConnection('garmin');
+  const financialConnections = financialConnectionsData?.connections || [];
+  const plaidConnection = financialConnections.find((item: any) => item.provider === 'plaid');
+  const plaidConnected = !!plaidConnection && plaidConnection.status === 'active';
+  const userHasMfaEnabled = Boolean((user as any)?.twoFactorEnabled);
+  const plaidMfaRequired = !userHasMfaEnabled;
+  const plaidNeedsReconnect = Boolean(plaidConnection?.requires_reconnect);
+  const plaidReconnectReason =
+    plaidConnection?.last_error_json?.display_message ||
+    plaidConnection?.last_error_json?.error_message ||
+    plaidConnection?.last_error_json?.message ||
+    'This bank connection needs to be repaired before spending can continue syncing.';
 
   // Update local state when query data changes
   useEffect(() => {
@@ -364,22 +460,12 @@ export function IntegrationsClient() {
     }
   }, [whoopStatusData]);
 
-  useEffect(() => {
-    if (weatherStatusData !== undefined) {
-      setWeatherConnected(!!weatherStatusData.enabled);
-    }
-  }, [weatherStatusData]);
-
-  useEffect(() => {
-    getLocationPermissionStatus()
-      .then(setWeatherPermission)
-      .catch(() => setWeatherPermission('unsupported'));
-  }, []);
-
   const callbackProcessedRef = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const oauthSessionIdRef = useRef<string | null>(null);
   const oauthSessionTokenRef = useRef<string | null>(null);
+  const plaidLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const plaidHandlerRef = useRef<{ open: () => void; destroy?: () => void } | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -387,13 +473,45 @@ export function IntegrationsClient() {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
+      plaidHandlerRef.current?.destroy?.();
     };
+  }, []);
+
+  const ensurePlaidLoaded = useCallback(async () => {
+    if (typeof window === 'undefined') {
+      throw new Error('Plaid Link is only available in the browser');
+    }
+    if (window.Plaid) {
+      return;
+    }
+    if (!plaidLoadPromiseRef.current) {
+      plaidLoadPromiseRef.current = new Promise<void>((resolve, reject) => {
+        const existing = document.querySelector('script[data-plaid-link="true"]') as HTMLScriptElement | null;
+        if (existing) {
+          existing.addEventListener('load', () => resolve(), { once: true });
+          existing.addEventListener('error', () => reject(new Error('Failed to load Plaid Link')), { once: true });
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+        script.async = true;
+        script.dataset.plaidLink = 'true';
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Failed to load Plaid Link'));
+        document.body.appendChild(script);
+      });
+    }
+    await plaidLoadPromiseRef.current;
   }, []);
 
   // Handle OAuth callback
   useEffect(() => {
     const whoopCode = searchParams.get('whoop_code');
     const whoopError = searchParams.get('whoop_error');
+    const wearableProvider = searchParams.get('wearable_provider');
+    const wearableConnected = searchParams.get('wearable_connected');
+    const wearableError = searchParams.get('wearable_error');
 
     if (whoopCode && !callbackProcessedRef.current) {
       callbackProcessedRef.current = true;
@@ -402,12 +520,27 @@ export function IntegrationsClient() {
       return;
     }
 
+    if (wearableProvider && wearableConnected === '1') {
+      refetchWearableConnections();
+      setWearableConnectingProvider(null);
+      alert(`${wearableProvider === 'oura' ? 'Oura' : wearableProvider === 'garmin' ? 'Garmin' : wearableProvider} connected successfully.`);
+      router.replace('/integrations');
+      return;
+    }
+
+    if (wearableProvider && wearableError) {
+      setWearableConnectingProvider(null);
+      alert(`${wearableProvider} connection failed: ${wearableError}`);
+      router.replace('/integrations');
+      return;
+    }
+
     if (whoopError) {
       console.error('❌ Whoop OAuth error:', whoopError);
       alert(`Whoop connection failed: ${whoopError}`);
       router.replace('/integrations');
     }
-  }, [searchParams]);
+  }, [searchParams, refetchWearableConnections, router]);
 
   async function handleWhoopCallback(code: string) {
     try {
@@ -580,6 +713,810 @@ export function IntegrationsClient() {
     }
   }
 
+  const refetchAfterFinancialSync = useCallback(async () => {
+    await Promise.all([
+      refetchFinancialConnections(),
+      fetchHabits(),
+      fetchHabitLogs(),
+    ]);
+  }, [fetchHabitLogs, fetchHabits, refetchFinancialConnections]);
+
+  const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) => {
+    try {
+      if (plaidMfaRequired) {
+        openUserProfile();
+        throw new Error('Multi-factor authentication must be enabled before connecting a bank account.');
+      }
+      setPlaidConnecting(true);
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      await ensurePlaidLoaded();
+
+      const linkTokenResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/link-token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          connection_id: options?.updateMode ? plaidConnection?.id : null,
+          update_mode: Boolean(options?.updateMode),
+          account_selection_enabled: true,
+        }),
+      });
+      if (!linkTokenResponse.ok) {
+        throw new Error(await parseApiError(linkTokenResponse, 'Failed to initialize Plaid Link'));
+      }
+
+      const linkTokenResult = await linkTokenResponse.json();
+      if (!window.Plaid) {
+        throw new Error('Plaid Link did not load');
+      }
+
+      plaidHandlerRef.current?.destroy?.();
+      plaidHandlerRef.current = window.Plaid.create({
+        token: linkTokenResult.link_token,
+        onSuccess: async (publicToken, metadata) => {
+          try {
+            if (options?.updateMode) {
+              if (!plaidConnection?.id) {
+                throw new Error('Plaid connection not found');
+              }
+              const syncResponse = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/sync`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              if (!syncResponse.ok) {
+                throw new Error(await parseApiError(syncResponse, 'Failed to refresh Plaid connection'));
+              }
+
+              await refetchAfterFinancialSync();
+              alert('Plaid connection refreshed successfully.');
+              return;
+            }
+
+            const exchangeResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/exchange-public-token`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                public_token: publicToken,
+                institution_id: metadata?.institution?.institution_id || null,
+                institution_name: metadata?.institution?.name || null,
+                auto_backfill: true,
+              }),
+            });
+
+            if (!exchangeResponse.ok) {
+              throw new Error(await parseApiError(exchangeResponse, 'Failed to connect Plaid'));
+            }
+
+            const result = await exchangeResponse.json();
+            await refetchAfterFinancialSync();
+            alert(result.message || 'Plaid connected successfully.');
+          } catch (error) {
+            console.error('❌ Error exchanging Plaid public token:', error);
+            alert(`Failed to connect Plaid: ${error}`);
+          } finally {
+            setPlaidConnecting(false);
+            plaidHandlerRef.current = null;
+          }
+        },
+        onExit: (error) => {
+          if (error) {
+            console.error('❌ Plaid Link exited with error:', error);
+            alert(`Plaid connection failed: ${error.display_message || error.error_message || 'Unknown error'}`);
+          }
+          setPlaidConnecting(false);
+          plaidHandlerRef.current = null;
+        },
+      });
+
+      plaidHandlerRef.current.open();
+    } catch (error) {
+      console.error('❌ Error connecting Plaid:', error);
+      alert(`Failed to connect Plaid: ${error}`);
+      setPlaidConnecting(false);
+    }
+  }, [ensurePlaidLoaded, getToken, openUserProfile, plaidConnection?.id, plaidMfaRequired, refetchAfterFinancialSync]);
+
+  const handlePlaidConnect = useCallback(() => {
+    return handlePlaidLink({ updateMode: false });
+  }, [handlePlaidLink]);
+
+  const handlePlaidReconnect = useCallback(() => {
+    return handlePlaidLink({ updateMode: true });
+  }, [handlePlaidLink]);
+
+  const handlePlaidMfaSetup = useCallback(() => {
+    openUserProfile();
+  }, [openUserProfile]);
+
+  async function handlePlaidSyncSettingsUpdate(
+    updates: { auto_sync_enabled?: boolean; sync_hour?: number }
+  ) {
+    try {
+      if (!plaidConnection?.id) {
+        return;
+      }
+      setPlaidSettingsSaving(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const nextEnabled = updates.auto_sync_enabled ?? plaidConnection.auto_sync_enabled ?? true;
+      const nextHour = updates.sync_hour ?? plaidConnection.sync_hour ?? 9;
+
+      const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/sync-settings`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          auto_sync_enabled: nextEnabled,
+          sync_hour: nextHour,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update Plaid sync settings');
+      }
+
+      await refetchFinancialConnections();
+    } catch (error) {
+      console.error('❌ Error updating Plaid sync settings:', error);
+      alert(`Failed to update Plaid sync settings: ${error}`);
+    } finally {
+      setPlaidSettingsSaving(false);
+    }
+  }
+
+  async function handlePlaidAccountInclusion(accountId: string, includeInSpending: boolean) {
+    try {
+      if (!plaidConnection?.id) {
+        return;
+      }
+      setPlaidAccountSavingId(accountId);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/accounts/${accountId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          include_in_spending: includeInSpending,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update account preference');
+      }
+
+      await refetchAfterFinancialSync();
+    } catch (error) {
+      console.error('❌ Error updating Plaid account preference:', error);
+      alert(`Failed to update account preference: ${error}`);
+    } finally {
+      setPlaidAccountSavingId(null);
+    }
+  }
+
+  async function handlePlaidBackfill() {
+    try {
+      if (!plaidConnection?.id) {
+        throw new Error('Plaid connection not found');
+      }
+      setPlaidBackfilling(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/backfill`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Backfill failed');
+      }
+
+      const result = await response.json();
+      await refetchAfterFinancialSync();
+      alert(
+        `Backfill completed.\n\n` +
+        `Transactions seen: ${result.items_seen || 0}\n` +
+        `Daily spending days updated: ${result.rollup?.days_completed || 0}`
+      );
+    } catch (error) {
+      console.error('❌ Error backfilling Plaid history:', error);
+      alert(`Failed to backfill Plaid history: ${error}`);
+    } finally {
+      setPlaidBackfilling(false);
+    }
+  }
+
+  async function handlePlaidSync() {
+    try {
+      if (!plaidConnection?.id) {
+        throw new Error('Plaid connection not found');
+      }
+      setPlaidSyncing(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/sync`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Sync failed');
+      }
+
+      const result = await response.json();
+      await refetchAfterFinancialSync();
+      alert(
+        `Sync completed.\n\n` +
+        `Transactions seen: ${result.items_seen || 0}\n` +
+        `Transactions written: ${result.items_written || 0}\n` +
+        `Daily spending days updated: ${result.rollup?.days_completed || 0}`
+      );
+    } catch (error) {
+      console.error('❌ Error syncing Plaid:', error);
+      alert(`Failed to sync Plaid: ${error}`);
+    } finally {
+      setPlaidSyncing(false);
+    }
+  }
+
+  async function handlePlaidDisconnect() {
+    try {
+      if (!plaidConnection?.id) {
+        return;
+      }
+      const token = await getToken();
+      if (!token) return;
+
+      if (!confirm('Disconnect Plaid? Existing spending logs will remain unless you resync later.')) {
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to disconnect Plaid');
+      }
+
+      await refetchFinancialConnections();
+      alert('Plaid disconnected successfully.');
+    } catch (error) {
+      console.error('❌ Error disconnecting Plaid:', error);
+      alert(`Failed to disconnect Plaid: ${error}`);
+    }
+  }
+
+  const renderIntegrationLogo = (integration: string, size: 'card' | 'panel' = 'card') => {
+    const imageClass = size === 'panel' ? 'h-8 w-auto object-contain' : 'h-6 w-auto object-contain';
+
+    switch (integration) {
+      case 'plaid':
+        return (
+          <Image
+            src="/images/plaid-mark.svg"
+            alt="Plaid"
+            width={48}
+            height={52}
+            className={size === 'panel' ? 'h-8 w-auto object-contain' : 'h-7 w-auto object-contain'}
+          />
+        );
+      case 'whoop':
+        return (
+          <Image
+            src="/images/whoop.svg"
+            alt="Whoop"
+            width={80}
+            height={32}
+            className={imageClass}
+          />
+        );
+      case 'oura':
+        return <Image src="/images/oura.svg" alt="Oura" width={40} height={40} className={size === 'panel' ? 'h-9 w-auto object-contain' : 'h-10 w-auto object-contain'} />;
+      case 'garmin':
+        return <Image src="/images/garmin.svg" alt="Garmin" width={60} height={24} className={imageClass} />;
+      case 'applewatch':
+        return (
+          <svg className={size === 'panel' ? 'h-8 w-8' : 'h-6 w-6'} viewBox="0 0 814 1000" fill="currentColor">
+            <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
+          </svg>
+        );
+      case 'computer':
+        return <Monitor className={size === 'panel' ? 'h-8 w-8 text-gray-900' : 'h-7 w-7 text-gray-900'} />;
+      case 'screentime':
+        return <Image src="/images/Screen_Time.svg" alt="Apple Screen Time" width={28} height={28} className={size === 'panel' ? 'h-8 w-8' : 'h-7 w-7'} />;
+      case 'fitbit':
+        return <Image src="/images/fitbit.svg" alt="Fitbit" width={60} height={24} className={imageClass} />;
+      case 'calai':
+        return <Image src="/images/cal_ai.svg" alt="Cal AI" width={80} height={32} className={size === 'panel' ? 'h-9 w-auto object-contain' : 'h-8 w-auto object-contain'} />;
+      case 'googlecalendar':
+        return <Image src="/images/Google_Calendar_Logo.svg" alt="Google Calendar" width={24} height={24} className={size === 'panel' ? 'h-8 w-8' : 'h-6 w-6'} />;
+      default:
+        return null;
+    }
+  };
+
+  const renderPlaidDetails = () => {
+    if (!plaidConnection || !plaidConnected) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-4">
+        {plaidNeedsReconnect ? (
+          <div className="rounded-sm border border-gray-200 bg-white p-4">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Reconnect required</p>
+            <p className="mt-2 text-sm leading-6 text-gray-900">{plaidReconnectReason}</p>
+            <div className="mt-3">
+              <button
+                onClick={handlePlaidReconnect}
+                disabled={plaidConnecting}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-sm hover:bg-[#f3f3f3] disabled:opacity-50"
+              >
+                {plaidConnecting ? 'Reconnecting...' : 'Reconnect bank'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-sm border border-gray-200 bg-white p-3">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Institution</p>
+            <p className="mt-1 text-sm text-gray-900">{plaidConnection.institution_name || 'Connected bank'}</p>
+          </div>
+          <div className="rounded-sm border border-gray-200 bg-white p-3">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Active accounts</p>
+            <p className="mt-1 text-sm text-gray-900">{plaidConnection.account_count || 0}</p>
+          </div>
+        </div>
+
+        <div className="rounded-sm border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Auto sync</p>
+              <p className="mt-1 text-sm text-gray-600">Keep spending totals current in the background.</p>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={plaidConnection.auto_sync_enabled ?? true}
+                disabled={plaidSettingsSaving}
+                onChange={(event) =>
+                  handlePlaidSyncSettingsUpdate({
+                    auto_sync_enabled: event.target.checked,
+                    sync_hour: plaidConnection.sync_hour ?? 9,
+                  })
+                }
+                className="h-3.5 w-3.5 rounded border-gray-300 text-black focus:ring-0"
+              />
+              <span>{plaidConnection.auto_sync_enabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-4">
+            <div>
+              <p className="text-sm text-gray-900">Preferred sync time</p>
+              <p className="mt-1 text-xs text-gray-500">Choose when Ritual should refresh spending totals.</p>
+            </div>
+            <select
+              value={plaidConnection.sync_hour ?? 9}
+              disabled={plaidSettingsSaving || !(plaidConnection.auto_sync_enabled ?? true)}
+              onChange={(event) =>
+                handlePlaidSyncSettingsUpdate({
+                  auto_sync_enabled: plaidConnection.auto_sync_enabled ?? true,
+                  sync_hour: Number(event.target.value),
+                })
+              }
+              className="h-9 min-w-[112px] rounded-sm border border-gray-300 bg-white px-3 text-sm text-gray-900 disabled:opacity-50"
+            >
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {formatHour(hour)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="mt-4 flex items-center justify-between text-xs text-gray-500">
+            <span>Last sync</span>
+            <span className="text-gray-700">{formatRelativeTime(plaidConnection.last_sync_at || plaidConnection.last_successful_sync_at)}</span>
+          </div>
+          {plaidConnection.latest_transaction_date ? (
+            <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+              <span>Latest imported date</span>
+              <span className="text-gray-700">{plaidConnection.latest_transaction_date}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Included accounts</p>
+          <div className="space-y-2">
+            {(plaidConnection.accounts || []).filter((account: any) => account.is_active).map((account: any) => (
+              <label key={account.id} className="flex items-start gap-3 rounded-sm border border-gray-200 bg-white p-3 text-sm text-gray-900">
+                <input
+                  type="checkbox"
+                  checked={account.include_in_spending}
+                  disabled={plaidAccountSavingId === account.id}
+                  onChange={(event) => handlePlaidAccountInclusion(account.id, event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-black focus:ring-0"
+                />
+                <span className="leading-4">
+                  <span className="block text-gray-900">
+                    {account.name}
+                    {account.mask ? ` ••${account.mask}` : ''}
+                  </span>
+                  <span className="mt-1 block text-xs text-gray-500">
+                    {(account.account_type || 'account').replace('_', ' ')}
+                    {account.account_subtype ? ` · ${String(account.account_subtype).replace('_', ' ')}` : ''}
+                  </span>
+                </span>
+              </label>
+            ))}
+            {!(plaidConnection.accounts || []).some((account: any) => account.is_active) ? (
+              <p className="rounded-sm border border-dashed border-gray-200 bg-white p-3 text-sm text-gray-500">No active accounts available yet.</p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const openIntegrationDetails = (integration: string) => {
+    setSelectedIntegration(integration);
+    setDetailsOpen(true);
+  };
+
+  const renderPanelAction = () => {
+    if (selectedIntegration === 'plaid') {
+      if (plaidMfaRequired) {
+        return (
+          <button
+            onClick={handlePlaidMfaSetup}
+            className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+          >
+            Connect
+          </button>
+        );
+      }
+      if (!plaidConnected) {
+        return (
+          <button
+            onClick={handlePlaidConnect}
+            disabled={plaidConnecting}
+            className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+          >
+            {plaidConnecting ? 'Connecting...' : 'Connect'}
+          </button>
+        );
+      }
+      if (plaidNeedsReconnect) {
+        return (
+          <button
+            onClick={handlePlaidReconnect}
+            disabled={plaidConnecting}
+            className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+          >
+            {plaidConnecting ? 'Reconnecting...' : 'Reconnect'}
+          </button>
+        );
+      }
+      return (
+        <button
+          onClick={handlePlaidSync}
+          disabled={plaidSyncing}
+          className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+        >
+          {plaidSyncing ? 'Syncing...' : 'Sync now'}
+        </button>
+      );
+    }
+
+    if (selectedIntegration === 'whoop') {
+      return (
+        <button
+          onClick={handleWhoopSync}
+          disabled={syncing}
+          className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+        >
+          {syncing ? 'Syncing...' : 'Sync now'}
+        </button>
+      );
+    }
+
+    if (selectedIntegration === 'oura') {
+      return (
+        <button
+          onClick={() => handleWearableProviderSync('oura')}
+          disabled={wearableSyncingProvider === 'oura'}
+          className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+        >
+          {wearableSyncingProvider === 'oura' ? 'Syncing...' : 'Sync now'}
+        </button>
+      );
+    }
+
+    if (selectedIntegration === 'garmin') {
+      return (
+        <button
+          onClick={() => handleWearableProviderSync('garmin')}
+          disabled={wearableSyncingProvider === 'garmin'}
+          className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+        >
+          {wearableSyncingProvider === 'garmin' ? 'Syncing...' : 'Sync now'}
+        </button>
+      );
+    }
+
+    if (selectedIntegration === 'applewatch' || selectedIntegration === 'computer') {
+      return null;
+    }
+
+    return (
+      <button
+        disabled
+        className="px-4 py-2 text-sm border border-[#d8d5cb] text-[#8a877d] rounded-sm"
+      >
+        Coming soon
+      </button>
+    );
+  };
+
+  const renderPanelHeader = (
+    integration: string,
+    title: string,
+    subtitle: string,
+  ) => (
+    <div className="border-b border-[#e7e5dd] px-5 py-5">
+      <div className="rounded-sm border border-[#e7e5dd] bg-[#f8f7f3] p-4">
+        <div className="flex aspect-[16/8.6] items-center justify-center rounded-sm border border-[#23211d] bg-[linear-gradient(0deg,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:28px_28px] bg-[#111111]">
+          <div className="scale-[1.35] text-white">
+            {renderIntegrationLogo(integration, 'panel')}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-4 border-b border-[#e7e5dd] pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-sm border border-[#e7e5dd] bg-white text-[#1f1e1a]">
+            {renderIntegrationLogo(integration, 'panel')}
+          </div>
+          <div>
+            <h3 className="text-[28px] leading-none tracking-[-0.03em] text-[#1f1e1a]">{title}</h3>
+            <p className="mt-1 text-xs text-[#8a877d]">{subtitle}</p>
+          </div>
+        </div>
+        <div>{renderPanelAction()}</div>
+      </div>
+    </div>
+  );
+
+  const renderIntegrationDetailsPanel = () => {
+    if (selectedIntegration === 'plaid') {
+      return (
+        <div className="flex h-full flex-col bg-white">
+          {renderPanelHeader('plaid', 'Plaid', `Bank sync • ${plaidMfaRequired ? 'MFA required' : plaidNeedsReconnect ? 'Reconnect required' : plaidConnected ? 'By Plaid' : 'Ready to connect'}`)}
+          <div className="min-h-0 flex-1 px-5">
+            <ScrollArea className="h-full">
+              <Accordion type="multiple" defaultValue={['how-it-works', 'settings']} className="pt-4">
+                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                  <AccordionContent className="text-sm text-[#69665c]">
+                    {plaidMfaRequired ? (
+                      <div className="space-y-3">
+                        <p>
+                          Ritual requires multi-factor authentication on the account before bank connections are available. Enable MFA in your account security settings, then return here to connect Plaid.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handlePlaidMfaSetup}
+                            className="px-3 py-2 text-sm border border-gray-300 rounded-sm hover:bg-[#f3f3f3]"
+                          >
+                            Open account security
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        Connect Plaid to import full available spending history from posted depository transactions. Ritual converts that into one daily Spending value instead of exposing a transaction ledger.
+                      </>
+                    )}
+                    {plaidConnected && !plaidMfaRequired ? (
+                      <div className="mt-4 flex gap-2">
+                        <button
+                          onClick={handlePlaidBackfill}
+                          disabled={plaidBackfilling}
+                          className="px-3 py-2 text-sm border border-[#d8d5cb] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+                        >
+                          {plaidBackfilling ? 'Backfilling...' : 'Backfill history'}
+                        </button>
+                      </div>
+                    ) : null}
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="settings" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
+                  <AccordionContent>
+                    {plaidMfaRequired ? (
+                      <div className="rounded-sm border border-gray-200 bg-white p-4 text-sm text-gray-700">
+                        Enable MFA on your Ritual account to unlock bank connections and Plaid sync settings.
+                      </div>
+                    ) : (
+                      renderPlaidDetails()
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+              <div className="border-t border-[#e7e5dd] pb-5 pt-6">
+                <p className="text-[11px] leading-5 text-[#8a877d]">
+                  Plaid is used here only to compute daily spending totals. Individual transaction categorization and merchant analytics are intentionally out of scope for this Ritual integration.
+                </p>
+              </div>
+            </ScrollArea>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedIntegration === 'whoop') {
+      return (
+        <div className="flex h-full flex-col bg-white">
+          {renderPanelHeader('whoop', 'Whoop', `Recovery • By Whoop`)}
+          <div className="min-h-0 flex-1 px-5">
+            <ScrollArea className="h-full">
+              <Accordion type="multiple" defaultValue={['how-it-works', 'settings']} className="pt-4">
+                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                  <AccordionContent className="text-sm text-[#69665c]">
+                    Track recovery, sleep, and strain data from your Whoop device and keep those habits in sync with Ritual.
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="settings" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
+                  <AccordionContent>{renderAutoSyncDetails('whoop', whoopConnection, whoopStatusData?.last_sync_at, whoopConnection?.stale_message || null)}</AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </ScrollArea>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedIntegration === 'applewatch') {
+      return (
+        <div className="flex h-full flex-col bg-white">
+          {renderPanelHeader('applewatch', 'Apple Watch', `Health data • Via Ritual Companion`)}
+          <div className="min-h-0 flex-1 px-5">
+            <ScrollArea className="h-full">
+              <Accordion type="multiple" defaultValue={['how-it-works', ...(appleWatchConnected ? ['settings'] : [])]} className="pt-4">
+                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                  <AccordionContent className="text-sm text-[#69665c]">
+                    Sync data from your iPhone companion app, including workouts, steps, heart rate, and sleep metrics.
+                  </AccordionContent>
+                </AccordionItem>
+                {appleWatchConnected ? (
+                  <AccordionItem value="settings" className="border-[#e7e5dd]">
+                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
+                    <AccordionContent>{renderAutoSyncDetails('apple_health', appleHealthConnection, appleWatchLastSync, null)}</AccordionContent>
+                  </AccordionItem>
+                ) : null}
+              </Accordion>
+            </ScrollArea>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedIntegration === 'oura') {
+      return (
+        <div className="flex h-full flex-col bg-white">
+          {renderPanelHeader('oura', 'Oura Ring', 'Sleep & readiness • By Oura')}
+          <div className="min-h-0 flex-1 px-5">
+            <ScrollArea className="h-full">
+              <Accordion type="multiple" defaultValue={['how-it-works', ...(ouraConnection && ouraConnection.status === 'active' ? ['settings'] : [])]} className="pt-4">
+                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                  <AccordionContent className="text-sm text-[#69665c]">
+                    Sync your sleep, readiness, HRV, and temperature trends from Oura Ring.
+                  </AccordionContent>
+                </AccordionItem>
+                {ouraConnection && ouraConnection.status === 'active' ? (
+                  <AccordionItem value="settings" className="border-[#e7e5dd]">
+                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
+                    <AccordionContent>{renderAutoSyncDetails('oura', ouraConnection, null, null)}</AccordionContent>
+                  </AccordionItem>
+                ) : null}
+              </Accordion>
+            </ScrollArea>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedIntegration === 'garmin') {
+      return (
+        <div className="flex h-full flex-col bg-white">
+          {renderPanelHeader('garmin', 'Garmin', 'Activity & recovery • By Garmin')}
+          <div className="min-h-0 flex-1 px-5">
+            <ScrollArea className="h-full">
+              <Accordion type="multiple" defaultValue={['how-it-works', ...(garminConnection && garminConnection.status === 'active' ? ['settings'] : [])]} className="pt-4">
+                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                  <AccordionContent className="text-sm text-[#69665c]">
+                    Integrate Garmin devices for activity, workout, sleep, and recovery tracking.
+                  </AccordionContent>
+                </AccordionItem>
+                {garminConnection && garminConnection.status === 'active' ? (
+                  <AccordionItem value="settings" className="border-[#e7e5dd]">
+                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
+                    <AccordionContent>{renderAutoSyncDetails('garmin', garminConnection, null, null)}</AccordionContent>
+                  </AccordionItem>
+                ) : null}
+              </Accordion>
+            </ScrollArea>
+          </div>
+        </div>
+      );
+    }
+
+    const titles: Record<string, string> = {
+      computer: 'Computer Use',
+      screentime: 'Apple Screen Time',
+      fitbit: 'Fitbit',
+      calai: 'Cal AI',
+      googlecalendar: 'Google Calendar',
+    };
+
+    return (
+      <div className="flex h-full flex-col bg-white">
+        {renderPanelHeader(selectedIntegration || 'computer', titles[selectedIntegration || ''] || 'Integration Details', selectedIntegration === 'computer' ? 'Desktop tracking • Local device' : 'Available soon')}
+        <div className="min-h-0 flex-1 px-5">
+          <ScrollArea className="h-full">
+            <Accordion type="multiple" defaultValue={['how-it-works']} className="pt-4">
+              <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                <AccordionContent className="text-sm text-[#69665c]">
+                  {selectedIntegration === 'computer'
+                    ? 'Manage computer tracking from the Computer Tracking settings panel.'
+                    : 'Additional integration details and setup controls will live here.'}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </ScrollArea>
+        </div>
+      </div>
+    );
+  };
+
   async function handleWhoopSync() {
     try {
       setSyncing(true);
@@ -691,6 +1628,126 @@ export function IntegrationsClient() {
     }
   }
 
+  async function handleWearableSyncSettingsUpdate(
+    provider: 'whoop' | 'apple_health' | 'oura' | 'garmin',
+    updates: { auto_sync_enabled?: boolean; sync_hour?: number }
+  ) {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      const connection = provider === 'whoop'
+        ? whoopConnection
+        : provider === 'apple_health'
+          ? appleHealthConnection
+          : provider === 'oura'
+            ? ouraConnection
+            : garminConnection;
+
+      const nextEnabled = updates.auto_sync_enabled ?? connection?.auto_sync_enabled ?? (provider !== 'apple_health');
+      const nextHour = updates.sync_hour ?? connection?.sync_hour ?? (provider === 'whoop' ? whoopSyncHour : 9);
+
+      const response = await fetch(`${API_BASE_URL}/api/wearables/connections/${provider}/sync-settings`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          auto_sync_enabled: nextEnabled,
+          sync_hour: nextHour,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update sync settings');
+      }
+
+      if (provider === 'whoop') {
+        setWhoopSyncHour(nextHour);
+        await refetchWhoopStatus();
+      }
+      await refetchWearableConnections();
+    } catch (error) {
+      console.error(`❌ Error updating ${provider} sync settings:`, error);
+      alert(`Failed to update ${provider} sync settings.`);
+    }
+  }
+
+  const renderAutoSyncDetails = (
+    provider: 'whoop' | 'apple_health' | 'oura' | 'garmin',
+    connection: any,
+    fallbackLastSync?: string | null,
+    staleMessage?: string | null,
+  ) => {
+    const autoSyncEnabled = connection?.auto_sync_enabled ?? (provider !== 'apple_health');
+    const syncHour = connection?.sync_hour ?? (provider === 'whoop' ? whoopSyncHour : 9);
+    const lastSyncValue = fallbackLastSync || connection?.last_sync_at || connection?.last_successful_sync_at || null;
+    const note = connection?.auto_sync_note;
+
+    return (
+      <div className="space-y-4">
+        <div className="rounded-sm border border-gray-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Auto sync</p>
+              <p className="mt-1 text-sm text-gray-600">Keep this integration updated automatically.</p>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={autoSyncEnabled}
+                onChange={(event) =>
+                  handleWearableSyncSettingsUpdate(provider, {
+                    auto_sync_enabled: event.target.checked,
+                    sync_hour: syncHour,
+                  })
+                }
+                className="h-4 w-4 rounded border-gray-300 text-black focus:ring-0"
+              />
+              <span>{autoSyncEnabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-4">
+            <div>
+              <p className="text-sm text-gray-900">Preferred sync time</p>
+              <p className="mt-1 text-xs text-gray-500">Choose the hour for background refreshes.</p>
+            </div>
+            <select
+              value={syncHour}
+              onChange={(event) =>
+                handleWearableSyncSettingsUpdate(provider, {
+                  auto_sync_enabled: autoSyncEnabled,
+                  sync_hour: Number(event.target.value),
+                })
+              }
+              disabled={!autoSyncEnabled}
+              className="h-9 min-w-[112px] rounded-sm border border-gray-300 bg-white px-3 text-sm text-gray-900 disabled:opacity-50"
+            >
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>
+                  {formatHour(hour)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between text-xs text-gray-500">
+            <span>Last sync</span>
+            <span className="text-gray-700">{formatRelativeTime(lastSyncValue)}</span>
+          </div>
+          {note ? (
+            <p className="mt-2 text-xs leading-5 text-gray-500">{note}</p>
+          ) : null}
+          {staleMessage ? (
+            <p className="mt-2 text-xs leading-5 text-gray-500">{staleMessage}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
   // ================================
   // APPLE WATCH HANDLERS
   // ================================
@@ -746,118 +1803,14 @@ export function IntegrationsClient() {
     );
   }
 
-  // ================================
-  // WEATHER HANDLERS
-  // ================================
-
-  async function syncWeatherWithCurrentLocation() {
-    const token = await getToken();
-    if (!token) return false;
-
-    const location = await requestCurrentLocation({
-      timeoutMs: 15000,
-      maximumAgeMs: 2 * 60 * 1000,
-      enableHighAccuracy: false,
-    });
-    setWeatherPermission(location.permission);
-
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-
-    const response = await fetch(`${API_BASE_URL}/api/integrations/weather/sync`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        lat: location.lat,
-        lon: location.lon,
-        tz,
-        locationLabel: weatherLocationLabel || 'Near you',
-        storePreciseLocation: false,
-      }),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(detail || 'Weather sync failed');
-    }
-
-    await refetchWeatherStatus();
-    return true;
-  }
-
-  async function handleWeatherConnect() {
+  async function handleWearableProviderConnect(provider: 'oura' | 'garmin') {
     try {
-      setWeatherConnecting(true);
+      setWearableConnectingProvider(provider);
 
       const token = await getToken();
       if (!token) return;
 
-      const connectResponse = await fetch(`${API_BASE_URL}/api/integrations/weather/connect`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!connectResponse.ok) {
-        throw new Error('Failed to connect Weather integration');
-      }
-
-      setWeatherConnected(true);
-      await refetchWeatherStatus();
-
-      try {
-        await syncWeatherWithCurrentLocation();
-      } catch (error: any) {
-        const locationCode = error?.code as LocationErrorCode | undefined;
-        if (locationCode === 'PERMISSION_DENIED') {
-          setWeatherPermission('denied');
-          await refetchWeatherStatus();
-          alert('Weather connected. Location access is denied, so weather cannot sync until you enable Location Services in System Settings.');
-          return;
-        }
-        throw error;
-      }
-
-      alert('Weather connected and synced successfully.');
-    } catch (error) {
-      console.error('❌ Error connecting Weather:', error);
-      alert(`Failed to connect Weather: ${error}`);
-    } finally {
-      setWeatherConnecting(false);
-    }
-  }
-
-  async function handleWeatherSync() {
-    try {
-      setWeatherSyncing(true);
-      await syncWeatherWithCurrentLocation();
-      alert('Weather synced successfully.');
-    } catch (error: any) {
-      const locationCode = error?.code as LocationErrorCode | undefined;
-      if (locationCode === 'PERMISSION_DENIED') {
-        setWeatherPermission('denied');
-      }
-      console.error('❌ Error syncing Weather:', error);
-      alert(`Weather sync failed: ${error?.message || error}`);
-    } finally {
-      setWeatherSyncing(false);
-    }
-  }
-
-  async function handleWeatherDisconnect() {
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      if (!confirm('Disconnect Weather integration?')) {
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/integrations/weather/disconnect`, {
+      const response = await fetch(`${API_BASE_URL}/api/wearables/connections/${provider}/authorize`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -866,42 +1819,82 @@ export function IntegrationsClient() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to disconnect Weather');
+        throw new Error('Failed to start wearable authorization');
       }
 
-      setWeatherConnected(false);
-      await refetchWeatherStatus();
-      alert('Weather disconnected.');
+      const result = await response.json();
+      if (result.authorization_url) {
+        await openInBrowser(result.authorization_url);
+        return;
+      }
+
+      alert(result.message || 'Wearable connection started.');
     } catch (error) {
-      console.error('❌ Error disconnecting Weather:', error);
-      alert(`Failed to disconnect Weather: ${error}`);
+      console.error(`❌ Error connecting ${provider}:`, error);
+      alert(`Failed to connect ${provider}: ${error}`);
+      setWearableConnectingProvider(null);
     }
   }
 
-  async function handleDeleteWeatherData() {
+  async function handleWearableProviderDisconnect(provider: 'oura' | 'garmin') {
     try {
       const token = await getToken();
       if (!token) return;
 
-      if (!confirm('Delete all stored weather snapshots? This cannot be undone.')) {
+      if (!confirm(`Disconnect ${provider === 'oura' ? 'Oura' : 'Garmin'}?`)) {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/integrations/weather/data`, {
-        method: 'DELETE',
+      const response = await fetch(`${API_BASE_URL}/api/wearables/connections/${provider}/disconnect`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete weather data');
+        throw new Error('Failed to disconnect wearable');
       }
 
-      alert('Stored weather data deleted.');
+      await refetchWearableConnections();
+      alert(`${provider === 'oura' ? 'Oura' : 'Garmin'} disconnected.`);
     } catch (error) {
-      console.error('❌ Error deleting weather data:', error);
-      alert(`Failed to delete weather data: ${error}`);
+      console.error(`❌ Error disconnecting ${provider}:`, error);
+      alert(`Failed to disconnect ${provider}: ${error}`);
+    }
+  }
+
+  async function handleWearableProviderSync(provider: 'oura' | 'garmin') {
+    try {
+      setWearableSyncingProvider(provider);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/wearables/connections/${provider}/sync`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Wearable sync failed');
+      }
+
+      const result = await response.json();
+      await Promise.all([
+        refetchWearableConnections(),
+        fetchHabits(),
+        fetchHabitLogs(),
+      ]);
+      alert(result.message || `${provider} sync finished.`);
+    } catch (error) {
+      console.error(`❌ Error syncing ${provider}:`, error);
+      alert(`Failed to sync ${provider}: ${error}`);
+    } finally {
+      setWearableSyncingProvider(null);
     }
   }
 
@@ -911,8 +1904,9 @@ export function IntegrationsClient() {
   if (
     (isLoading && whoopStatusData === undefined) ||
     (isLoadingAppleWatch && appleWatchStatusData === undefined) ||
-    (isLoadingComputerTracking && computerTrackingStatus === undefined) ||
-    (isLoadingWeather && weatherStatusData === undefined)
+    (isLoadingWearables && wearableConnectionsData === undefined) ||
+    (isLoadingFinancialConnections && financialConnectionsData === undefined) ||
+    (isLoadingComputerTracking && computerTrackingStatus === undefined)
   ) {
     return (
       <>
@@ -936,41 +1930,32 @@ export function IntegrationsClient() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Computer Tracking Card - Only show on desktop (Tauri) */}
+        {/* Computer Use Card - Only show on desktop (Tauri) */}
         {isTauri() && (
           <IntegrationCard
             logo={<Monitor className="h-7 w-7 text-gray-900" />}
-            title="Computer Tracking"
-            description={computerTrackingEnabled 
-              ? `Tracking active on ${computerTrackingDeviceName}. Monitor app usage, browser activity, and screen time.`
-              : "Track your computer usage including apps, websites, and active time automatically."
-            }
+            title="Computer Use"
+            description="Track your computer usage including apps, websites, and active time automatically."
             isConnected={computerTrackingEnabled}
-            onConnect={() => setShowComputerTrackingSettings(true)}
-            onDisconnect={() => setShowComputerTrackingSettings(true)}
-            onDetails={() => setShowComputerTrackingSettings(true)}
+            onConnect={() => router.replace('/integrations?openSettings=computer-tracking')}
+            onDisconnect={() => router.replace('/integrations?openSettings=computer-tracking')}
+            onDetails={() => openIntegrationDetails('computer')}
           />
         )}
 
+        {/* Apple Watch Card - 2nd, right next to Computer Use */}
         <IntegrationCard
-          logo={<CloudSun className="h-7 w-7 text-gray-900" />}
-          title="Weather"
-          description={
-            weatherConnected
-              ? `Connected. Last location: ${weatherLocationLabel}.`
-              : 'Show current weather context and daily summary from your current location.'
+          logo={
+            <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
+              <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
+            </svg>
           }
-          isConnected={weatherConnected}
-          isConnecting={weatherConnecting}
-          isSyncing={weatherSyncing}
-          connectVariant="outline"
-          onConnect={handleWeatherConnect}
-          onSync={handleWeatherSync}
-          onDisconnect={handleWeatherDisconnect}
-          onDetails={() => {
-            setSelectedIntegration('weather');
-            setDetailsOpen(true);
-          }}
+          title="Apple Watch"
+          description="Sync your Apple Watch data including workouts, steps, heart rate, and sleep metrics."
+          isConnected={appleWatchConnected}
+          onConnect={handleAppleWatchConnect}
+          onDisconnect={handleAppleWatchDisconnect}
+          onDetails={() => openIntegrationDetails('applewatch')}
         />
 
         {/* Whoop Card */}
@@ -985,37 +1970,71 @@ export function IntegrationsClient() {
             />
           }
           title="Whoop"
-          description="Track your recovery, sleep, and strain data from your Whoop device"
+          description="Track your recovery, sleep, and strain data from your Whoop device."
           isConnected={whoopConnected}
           isConnecting={whoopConnecting}
           isSyncing={syncing}
           onConnect={handleWhoopConnect}
           onSync={handleWhoopSync}
           onDisconnect={handleWhoopDisconnect}
-          onDetails={() => {
-            setSelectedIntegration('whoop');
-            setDetailsOpen(true);
-          }}
+          onDetails={() => openIntegrationDetails('whoop')}
         />
 
+        {/* Oura Ring - before Coming soon cards */}
+        <IntegrationCard
+          logo={<Image src="/images/oura.svg" alt="Oura" width={40} height={40} className="h-10 w-auto object-contain" />}
+          title="Oura Ring"
+          description="Sync your sleep, readiness, HRV, and temperature trends from Oura Ring."
+          isConnected={!!ouraConnection && ouraConnection.status === 'active'}
+          isConnecting={wearableConnectingProvider === 'oura'}
+          isSyncing={wearableSyncingProvider === 'oura'}
+          onConnect={() => handleWearableProviderConnect('oura')}
+          onSync={() => handleWearableProviderSync('oura')}
+          onDisconnect={() => handleWearableProviderDisconnect('oura')}
+          onDetails={() => openIntegrationDetails('oura')}
+        />
+
+        {/* Garmin - before Coming soon cards */}
+        <IntegrationCard
+          logo={<Image src="/images/garmin.svg" alt="Garmin" width={60} height={24} className="h-6 w-auto object-contain" />}
+          title="Garmin"
+          description="Integrate Garmin devices for activity, workout, sleep, and recovery tracking."
+          isConnected={!!garminConnection && garminConnection.status === 'active'}
+          isConnecting={wearableConnectingProvider === 'garmin'}
+          isSyncing={wearableSyncingProvider === 'garmin'}
+          onConnect={() => handleWearableProviderConnect('garmin')}
+          onSync={() => handleWearableProviderSync('garmin')}
+          onDisconnect={() => handleWearableProviderDisconnect('garmin')}
+          onDetails={() => openIntegrationDetails('garmin')}
+        />
+
+        {/* Coming soon cards */}
         <IntegrationCard
           logo={
-            <svg className="h-6 w-6" viewBox="0 0 814 1000" fill="currentColor">
-              <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
-            </svg>
+            <Image src="/images/plaid-mark.svg" alt="Plaid" width={48} height={52} className="h-7 w-auto object-contain" />
           }
-          title="Apple Watch"
-          description={appleWatchConnected 
-            ? `Connected via ${appleWatchDeviceName}. Sync data from your iPhone's Ritual Companion app.`
-            : "Sync your Apple Watch data including workouts, steps, heart rate, and sleep metrics."
+          title="Plaid"
+          descriptionLineClamp={3}
+          description="Connect any of your bank accounts to track your spending behavior—Ritual summarizes posted transactions into simple daily totals."
+          isConnected={plaidConnected}
+          isConnecting={plaidConnecting}
+          isSyncing={!plaidNeedsReconnect && plaidSyncing}
+          connectLabel="Connect"
+          onConnect={plaidMfaRequired ? handlePlaidMfaSetup : handlePlaidConnect}
+          onSync={plaidNeedsReconnect ? undefined : handlePlaidSync}
+          onDisconnect={handlePlaidDisconnect}
+          onDetails={() => openIntegrationDetails('plaid')}
+          extraActions={
+            plaidConnected && plaidNeedsReconnect ? (
+              <button
+                onClick={handlePlaidReconnect}
+                disabled={plaidConnecting}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
+              >
+                {plaidConnecting ? 'Reconnecting...' : 'Reconnect'}
+              </button>
+            ) : null
           }
-          isConnected={appleWatchConnected}
-          onConnect={handleAppleWatchConnect}
-          onDisconnect={handleAppleWatchDisconnect}
-          onDetails={() => {
-            setSelectedIntegration('applewatch');
-            setDetailsOpen(true);
-          }}
         />
 
         <IntegrationCard
@@ -1023,21 +2042,7 @@ export function IntegrationsClient() {
           title="Apple Screen Time"
           description="Track your digital habits by importing Screen Time data from your iPhone or iPad."
           comingSoon
-          onDetails={() => {
-            setSelectedIntegration('screentime');
-            setDetailsOpen(true);
-          }}
-        />
-
-        <IntegrationCard
-          logo={<Image src="/images/oura.svg" alt="Oura" width={40} height={40} className="h-10 w-auto object-contain" />}
-          title="Oura Ring"
-          description="Sync your sleep and readiness scores from Oura Ring"
-          comingSoon
-          onDetails={() => {
-            setSelectedIntegration('oura');
-            setDetailsOpen(true);
-          }}
+          onDetails={() => openIntegrationDetails('screentime')}
         />
 
         <IntegrationCard
@@ -1045,21 +2050,7 @@ export function IntegrationsClient() {
           title="Fitbit"
           description="Connect your Fitbit to track activity and health metrics"
           comingSoon
-          onDetails={() => {
-            setSelectedIntegration('fitbit');
-            setDetailsOpen(true);
-          }}
-        />
-
-        <IntegrationCard
-          logo={<Image src="/images/garmin.svg" alt="Garmin" width={60} height={24} className="h-6 w-auto object-contain" />}
-          title="Garmin"
-          description="Integrate Garmin devices for comprehensive activity tracking"
-          comingSoon
-          onDetails={() => {
-            setSelectedIntegration('garmin');
-            setDetailsOpen(true);
-          }}
+          onDetails={() => openIntegrationDetails('fitbit')}
         />
 
         <IntegrationCard
@@ -1067,10 +2058,7 @@ export function IntegrationsClient() {
           title="Cal AI"
           description="Track your nutrition and calories with AI-powered food recognition"
           comingSoon
-          onDetails={() => {
-            setSelectedIntegration('calai');
-            setDetailsOpen(true);
-          }}
+          onDetails={() => openIntegrationDetails('calai')}
         />
 
         <IntegrationCard
@@ -1078,130 +2066,16 @@ export function IntegrationsClient() {
           title="Google Calendar"
           description="Track meeting time, frequency, and patterns by syncing your Google Calendar events"
           comingSoon
-          onDetails={() => {
-            setSelectedIntegration('googlecalendar');
-            setDetailsOpen(true);
-          }}
+          onDetails={() => openIntegrationDetails('googlecalendar')}
         />
       </div>
 
-      {/* Side Panel for Integration Details */}
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <SheetContent className="overflow-hidden [&>button]:hidden">
-          {selectedIntegration === 'weather' ? (
-            <>
-              <SheetHeader className="pb-3 border-b border-gray-200">
-                <SheetTitle className="text-base font-medium">Weather</SheetTitle>
-              </SheetHeader>
-              <ScrollArea className="h-[calc(100vh-110px)] pr-4">
-                <div className="py-4 space-y-4 text-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-gray-500">Connection</div>
-                      <div className="text-gray-900">{weatherConnected ? 'Connected' : 'Not connected'}</div>
-                    </div>
-                    <button
-                      onClick={weatherConnected ? handleWeatherDisconnect : handleWeatherConnect}
-                      className={`px-3 py-1.5 text-sm rounded-sm border ${
-                        weatherConnected
-                          ? 'border-gray-300 hover:bg-[#F3F3F3]'
-                          : 'bg-black text-white border-black hover:bg-gray-800'
-                      }`}
-                    >
-                      {weatherConnected ? 'Disconnect' : 'Connect'}
-                    </button>
-                  </div>
-
-                  <div>
-                    <div className="text-gray-500">Location permission</div>
-                    <div className={`${weatherPermission === 'denied' ? 'text-red-600' : 'text-gray-900'} flex items-center gap-1.5`}>
-                      {weatherPermission === 'denied' && <AlertCircle className="w-4 h-4" />}
-                      <span>{getPermissionLabel(weatherPermission)}</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-gray-500">Last sync</div>
-                    <div className="text-gray-900">{formatRelativeTime(weatherLastSync)}</div>
-                  </div>
-
-                  <div>
-                    <div className="text-gray-500">Stored location label</div>
-                    <div className="text-gray-900">{weatherLocationLabel}</div>
-                  </div>
-
-                  {weatherLastError && (
-                    <div className="border border-red-200 bg-red-50 text-red-700 px-3 py-2">
-                      {weatherLastError}
-                    </div>
-                  )}
-
-                  <div className="text-xs text-gray-500 leading-relaxed border border-gray-200 bg-gray-50 p-3">
-                    We store weather snapshots (conditions + daily summary) with timezone and a user-facing location label.
-                    Precise latitude/longitude is not stored by default.
-                  </div>
-
-                  <div className="text-xs text-gray-500">
-                    Precise coordinate storage: {weatherStorePrecise ? 'Enabled' : 'Disabled'}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={handleWeatherSync}
-                      disabled={weatherSyncing || !weatherConnected}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] disabled:opacity-50"
-                    >
-                      {weatherSyncing ? 'Syncing...' : 'Sync Now'}
-                    </button>
-                    <button
-                      onClick={handleDeleteWeatherData}
-                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] inline-flex items-center gap-1.5"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Delete weather data
-                    </button>
-                  </div>
-                </div>
-              </ScrollArea>
-            </>
-          ) : (
-            <>
-              <SheetHeader className="pb-3 border-b border-gray-200">
-                <SheetTitle className="text-base font-medium">Integration Details</SheetTitle>
-              </SheetHeader>
-              <div className="p-4 text-sm text-gray-600">
-                Select Weather to view connection status, permission state, sync controls, and retention details.
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
-
-      {/* Computer Tracking Settings Sheet */}
-      <Sheet open={showComputerTrackingSettings} onOpenChange={setShowComputerTrackingSettings}>
-        <SheetContent className="w-[500px] sm:max-w-[500px] overflow-hidden">
-          <SheetHeader className="flex flex-row items-center gap-3 pb-4 border-b border-gray-200">
-            <button 
-              onClick={() => setShowComputerTrackingSettings(false)}
-              className="p-1 hover:bg-gray-100 rounded transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
-            </button>
-            <SheetTitle className="text-base font-medium">Computer Tracking</SheetTitle>
+        <SheetContent className="overflow-hidden">
+          <SheetHeader className="sr-only">
+            <SheetTitle>{selectedIntegration ? `${selectedIntegration} details` : 'Integration details'}</SheetTitle>
           </SheetHeader>
-          <ScrollArea className="h-[calc(100vh-100px)] pr-4">
-            <div className="py-4">
-              {user?.id && (
-                <ComputerTrackingSettings 
-                  userId={user.id} 
-                  onClose={() => {
-                    setShowComputerTrackingSettings(false);
-                    refetchComputerTracking();
-                  }} 
-                />
-              )}
-            </div>
-          </ScrollArea>
+          {renderIntegrationDetailsPanel()}
         </SheetContent>
       </Sheet>
     </>

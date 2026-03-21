@@ -36,11 +36,14 @@ from services.tinybird_service import TinybirdService
 from services.whoop_service import WhoopService
 from services.user_service import UserService
 from api.analytics import create_analytics_router
+from api.biometrics import create_biometrics_router
 from api.core import create_core_router
 from api.conversations import create_conversations_router
+from api.financial import create_financial_router
 from api.integrations import create_whoop_router
 from api.imports import create_imports_router
 from api.search import create_search_router
+from api.screen_time import create_screen_time_router
 from api.screenshot import create_screenshot_router
 from api.wearables import create_wearables_router
 from database.connection import get_db_session, get_database_runtime_health
@@ -113,6 +116,11 @@ app.include_router(
     )
 )
 app.include_router(
+    create_biometrics_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
     create_whoop_router(
         get_current_user=get_current_user,
         whoop_service=whoop_service,
@@ -151,11 +159,21 @@ app.include_router(
     )
 )
 app.include_router(
+    create_screen_time_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
     create_imports_router(
         limiter=limiter,
         get_current_user=get_current_user,
         habits_service=habits_service,
         tinybird_service=tinybird_service,
+    )
+)
+app.include_router(
+    create_financial_router(
+        get_current_user=get_current_user,
     )
 )
 
@@ -307,9 +325,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 # WATCHER API ROUTER - Computer Activity Tracking
 # ================================
 
-from integrations.weather.router import router as weather_router
-app.include_router(weather_router)
-
 from api.memory import router as memory_router
 app.include_router(memory_router)
 
@@ -383,6 +398,13 @@ async def startup_event():
     
     from database.connection import init_database
     await init_database()
+    try:
+        from services.search_service import search_service
+
+        await search_service.ensure_collections()
+        logger.info("🔎 Typesense search collections are ready")
+    except Exception as exc:
+        logger.warning("⚠️ Typesense search initialization skipped: %s", exc)
     logger.info("🚀 Ritual Backend API started successfully!")
     logger.info("📅 Automated Whoop sync is handled by Trigger.dev (runs daily at 9 AM)")
     logger.info("🖥️ Watcher API ready for computer activity tracking")

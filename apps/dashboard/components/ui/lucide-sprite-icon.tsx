@@ -22,7 +22,7 @@ export function LucideSpriteIcon({ name, className = 'h-4 w-4 text-gray-600' }: 
 
   return (
     <svg
-      className={className}
+      className={`block ${className ?? ''}`.trim()}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

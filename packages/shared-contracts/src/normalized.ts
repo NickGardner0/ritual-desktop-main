@@ -11,6 +11,7 @@
 export type WearableSource = 
   | "whoop" 
   | "apple_health" 
+  | "apple_screen_time"
   | "oura" 
   | "garmin" 
   | "fitbit";
@@ -37,7 +38,10 @@ export type MetricType =
   | "respiratory_rate"
   | "oxygen_saturation"
   | "workout"
-  | "mindful_minutes";
+  | "mindful_minutes"
+  | "screen_time_total"
+  | "screen_time_app_usage"
+  | "screen_time_web_domain_usage";
 
 export type Unit =
   | "count"

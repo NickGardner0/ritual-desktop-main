@@ -307,7 +307,7 @@ export function HistoryScrubber({
       {selectedDate && (
         <button
           onClick={() => onSelectDate(null)}
-          className="absolute right-0 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded transition-colors"
+          className="absolute right-0 top-1/2 -translate-y-1/2 p-1 rounded transition-colors"
           aria-label="Clear selection"
         >
           <X className="w-3 h-3 text-gray-400" />

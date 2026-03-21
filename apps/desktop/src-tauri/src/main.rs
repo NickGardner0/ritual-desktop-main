@@ -29,46 +29,81 @@ use std::sync::Mutex;
 // - Production: https://app.ritual.app (when deployed to Vercel)
 //
 // Set RITUAL_ENV environment variable to control which URL is used.
-// Default is "development" for local dev workflow.
+// Debug builds default to development; release builds default to production.
 // ============================================================================
+
+const DEV_APP_URL: &str = "http://localhost:3000";
+const STAGING_APP_URL: &str = "https://staging.ritual.app";
+const PROD_APP_URL: &str = "https://app.ritual.app";
+const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
+
+fn read_nonempty_env(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn configured_ritual_env() -> String {
+    read_nonempty_env("RITUAL_ENV")
+        .or_else(|| {
+            option_env!("RITUAL_ENV")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| {
+            if cfg!(debug_assertions) {
+                "development".to_string()
+            } else {
+                "production".to_string()
+            }
+        })
+}
 
 /// Get the app URL based on environment
 /// This follows the Midday pattern where the desktop app loads from a hosted URL
 fn get_app_url() -> String {
-    // Check runtime env var first, then compile-time, then default to development
-    let env = env::var("RITUAL_ENV")
-        .unwrap_or_else(|_| {
-            option_env!("RITUAL_ENV")
-                .unwrap_or("development")
-                .to_string()
-        });
+    if let Some(explicit_url) = read_nonempty_env("RITUAL_APP_URL") {
+        println!("🌍 Using explicit Ritual app URL override: {}", explicit_url);
+        return explicit_url;
+    }
+
+    let env = configured_ritual_env();
 
     println!("🌍 Ritual environment: {}", env);
 
     match env.as_str() {
         "development" | "dev" => {
-            let url = "http://localhost:3000".to_string();
+            let url = read_nonempty_env("RITUAL_DEV_URL")
+                .unwrap_or_else(|| DEV_APP_URL.to_string());
             println!("🌍 Using development URL: {}", url);
             url
         },
         "staging" => {
-            // TODO: Update this when you have a staging environment
-            let url = env::var("RITUAL_STAGING_URL")
-                .unwrap_or_else(|_| "https://staging.ritual.app".to_string());
+            let url = read_nonempty_env("RITUAL_STAGING_URL")
+                .unwrap_or_else(|| STAGING_APP_URL.to_string());
             println!("🌍 Using staging URL: {}", url);
             url
         },
         "production" | "prod" => {
-            // TODO: Update this when you deploy to Vercel
-            let url = env::var("RITUAL_PROD_URL")
-                .unwrap_or_else(|_| "https://app.ritual.app".to_string());
+            let url = read_nonempty_env("RITUAL_PROD_URL")
+                .unwrap_or_else(|| PROD_APP_URL.to_string());
             println!("🌍 Using production URL: {}", url);
             url
         },
         _ => {
-            eprintln!("⚠️ Unknown environment: {}, defaulting to development", env);
-            let url = "http://localhost:3000".to_string();
-            println!("🌍 Using fallback development URL: {}", url);
+            let fallback = if cfg!(debug_assertions) {
+                DEV_APP_URL
+            } else {
+                PROD_APP_URL
+            };
+            eprintln!(
+                "⚠️ Unknown environment: {}, defaulting to {}",
+                env,
+                if cfg!(debug_assertions) { "development" } else { "production" }
+            );
+            let url = fallback.to_string();
+            println!("🌍 Using fallback URL: {}", url);
             url
         }
     }
@@ -441,6 +476,7 @@ fn ensure_detached_sidebar_window(app: &tauri::AppHandle, app_url: &str, width: 
             "sidebar",
             tauri::WindowUrl::External(sidebar_external_url),
         )
+        .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
         .title("")
         .decorations(false)
         .transparent(true)
@@ -636,8 +672,10 @@ fn main() {
   // Create system tray menu with native timer widget access
   let quit = CustomMenuItem::new("quit".to_string(), "Quit");
   let show_widget = CustomMenuItem::new("show_widget".to_string(), "Show Focus Timer");
+  let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
   let tray_menu = SystemTrayMenu::new()
     .add_item(show_widget)
+    .add_item(check_updates)
     .add_item(quit);
   
   let system_tray = SystemTray::new().with_menu(tray_menu);
@@ -768,6 +806,14 @@ fn main() {
             println!("📱 Show widget menu clicked");
             native_widget::create_native_timer_widget();
           }
+          "check_updates" => {
+            println!("⬇️ Check for updates requested from system tray");
+            if let Some(window) = _app.get_window("main") {
+              let _ = window.show();
+              let _ = window.set_focus();
+              let _ = window.emit("ritual://check-for-updates", ());
+            }
+          }
           _ => {}
         }
       }
@@ -778,7 +824,8 @@ fn main() {
       let handle = app.handle();
       
       // Get the app URL based on environment (Midday pattern)
-      let mut app_url = get_app_url();
+      let ritual_env = configured_ritual_env();
+      let mut app_url = with_query_param(&get_app_url(), &format!("ritual_desktop_env={}", ritual_env));
       let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
       if transparency_probe {
         println!("🧪 Transparency probe mode enabled (RITUAL_TRANSPARENCY_PROBE=1)");
