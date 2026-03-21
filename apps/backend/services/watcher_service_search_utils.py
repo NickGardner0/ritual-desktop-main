@@ -164,7 +164,10 @@ def build_expanded_fts_query_impl(query: str) -> str:
         return escape_fts_phrase_impl(raw)
 
     # Prefix matching allows recall when OCR captures partial/morphed terms.
-    terms = [f"\"{token.replace('\"', '\"\"')}\"*" for token in expanded_tokens]
+    terms = []
+    for token in expanded_tokens:
+        escaped_token = token.replace('"', '""')
+        terms.append(f'"{escaped_token}"*')
     if len(terms) == 1:
         return terms[0]
     return f"({' OR '.join(terms)})"
