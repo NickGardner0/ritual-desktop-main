@@ -17,7 +17,7 @@
     "contracts:build": "npm run --workspace @ritual/shared-contracts build",
     "contracts:typecheck": "npm run --workspace @ritual/shared-contracts typecheck",
     "dev:webpack": "cd apps/dashboard && next dev -p 3000",
-    "build": "npm run typecheck && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' next build --webpack",
+    "build": "npm run typecheck && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' next build --webpack && cd ../.. && node scripts/normalize-next-proxy-output.mjs",
     "start": "cd apps/dashboard && next start -p 3000",
     "lint": "cd apps/dashboard && eslint .",
     "tauri": "cd apps/desktop && tauri",
