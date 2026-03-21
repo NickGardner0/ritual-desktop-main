@@ -45,7 +45,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^3.9.1",
     "@mui/icons-material": "^7.3.4",
-    "@next/swc-darwin-arm64": "^16.1.4",
     "@openpanel/nextjs": "^1.1.1",
     "@radix-ui/react-accordion": "^1.2.2",
     "@radix-ui/react-alert-dialog": "^1.1.4",
