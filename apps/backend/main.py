@@ -181,6 +181,11 @@ app.include_router(
 async def root():
     return {"message": "Ritual Backend API", "status": "running"}
 
+@app.get("/ready")
+async def ready_check():
+    """Lightweight readiness probe for platform health checks."""
+    return {"status": "ready"}
+
 @app.get("/health")
 async def health_check():
     """
