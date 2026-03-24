@@ -28,11 +28,39 @@ Move the private key out of `/private/tmp` before release day and store it in Gi
 
 ## Release Flow
 
-1. Bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json).
-2. Commit the version bump to `main`.
-3. Push a Git tag like `v0.1.1`.
-4. GitHub Actions runs [.github/workflows/desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml).
-5. GitHub publishes a normal Release so `/releases/latest/download/latest.json` stays valid for the updater.
+### Current recommended path
+
+Today, the safest release path is:
+
+1. Build locally with [scripts/build-macos-desktop-release.sh](/Users/nickgardner/Desktop/ritual-desktop-main/scripts/build-macos-desktop-release.sh) through:
+
+```bash
+npm run desktop:release:preflight
+npm run desktop:release:mac
+```
+
+2. Create the Git tag, for example:
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+3. Create the GitHub Release manually in the GitHub web UI.
+4. Upload the local release artifacts:
+   - DMG
+   - updater tarball
+   - updater signature
+   - `latest.json`
+5. Publish the release so `/releases/latest/download/latest.json` becomes the live updater feed.
+
+### Why manual release upload is currently preferred
+
+The local release script contains the macOS sidecar-signing workaround for `ritual-watcher`, while the current GitHub Actions workflow still uses the simpler Tauri Action path. Until the workflow is updated to reproduce the same signing/notarization flow, local build + manual GitHub Release upload is the reliable option.
+
+### Future goal
+
+Once `.github/workflows/desktop-release.yml` is updated to use the same sidecar-signing flow as the local release script, tag-only automated releases can become the default path again.
 
 ## Local Release Build
 
@@ -40,7 +68,7 @@ Move the private key out of `/private/tmp` before release day and store it in Gi
 export APPLE_ID="you@example.com"
 export APPLE_PASSWORD="app-specific-password"
 export APPLE_TEAM_ID="D657T2LVR2"
-export TAURI_PRIVATE_KEY="/private/tmp/ritual-updater.key"
+export TAURI_PRIVATE_KEY="$HOME/.ritual-secrets/ritual-updater.key"
 npm run desktop:release:preflight
 npm run desktop:release:mac
 ```

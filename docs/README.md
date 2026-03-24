@@ -13,6 +13,7 @@ This folder contains design notes, implementation guides, and operational docs f
 
 - `docs/guides/start-here.md`
 - `docs/guides/environment-setup.md`
+- `docs/dev-to-production-workflow.md`
 - `docs/desktop-release-playbook.md`
 - `docs/analysis/midday-ai-chat-analysis.md`
 - `docs/analysis/optimization-summary.md`
