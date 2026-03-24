@@ -7,6 +7,7 @@ mod recorder;
 mod watcher;
 mod ritual_database;
 mod local_search_bridge;
+mod desktop_runtime;
 
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager};
 use std::path::PathBuf;
@@ -683,6 +684,7 @@ fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_context_menu::init())
     .manage(SidebarWindowState::default())
+    .manage(desktop_runtime::DesktopShellState::default())
     // Only expose native macOS features - auth is handled by Clerk
     .invoke_handler(tauri::generate_handler![
       // Window management
@@ -756,6 +758,11 @@ fn main() {
       recorder::extract_frame_image,
       recorder::clear_frame_cache,
       recorder::get_frame_cache_stats,
+      // Desktop runtime / updater commands
+      desktop_runtime::get_desktop_runtime_info,
+      desktop_runtime::desktop_frontend_ready,
+      desktop_runtime::desktop_manual_update_check,
+      desktop_runtime::desktop_install_update,
       // Ritual Database commands (unified libSQL with vector search)
       ritual_database::init_ritual_database,
       ritual_database::get_ritual_db_stats,
@@ -811,8 +818,8 @@ fn main() {
             if let Some(window) = _app.get_window("main") {
               let _ = window.show();
               let _ = window.set_focus();
-              let _ = window.emit("ritual://check-for-updates", ());
             }
+            desktop_runtime::tray_check_for_updates(_app.app_handle());
           }
           _ => {}
         }
@@ -1051,6 +1058,8 @@ fn main() {
           }
         });
       }
+
+      desktop_runtime::register_startup_update_check(app.handle());
       
       Ok(())
     })
