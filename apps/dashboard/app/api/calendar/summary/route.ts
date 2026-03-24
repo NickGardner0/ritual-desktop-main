@@ -116,10 +116,12 @@ export async function POST(req: NextRequest) {
               });
             }
           }
+          const docPath = s.document_path ? ` (${s.document_path})` : '';
+          const semanticLine = s.semantic_summary ? `\nSemantic: ${s.semantic_summary}` : '';
           const header = timeStr
-            ? `[${timeStr}] ${s.app_name} — ${s.window_title}`
-            : `${s.app_name} — ${s.window_title}`;
-          return `${header}\n${s.snippet}`;
+            ? `[${timeStr}] ${s.app_name} — ${s.window_title}${docPath}`
+            : `${s.app_name} — ${s.window_title}${docPath}`;
+          return `${header}${semanticLine}\n${s.snippet}`;
         });
         contextParts.push('Screen content samples (OCR text with timestamps, in chronological order):\n\n' + snippetLines.join('\n\n'));
       }
@@ -164,7 +166,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Single-pass summary with screen evidence
-    const prompt = `You are an expert daily activity summarizer. You have access to a user's screen recordings — window titles, app usage times, OCR text from their screen, and git commit history. Your job is to reconstruct what they actually DID and ACCOMPLISHED, not just list what was open.
+    const prompt = `You are an expert daily activity summarizer. You have access to a user's screen recordings — window titles, app usage times, accessibility-extracted text from their screen, semantic summaries of each capture, and git commit history. Your job is to reconstruct what they actually DID and ACCOMPLISHED, not just list what was open.
+
+When a "Semantic:" line is provided for a capture, TRUST IT — it's a pre-analyzed description of what was happening. Use it as your primary signal for that workstream.
 
 CRITICAL: You must INFER the specific work being done from the evidence:
 - Window title "vector.rs — ritual-desktop-main — Modified" + app "Cursor" = "You edited the vector search implementation in \`vector.rs\`, working on the ritual-desktop project"

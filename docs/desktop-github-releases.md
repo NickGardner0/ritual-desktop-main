@@ -6,10 +6,10 @@ For the full rollout policy, including when to deploy web-only changes versus wh
 
 ## Feed
 
-- Stable updater endpoint: `https://github.com/NickGardner0/ritual-desktop-main/releases/latest/download/latest.json`
+- Stable updater endpoint: `https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json`
 - The desktop app bakes this endpoint into the production Tauri config at build time.
 - The app checks for updates on startup and can be told to re-check from the tray menu.
-- The GitHub Release must be published normally and its assets must be publicly downloadable for the updater feed to work.
+- The updater assets live in the separate public repo `NickGardner0/ritual-desktop-releases` so the source repo can stay private.
 
 ## Keys
 
@@ -46,7 +46,7 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-3. Create the GitHub Release manually in the GitHub web UI.
+3. Create the GitHub Release manually in the `NickGardner0/ritual-desktop-releases` web UI.
 4. Upload the local release artifacts:
    - DMG
    - updater tarball
@@ -80,7 +80,7 @@ That command writes a production-only Tauri config with the updater enabled, the
 After publishing the Release, validate the updater feed:
 
 ```bash
-node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-main/releases/latest/download/latest.json --check-urls
+node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
 ```
 
 Then run the packaged-app checks in [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).

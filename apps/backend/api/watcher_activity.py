@@ -251,17 +251,119 @@ async def get_screen_evidence(
         conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
         conn.row_factory = _sqlite3.Row
 
-        # Top window titles by frequency
-        rows = conn.execute(
-            """SELECT app_name, window_title, COUNT(*) as freq
-               FROM ocr_frames
-               WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
-                 AND app_name IS NOT NULL AND app_name != ''
-               GROUP BY app_name, window_title
-               ORDER BY freq DESC
-               LIMIT ?""",
-            (date, limit),
-        ).fetchall()
+        # Try context_snapshots first (richer accessibility data), fall back to ocr_frames
+        has_context_snapshots = False
+        try:
+            check = conn.execute(
+                "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
+                (date,),
+            ).fetchone()
+            has_context_snapshots = (check[0] or 0) > 0
+        except Exception:
+            pass
+
+        if has_context_snapshots:
+            # --- Use context_snapshots (rich accessibility data) ---
+            rows = conn.execute(
+                """SELECT app_name, window_title, COUNT(*) as freq
+                   FROM context_snapshots
+                   WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
+                     AND app_name IS NOT NULL AND app_name != ''
+                   GROUP BY app_name, window_title
+                   ORDER BY freq DESC
+                   LIMIT ?""",
+                (date, limit),
+            ).fetchall()
+
+            # Check if semantic_summary column exists
+            has_semantic = False
+            try:
+                conn.execute("SELECT semantic_summary FROM context_snapshots LIMIT 0")
+                has_semantic = True
+            except Exception:
+                pass
+
+            semantic_col = "semantic_summary," if has_semantic else "''" + " as semantic_summary,"
+            snippets = conn.execute(
+                f"""WITH ranked AS (
+                     SELECT app_name, window_title, document_path,
+                            {semantic_col}
+                            substr(COALESCE(visible_text_raw, visible_text_norm, ''), 1, 800) as snippet,
+                            ts as timestamp,
+                            ax_richness_score,
+                            ROW_NUMBER() OVER (
+                              PARTITION BY app_name, window_title
+                              ORDER BY ax_richness_score DESC, length(COALESCE(visible_text_raw, visible_text_norm, '')) DESC
+                            ) as rn
+                     FROM context_snapshots
+                     WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
+                       AND length(COALESCE(visible_text_raw, visible_text_norm, '')) > 60
+                       AND window_title IS NOT NULL AND window_title != ''
+                   )
+                   SELECT app_name, window_title, document_path, semantic_summary, snippet, timestamp, ax_richness_score
+                   FROM ranked
+                   WHERE rn <= 3
+                   ORDER BY timestamp ASC
+                   LIMIT 80""",
+                (date,),
+            ).fetchall()
+
+            ocr_snippets = [
+                {
+                    "app_name": s["app_name"],
+                    "window_title": s["window_title"],
+                    "document_path": s["document_path"] or "",
+                    "semantic_summary": s["semantic_summary"] or "",
+                    "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
+                    "time": s["timestamp"],
+                    "ax_richness_score": round(s["ax_richness_score"] or 0.0, 3),
+                }
+                for s in snippets
+            ]
+        else:
+            # --- Fallback: legacy ocr_frames ---
+            rows = conn.execute(
+                """SELECT app_name, window_title, COUNT(*) as freq
+                   FROM ocr_frames
+                   WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
+                     AND app_name IS NOT NULL AND app_name != ''
+                   GROUP BY app_name, window_title
+                   ORDER BY freq DESC
+                   LIMIT ?""",
+                (date, limit),
+            ).fetchall()
+
+            snippets = conn.execute(
+                """WITH ranked AS (
+                     SELECT app_name, window_title,
+                            substr(ocr_text, 1, 800) as snippet,
+                            timestamp,
+                            ROW_NUMBER() OVER (
+                              PARTITION BY app_name, window_title
+                              ORDER BY length(ocr_text) DESC
+                            ) as rn
+                     FROM ocr_frames
+                     WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
+                       AND ocr_text IS NOT NULL AND length(ocr_text) > 60
+                       AND window_title IS NOT NULL AND window_title != ''
+                   )
+                   SELECT app_name, window_title, snippet, timestamp
+                   FROM ranked
+                   WHERE rn <= 3
+                   ORDER BY timestamp ASC
+                   LIMIT 80""",
+                (date,),
+            ).fetchall()
+
+            ocr_snippets = [
+                {
+                    "app_name": s["app_name"],
+                    "window_title": s["window_title"],
+                    "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
+                    "time": s["timestamp"],
+                }
+                for s in snippets
+            ]
 
         window_titles = [
             {
@@ -270,41 +372,6 @@ async def get_screen_evidence(
                 "frequency": r["freq"],
             }
             for r in rows
-        ]
-
-        # Representative OCR snippets — sample diverse content across the day
-        # Strategy: pick up to 3 snippets per window title (best by text length),
-        # with 800 chars each for richer context that lets the LLM understand WHAT was done
-        snippets = conn.execute(
-            """WITH ranked AS (
-                 SELECT app_name, window_title,
-                        substr(ocr_text, 1, 800) as snippet,
-                        timestamp,
-                        ROW_NUMBER() OVER (
-                          PARTITION BY app_name, window_title
-                          ORDER BY length(ocr_text) DESC
-                        ) as rn
-                 FROM ocr_frames
-                 WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
-                   AND ocr_text IS NOT NULL AND length(ocr_text) > 60
-                   AND window_title IS NOT NULL AND window_title != ''
-               )
-               SELECT app_name, window_title, snippet, timestamp
-               FROM ranked
-               WHERE rn <= 3
-               ORDER BY timestamp ASC
-               LIMIT 80""",
-            (date,),
-        ).fetchall()
-
-        ocr_snippets = [
-            {
-                "app_name": s["app_name"],
-                "window_title": s["window_title"],
-                "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
-                "time": s["timestamp"],
-            }
-            for s in snippets
         ]
 
         conn.close()
@@ -766,3 +833,30 @@ async def get_computer_use_habit_projection_parity(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail="Unable to process watcher request.")
+
+
+# ============================================================
+# SEMANTIC SUMMARY PROCESSING
+# ============================================================
+
+@router.post("/process-semantic-summaries")
+async def process_semantic_summaries(
+    batch_size: int = 20,
+    current_user=Depends(get_current_user),
+):
+    """
+    Process a batch of context snapshots that need semantic summaries.
+    Call periodically to backfill summaries for captured screen data.
+    """
+    from services.watcher_service_local_db import get_local_memory_db_path_impl
+    from services.memory_semantic_summary_service import process_pending_summaries
+
+    try:
+        db_path = get_local_memory_db_path_impl()
+        result = await asyncio.to_thread(
+            process_pending_summaries, db_path, min(batch_size, 50)
+        )
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"Semantic summary processing error: {e}")
+        return {"success": False, "error": str(e)}

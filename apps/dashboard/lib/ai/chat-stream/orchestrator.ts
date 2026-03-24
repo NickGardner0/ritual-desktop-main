@@ -2067,6 +2067,7 @@ interface ScreenRecordingResult {
   app_bundle_id: string;
   app_name: string;
   window_title: string | null;
+  document_path: string | null;
   ocr_text: string;
   relevance_score: number;
   source?: 'hybrid' | 'text' | 'activity';
@@ -3016,17 +3017,42 @@ function buildBroadOverviewEvidence(
         score: citation?.score ?? null,
         source: citation?.source || 'hybrid',
       }));
-    const evidenceTimeline = results.slice(0, 20).map((row) => ({
-      timestamp: new Date(row.timestamp).toISOString(),
-      app: row.app_name,
-      window: row.window_title || 'Unknown',
-      content_preview: row.ocr_text.substring(0, 420) + (row.ocr_text.length > 420 ? '...' : ''),
-      relevance: Math.round(row.relevance_score * 100) + '%',
-      source: row.source || 'text',
-      fts_matched: row.fts_matched || false,
-    }));
+    const evidenceTimeline = results.slice(0, 20).map((row) => {
+      const ts = new Date(row.timestamp);
+      const now = Date.now();
+      const diffMs = now - ts.getTime();
+      const diffMin = Math.round(diffMs / 60000);
+      let timeAgo: string;
+      if (diffMin < 1) timeAgo = 'just now';
+      else if (diffMin < 60) timeAgo = `${diffMin}m ago`;
+      else if (diffMin < 1440) timeAgo = `${Math.round(diffMin / 60)}h ago`;
+      else timeAgo = `${Math.round(diffMin / 1440)}d ago`;
+      return {
+        timestamp: ts.toISOString(),
+        timeAgo,
+        app: row.app_name,
+        window: row.window_title || 'Unknown',
+        document_path: row.document_path || undefined,
+        content_preview: row.ocr_text.substring(0, 420) + (row.ocr_text.length > 420 ? '...' : ''),
+        relevance: Math.round(row.relevance_score * 100) + '%',
+        source: row.source || 'text',
+        fts_matched: row.fts_matched || false,
+      };
+    });
+
+    // Application summary — pre-computed app breakdown for the LLM
+    const appSummaryMap = new Map<string, number>();
+    for (const row of results) {
+      const app = row.app_name?.trim() || 'Unknown';
+      appSummaryMap.set(app, (appSummaryMap.get(app) ?? 0) + 1);
+    }
+    const applicationSummary = Array.from(appSummaryMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([application, captures]) => ({ application, captures }));
 
     return {
+      application_summary: applicationSummary,
       top_apps: Array.isArray(backendStoryPlan.apps_and_tools_used) ? backendStoryPlan.apps_and_tools_used : [],
       top_sessions: Array.isArray(backendStoryPlan.work_items)
         ? (backendStoryPlan.work_items as Array<Record<string, unknown>>).slice(0, 8).map((item) => ({
@@ -3142,15 +3168,28 @@ function buildBroadOverviewEvidence(
     sessionCounts.set(sessionKey, existing);
   }
 
-  const resultTimeline = evidenceRows.map((row) => ({
-    timestamp: new Date(row.timestamp).toISOString(),
-    app: row.app_name,
-    window: row.window_title || 'Unknown',
-    content_preview: row.ocr_text.substring(0, 420) + (row.ocr_text.length > 420 ? '...' : ''),
-    relevance: Math.round(row.relevance_score * 100) + '%',
-    source: row.source || 'text',
-    fts_matched: row.fts_matched || false,
-  }));
+  const resultTimeline = evidenceRows.map((row) => {
+    const ts = new Date(row.timestamp);
+    const now = Date.now();
+    const diffMs = now - ts.getTime();
+    const diffMin = Math.round(diffMs / 60000);
+    let timeAgo: string;
+    if (diffMin < 1) timeAgo = 'just now';
+    else if (diffMin < 60) timeAgo = `${diffMin}m ago`;
+    else if (diffMin < 1440) timeAgo = `${Math.round(diffMin / 60)}h ago`;
+    else timeAgo = `${Math.round(diffMin / 1440)}d ago`;
+    return {
+      timestamp: ts.toISOString(),
+      timeAgo,
+      app: row.app_name,
+      window: row.window_title || 'Unknown',
+      document_path: row.document_path || undefined,
+      content_preview: row.ocr_text.substring(0, 420) + (row.ocr_text.length > 420 ? '...' : ''),
+      relevance: Math.round(row.relevance_score * 100) + '%',
+      source: row.source || 'text',
+      fts_matched: row.fts_matched || false,
+    };
+  });
 
   const workstreamSummary = Array.from(workstreamCounts.values())
     .sort((a, b) => b.count - a.count)
@@ -3207,7 +3246,19 @@ function buildBroadOverviewEvidence(
     uncertaintyNotes.push('Task-planning tools are prominent in the evidence, so some results may reflect planning rather than completed execution.');
   }
 
+  // Application summary — pre-computed app breakdown for the LLM
+  const fallbackAppSummaryMap = new Map<string, number>();
+  for (const row of results) {
+    const app = row.app_name?.trim() || 'Unknown';
+    fallbackAppSummaryMap.set(app, (fallbackAppSummaryMap.get(app) ?? 0) + 1);
+  }
+  const fallbackApplicationSummary = Array.from(fallbackAppSummaryMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([application, captures]) => ({ application, captures }));
+
   return {
+    application_summary: fallbackApplicationSummary,
     top_apps: topApps,
     top_sessions: Array.from(sessionCounts.entries())
       .sort((a, b) => b[1].count - a[1].count)

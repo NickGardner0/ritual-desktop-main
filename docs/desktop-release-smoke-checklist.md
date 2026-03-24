@@ -27,7 +27,7 @@ Run this after building a signed desktop artifact and before sharing it with bet
 - Run:
 
 ```bash
-node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-main/releases/latest/download/latest.json --check-urls
+node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
 ```
 
 - From the packaged desktop app, trigger an update check.

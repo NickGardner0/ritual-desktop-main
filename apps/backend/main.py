@@ -397,6 +397,44 @@ async def _memory_retention_loop() -> None:
         await asyncio.sleep(10 * 60)
 
 
+async def _semantic_summary_worker_loop() -> None:
+    """Background worker that generates semantic summaries for new context_snapshots.
+
+    Runs continuously with adaptive sleep:
+    - High backlog (>100 remaining): process every 30s
+    - Medium backlog (>0 remaining): process every 2 min
+    - Caught up: check every 5 min
+    """
+    from services.memory_semantic_summary_service import process_pending_summaries
+
+    # Initial delay to let other services start first
+    await asyncio.sleep(10)
+
+    while True:
+        remaining = 0
+        try:
+            result = await asyncio.to_thread(process_pending_summaries, batch_size=20)
+            remaining = result.get("remaining", 0)
+            processed = result.get("processed", 0)
+            if processed > 0:
+                logger.info(
+                    "Semantic summary worker: processed %d, remaining %d",
+                    processed, remaining,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Semantic summary worker loop error: %s", exc)
+
+        if remaining > 100:
+            sleep_seconds = 30
+        elif remaining > 0:
+            sleep_seconds = 120
+        else:
+            sleep_seconds = 300
+        await asyncio.sleep(sleep_seconds)
+
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
@@ -418,6 +456,7 @@ async def startup_event():
     logger.info("🖥️ Watcher API ready for computer activity tracking")
     app.state.memory_worker_task = None
     app.state.memory_retention_task = None
+    app.state.semantic_summary_task = None
     if _memory_cloud_enabled():
         try:
             from services.memory_cloud_store import get_memory_db, memory_cloud_db_path
@@ -434,15 +473,23 @@ async def startup_event():
         except Exception as exc:
             logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
 
+    # Semantic summary worker runs regardless of cloud memory — it enriches local context_snapshots
+    try:
+        app.state.semantic_summary_task = asyncio.create_task(_semantic_summary_worker_loop())
+        logger.info("🧠 Semantic summary worker started")
+    except Exception as exc:
+        logger.warning("⚠️ Semantic summary worker not started: %s", exc)
+
 @app.on_event("shutdown") 
 async def shutdown_event():
     """Clean up on shutdown"""
     worker_task = getattr(app.state, "memory_worker_task", None)
     retention_task = getattr(app.state, "memory_retention_task", None)
-    for task in [worker_task, retention_task]:
+    semantic_task = getattr(app.state, "semantic_summary_task", None)
+    for task in [worker_task, retention_task, semantic_task]:
         if task is not None:
             task.cancel()
-    for task in [worker_task, retention_task]:
+    for task in [worker_task, retention_task, semantic_task]:
         if task is not None:
             try:
                 await task

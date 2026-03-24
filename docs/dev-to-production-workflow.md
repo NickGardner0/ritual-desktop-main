@@ -208,7 +208,7 @@ npm run desktop:release:preflight
 npm run desktop:release:mac
 ```
 
-2. publish the GitHub Release manually with the generated artifacts
+2. publish the GitHub Release manually to the public `NickGardner0/ritual-desktop-releases` repo with the generated artifacts
 
 This is because the local release script contains the macOS sidecar-signing workaround for `ritual-watcher`, while the current GitHub Actions workflow still uses the simpler Tauri action path.
 

@@ -1236,6 +1236,7 @@ async def search_context_memory_impl(
                     COALESCE(visible_text_raw, '') AS visible_text_raw,
                     COALESCE(visible_text_norm, '') AS visible_text_norm,
                     COALESCE(capture_quality, 0.0) AS capture_quality,
+                    COALESCE(ax_richness_score, 0.0) AS ax_richness_score,
                     COALESCE(selected_text_present, 0) AS selected_text_present,
                     capture_trigger
                 FROM context_snapshots
@@ -1348,8 +1349,9 @@ async def search_context_memory_impl(
                 metadata_penalty = 0.08 if str(row["source_type"] or "") == "window_metadata_fallback" and semantic_boost < 0.08 else 0.0
                 recency_hours = max(0.0, (now_ms - int(row["ts"] or 0)) / (1000.0 * 60.0 * 60.0))
                 recency_boost = 0.06 * (1.0 - min(recency_hours / 24.0, 1.0))
+                ax_richness = float(row["ax_richness_score"] or 0.0)
                 text_length = len(str(row["visible_text_raw"] or row["visible_text_norm"] or ""))
-                richness_boost = min(0.14, text_length / 2400.0)
+                richness_boost = max(ax_richness * 0.18, min(0.14, text_length / 2400.0))
                 app_bonus = 0.0
                 selected_text_bonus = 0.06 if int(row["selected_text_present"] or 0) else 0.0
                 trigger_bonus = 0.04 if str(row["capture_trigger"] or "") == "ax_event" else 0.0
@@ -2897,6 +2899,7 @@ def _build_citations(results: List[Dict[str, Any]], start_ms: int, end_ms: int, 
                 "app_name": app_name,
                 "window_title": window_title,
                 "document_title": item.get("document_title"),
+                "document_path": item.get("document_path"),
                 "browser_domain": item.get("browser_domain"),
                 "session_id": item.get("session_id"),
                 "session_key": item.get("session_key") or (f"session:{item.get('session_id')}" if item.get("session_id") else None),

@@ -41,18 +41,17 @@ function detectRepoSlug() {
 const baseConfig = JSON.parse(fs.readFileSync(baseConfigPath, 'utf8'));
 const repoSlug = detectRepoSlug();
 const updaterPubkey = (process.env.RITUAL_UPDATER_PUBKEY || fs.readFileSync(updaterPubkeyPath, 'utf8')).trim();
+const defaultUpdaterRepo =
+  process.env.RITUAL_UPDATER_REPOSITORY ||
+  'NickGardner0/ritual-desktop-releases';
 
 if (!updaterPubkey) {
   throw new Error(`Missing updater public key. Expected env RITUAL_UPDATER_PUBKEY or file ${updaterPubkeyPath}.`);
 }
 
-if (!repoSlug && !process.env.RITUAL_UPDATER_ENDPOINT) {
-  throw new Error('Could not determine the GitHub repository slug. Set RITUAL_GITHUB_REPOSITORY or RITUAL_UPDATER_ENDPOINT.');
-}
-
 const updaterEndpoint =
   process.env.RITUAL_UPDATER_ENDPOINT ||
-  `https://github.com/${repoSlug}/releases/latest/download/latest.json`;
+  `https://github.com/${defaultUpdaterRepo || repoSlug}/releases/latest/download/latest.json`;
 
 const generatedConfig = {
   ...baseConfig,

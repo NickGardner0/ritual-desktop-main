@@ -102,7 +102,7 @@ npm run desktop:release:mac
 5. Validate the updater artifacts:
 
 ```bash
-node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-main/releases/latest/download/latest.json --check-urls
+node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
 ```
 
 6. Run [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).
