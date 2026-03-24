@@ -33,6 +33,7 @@ def user_db_to_profile(user: UserDB) -> UserProfile:
         id=user.id,
         email=user.email,
         full_name=user.full_name or "",
+        phone_number=user.phone_number,
         age_bracket=user.age_bracket,
         gender=user.gender,
         country=user.country,

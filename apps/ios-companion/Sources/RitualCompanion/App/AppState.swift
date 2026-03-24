@@ -258,6 +258,9 @@ final class AppState: ObservableObject {
         
         isFetchingTrackedMetrics = true
         defer { isFetchingTrackedMetrics = false }
+
+        let previousMetricTypes = trackedMetricTypes
+        let previousHabits = trackedHabits
         
         do {
             let response = try await apiClient.fetchTrackedMetrics()
@@ -286,12 +289,12 @@ final class AppState: ObservableObject {
                 return
             }
             print("⚠️ Failed to fetch tracked metrics: \(error.localizedDescription)")
-            trackedMetricTypes = []
-            trackedHabits = []
+            trackedMetricTypes = previousMetricTypes
+            trackedHabits = previousHabits
         } catch {
             print("⚠️ Failed to fetch tracked metrics: \(error.localizedDescription)")
-            trackedMetricTypes = []
-            trackedHabits = []
+            trackedMetricTypes = previousMetricTypes
+            trackedHabits = previousHabits
         }
 
         refreshSyncDiagnostics()
@@ -366,7 +369,7 @@ final class AppState: ObservableObject {
             case .noSession:
                 message = "No active session. Please sign in."
             case .networkUnavailable:
-                message = "Network unavailable. Please check your connection."
+                message = AppConfig.localDeviceAPIHint ?? "Network unavailable. Please check your connection."
             }
             showError(message: message)
         } catch {

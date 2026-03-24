@@ -10,7 +10,7 @@ import React from 'react'
 import { X } from 'lucide-react'
 import { BarChart, Bar, XAxis, ResponsiveContainer, Tooltip } from 'recharts'
 import { msToHuman } from '@/lib/computerActivity/derive'
-import type { BreakdownPoint, UsageBreakdownKind } from '@ritual/shared-contracts/computer-activity'
+import type { BreakdownPoint, UsageBreakdownKind } from '@/lib/computerActivity/contracts'
 import { AppIcon } from './RankedBars'
 
 interface UsageBreakdownCardProps {

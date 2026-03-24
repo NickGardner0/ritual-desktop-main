@@ -4,7 +4,7 @@ import BackgroundTasks
 import UIKit
 
 /// V2 Background Sync Manager with incremental sync, offline queue, and better error handling
-final class BackgroundSyncManagerV2 {
+final class BackgroundSyncManagerV2: @unchecked Sendable {
     
     // MARK: - Singleton
     
@@ -112,8 +112,8 @@ final class BackgroundSyncManagerV2 {
     
     @objc private func networkBecameAvailable() {
         print("🌐 Network became available - flushing offline queue")
-        Task {
-            await flushOfflineQueue()
+        Task { [weak self] in
+            await self?.flushOfflineQueue()
         }
     }
     
@@ -127,8 +127,9 @@ final class BackgroundSyncManagerV2 {
         
         // Re-enable background delivery if we have credentials and cached metrics
         if apiClient.hasStoredCredentials && !cachedMetricTypes.isEmpty {
-            Task {
-                await enableBackgroundDelivery(forMetricTypes: cachedMetricTypes)
+            let metricTypes = cachedMetricTypes
+            Task { [weak self] in
+                await self?.enableBackgroundDelivery(forMetricTypes: metricTypes)
             }
         }
         
@@ -171,8 +172,8 @@ final class BackgroundSyncManagerV2 {
         
         scheduleBackgroundSync() // Schedule next
         
-        let syncTask = Task {
-            await performIncrementalSync(isBackground: true)
+        let syncTask = Task { [weak self] in
+            await self?.performIncrementalSync(isBackground: true)
         }
         
         task.expirationHandler = {
@@ -211,7 +212,7 @@ final class BackgroundSyncManagerV2 {
                     
                     print("📊 New \(metricType) data detected")
                     
-                    Task {
+                    Task { [weak self] in
                         await self?.performIncrementalSync(isBackground: true, specificMetricType: metricType)
                         completionHandler()
                     }
@@ -493,14 +494,16 @@ final class BackgroundSyncManagerV2 {
             
             print("✅ Daily aggregated sync complete: \(totalSuccess) values (total syncs: \(syncCount))")
             
+            let addedCount = totalSuccess
+            let completionTime = Date()
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: NSNotification.Name("BackgroundSyncCompleted"),
                     object: nil,
                     userInfo: [
-                        "addedCount": totalSuccess,
+                        "addedCount": addedCount,
                         "deletedCount": 0,
-                        "time": Date()
+                        "time": completionTime
                     ]
                 )
             }
@@ -709,14 +712,16 @@ final class BackgroundSyncManagerV2 {
             lastError = nil
             syncCount += 1
 
+            let addedCount = totalSuccess
+            let completionTime = Date()
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: NSNotification.Name("BackgroundSyncCompleted"),
                     object: nil,
                     userInfo: [
-                        "addedCount": totalSuccess,
+                        "addedCount": addedCount,
                         "deletedCount": 0,
-                        "time": Date(),
+                        "time": completionTime,
                         "isRetry": true
                     ]
                 )
@@ -910,14 +915,16 @@ final class BackgroundSyncManagerV2 {
             lastSyncTime = Date()
             lastError = nil
             syncCount += 1
+            let addedCount = totalSuccess
+            let completionTime = Date()
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: NSNotification.Name("BackgroundSyncCompleted"),
                     object: nil,
                     userInfo: [
-                        "addedCount": totalSuccess,
+                        "addedCount": addedCount,
                         "deletedCount": 0,
-                        "time": Date(),
+                        "time": completionTime,
                         "isRetry": true,
                         "isDateRangeRetry": true
                     ]

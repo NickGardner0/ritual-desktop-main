@@ -8,7 +8,13 @@
 export function isTauri(): boolean {
   if (typeof window === 'undefined') return false;
   const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
-  return Boolean(w.__TAURI__ || w.__TAURI_IPC__);
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  const hasTauriGlobal = Boolean(w.__TAURI__);
+  const hasTauriIpc = Boolean(w.__TAURI_IPC__);
+  const hasDesktopUA = userAgent.includes('RitualDesktop/');
+  const result = hasTauriGlobal || hasTauriIpc || hasDesktopUA;
+  console.log(`[isTauri] result=${result} | __TAURI__=${hasTauriGlobal} | __TAURI_IPC__=${hasTauriIpc} | UA=${hasDesktopUA} | userAgent="${userAgent.substring(0, 80)}"`);
+  return result;
 }
 
 // Track if window has been shown to prevent multiple calls

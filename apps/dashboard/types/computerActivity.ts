@@ -1,1 +1,1 @@
-export * from "@ritual/shared-contracts/computer-activity";
+export * from "@/lib/computerActivity/contracts";

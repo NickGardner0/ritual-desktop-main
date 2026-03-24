@@ -122,8 +122,6 @@ async def get_db_session():
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
 
 async def init_database():
     """
@@ -275,6 +273,8 @@ async def _run_migrations(session):
         ("wearable_devices", "connection_id", "ALTER TABLE wearable_devices ADD COLUMN connection_id TEXT"),
         ("wearable_devices", "last_seen_at", "ALTER TABLE wearable_devices ADD COLUMN last_seen_at DATETIME"),
         ("wearable_devices", "sdk_version", "ALTER TABLE wearable_devices ADD COLUMN sdk_version TEXT"),
+        # Phone number for Linq iMessage integration
+        ("users", "phone_number", "ALTER TABLE users ADD COLUMN phone_number TEXT"),
     ]
     
     for table, column, sql in migrations:

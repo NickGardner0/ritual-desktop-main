@@ -15,6 +15,8 @@ final class RitualAPIClient {
     // Keychain keys
     private let deviceIdKey = "com.ritual.companion.deviceId"
     private let deviceSecretKey = "com.ritual.companion.deviceSecret"
+    private let screenTimeDeviceIdKey = "com.ritual.companion.screenTimeDeviceId"
+    private let screenTimeDeviceSecretKey = "com.ritual.companion.screenTimeDeviceSecret"
     private let authTokenKey = "com.ritual.companion.authToken"
     private let tokenExpiryKey = "com.ritual.companion.tokenExpiry"
     
@@ -27,9 +29,14 @@ final class RitualAPIClient {
     /// Track consecutive refresh failures
     private var consecutiveRefreshFailures = 0
     private let maxRefreshFailures = 3
+    private var refreshTask: Task<Void, Error>?
     
     var hasStoredCredentials: Bool {
         deviceId != nil && deviceSecret != nil && authToken != nil
+    }
+
+    var hasStoredScreenTimeCredentials: Bool {
+        screenTimeDeviceId != nil && screenTimeDeviceSecret != nil && authToken != nil
     }
     
     /// Check if token is expired or about to expire (within 5 minutes)
@@ -61,6 +68,28 @@ final class RitualAPIClient {
                 KeychainHelper.save(key: deviceSecretKey, value: value)
             } else {
                 KeychainHelper.delete(key: deviceSecretKey)
+            }
+        }
+    }
+
+    private var screenTimeDeviceId: String? {
+        get { KeychainHelper.load(key: screenTimeDeviceIdKey) }
+        set {
+            if let value = newValue {
+                KeychainHelper.save(key: screenTimeDeviceIdKey, value: value)
+            } else {
+                KeychainHelper.delete(key: screenTimeDeviceIdKey)
+            }
+        }
+    }
+
+    private var screenTimeDeviceSecret: String? {
+        get { KeychainHelper.load(key: screenTimeDeviceSecretKey) }
+        set {
+            if let value = newValue {
+                KeychainHelper.save(key: screenTimeDeviceSecretKey, value: value)
+            } else {
+                KeychainHelper.delete(key: screenTimeDeviceSecretKey)
             }
         }
     }
@@ -97,6 +126,11 @@ final class RitualAPIClient {
     /// Register this device with the backend
     func registerDevice(authToken: String) async throws {
         self.authToken = authToken
+        if let jwtExpiry = decodeJWTExpiry(authToken) {
+            tokenExpiry = jwtExpiry
+        } else {
+            tokenExpiry = Date().addingTimeInterval(3300)
+        }
         
         let deviceName = await UIDevice.current.name
         let request = DeviceRegisterRequest(deviceName: deviceName, platform: "ios")
@@ -199,22 +233,39 @@ final class RitualAPIClient {
     func ensureValidToken() async throws {
         // If token is not expired, we're good
         guard isTokenExpiredOrExpiring else { return }
+
+        if let refreshTask {
+            try await refreshTask.value
+            return
+        }
         
         print("🔄 Token expired or expiring, attempting silent refresh...")
-        
-        do {
-            try await refreshToken()
-            consecutiveRefreshFailures = 0
-            print("✅ Token refreshed successfully")
-        } catch {
-            consecutiveRefreshFailures += 1
-            print("❌ Token refresh failed (attempt \(consecutiveRefreshFailures)): \(error)")
-            
-            if consecutiveRefreshFailures >= maxRefreshFailures {
-                // Too many failures - token likely revoked
-                throw APIError.tokenRefreshFailed
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.refreshToken()
+                self.consecutiveRefreshFailures = 0
+                print("✅ Token refreshed successfully")
+            } catch {
+                self.consecutiveRefreshFailures += 1
+                print("❌ Token refresh failed (attempt \(self.consecutiveRefreshFailures)): \(error)")
+
+                if self.consecutiveRefreshFailures >= self.maxRefreshFailures {
+                    throw APIError.tokenRefreshFailed
+                }
+
+                throw error
             }
-            
+        }
+
+        refreshTask = task
+
+        do {
+            try await task.value
+            refreshTask = nil
+        } catch {
+            refreshTask = nil
             throw error
         }
     }
@@ -256,11 +307,133 @@ final class RitualAPIClient {
     func fetchTrackedMetrics() async throws -> TrackedMetricsResponse {
         return try await get(path: "/api/wearables/apple/tracked_metrics")
     }
+
+    func registerScreenTimeDevice(authToken: String) async throws {
+        self.authToken = authToken
+        if let jwtExpiry = decodeJWTExpiry(authToken) {
+            tokenExpiry = jwtExpiry
+        } else {
+            tokenExpiry = Date().addingTimeInterval(3300)
+        }
+
+        let deviceName = await UIDevice.current.name
+        let request = DeviceRegisterRequest(deviceName: deviceName, platform: "ios")
+
+        let response: DeviceRegisterResponse = try await post(
+            path: "/api/screen-time/register_device",
+            body: request
+        )
+
+        screenTimeDeviceId = response.deviceId
+        screenTimeDeviceSecret = response.deviceSecret
+    }
+
+    func ingestScreenTimeRollups(_ rollups: [ScreenTimeRollupRequest]) async throws -> ScreenTimeIngestResponse {
+        guard let deviceId = screenTimeDeviceId,
+              let deviceSecret = screenTimeDeviceSecret else {
+            throw APIError.notRegistered
+        }
+
+        try await ensureValidToken()
+
+        let clientEventId = UUID().uuidString
+        let capturedAt = ISO8601DateFormatter().string(from: Date())
+        let signature = try computeSignature(
+            deviceId: deviceId,
+            clientEventId: clientEventId,
+            capturedAt: capturedAt,
+            deviceSecret: deviceSecret
+        )
+
+        let request = ScreenTimeIngestRequest(
+            deviceId: deviceId,
+            clientEventId: clientEventId,
+            capturedAt: capturedAt,
+            rollups: rollups,
+            schemaVersion: 1,
+            signature: signature
+        )
+
+        return try await post(
+            path: "/api/screen-time/ingest",
+            body: request
+        )
+    }
+
+    func createHeartRateSession(_ session: HeartRateSession) async throws -> HeartRateSessionResponse {
+        try await ensureValidToken()
+
+        let formatter = ISO8601DateFormatter()
+        let request = HeartRateSessionCreateRequest(
+            id: session.id.uuidString,
+            sourceType: session.sourceType.rawValue,
+            sourceDeviceId: session.sourceDeviceId,
+            startedAt: formatter.string(from: session.startedAt),
+            status: session.status,
+            appVersion: session.appVersion,
+            deviceModel: session.deviceModel
+        )
+
+        return try await post(
+            path: "/api/v1/biometrics/heart-rate/sessions",
+            body: request
+        )
+    }
+
+    func endHeartRateSession(sessionId: UUID, endedAt: Date) async throws -> HeartRateSessionResponse {
+        try await ensureValidToken()
+
+        let formatter = ISO8601DateFormatter()
+        let request = HeartRateSessionEndRequest(
+            endedAt: formatter.string(from: endedAt),
+            status: "ended"
+        )
+
+        return try await patch(
+            path: "/api/v1/biometrics/heart-rate/sessions/\(sessionId.uuidString)/end",
+            body: request
+        )
+    }
+
+    func uploadHeartRateSamples(_ samples: [HeartRateSample]) async throws -> HeartRateBatchUploadResponse {
+        try await ensureValidToken()
+
+        let formatter = ISO8601DateFormatter()
+        let payload = HeartRateSampleBatchUploadRequest(
+            samples: samples.map { sample in
+                HeartRateSampleUploadRequest(
+                    id: sample.id.uuidString,
+                    sessionId: sample.sessionId.uuidString,
+                    sourceType: sample.sourceType.rawValue,
+                    sourceDeviceId: sample.sourceDeviceId,
+                    bpmRaw: sample.bpmRaw,
+                    bpmDisplay: sample.bpmDisplay,
+                    qualityScore: sample.qualityScore,
+                    isOutlier: sample.isOutlier,
+                    rrIntervalsMs: sample.rrIntervalsMs,
+                    contactDetected: sample.contactDetected,
+                    receivedAt: formatter.string(from: sample.receivedAt)
+                )
+            }
+        )
+
+        return try await post(
+            path: "/api/v1/biometrics/heart-rate/samples:batch",
+            body: payload
+        )
+    }
+
+    func fetchLiveBiometrics() async throws -> LiveBiometricsResponse {
+        try await ensureValidToken()
+        return try await get(path: "/api/v1/biometrics/live")
+    }
     
     /// Clear all stored credentials
     func clearCredentials() {
         deviceId = nil
         deviceSecret = nil
+        screenTimeDeviceId = nil
+        screenTimeDeviceSecret = nil
         authToken = nil
         tokenExpiry = nil
     }
@@ -359,24 +532,24 @@ final class RitualAPIClient {
 
         return error
     }
-    
-    private func get<R: Decodable>(path: String) async throws -> R {
-        guard let url = URL(string: baseURL + path) else {
-            throw APIError.invalidURL
-        }
-        
+
+    private func authorizedRequest(url: URL, method: String, contentType: String? = nil) -> URLRequest {
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        
+
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+
         if let token = authToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        
-        #if DEBUG
-        print("📤 GET \(path)")
-        #endif
-        
+
+        return request
+    }
+
+    private func performRequest(_ request: URLRequest, retryOnUnauthorized: Bool = true) async throws -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -384,10 +557,37 @@ final class RitualAPIClient {
         } catch {
             throw mapTransportError(error)
         }
-        
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
+
+        if httpResponse.statusCode == 401 && retryOnUnauthorized && authToken != nil {
+            try await refreshToken()
+            var retryRequest = request
+            if let refreshedToken = authToken {
+                retryRequest.setValue("Bearer \(refreshedToken)", forHTTPHeaderField: "Authorization")
+            } else {
+                retryRequest.setValue(nil, forHTTPHeaderField: "Authorization")
+            }
+            return try await performRequest(retryRequest, retryOnUnauthorized: false)
+        }
+
+        return (data, httpResponse)
+    }
+    
+    private func get<R: Decodable>(path: String) async throws -> R {
+        guard let url = URL(string: baseURL + path) else {
+            throw APIError.invalidURL
+        }
+
+        let request = authorizedRequest(url: url, method: "GET")
+        
+        #if DEBUG
+        print("📤 GET \(path)")
+        #endif
+
+        let (data, httpResponse) = try await performRequest(request)
         
         #if DEBUG
         print("📥 Response: \(httpResponse.statusCode)")
@@ -410,15 +610,8 @@ final class RitualAPIClient {
         guard let url = URL(string: baseURL + path) else {
             throw APIError.invalidURL
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        if let token = authToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
+
+        var request = authorizedRequest(url: url, method: "POST", contentType: "application/json")
         request.httpBody = try encoder.encode(body)
         
         #if DEBUG
@@ -427,18 +620,8 @@ final class RitualAPIClient {
             print("   Body: \(str.prefix(500))")
         }
         #endif
-        
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw mapTransportError(error)
-        }
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
+
+        let (data, httpResponse) = try await performRequest(request)
         
         #if DEBUG
         print("📥 Response: \(httpResponse.statusCode)")
@@ -454,6 +637,26 @@ final class RitualAPIClient {
             throw APIError.httpError(httpResponse.statusCode)
         }
         
+        return try decoder.decode(R.self, from: data)
+    }
+
+    private func patch<T: Encodable, R: Decodable>(path: String, body: T) async throws -> R {
+        guard let url = URL(string: baseURL + path) else {
+            throw APIError.invalidURL
+        }
+
+        var request = authorizedRequest(url: url, method: "PATCH", contentType: "application/json")
+        request.httpBody = try encoder.encode(body)
+
+        let (data, httpResponse) = try await performRequest(request)
+
+        guard 200..<300 ~= httpResponse.statusCode else {
+            if let errorResponse = try? decoder.decode(APIErrorResponse.self, from: data) {
+                throw APIError.serverError(httpResponse.statusCode, errorResponse.detail)
+            }
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+
         return try decoder.decode(R.self, from: data)
     }
 }
@@ -545,22 +748,33 @@ enum APIError: LocalizedError {
 // MARK: - Keychain Helper
 
 private enum KeychainHelper {
+    private static let service = "com.ritual.companion"
     
     static func save(key: String, value: String) {
         guard let data = value.data(using: .utf8) else { return }
         
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: key,
-            kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
-        
-        // Delete any existing item
-        SecItemDelete(query as CFDictionary)
-        
-        // Add new item
-        let status = SecItemAdd(query as CFDictionary, nil)
+
+        let attributes: [String: Any] = [
+            kSecValueData as String: data
+        ]
+
+        let existingStatus = SecItemCopyMatching(query as CFDictionary, nil)
+        let status: OSStatus
+
+        if existingStatus == errSecSuccess {
+            status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        } else {
+            var createQuery = query
+            createQuery[kSecValueData as String] = data
+            status = SecItemAdd(createQuery as CFDictionary, nil)
+        }
+
         if status != errSecSuccess {
             print("⚠️ Keychain save failed: \(status)")
         }
@@ -569,6 +783,7 @@ private enum KeychainHelper {
     static func load(key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -589,6 +804,7 @@ private enum KeychainHelper {
     static func delete(key: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: key
         ]
         

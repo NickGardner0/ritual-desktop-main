@@ -9,10 +9,9 @@ struct StatusCard: View {
     
     var body: some View {
         HStack(spacing: 14) {
-            // Icon - always black/gray for consistency
             Image(systemName: icon)
                 .font(.system(size: 18))
-                .foregroundColor(.black.opacity(0.7))
+                .foregroundColor(iconColor)
                 .frame(width: 28, height: 28)
             
             // Text
@@ -28,20 +27,18 @@ struct StatusCard: View {
             
             Spacer()
             
-            // Status indicator dot
-            if iconColor == .green {
-                Circle()
-                    .fill(Color.black)
-                    .frame(width: 8, height: 8)
-            }
+            Circle()
+                .fill(iconColor.opacity(0.95))
+                .frame(width: 8, height: 8)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .background(Color.white)
         .overlay(
-            Rectangle()
-                .stroke(Color.black.opacity(0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
 

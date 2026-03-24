@@ -124,7 +124,45 @@
       }
     },
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://*.clerk.accounts.dev http://localhost:3000 http://127.0.0.1:3000 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+      "dangerousRemoteDomainIpcAccess": [
+        {
+          "scheme": "https",
+          "domain": "desktop.ritualdb.com",
+          "windows": [
+            "main",
+            "sidebar"
+          ],
+          "enableTauriAPI": true
+        },
+        {
+          "scheme": "https",
+          "domain": "ritual-desktop.vercel.app",
+          "windows": [
+            "main",
+            "sidebar"
+          ],
+          "enableTauriAPI": true
+        },
+        {
+          "scheme": "http",
+          "domain": "localhost",
+          "windows": [
+            "main",
+            "sidebar"
+          ],
+          "enableTauriAPI": true
+        },
+        {
+          "scheme": "http",
+          "domain": "127.0.0.1",
+          "windows": [
+            "main",
+            "sidebar"
+          ],
+          "enableTauriAPI": true
+        }
+      ],
+      "csp": "default-src 'self' https:; connect-src 'self' https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:3031 http://127.0.0.1:3031 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
     },
     "updater": {
       "active": true,
@@ -139,22 +177,6 @@
       "iconAsTemplate": true,
       "menuOnLeftClick": false
     },
-    "windows": [
-      {
-        "label": "main",
-        "userAgent": "RitualDesktop/0.1.0",
-        "fullscreen": false,
-        "height": 800,
-        "resizable": true,
-        "title": "",
-        "width": 1150,
-        "minHeight": 450,
-        "minWidth": 800,
-        "decorations": true,
-        "transparent": true,
-        "titleBarStyle": "Overlay",
-        "visible": false
-      }
-    ]
+    "windows": []
   }
 }

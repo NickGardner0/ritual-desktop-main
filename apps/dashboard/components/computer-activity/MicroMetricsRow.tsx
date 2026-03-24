@@ -8,7 +8,7 @@
 'use client'
 
 import React from 'react'
-import { MicroMetrics } from '@ritual/shared-contracts/computer-activity'
+import { MicroMetrics } from '@/lib/computerActivity/contracts'
 import { msToHuman } from '@/lib/computerActivity/derive'
 
 interface MicroMetricsRowProps {
@@ -58,4 +58,3 @@ export function MicroMetricsRow({ metrics, className = '' }: MicroMetricsRowProp
 }
 
 export default MicroMetricsRow
-

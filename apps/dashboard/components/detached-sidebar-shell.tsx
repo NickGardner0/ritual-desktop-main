@@ -94,7 +94,6 @@ export function DetachedSidebarShell() {
     <aside
       className={cn(
         "sidebar-vibrancy h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-center flex z-[1002] transition-all duration-200 ease-standard",
-        "bg-background border-r border-gray-300",
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}
       onMouseEnter={() => setIsExpanded(true)}
@@ -102,7 +101,7 @@ export function DetachedSidebarShell() {
     >
       <div
         className={cn(
-          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center bg-background border-b border-gray-300 transition-all duration-200 ease-standard",
+          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center transition-all duration-200 ease-standard",
           isExpanded ? "w-full" : "w-[69px]",
         )}
       >

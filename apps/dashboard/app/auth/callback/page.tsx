@@ -1,101 +1,129 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useUser } from '@clerk/nextjs'
-import { BrailleSpinner } from '@/components/ui/braille-spinner'
-import { getPostOnboardingRoute } from '@/lib/onboarding-flow'
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { AuthenticateWithRedirectCallback } from '@clerk/nextjs';
 
-const devLog = (...args: unknown[]) => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(...args);
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
+
+type CallbackState =
+  | { status: 'preparing'; message: string }
+  | { status: 'ready' }
+  | { status: 'error'; message: string };
+
+function normalizeDeepLinkQuery(rawDeepLink: string | null): CallbackState {
+  if (!rawDeepLink) {
+    return { status: 'ready' };
   }
-};
 
-export default function AuthCallbackPage() {
-  const [status, setStatus] = useState('Processing authentication...')
-  const router = useRouter()
-  const { user, isLoaded } = useUser()
+  try {
+    const deepLinkUrl = new URL(decodeURIComponent(rawDeepLink));
 
-  useEffect(() => {
-    const handleCallback = async () => {
-      // Clerk handles all OAuth callbacks now
-      // Just redirect to dashboard when user is loaded
-      if (isLoaded) {
-        if (user) {
-          devLog('✅ User authenticated via Clerk, redirecting to dashboard');
-          setStatus('Authentication successful! Redirecting...')
-          router.push(getPostOnboardingRoute('/dashboard'));
-        } else {
-          devLog('❌ No user found, redirecting to home');
-          setStatus('Authentication failed. Redirecting...')
-          setTimeout(() => {
-            router.push('/');
-          }, 2000);
-        }
-      }
+    if (deepLinkUrl.protocol !== 'ritual:') {
+      return {
+        status: 'error',
+        message: `Unexpected deep link protocol: ${deepLinkUrl.protocol}`,
+      };
+    }
+
+    const normalizedQuery = deepLinkUrl.searchParams.toString();
+    const normalizedUrl = normalizedQuery ? `/auth/callback?${normalizedQuery}` : '/auth/callback';
+    window.history.replaceState({}, '', normalizedUrl);
+    return { status: 'ready' };
+  } catch (error) {
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Invalid desktop auth callback payload.',
     };
+  }
+}
 
-    handleCallback();
-  }, [isLoaded, user, router]);
-
+function AuthCallbackLoader({ message }: { message: string }) {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
-      {/* Window Drag Region - Top Bar */}
-      <div 
-        className="tauri-drag-region"
-        data-tauri-drag-region
-      />
-      
-      <div className="max-w-md w-full text-center px-6">
-        {/* Logo */}
-        <div className="mb-8">
-          <div className="w-16 h-16 mx-auto mb-6 flex items-center justify-center">
-            <img 
-              src="/images/ritual.svg" 
-              alt="Ritual Logo" 
-              className="w-full h-full rotate-180"
-            />
-          </div>
-          
-          {/* Status */}
-          <div className="mb-6">
-            <h1 className="text-2xl font-semibold text-gray-900 mb-3">
-              OAuth Complete! ✨
-            </h1>
-            <p className="text-base text-gray-500 leading-relaxed">
-              You can close this window.
-            </p>
-          </div>
-          
-          {/* Elegant Loading Spinner */}
-          <div className="mb-6">
-            <div className="w-8 h-8 mx-auto">
-              <BrailleSpinner className="h-8 w-8 text-2xl text-gray-900" />
-            </div>
-          </div>
-          
-          {/* Subtle status text */}
-          {status !== 'Processing authentication...' && (
-            <div className="text-sm text-gray-400 mb-4 max-w-sm mx-auto">
-              {status}
-            </div>
-          )}
-        </div>
-        
-        {/* Footer text */}
-        <div className="text-xs text-gray-400 mt-8">
-          If Ritual does not open in a few seconds, <button onClick={() => {
-            if (typeof window !== 'undefined') {
-              window.location.href = getPostOnboardingRoute('/dashboard')
-            }
-          }} className="underline hover:text-gray-600 transition-colors">click here</button>.
-        </div>
-        
-        <div className="text-xs text-gray-300 mt-4">
-          You may close this browser tab when done
+      <div className="text-center">
+        <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" />
+        <p className="text-sm text-gray-600">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function AuthCallbackError({ message }: { message: string }) {
+  return (
+    <div className="min-h-screen bg-white flex items-center justify-center px-6">
+      <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-red-50 p-8 text-[#1d1a16] shadow-sm">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-700">
+          Ritual Desktop Auth
+        </p>
+        <h1 className="mt-4 text-2xl font-medium tracking-[-0.02em]">
+          Ritual could not finish social sign-in.
+        </h1>
+        <p className="mt-4 text-sm leading-6 text-red-900">
+          {message}
+        </p>
+        <div className="mt-6 flex gap-3">
+          <button
+            type="button"
+            className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
+            onClick={() => window.location.reload()}
+          >
+            Retry callback
+          </button>
+          <Link
+            href="/sign-in"
+            className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900"
+          >
+            Back to sign-in
+          </Link>
         </div>
       </div>
     </div>
-  )
-} 
+  );
+}
+
+function AuthCallbackPageInner() {
+  const searchParams = useSearchParams();
+  const deepLink = useMemo(() => searchParams.get('deepLink'), [searchParams]);
+  const [callbackState, setCallbackState] = useState<CallbackState>({
+    status: 'preparing',
+    message: 'Preparing desktop sign-in…',
+  });
+
+  useEffect(() => {
+    setCallbackState(normalizeDeepLinkQuery(deepLink));
+  }, [deepLink]);
+
+  if (callbackState.status === 'error') {
+    return <AuthCallbackError message={callbackState.message} />;
+  }
+
+  if (callbackState.status !== 'ready') {
+    return <AuthCallbackLoader message={callbackState.message} />;
+  }
+
+  return (
+    <>
+      <AuthCallbackLoader message="Completing desktop sign-in…" />
+      <AuthenticateWithRedirectCallback
+        signInUrl="/sign-in"
+        signUpUrl="/sign-up"
+        firstFactorUrl="/sign-in"
+        secondFactorUrl="/sign-in"
+        resetPasswordUrl="/sign-in"
+        continueSignUpUrl="/sign-up"
+        verifyEmailAddressUrl="/sign-up"
+        verifyPhoneNumberUrl="/sign-up"
+      />
+    </>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <Suspense fallback={<AuthCallbackLoader message="Preparing desktop sign-in…" />}>
+      <AuthCallbackPageInner />
+    </Suspense>
+  );
+}

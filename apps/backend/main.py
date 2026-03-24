@@ -336,6 +336,9 @@ app.include_router(memory_router)
 from api.watcher import router as watcher_router
 app.include_router(watcher_router)
 
+from api.linq import router as linq_router
+app.include_router(linq_router)
+
 
 def _memory_cloud_enabled() -> bool:
     return (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower() in {

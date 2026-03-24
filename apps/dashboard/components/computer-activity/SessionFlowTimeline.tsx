@@ -9,7 +9,7 @@
 
 import React, { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { SessionSegment, KIND_COLORS, KIND_COLORS_ACCENT } from '@ritual/shared-contracts/computer-activity'
+import { SessionSegment, KIND_COLORS, KIND_COLORS_ACCENT } from '@/lib/computerActivity/contracts'
 import { msToHuman, formatTime } from '@/lib/computerActivity/derive'
 
 interface SessionFlowTimelineProps {

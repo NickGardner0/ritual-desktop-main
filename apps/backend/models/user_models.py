@@ -14,12 +14,14 @@ class OnboardingData(BaseModel):
     country: str
     tracking_interests: List[str]
     wearable_devices: List[str]
+    phone_number: Optional[str] = None
 
 class UserProfile(BaseModel):
     """User profile response"""
     id: str
     email: str
     full_name: Optional[str] = None
+    phone_number: Optional[str] = None
     age_bracket: Optional[str] = None
     gender: Optional[str] = None
     country: Optional[str] = None

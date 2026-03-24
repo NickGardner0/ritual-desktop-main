@@ -5,6 +5,7 @@ import BackgroundTasks
 @main
 struct RitualCompanionApp: App {
     @StateObject private var appState = AppState()
+    @StateObject private var whoopService = WhoopBroadcastService()
     @Environment(\.scenePhase) private var scenePhase
     
     /// Use V2 sync manager for incremental sync, offline queue, etc.
@@ -24,9 +25,11 @@ struct RitualCompanionApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(whoopService)
                 .task {
                     // Load Clerk session
                     try? await Clerk.shared.load()
+                    whoopService.handleAppDidBecomeActive()
                 }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
                     handleScenePhaseChange(from: oldPhase, to: newPhase)
@@ -54,10 +57,12 @@ struct RitualCompanionApp: App {
             // App moved to background - schedule background sync
             print("📱 App moved to background - scheduling background sync V2")
             syncManager.scheduleBackgroundSync()
+            whoopService.handleAppDidEnterBackground()
             
         case .active:
             // App became active - sync immediately if connected
             print("📱 App became active")
+            whoopService.handleAppDidBecomeActive()
             
             // Perform a foreground sync if user is connected and has health access
             Task {

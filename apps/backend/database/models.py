@@ -17,6 +17,8 @@ class UserDB(Base):
     email = Column(String, unique=True, nullable=False)
     full_name = Column(String)
     
+    phone_number = Column(String, nullable=True)
+
     # Onboarding data
     age_bracket = Column(String)
     gender = Column(String)

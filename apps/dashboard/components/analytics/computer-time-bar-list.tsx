@@ -5,6 +5,8 @@ import { useAuth } from '@clerk/nextjs';
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { format, subDays, startOfDay } from 'date-fns';
+import { isTauri } from '@/lib/tauri-utils';
+import { invokeDetailedActivityWithInitRetry } from '@/lib/computerActivity/tauri-activity';
 
 interface ComputerTimeBarListProps {
   activeRange: BarListRange;
@@ -70,6 +72,91 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
   const fetchData = useCallback(async () => {
     const id = ++fetchIdRef.current;
     try {
+      if (isTauri()) {
+        const { from, to } = getRangeDatesLocal(activeRange);
+        const fullStart = from.getTime();
+        const fullEnd = to.getTime();
+        const midPoint = new Date((fullStart + fullEnd) / 2);
+        const firstEnd = midPoint.getTime();
+        const secondStart = midPoint.getTime() + 86400000;
+
+        const [full, firstHalf, secondHalf] = await Promise.all([
+          invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: fullEnd, limit: 1 }),
+          invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: firstEnd, limit: 1 }),
+          invokeDetailedActivityWithInitRetry({ startTs: secondStart, endTs: fullEnd, limit: 1 }),
+        ]);
+
+        if (id !== fetchIdRef.current) return;
+
+        const firstAppMap = new Map<string, number>();
+        firstHalf.apps.forEach((app) => {
+          const key = app.app_name || app.app_bundle_id || 'Unknown';
+          firstAppMap.set(key, Number(app.total_duration_ms || 0));
+        });
+        const secondAppMap = new Map<string, number>();
+        secondHalf.apps.forEach((app) => {
+          const key = app.app_name || app.app_bundle_id || 'Unknown';
+          secondAppMap.set(key, Number(app.total_duration_ms || 0));
+        });
+        const firstDomainMap = new Map<string, number>();
+        firstHalf.domains.forEach((domain) => {
+          const key = domain.domain || 'Unknown';
+          firstDomainMap.set(key, Number(domain.total_duration_ms || 0));
+        });
+        const secondDomainMap = new Map<string, number>();
+        secondHalf.domains.forEach((domain) => {
+          const key = domain.domain || 'Unknown';
+          secondDomainMap.set(key, Number(domain.total_duration_ms || 0));
+        });
+
+        const fullApps = full.apps.slice(0, 11);
+        const fullDomains = full.domains.slice(0, 11);
+
+        if (fullApps.length > 0) {
+          const maxHours = Math.max(...fullApps.map((app) => (app.total_duration_ms || 0) / 3600000), 0.01);
+          setAppsData(
+            fullApps.map((app) => {
+              const name = app.app_name || app.app_bundle_id || 'Unknown';
+              const hours = (app.total_duration_ms || 0) / 3600000;
+              return {
+                name,
+                value: formatHours(hours),
+                change: computeChange(
+                  (secondAppMap.get(name) || 0) / 3600000,
+                  (firstAppMap.get(name) || 0) / 3600000,
+                ),
+                barPercent: Math.round((hours / maxHours) * 100),
+              };
+            }),
+          );
+        } else {
+          setAppsData([]);
+        }
+
+        if (fullDomains.length > 0) {
+          const maxHours = Math.max(...fullDomains.map((domain) => (domain.total_duration_ms || 0) / 3600000), 0.01);
+          setDomainsData(
+            fullDomains.map((domain) => {
+              const name = domain.domain || 'Unknown';
+              const hours = (domain.total_duration_ms || 0) / 3600000;
+              return {
+                name,
+                value: formatHours(hours),
+                change: computeChange(
+                  (secondDomainMap.get(name) || 0) / 3600000,
+                  (firstDomainMap.get(name) || 0) / 3600000,
+                ),
+                barPercent: Math.round((hours / maxHours) * 100),
+              };
+            }),
+          );
+        } else {
+          setDomainsData([]);
+        }
+
+        return;
+      }
+
       const token = await getToken();
       const { from, to } = getRangeDatesLocal(activeRange);
       const startDate = format(from, 'yyyy-MM-dd');

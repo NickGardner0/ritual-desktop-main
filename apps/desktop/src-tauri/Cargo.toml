@@ -33,6 +33,7 @@ base64 = "0.21"
 tiny_http = "0.12"
 rand = "0.8"
 log = "0.4"
+urlencoding = "2.1"
 
 # Legacy database (still used by recorder.rs - watcher.rs has been migrated to ritual-db)
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -101,7 +102,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 # ============================================================================
 # REMOVED OAuth dependencies - Clerk handles all authentication via web UI
-# Removed: warp, reqwest, tokio, uuid, url, base64, sha2, rand, dotenv, urlencoding, open
+# Removed: warp, reqwest, tokio, uuid, url, base64, sha2, rand, dotenv, open
 # This reduces compile time and binary size significantly
 # ============================================================================
 

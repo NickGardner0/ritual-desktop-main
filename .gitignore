@@ -116,3 +116,4 @@ backups/
 
 # FastEmbed cache (model downloads, can be 80MB+)
 .fastembed_cache/
+.vercel

@@ -4,7 +4,8 @@
 //! This keeps retrieval local while allowing tool-time calls to use ritual-db hybrid
 //! search (vector + FTS) on demand.
 
-use crate::ritual_database::{self, HybridSearchOptions};
+use crate::ritual_database::{self, HybridSearchOptions, RUNTIME};
+use crate::watcher;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use once_cell::sync::Lazy;
@@ -22,6 +23,8 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 const DEFAULT_BRIDGE_PORT: u16 = 3031;
 const HYBRID_PATH: &str = "/v1/hybrid-search";
+const ACTIVITY_DETAILED_PATH: &str = "/v1/activity/detailed";
+const ACTIVITY_DAILY_SUMMARIES_PATH: &str = "/v1/activity/daily-summaries";
 const HEALTH_PATH: &str = "/health";
 const READINESS_PATH: &str = "/readiness";
 const TOKEN_HEADER: &str = "X-Ritual-Bridge-Token";
@@ -134,6 +137,61 @@ fn content_type_json() -> Header {
         .expect("static content-type header should be valid")
 }
 
+fn cors_origin_header(origin: &str) -> Option<Header> {
+    let trimmed = origin.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let allowed = trimmed == "https://desktop.ritualdb.com"
+        || trimmed == "https://ritual-desktop.vercel.app"
+        || (trimmed.starts_with("https://ritual-desktop-") && trimmed.ends_with(".vercel.app"))
+        || trimmed == "http://localhost:3000"
+        || trimmed == "http://127.0.0.1:3000";
+
+    if !allowed {
+        return None;
+    }
+
+    Header::from_bytes("Access-Control-Allow-Origin", trimmed.as_bytes()).ok()
+}
+
+fn cors_methods_header() -> Header {
+    Header::from_bytes("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        .expect("static allow-methods header should be valid")
+}
+
+fn cors_headers_header() -> Header {
+    Header::from_bytes(
+        "Access-Control-Allow-Headers",
+        "Content-Type, X-Ritual-Bridge-Token",
+    )
+    .expect("static allow-headers header should be valid")
+}
+
+fn cors_vary_header() -> Header {
+    Header::from_bytes("Vary", "Origin").expect("static vary header should be valid")
+}
+
+fn extract_origin(request: &Request) -> Option<String> {
+    request
+        .headers()
+        .iter()
+        .find(|header| header.field.equiv("Origin"))
+        .map(|header| header.value.as_str().trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn maybe_cors_headers(request: &Request) -> Vec<Header> {
+    let mut headers = vec![cors_methods_header(), cors_headers_header(), cors_vary_header()];
+    if let Some(origin) = extract_origin(request) {
+        if let Some(header) = cors_origin_header(&origin) {
+            headers.push(header);
+        }
+    }
+    headers
+}
+
 fn send_json<T: Serialize>(request: Request, status: u16, payload: &T) {
     let body = match serde_json::to_string(payload) {
         Ok(v) => v,
@@ -142,17 +200,23 @@ fn send_json<T: Serialize>(request: Request, status: u16, payload: &T) {
                 r#"{{"success":false,"error":"failed to serialize response: {}"}}"#,
                 e
             );
-            let response = Response::from_string(fallback)
+            let mut response = Response::from_string(fallback)
                 .with_status_code(StatusCode(500))
                 .with_header(content_type_json());
+            for header in maybe_cors_headers(&request) {
+                response = response.with_header(header);
+            }
             let _ = request.respond(response);
             return;
         }
     };
 
-    let response = Response::from_string(body)
+    let mut response = Response::from_string(body)
         .with_status_code(StatusCode(status))
         .with_header(content_type_json());
+    for header in maybe_cors_headers(&request) {
+        response = response.with_header(header);
+    }
     let _ = request.respond(response);
 }
 
@@ -399,7 +463,73 @@ fn process_hybrid_request(payload: HybridBridgeRequest) -> HybridBridgeResponse 
 
 fn handle_request(mut request: Request, expected_token: &str) {
     let method = request.method().clone();
-    let path = request.url().split('?').next().unwrap_or(request.url());
+    let url = request.url().to_string();
+    let path = url.split('?').next().unwrap_or(request.url());
+    let query = url.split_once('?').map(|(_, query)| query).unwrap_or("");
+
+    if method == Method::Options {
+        let mut response = Response::empty(StatusCode(204));
+        for header in maybe_cors_headers(&request) {
+            response = response.with_header(header);
+        }
+        let _ = request.respond(response);
+        return;
+    }
+
+    if method == Method::Get && path == ACTIVITY_DETAILED_PATH {
+        let params = parse_query_params(query);
+        let start_ts = parse_query_i64(&params, "start_ts");
+        let end_ts = parse_query_i64(&params, "end_ts");
+        let limit = parse_query_i64(&params, "limit");
+
+        let response = match (start_ts, end_ts) {
+            (Some(start_ts), Some(end_ts)) => match RUNTIME.block_on(
+                watcher::get_detailed_activity(start_ts, end_ts, limit),
+            ) {
+                Ok(payload) => {
+                    return send_json(request, 200, &payload);
+                }
+                Err(error) => serde_json::json!({
+                    "success": false,
+                    "error": error,
+                }),
+            },
+            _ => serde_json::json!({
+                "success": false,
+                "error": "missing required query params: start_ts and end_ts",
+            }),
+        };
+
+        send_json(request, 400, &response);
+        return;
+    }
+
+    if method == Method::Get && path == ACTIVITY_DAILY_SUMMARIES_PATH {
+        let params = parse_query_params(query);
+        let start_date = params.get("start_date").cloned();
+        let end_date = params.get("end_date").cloned();
+
+        let response = match (start_date, end_date) {
+            (Some(start_date), Some(end_date)) => match RUNTIME.block_on(
+                watcher::get_daily_summaries(start_date, end_date),
+            ) {
+                Ok(payload) => {
+                    return send_json(request, 200, &payload);
+                }
+                Err(error) => serde_json::json!({
+                    "success": false,
+                    "error": error,
+                }),
+            },
+            _ => serde_json::json!({
+                "success": false,
+                "error": "missing required query params: start_date and end_date",
+            }),
+        };
+
+        send_json(request, 400, &response);
+        return;
+    }
 
     if method == Method::Get && path == HEALTH_PATH {
         let payload = serde_json::json!({
@@ -469,6 +599,30 @@ fn handle_request(mut request: Request, expected_token: &str) {
     let response = process_hybrid_request(payload);
     let status = if response.success { 200 } else { 500 };
     send_json(request, status, &response);
+}
+
+fn parse_query_params(query: &str) -> std::collections::HashMap<String, String> {
+    let mut params = std::collections::HashMap::new();
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let mut parts = pair.splitn(2, '=');
+        let key = parts.next().unwrap_or("").trim();
+        if key.is_empty() {
+            continue;
+        }
+        let value = parts.next().unwrap_or("").trim();
+        params.insert(key.to_string(), value.to_string());
+    }
+    params
+}
+
+fn parse_query_i64(
+    params: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> Option<i64> {
+    params.get(key).and_then(|value| value.parse::<i64>().ok())
 }
 
 pub fn start_local_search_bridge() -> Result<(), String> {

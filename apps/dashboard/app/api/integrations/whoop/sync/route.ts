@@ -7,20 +7,83 @@ const PYTHON_API_BASE =
   process.env.NEXT_PUBLIC_PYTHON_API_URL ||
   'http://127.0.0.1:8000';
 
+type WhoopSyncRequest = {
+  daysBack?: number;
+  days_back?: number;
+  forceFullSync?: boolean;
+  force_full_sync?: boolean;
+  fullHistory?: boolean;
+  full_history?: boolean;
+};
+
+function parseOptionalPositiveInt(value: string | null | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+function parseOptionalBoolean(value: string | boolean | null | undefined): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
+async function resolveSyncRequest(req: NextRequest): Promise<{
+  daysBack?: number;
+  forceFullSync?: boolean;
+  fullHistory?: boolean;
+}> {
+  const searchParams = req.nextUrl.searchParams;
+  const queryDaysBack = parseOptionalPositiveInt(searchParams.get('days_back'));
+  const queryForceFullSync = parseOptionalBoolean(searchParams.get('force_full_sync'));
+  const queryFullHistory = parseOptionalBoolean(searchParams.get('full_history'));
+
+  let body: WhoopSyncRequest = {};
+  if (req.method === 'POST') {
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+  }
+
+  return {
+    daysBack:
+      queryDaysBack ??
+      body.daysBack ??
+      body.days_back,
+    forceFullSync:
+      queryForceFullSync ??
+      body.forceFullSync ??
+      body.force_full_sync,
+    fullHistory:
+      queryFullHistory ??
+      body.fullHistory ??
+      body.full_history,
+  };
+}
+
 /**
  * Whoop Sync API Route
- * 
+ *
  * This route proxies Whoop sync requests to the Python backend.
  * The Python backend handles:
  * - Token refresh
  * - Data fetching from Whoop API
  * - Storage in Turso database (habit_logs)
  * - Sending to Tinybird for analytics
- * 
- * GET /api/integrations/whoop/sync?days_back=7
- * POST /api/integrations/whoop/sync (with days_back in query or body)
+ *
+ * POST /api/integrations/whoop/sync
+ * POST /api/integrations/whoop/sync?days_back=365
+ * POST /api/integrations/whoop/sync (with {"daysBack":365,"forceFullSync":true})
  */
-async function handleWhoopSync(req: NextRequest, daysBack: number) {
+async function handleWhoopSync(
+  req: NextRequest,
+  options: { daysBack?: number; forceFullSync?: boolean; fullHistory?: boolean }
+) {
   // Get authenticated user from Clerk
   const { userId, getToken } = await auth();
   
@@ -44,9 +107,24 @@ async function handleWhoopSync(req: NextRequest, daysBack: number) {
     );
   }
   
+  const backendParams = new URLSearchParams();
+  if (options.daysBack !== undefined) {
+    backendParams.set('days_back', String(options.daysBack));
+  }
+  if (options.forceFullSync === true) {
+    backendParams.set('force_full_sync', 'true');
+  }
+  if (options.fullHistory === true) {
+    backendParams.set('full_history', 'true');
+  }
+
+  const backendUrl = `${PYTHON_API_BASE}/api/integrations/whoop/sync${
+    backendParams.size ? `?${backendParams.toString()}` : ''
+  }`;
+
   // Call Python backend sync endpoint
   const response = await fetch(
-    `${PYTHON_API_BASE}/api/integrations/whoop/sync?days_back=${daysBack}`,
+    backendUrl,
     {
       method: 'POST',
       headers: {
@@ -78,9 +156,8 @@ async function handleWhoopSync(req: NextRequest, daysBack: number) {
 
 export async function GET(req: NextRequest) {
   try {
-    const searchParams = req.nextUrl.searchParams;
-    const daysBack = parseInt(searchParams.get('days_back') || '7');
-    return handleWhoopSync(req, daysBack);
+    const options = await resolveSyncRequest(req);
+    return handleWhoopSync(req, options);
   } catch (error) {
     logger.error('❌ Error in Whoop sync:', error);
     return NextResponse.json(
@@ -92,23 +169,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    // Support days_back from query params or body
-    const searchParams = req.nextUrl.searchParams;
-    let daysBack = parseInt(searchParams.get('days_back') || '7');
-    
-    // Try to get from body if not in query
-    if (daysBack === 7) {
-      try {
-        const body = await req.json().catch(() => ({}));
-        if (body.days_back) {
-          daysBack = parseInt(String(body.days_back));
-        }
-      } catch {
-        // Body parsing failed, use default
-      }
-    }
-    
-    return handleWhoopSync(req, daysBack);
+    const options = await resolveSyncRequest(req);
+    return handleWhoopSync(req, options);
   } catch (error) {
     logger.error('❌ Error in Whoop sync:', error);
     return NextResponse.json(

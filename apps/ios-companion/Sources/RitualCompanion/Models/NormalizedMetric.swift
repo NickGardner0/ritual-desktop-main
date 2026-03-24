@@ -4,6 +4,7 @@ import Foundation
 enum WearableSource: String, Codable {
     case whoop = "whoop"
     case appleHealth = "apple_health"
+    case appleScreenTime = "apple_screen_time"
     case oura = "oura"
     case garmin = "garmin"
     case fitbit = "fitbit"
@@ -41,6 +42,11 @@ enum MetricType: String, Codable {
     // Workouts & Mindfulness
     case workout = "workout"
     case mindfulMinutes = "mindful_minutes"
+
+    // Screen Time
+    case screenTimeTotal = "screen_time_total"
+    case screenTimeAppUsage = "screen_time_app_usage"
+    case screenTimeWebDomainUsage = "screen_time_web_domain_usage"
 }
 
 /// Unit of measurement

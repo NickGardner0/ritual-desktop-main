@@ -23,6 +23,7 @@ class WhoopBulkSyncRequest(BaseModel):
     daysBack: Optional[int] = None
     hour: Optional[int] = None
     forceFullSync: bool = False
+    fullHistory: bool = False
 
 
 def create_whoop_router(
@@ -109,11 +110,14 @@ def create_whoop_router(
     async def whoop_sync(
         days_back: Optional[int] = None,
         force_full_sync: bool = False,
+        full_history: bool = False,
         current_user=Depends(get_current_user),
     ):
         try:
             sync_type = "smart incremental"
-            if force_full_sync:
+            if full_history:
+                sync_type = "full history"
+            elif force_full_sync:
                 sync_type = "full (forced)"
             elif days_back is not None:
                 sync_type = f"manual ({days_back} days)"
@@ -127,12 +131,37 @@ def create_whoop_router(
                 current_user["id"],
                 days_back=days_back,
                 force_full_sync=force_full_sync,
+                full_history=full_history,
             )
             logger.info("Whoop sync completed for user %s", current_user["id"])
             return result
-        except Exception:
+        except Exception as exc:
             logger.exception("Whoop sync failed")
-            raise HTTPException(status_code=500, detail="Request could not be processed.")
+            message = str(exc).strip() or "Request could not be processed."
+            lower = message.lower()
+            status_code = 500
+            if any(
+                marker in lower
+                for marker in (
+                    "authentication failed",
+                    "token invalid",
+                    "integration not found",
+                    "reconnect your whoop integration",
+                    "authorization",
+                    "unauthorized",
+                )
+            ):
+                status_code = 401
+            elif "configuration missing" in lower:
+                status_code = 503
+
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "message": message,
+                    "display_message": message,
+                },
+            )
 
     @router.post("/sync-all")
     async def whoop_sync_all(
@@ -175,6 +204,7 @@ def create_whoop_router(
                         integration.user_id,
                         days_back=payload.daysBack if payload else None,
                         force_full_sync=payload.forceFullSync if payload else False,
+                        full_history=payload.fullHistory if payload else False,
                     )
                     sync_results.append(
                         {
@@ -218,7 +248,13 @@ def create_whoop_router(
         try:
             success = await whoop_service.disconnect_integration(current_user["id"])
             if not success:
-                raise HTTPException(status_code=500, detail="Failed to disconnect Whoop")
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "message": "Failed to disconnect Whoop",
+                        "display_message": "Failed to disconnect Whoop. Please try again.",
+                    },
+                )
             logger.info("Whoop disconnected for user %s", current_user["id"])
             return {
                 "status": "success",
@@ -226,9 +262,16 @@ def create_whoop_router(
             }
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Whoop disconnect failed")
-            raise HTTPException(status_code=500, detail="Request could not be processed.")
+            message = str(exc).strip() or "Request could not be processed."
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": message,
+                    "display_message": message,
+                },
+            )
 
     @router.put("/sync-hour")
     async def update_whoop_sync_hour(

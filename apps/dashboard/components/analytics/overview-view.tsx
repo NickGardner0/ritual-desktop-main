@@ -21,6 +21,9 @@ import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
+import { isTauri } from '@/lib/tauri-utils';
+import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
+import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
 
 const DateRangePicker = dynamic(
   () => import("@/components/date-range-picker").then(m => ({ default: m.DateRangePicker })),
@@ -42,13 +45,32 @@ const SortableHabitList = dynamic(
   { ssr: false }
 );
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-
 interface ComputerDailyRow {
   day: string;
   active_hours: number;
   active_ms: number;
   events_count: number;
+}
+
+interface ComputerActivityDebugState {
+  source: 'tauri' | 'http' | 'none';
+  rows: number;
+  totalHours: number;
+  error: string | null;
+  tauriGlobal: boolean;
+  tauriIpc: boolean;
+  sample: string | null;
+}
+
+function getTauriBridgeState() {
+  if (typeof window === 'undefined') {
+    return { tauriGlobal: false, tauriIpc: false };
+  }
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
+  return {
+    tauriGlobal: Boolean(w.__TAURI__),
+    tauriIpc: typeof w.__TAURI_IPC__ === 'function',
+  };
 }
 
 interface OverviewViewProps {
@@ -112,6 +134,15 @@ export function OverviewView({
   const [scrubberHoveredValues, setScrubberHoveredValues] = useState<Record<string, number> | null>(null);
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
+  const [computerActivityDebug, setComputerActivityDebug] = useState<ComputerActivityDebugState>({
+    source: 'none',
+    rows: 0,
+    totalHours: 0,
+    error: null,
+    ...getTauriBridgeState(),
+    sample: null,
+  });
+  const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
     setScrubberHoveredDate(date);
     setScrubberHoveredValues(values);
@@ -192,6 +223,37 @@ export function OverviewView({
           startDate = format(subDays(now, 180), 'yyyy-MM-dd');
           endDate = format(now, 'yyyy-MM-dd');
         }
+
+        if (isTauri()) {
+          console.log('[Overview] isTauri()=true, attempting Tauri invoke for daily summaries…');
+          const bridgeState = getTauriBridgeState();
+          console.log(`[Overview] Bridge state: __TAURI__=${bridgeState.tauriGlobal}, __TAURI_IPC__=${bridgeState.tauriIpc}`);
+          try {
+            const summaries = await invokeDailySummariesWithInitRetry(startDate, endDate);
+            console.log(`[Overview] Tauri invoke succeeded: ${summaries.length} summaries returned`);
+
+            if (controller.signal.aborted) return;
+
+            const rows = summaries
+              .map(normalizeComputerDailySummaryRow)
+              .filter((row): row is ComputerDailyRow => Boolean(row));
+
+            setComputerActivityDaily(rows);
+            setComputerActivityDebug({
+              source: 'tauri',
+              rows: rows.length,
+              totalHours: Math.round(rows.reduce((sum: number, row: ComputerDailyRow) => sum + row.active_hours, 0) * 100) / 100,
+              error: null,
+              ...bridgeState,
+              sample: summaries.length > 0 ? JSON.stringify(summaries[0]) : null,
+            });
+            return;
+          } catch (tauriError) {
+            console.error('[Overview] Tauri invoke FAILED — IPC bridge likely unavailable on remote URL:', tauriError);
+            console.log('[Overview] Falling through to HTTP fetch…');
+          }
+        }
+
         const query = `start_date=${startDate}&end_date=${endDate}`;
         const res = await fetch(`/api/watcher/stats/daily?${query}`, {
           signal: controller.signal,
@@ -207,18 +269,29 @@ export function OverviewView({
         const payload = await res.json();
         if (controller.signal.aborted) return;
         const rows = (payload?.data || [])
-          .map((row: any) => ({
-            day: String(row.day || ''),
-            active_hours: Math.max(0, Number(row.active_hours || 0)),
-            active_ms: Math.max(0, Number(row.active_ms || 0)),
-            events_count: Math.max(0, Number(row.events_count || 0)),
-          }))
+          .map(normalizeComputerDailySummaryRow)
           .filter((row: ComputerDailyRow) => row.day);
         setComputerActivityDaily(rows);
+        setComputerActivityDebug({
+          source: 'http',
+          rows: rows.length,
+          totalHours: Math.round(rows.reduce((sum: number, row: ComputerDailyRow) => sum + row.active_hours, 0) * 100) / 100,
+          error: null,
+          ...getTauriBridgeState(),
+          sample: rows.length > 0 ? JSON.stringify(rows[0]) : null,
+        });
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error('❌ Failed loading overview computer activity:', error);
         setComputerActivityDaily([]);
+        setComputerActivityDebug({
+          source: isTauri() ? 'tauri' : 'http',
+          rows: 0,
+          totalHours: 0,
+          error: String((error as any)?.message ?? error ?? 'Unknown computer activity error'),
+          ...getTauriBridgeState(),
+          sample: null,
+        });
       }
     };
 
@@ -306,15 +379,40 @@ export function OverviewView({
     }
   }, [habits.length, habitLogs.length, user, fetchHabitLogs]);
 
+  useEffect(() => {
+    if (!user || !isBackendUnavailable) return;
+
+    const retryTimer = setInterval(() => {
+      fetchHabits();
+      fetchHabitLogs();
+    }, 8_000);
+
+    return () => clearInterval(retryTimer);
+  }, [user, isBackendUnavailable, fetchHabits, fetchHabitLogs]);
+
   // Get display text for habit metrics
   const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
     const unitType = habit.unit_type || 'sessions';
     const isComputerHabit = isComputerHabitName(habit.name);
 
-    if (isComputerHabit && !scrubberHoveredDate) {
+    if (isComputerHabit) {
       const totalHours = Math.round(
         computerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0) * 100
       ) / 100;
+
+      // The history scrubber is derived from habit logs and does not include
+      // local desktop watcher data. When the computer habit is displayed, use
+      // the local watcher rows directly for hovered dates and otherwise fall
+      // back to the real desktop total instead of showing an unrelated 0-hour
+      // habit-log preview.
+      if (scrubberHoveredDate) {
+        const hoveredRow = computerActivityDaily.find((row) => row.day === scrubberHoveredDate);
+        if (hoveredRow) {
+          const hoveredHours = Math.round(Number(hoveredRow.active_hours || 0) * 100) / 100;
+          return `${hoveredHours} Hours`;
+        }
+      }
+
       return `${totalHours} Hours`;
     }
     
@@ -527,6 +625,20 @@ export function OverviewView({
 
   return (
     <div className="space-y-0">
+      {isTauri() && computerActivityDebug.totalHours === 0 && (
+        <div className="mx-auto mb-4 max-w-[700px] rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+          <div className="font-medium">Desktop computer-time debug</div>
+          <div>
+            source={computerActivityDebug.source} rows={computerActivityDebug.rows} totalHours={computerActivityDebug.totalHours}
+          </div>
+          <div>
+            tauriGlobal={String(computerActivityDebug.tauriGlobal)} tauriIpc={String(computerActivityDebug.tauriIpc)}
+          </div>
+          {computerActivityDebug.error ? <div>error={computerActivityDebug.error}</div> : null}
+          {computerActivityDebug.sample ? <div className="break-all">sample={computerActivityDebug.sample}</div> : null}
+        </div>
+      )}
+
       {/* Header with controls - only show if not hidden */}
       {!hideControls && (
         <div className="relative flex items-center justify-end h-14">
@@ -603,7 +715,30 @@ export function OverviewView({
       </div>
 
       {/* Empty state */}
-      {habits.length === 0 && !isLoading && (
+      {isBackendUnavailable && (
+        <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8 text-center">
+          <div className="text-xl text-black" style={{ fontWeight: 500 }}>
+            Backend unavailable
+          </div>
+          <div className="mt-2 max-w-xl text-sm leading-tight text-black" style={{ fontWeight: 400 }}>
+            We couldn&apos;t load your data right now.
+            <br />
+            Retrying in the background.
+          </div>
+          <button
+            onClick={() => {
+              fetchHabits();
+              fetchHabitLogs();
+            }}
+            className="mt-4 text-sm text-black underline underline-offset-4"
+            style={{ fontWeight: 400 }}
+          >
+            Retry now
+          </button>
+        </div>
+      )}
+
+      {!isBackendUnavailable && habits.length === 0 && !isLoading && (
         <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8">
           <div className="text-xl mb-2 text-center" style={{ fontWeight: 500 }}>
             Connect your devices

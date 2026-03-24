@@ -14,7 +14,7 @@ import {
   SparklinePoint,
   AttentionHeader,
   DailyRollup,
-} from '@ritual/shared-contracts/computer-activity'
+} from '@/lib/computerActivity/contracts'
 
 // ============================================================
 // 2.1 Helpers
@@ -104,17 +104,28 @@ export function formatTime(timestamp: number): string {
  * Bucket events by day, returns map of date string -> total ms
  */
 export function bucketByDay(events: ActivityEvent[]): Map<string, number> {
-  const buckets = new Map<string, number>()
-  
+  const dayIntervals = new Map<string, Array<{ start: number; end: number }>>()
+
   for (const event of events) {
     if (isAfk(event)) continue
-    
-    const dateKey = toLocalDateKey(new Date(event.ts_start))
-    const duration = event.duration_ms || (event.ts_end - event.ts_start)
-    
-    buckets.set(dateKey, (buckets.get(dateKey) || 0) + duration)
+
+    const start = event.ts_start
+    const end = event.ts_end
+    if (end <= start) continue
+
+    const dateKey = toLocalDateKey(new Date(start))
+    const intervals = dayIntervals.get(dateKey) || []
+    intervals.push({ start, end })
+    dayIntervals.set(dateKey, intervals)
   }
-  
+
+  const buckets = new Map<string, number>()
+  for (const [dateKey, intervals] of dayIntervals) {
+    const merged = mergeTimeIntervals(intervals)
+    const uniqueMs = merged.reduce((sum, interval) => sum + (interval.end - interval.start), 0)
+    buckets.set(dateKey, uniqueMs)
+  }
+
   return buckets
 }
 

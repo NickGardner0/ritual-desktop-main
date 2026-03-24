@@ -1,24 +1,51 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  checkDesktopForUpdates,
+  desktopFrontendReady,
+  getDesktopCompatibilityIssue,
+  installDesktopUpdate,
+  type DesktopRuntimeInfo,
+  type UpdateManifest,
+} from '@/lib/desktop-runtime';
 import { isTauri } from '@/lib/tauri-utils';
 
-type UpdateManifest = {
-  body?: string;
-  date?: string;
-  version?: string;
+type UpdateStatusPayload = {
+  error?: string | null;
+  status?: string | null;
 };
 
-const CHECK_UPDATES_EVENT = 'ritual://check-for-updates';
 const DESKTOP_ENV_QUERY_PARAM = 'ritual_desktop_env';
+const UPDATE_AVAILABLE_EVENT = 'tauri://update-available';
+const UPDATE_STATUS_EVENT = 'tauri://update-status';
+
+function normalizeManifest(manifest: UpdateManifest | null | undefined): UpdateManifest | null {
+  if (!manifest?.version) {
+    return null;
+  }
+
+  return {
+    body: manifest.body ?? null,
+    date: manifest.date ?? null,
+    version: manifest.version,
+  };
+}
 
 export function DesktopUpdater() {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateManifest | null>(null);
   const [checking, setChecking] = useState(false);
   const [desktopEnv, setDesktopEnv] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [manualCheckActive, setManualCheckActive] = useState(false);
+  const [runtimeInfo, setRuntimeInfo] = useState<DesktopRuntimeInfo | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const manualCheckActiveRef = useRef(false);
+
+  useEffect(() => {
+    manualCheckActiveRef.current = manualCheckActive;
+  }, [manualCheckActive]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -34,94 +61,211 @@ export function DesktopUpdater() {
     setDesktopEnv(window.sessionStorage.getItem(DESKTOP_ENV_QUERY_PARAM));
   }, []);
 
-  const shouldEnableUpdater =
+  const isDesktopShell =
     isTauri() &&
     typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('ritual_sidebar_window') !== '1' &&
-    (desktopEnv === 'production' || desktopEnv === 'prod');
+    new URLSearchParams(window.location.search).get('ritual_sidebar_window') !== '1';
+
+  const shouldEnableUpdater =
+    isDesktopShell && (desktopEnv === 'production' || desktopEnv === 'prod');
+
+  const compatibilityIssue = useMemo(
+    () => getDesktopCompatibilityIssue(runtimeInfo),
+    [runtimeInfo],
+  );
+
+  useEffect(() => {
+    if (!isDesktopShell) return;
+
+    let cancelled = false;
+
+    void desktopFrontendReady().then((info) => {
+      if (cancelled) return;
+      setRuntimeInfo(info);
+      setAvailableUpdate(normalizeManifest(info?.pendingUpdate));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isDesktopShell]);
 
   useEffect(() => {
     if (!shouldEnableUpdater) return;
 
     let cancelled = false;
-    let inFlight = false;
-    let unlisten: (() => void) | undefined;
-
-    const runCheck = async (manual = false) => {
-      if (cancelled || inFlight) return;
-
-      inFlight = true;
-      setChecking(true);
-      if (manual) {
-        setStatusMessage('Checking GitHub Releases for a new Ritual build...');
-      }
-
-      try {
-        const { checkUpdate } = await import('@tauri-apps/api/updater');
-        const result = await checkUpdate();
-        if (cancelled) return;
-
-        if (result.shouldUpdate) {
-          setAvailableUpdate(result.manifest ?? {});
-          setStatusMessage(null);
-        } else {
-          setAvailableUpdate(null);
-          setStatusMessage(manual ? 'You already have the latest Ritual desktop build.' : null);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.warn('Desktop updater check failed:', error);
-        setStatusMessage(
-          manual ? 'Update check failed. Confirm the GitHub release includes latest.json and signed updater artifacts.' : null
-        );
-      } finally {
-        inFlight = false;
-        if (!cancelled) {
-          setChecking(false);
-        }
-      }
-    };
-
-    const timer = window.setTimeout(() => {
-      void runCheck(false);
-    }, 6_000);
+    let disposeAvailable: (() => void) | undefined;
+    let disposeStatus: (() => void) | undefined;
 
     void import('@tauri-apps/api/event')
-      .then(({ listen }) => listen(CHECK_UPDATES_EVENT, () => runCheck(true)))
-      .then((dispose) => {
-        unlisten = dispose;
+      .then(async ({ listen }) => {
+        disposeAvailable = await listen<UpdateManifest>(UPDATE_AVAILABLE_EVENT, (event) => {
+          if (cancelled) return;
+
+          const manifest = normalizeManifest(event.payload);
+          setAvailableUpdate(manifest);
+          setRuntimeInfo((current) => (
+            current
+              ? {
+                  ...current,
+                  pendingUpdate: manifest,
+                }
+              : current
+          ));
+          setStatusMessage(null);
+          setChecking(false);
+          setManualCheckActive(false);
+        });
+
+        disposeStatus = await listen<UpdateStatusPayload>(UPDATE_STATUS_EVENT, (event) => {
+          if (cancelled) return;
+
+          const payload = event.payload || {};
+          const status = (payload.status || '').toUpperCase();
+
+          if (status === 'PENDING') {
+            setInstalling(true);
+            setStatusMessage('Downloading and installing the latest Ritual desktop build...');
+            return;
+          }
+
+          if (status === 'DONE') {
+            setStatusMessage('Update installed. Relaunching Ritual...');
+            return;
+          }
+
+          if (status === 'UPTODATE') {
+            setChecking(false);
+            setInstalling(false);
+            setAvailableUpdate(null);
+            setRuntimeInfo((current) => (
+              current
+                ? {
+                    ...current,
+                    pendingUpdate: null,
+                  }
+                : current
+            ));
+            setStatusMessage(
+              manualCheckActiveRef.current ? 'You already have the latest Ritual desktop build.' : null,
+            );
+            setManualCheckActive(false);
+            return;
+          }
+
+          if (status === 'ERROR') {
+            setChecking(false);
+            setInstalling(false);
+            setStatusMessage(payload.error || 'Update failed. Reopen the tray menu and try again.');
+            setManualCheckActive(false);
+          }
+        });
       })
       .catch((error) => {
-        console.warn('Unable to bind desktop updater event listener:', error);
+        console.warn('Unable to bind native desktop updater listeners:', error);
       });
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
-      unlisten?.();
+      disposeAvailable?.();
+      disposeStatus?.();
     };
   }, [shouldEnableUpdater]);
+
+  const effectivePendingUpdate = availableUpdate ?? normalizeManifest(runtimeInfo?.pendingUpdate);
+
+  const runManualUpdateCheck = async () => {
+    setChecking(true);
+    setManualCheckActive(true);
+    setStatusMessage('Checking GitHub Releases for a new Ritual build...');
+
+    try {
+      const nextRuntimeInfo = await checkDesktopForUpdates();
+      setRuntimeInfo(nextRuntimeInfo);
+      setAvailableUpdate(normalizeManifest(nextRuntimeInfo?.pendingUpdate));
+      if (!nextRuntimeInfo?.pendingUpdate) {
+        setChecking(false);
+      }
+    } catch (error) {
+      console.error('Desktop updater check failed:', error);
+      setChecking(false);
+      setManualCheckActive(false);
+      setStatusMessage('Update check failed. Confirm the GitHub release includes latest.json and signed updater artifacts.');
+    }
+  };
 
   const installUpdateNow = async () => {
     setInstalling(true);
     setStatusMessage('Downloading and installing the latest Ritual desktop build...');
 
     try {
-      const [{ installUpdate }, { relaunch }] = await Promise.all([
-        import('@tauri-apps/api/updater'),
-        import('@tauri-apps/api/process'),
-      ]);
-
-      await installUpdate();
-      await relaunch();
+      await installDesktopUpdate();
     } catch (error) {
       console.error('Desktop updater install failed:', error);
-      setStatusMessage('Install failed. Close Ritual and reinstall from the latest GitHub Release if this persists.');
       setInstalling(false);
+      setStatusMessage('Install failed. Close Ritual and reinstall from the latest GitHub Release if this persists.');
     }
   };
 
-  if (!shouldEnableUpdater || (!availableUpdate && !statusMessage)) {
+  if (!isDesktopShell) {
+    return null;
+  }
+
+  if (compatibilityIssue) {
+    const requiredCapabilities =
+      compatibilityIssue.kind === 'capability'
+        ? compatibilityIssue.missingCapabilities.join(', ')
+        : null;
+
+    return (
+      <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-[rgba(9,9,11,0.58)] px-6">
+        <div className="w-full max-w-xl rounded-[32px] border border-black/10 bg-white p-8 shadow-[0_40px_100px_rgba(0,0,0,0.28)]">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8a6f47]">
+            Ritual Desktop Update Required
+          </p>
+          <h2 className="mt-4 text-[30px] font-medium leading-[1.08] tracking-[-0.03em] text-[#1d1a16]">
+            This Ritual web release needs a newer desktop shell.
+          </h2>
+          <p className="mt-4 text-[15px] leading-7 text-[#5a5147]">
+            {compatibilityIssue.kind === 'version'
+              ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
+              : `This page needs desktop capabilities your installed shell does not expose yet: ${requiredCapabilities}.`}
+          </p>
+          <p className="mt-3 text-[14px] leading-6 text-[#6a6157]">
+            Use the button below to check for the latest signed desktop release and install it before continuing.
+          </p>
+
+          <div className="mt-8 flex flex-wrap gap-3">
+            {effectivePendingUpdate ? (
+              <Button disabled={installing} onClick={installUpdateNow} size="sm">
+                {installing ? 'Installing…' : `Install ${effectivePendingUpdate.version ?? 'update'}`}
+              </Button>
+            ) : (
+              <Button disabled={checking || !shouldEnableUpdater} onClick={runManualUpdateCheck} size="sm">
+                {checking ? 'Checking…' : 'Check for update'}
+              </Button>
+            )}
+            {statusMessage ? (
+              <Button
+                disabled={checking || installing}
+                onClick={() => setStatusMessage(null)}
+                size="sm"
+                variant="outline"
+              >
+                Dismiss
+              </Button>
+            ) : null}
+          </div>
+
+          {statusMessage ? (
+            <p className="mt-4 text-sm leading-6 text-[#5a5147]">{statusMessage}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (!shouldEnableUpdater || (!effectivePendingUpdate && !statusMessage)) {
     return null;
   }
 
@@ -131,11 +275,11 @@ export function DesktopUpdater() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-gray-900">
-              {availableUpdate ? 'Ritual update ready' : 'Desktop updater'}
+              {effectivePendingUpdate ? 'Ritual update ready' : 'Desktop updater'}
             </p>
             <p className="mt-1 text-xs leading-5 text-gray-600">
-              {availableUpdate
-                ? `Version ${availableUpdate.version ?? 'new'} is available from GitHub Releases.`
+              {effectivePendingUpdate
+                ? `Version ${effectivePendingUpdate.version ?? 'new'} is available from GitHub Releases.`
                 : statusMessage}
             </p>
           </div>
@@ -151,13 +295,13 @@ export function DesktopUpdater() {
           </button>
         </div>
 
-        {availableUpdate?.body ? (
+        {effectivePendingUpdate?.body ? (
           <p className="mt-3 line-clamp-3 text-xs leading-5 text-gray-500">
-            {availableUpdate.body}
+            {effectivePendingUpdate.body}
           </p>
         ) : null}
 
-        {availableUpdate ? (
+        {effectivePendingUpdate ? (
           <div className="mt-4 flex gap-2">
             <Button disabled={installing} onClick={installUpdateNow} size="sm">
               {installing ? 'Installing…' : 'Install update'}

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// Main status view showing connection state and sync controls
 struct StatusView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var whoopService: WhoopBroadcastService
     @State private var showingPermissions = false
     @State private var showingDisconnectAlert = false
     @State private var lastBackgroundSyncInfo: String? = nil
@@ -13,574 +14,59 @@ struct StatusView: View {
     @State private var exportStartDate: Date = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
     @State private var exportEndDate: Date = Date()
     @State private var showingExportFolderPicker = false
+    @State private var showRecoveryTools = false
+    @State private var showExportTools = false
+    @State private var showActivity = false
     
     // Access Clerk user directly
     private var clerkUser: User? {
         Clerk.shared.user
     }
+
+    private let backgroundColor = CompanionPalette.background
+
+    private var whoopCardTitle: String {
+        if let connectedDevice = whoopService.connectedDevice,
+           whoopService.permissionState == .connected || whoopService.permissionState == .receiving {
+            return "Connected to \(connectedDevice.name)"
+        }
+        return "Connect a BLE heart-rate source"
+    }
+
+    private var whoopCardDetail: String {
+        if whoopService.permissionState == .receiving, let bpm = whoopService.liveBPM {
+            return "Receiving live heart rate at \(bpm) bpm."
+        }
+        if let connectedDevice = whoopService.connectedDevice {
+            return "Connected to \(connectedDevice.name)."
+        }
+        return "Optional live heart-rate source."
+    }
+
+    private var whoopCardTint: Color {
+        whoopService.permissionState.tint
+    }
+
+    private var whoopBadgeText: String {
+        whoopService.permissionState.statusText
+    }
     
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                // Header - simple profile display
-                HStack {
-                    Spacer()
-                    if let user = clerkUser, let email = user.primaryEmailAddress?.emailAddress {
-                        Text(email)
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
-                
-                // App header - minimal
-                VStack(spacing: 16) {
-                    // Sphere logo icon
-                    RitualLogoShape()
-                        .fill(Color.black)
-                        .frame(width: 40, height: 40)
-                    
-                    Text("Ritual Companion")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(.black)
-                }
-                .padding(.bottom, 32)
-                
-                // Status cards - stacked with no gaps
-                VStack(spacing: 0) {
-                    StatusCard(
-                        title: "Connection",
-                        status: appState.connectionStatus.displayText,
-                        icon: appState.connectionStatus == .connected ? "checkmark" : "xmark",
-                        iconColor: appState.connectionStatus == .connected ? .green : .secondary
-                    )
-                    
-                    StatusCard(
-                        title: "Health Access",
-                        status: appState.healthAccessStatus.displayText,
-                        icon: appState.healthAccessStatus == .authorized ? "checkmark" : "xmark",
-                        iconColor: appState.healthAccessStatus == .authorized ? .green : .secondary
-                    )
-                    
-                    StatusCard(
-                        title: "Tracked Metrics",
-                        status: appState.trackedMetricsDescription,
-                        icon: "list.bullet",
-                        iconColor: appState.hasTrackedMetrics ? .green : .secondary
-                    )
-                    
-                    StatusCard(
-                        title: "Last Sync",
-                        status: appState.lastSyncDescription,
-                        icon: "clock",
-                        iconColor: appState.lastSyncTime != nil ? .green : .secondary
-                    )
-                }
-                .padding(.horizontal, 20)
-                
-                // Sync button - clean black design
-                Button(action: syncNow) {
-                    HStack(spacing: 10) {
-                        if appState.isSyncing {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 16))
-                        }
-                        Text(appState.isSyncing ? "Syncing..." : "Sync Now")
-                            .font(.system(size: 16, weight: .medium))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(appState.canSync ? Color.black : Color.gray.opacity(0.3))
-                    .foregroundColor(appState.canSync ? .white : .gray)
-                }
-                .disabled(!appState.canSync)
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
-                
-                // Info notices
-                if !appState.hasHealthAccess {
-                    noticeCard(
-                        icon: "exclamationmark.triangle",
-                        title: "Health Access Required",
-                        message: "Grant health access to sync your data"
-                    )
-                    .onTapGesture {
-                        showingPermissions = true
-                    }
-                }
-                
-                if appState.isConnected && appState.hasHealthAccess && !appState.hasTrackedMetrics {
-                    noticeCard(
-                        icon: "info.circle",
-                        title: "No Metrics Selected",
-                        message: "Open the Ritual desktop app and select which Apple Watch data you want to track"
-                    )
-                }
-                
-                // Tracked habits list
-                if appState.hasTrackedMetrics {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Syncing These Metrics:")
-                                .font(.system(size: 13))
-                                .foregroundColor(.gray)
-                            Spacer()
-                            Button(action: refreshTrackedMetrics) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.clockwise")
-                                        .font(.system(size: 12))
-                                    Text("Refresh")
-                                        .font(.system(size: 12))
-                                }
-                                .foregroundColor(.black)
-                            }
-                            .disabled(appState.isFetchingTrackedMetrics)
-                        }
-                        
-                        // Metric tags - clean design
-                        FlowLayout(spacing: 8) {
-                            ForEach(appState.trackedHabits, id: \.id) { habit in
-                                HStack(spacing: 6) {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 10, weight: .medium))
-                                    Text(habit.name)
-                                        .font(.system(size: 13))
-                                }
-                                .foregroundColor(.black)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.white)
-                                .overlay(
-                                    Rectangle()
-                                        .stroke(Color.black.opacity(0.15), lineWidth: 1)
-                                )
-                            }
-                        }
-                        
-                        // Auto-sync indicator
-                        Rectangle()
-                            .fill(Color.black.opacity(0.1))
-                            .frame(height: 1)
-                            .padding(.vertical, 8)
-                        
-                        HStack(spacing: 10) {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 14))
-                                .foregroundColor(.black)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Auto-Sync Enabled")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(.black)
-                                Text("Data syncs automatically in the background")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.gray)
-                            }
-                            Spacer()
-                        }
-                        
-                        if let syncInfo = lastBackgroundSyncInfo {
-                            Text(syncInfo)
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white)
-                    .overlay(
-                        Rectangle()
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
-
-                if appState.isConnected {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Retry Queue")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
-
-                        HStack(spacing: 10) {
-                            Image(systemName: appState.queueTelemetry.pendingCount > 0 ? "tray.full" : "tray")
-                                .font(.system(size: 14))
-                                .foregroundColor(.black)
-                            Text(appState.retryQueueDescription)
-                                .font(.system(size: 12))
-                                .foregroundColor(.black)
-                            Spacer()
-                        }
-
-                        if !appState.latestFailedDays.isEmpty {
-                            Button(action: { retryFailedDays(appState.latestFailedDays) }) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.clockwise")
-                                        .font(.system(size: 12))
-                                    Text("Retry \(appState.latestFailedDays.count) failed day(s)")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                                .foregroundColor(.black)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .overlay(
-                                    Rectangle()
-                                        .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-                            .disabled(appState.isSyncing)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white)
-                    .overlay(
-                        Rectangle()
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
-
-                if appState.isConnected {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Backfill & Recovery")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
-
-                        HStack(spacing: 8) {
-                            DatePicker("Start", selection: $retryStartDate, displayedComponents: .date)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                            Text("to")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                            DatePicker("End", selection: $retryEndDate, displayedComponents: .date)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                        }
-
-                        Button(action: retryDateRange) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "calendar.badge.clock")
-                                    .font(.system(size: 12))
-                                Text("Retry Date Range")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 8)
-                            .overlay(
-                                Rectangle()
-                                    .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                            )
-                        }
-                        .disabled(appState.isSyncing)
-
-                        if let summary = appState.dateRangeRetrySummary, !summary.isEmpty {
-                            Text(summary)
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white)
-                    .overlay(
-                        Rectangle()
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
-
-                if appState.isConnected {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Local Export")
-                                .font(.system(size: 13))
-                                .foregroundColor(.gray)
-                            Spacer()
-                            Button(action: { showingExportFolderPicker = true }) {
-                                Text("Select Folder")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(.black)
-                            }
-                        }
-
-                        Text("Destination: \(appState.exportDestinationName)")
-                            .font(.system(size: 12))
-                            .foregroundColor(.black)
-
-                        HStack(spacing: 8) {
-                            Text("Format")
-                                .font(.system(size: 12))
-                                .foregroundColor(.gray)
-                            Picker("Format", selection: exportFormatBinding) {
-                                ForEach(LocalExportFormat.allCases, id: \.self) { format in
-                                    Text(format.displayName).tag(format)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-
-                        HStack(spacing: 8) {
-                            Text("Write")
-                                .font(.system(size: 12))
-                                .foregroundColor(.gray)
-                            Picker("Write Mode", selection: exportWriteModeBinding) {
-                                ForEach(LocalExportWriteMode.allCases, id: \.self) { mode in
-                                    Text(mode.displayName).tag(mode)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Filename Template")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                            TextField("{date}", text: exportFilenameTemplateBinding)
-                                .font(.system(size: 12))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled(true)
-                                .padding(8)
-                                .overlay(
-                                    Rectangle().stroke(Color.black.opacity(0.15), lineWidth: 1)
-                                )
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Folder Structure (optional)")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                            TextField("e.g. {year}/{month}", text: exportFolderStructureBinding)
-                                .font(.system(size: 12))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled(true)
-                                .padding(8)
-                                .overlay(
-                                    Rectangle().stroke(Color.black.opacity(0.15), lineWidth: 1)
-                                )
-                        }
-
-                        HStack(spacing: 8) {
-                            DatePicker("Export Start", selection: $exportStartDate, displayedComponents: .date)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                            Text("to")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                            DatePicker("Export End", selection: $exportEndDate, displayedComponents: .date)
-                                .labelsHidden()
-                                .datePickerStyle(.compact)
-                        }
-
-                        HStack(spacing: 10) {
-                            Button(action: exportDateRange) {
-                                HStack(spacing: 6) {
-                                    if appState.isExporting {
-                                        ProgressView()
-                                            .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                            .scaleEffect(0.7)
-                                    } else {
-                                        Image(systemName: "square.and.arrow.down")
-                                            .font(.system(size: 12))
-                                    }
-                                    Text(appState.isExporting ? "Exporting..." : "Export Date Range")
-                                        .font(.system(size: 12, weight: .medium))
-                                }
-                                .foregroundColor(.black)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .overlay(
-                                    Rectangle()
-                                        .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                                )
-                            }
-                            .disabled(!appState.canExport)
-
-                            Button(action: requestNotificationPermissions) {
-                                Text(appState.notificationsEnabled ? "Notifications On" : "Enable Notifications")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.black)
-                            }
-                        }
-
-                        if let status = appState.exportStatusMessage, !status.isEmpty {
-                            Text(status)
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white)
-                    .overlay(
-                        Rectangle()
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
-
-                if !appState.syncHistory.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Recent Syncs")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
-
-                        ForEach(Array(appState.syncHistory.prefix(5)), id: \.id) { entry in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: entry.succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(entry.succeeded ? .green : .red)
-                                    Text(syncHistoryTitle(for: entry))
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.black)
-                                    Spacer()
-                                }
-
-                                Text(syncHistoryDetail(for: entry))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.gray)
-
-                                if !entry.failedDays.isEmpty {
-                                    Button(action: { retryFailedDays(entry.failedDays) }) {
-                                        Text("Retry \(entry.failedDays.count) failed day(s)")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(.black)
-                                    }
-                                    .disabled(appState.isSyncing)
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white)
-                    .overlay(
-                        Rectangle()
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
-
-                if !appState.exportHistory.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Recent Exports")
-                                .font(.system(size: 13))
-                                .foregroundColor(.gray)
-                            Spacer()
-                            Button(action: appState.clearExportHistory) {
-                                Text("Clear")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.black)
-                            }
-                        }
-
-                        ForEach(Array(appState.exportHistory.prefix(5)), id: \.id) { entry in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: entry.isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(entry.isSuccess ? .green : .red)
-                                    Text(entry.summary)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(.black)
-                                    Spacer()
-                                    Text(entry.format.displayName)
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.gray)
-                                }
-
-                                Text("Days \(entry.successDays)/\(entry.attemptedDays) | Metrics \(entry.exportedMetricCount)")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.gray)
-
-                                if !entry.failedDays.isEmpty {
-                                    Button(action: { retryExportHistory(entry) }) {
-                                        Text("Retry \(entry.failedDays.count) failed day(s)")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundColor(.black)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 6)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white)
-                    .overlay(
-                        Rectangle()
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Local Pairing (Future)")
-                        .font(.system(size: 13))
-                        .foregroundColor(.gray)
-
-                    Text("Any future iPhone-to-device local sync request must be explicitly approved before data is shared.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.black)
-
-                    Text("Trusted peers: \(appState.trustedPeers.count)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
-
-                    #if DEBUG
-                    Button(action: simulatePairingRequest) {
-                        Text("Simulate Pair Request")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.black)
-                    }
-                    #endif
-                }
-                .padding(16)
-                .background(Color.white)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                )
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                
-                Spacer(minLength: 48)
-                
-                // Footer actions
-                VStack(spacing: 16) {
-                    Button(action: { showingPermissions = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 14))
-                            Text("View Permissions")
-                                .font(.system(size: 14))
-                        }
-                        .foregroundColor(.gray)
-                    }
-                    
-                    Button(action: { showingDisconnectAlert = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "minus.circle")
-                                .font(.system(size: 14))
-                            Text("Disconnect Device")
-                                .font(.system(size: 14))
-                        }
-                        .foregroundColor(.black.opacity(0.5))
-                    }
-                }
-                .padding(.bottom, 40)
+            VStack(spacing: 28) {
+                header
+                summaryCard
+                setupNotice
+                sourcesSection
+                footerActions
             }
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.top, 32)
+            .padding(.bottom, 36)
         }
-        .background(Color(.systemGray6))
+        .background(backgroundColor.ignoresSafeArea())
         .onAppear {
             appState.refreshSyncDiagnostics()
         }
@@ -656,32 +142,410 @@ struct StatusView: View {
             Text("This will stop syncing health data and sign you out on this iPhone.")
         }
     }
+
+    private var header: some View {
+        VStack(spacing: 14) {
+            RitualLogoMark()
+                .frame(width: 30, height: 30)
+
+            Text("Ritual Companion")
+                .font(.system(size: 32, weight: .semibold))
+                .kerning(-0.7)
+                .foregroundColor(.black)
+                .multilineTextAlignment(.center)
+
+            Text("Apple Health sync and optional WHOOP live heart rate.")
+                .font(.system(size: 17))
+                .foregroundColor(CompanionPalette.secondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var summaryCard: some View {
+        CompanionCard {
+            VStack(spacing: 16) {
+                VStack(spacing: 6) {
+                    Text(overviewTitle)
+                        .font(.system(size: 24, weight: .semibold))
+                        .kerning(-0.5)
+                        .foregroundColor(.black)
+                        .multilineTextAlignment(.center)
+
+                    Text(overviewSubtitle)
+                        .font(.system(size: 16))
+                        .foregroundColor(CompanionPalette.secondaryText)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if appState.hasTrackedMetrics {
+                    CompanionPrimaryButton(
+                        title: appState.isSyncing ? "Syncing..." : "Sync now",
+                        systemImage: "arrow.triangle.2.circlepath",
+                        isLoading: appState.isSyncing,
+                        isDisabled: !appState.canSync,
+                        action: syncNow
+                    )
+                }
+
+                if appState.hasTrackedMetrics, let lastSyncTime = appState.lastSyncTime {
+                    Text("Last sync \(RelativeDateTimeFormatter().localizedString(for: lastSyncTime, relativeTo: Date()))")
+                        .font(.system(size: 12))
+                        .foregroundColor(CompanionPalette.secondaryText)
+                        .multilineTextAlignment(.center)
+                } else if appState.hasTrackedMetrics, let syncInfo = lastBackgroundSyncInfo {
+                    Text(syncInfo)
+                        .font(.system(size: 12))
+                        .foregroundColor(CompanionPalette.secondaryText)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var setupNotice: some View {
+        if !appState.hasHealthAccess {
+            noticeCard(
+                icon: "heart.slash.fill",
+                title: "Grant Apple Health access",
+                message: "Finish the on-device permission step to start syncing."
+            )
+            .onTapGesture { showingPermissions = true }
+        }
+    }
+
+    private var sourcesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CompanionSectionTitle("Sources")
+
+            CompanionGroupedCard {
+                Button(action: { showingPermissions = true }) {
+                    CompanionSourceRow(
+                        icon: "heart.text.square.fill",
+                        tint: .black,
+                        title: "Apple Health",
+                        detail: healthCardDetail,
+                        badgeText: nil
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.leading, 74)
+
+                NavigationLink(destination: WhoopConnectView()) {
+                    CompanionSourceRow(
+                        icon: "bolt.heart.fill",
+                        tint: .black,
+                        title: "WHOOP broadcast",
+                        detail: whoopCardDetail,
+                        badgeText: nil
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var toolsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CompanionSectionTitle("Tools")
+
+            CompanionCard {
+                VStack(spacing: 18) {
+                    DisclosureGroup(isExpanded: $showRecoveryTools) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text(appState.retryQueueDescription)
+                                .font(.system(size: 14))
+                                .foregroundColor(CompanionPalette.secondaryText)
+
+                            if !appState.latestFailedDays.isEmpty {
+                                CompanionSecondaryButton(
+                                    title: "Retry \(appState.latestFailedDays.count) failed day(s)",
+                                    action: { retryFailedDays(appState.latestFailedDays) }
+                                )
+                            }
+
+                            HStack(spacing: 8) {
+                                DatePicker("Start", selection: $retryStartDate, displayedComponents: .date)
+                                    .labelsHidden()
+                                    .datePickerStyle(.compact)
+                                Text("to")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(CompanionPalette.secondaryText)
+                                DatePicker("End", selection: $retryEndDate, displayedComponents: .date)
+                                    .labelsHidden()
+                                    .datePickerStyle(.compact)
+                            }
+
+                            CompanionSecondaryButton(
+                                title: "Retry date range",
+                                action: retryDateRange
+                            )
+
+                            if let summary = appState.dateRangeRetrySummary, !summary.isEmpty {
+                                Text(summary)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(CompanionPalette.secondaryText)
+                            }
+                        }
+                        .padding(.top, 14)
+                    } label: {
+                        toolLabel(title: "Recovery", detail: syncQueueCardTitle)
+                    }
+
+                    Divider()
+
+                    DisclosureGroup(isExpanded: $showExportTools) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                Text("Destination")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(CompanionPalette.secondaryText)
+                                Spacer()
+                                Button("Select folder") {
+                                    showingExportFolderPicker = true
+                                }
+                                .font(.system(size: 13, weight: .medium))
+                            }
+
+                            Text(appState.exportDestinationName)
+                                .font(.system(size: 14))
+                                .foregroundColor(.black)
+
+                            Picker("Format", selection: exportFormatBinding) {
+                                ForEach(LocalExportFormat.allCases, id: \.self) { format in
+                                    Text(format.displayName).tag(format)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            Picker("Write Mode", selection: exportWriteModeBinding) {
+                                ForEach(LocalExportWriteMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            TextField("{date}", text: exportFilenameTemplateBinding)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .padding(.horizontal, 16)
+                                .frame(height: 46)
+                                .background(CompanionPalette.elevatedSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(CompanionPalette.separator, lineWidth: 1)
+                                )
+
+                            TextField("Folder structure (optional)", text: exportFolderStructureBinding)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled(true)
+                                .padding(.horizontal, 16)
+                                .frame(height: 46)
+                                .background(CompanionPalette.elevatedSurface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(CompanionPalette.separator, lineWidth: 1)
+                                )
+
+                            HStack(spacing: 8) {
+                                DatePicker("Export Start", selection: $exportStartDate, displayedComponents: .date)
+                                    .labelsHidden()
+                                    .datePickerStyle(.compact)
+                                Text("to")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(CompanionPalette.secondaryText)
+                                DatePicker("Export End", selection: $exportEndDate, displayedComponents: .date)
+                                    .labelsHidden()
+                                    .datePickerStyle(.compact)
+                            }
+
+                            CompanionPrimaryButton(
+                                title: appState.isExporting ? "Exporting..." : "Export date range",
+                                systemImage: "square.and.arrow.down",
+                                isLoading: appState.isExporting,
+                                isDisabled: !appState.canExport,
+                                action: exportDateRange
+                            )
+
+                            if let status = appState.exportStatusMessage, !status.isEmpty {
+                                Text(status)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(CompanionPalette.secondaryText)
+                            }
+                        }
+                        .padding(.top, 14)
+                    } label: {
+                        toolLabel(title: "Local export", detail: appState.exportDestinationName)
+                    }
+
+                    Divider()
+
+                    DisclosureGroup(isExpanded: $showActivity) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            if !appState.syncHistory.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Recent syncs")
+                                        .font(.system(size: 13, weight: .semibold))
+                                    ForEach(Array(appState.syncHistory.prefix(3)), id: \.id) { entry in
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(syncHistoryTitle(for: entry))
+                                                .font(.system(size: 14, weight: .medium))
+                                            Text(syncHistoryDetail(for: entry))
+                                                .font(.system(size: 12))
+                                                .foregroundColor(CompanionPalette.secondaryText)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !appState.exportHistory.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    HStack {
+                                        Text("Recent exports")
+                                            .font(.system(size: 13, weight: .semibold))
+                                        Spacer()
+                                        Button("Clear") {
+                                            appState.clearExportHistory()
+                                        }
+                                        .font(.system(size: 12, weight: .medium))
+                                    }
+
+                                    ForEach(Array(appState.exportHistory.prefix(3)), id: \.id) { entry in
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(entry.summary)
+                                                .font(.system(size: 14, weight: .medium))
+                                            Text("Days \(entry.successDays)/\(entry.attemptedDays) · Metrics \(entry.exportedMetricCount)")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(CompanionPalette.secondaryText)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.top, 14)
+                    } label: {
+                        toolLabel(title: "Recent activity", detail: activitySummary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var footerActions: some View {
+        VStack(spacing: 12) {
+            CompanionSecondaryButton(title: "Disconnect device", style: .destructive) {
+                showingDisconnectAlert = true
+            }
+        }
+        .frame(maxWidth: 360)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func toolLabel(title: String, detail: String) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.black)
+
+                Text(detail)
+                    .font(.system(size: 13))
+                    .foregroundColor(CompanionPalette.secondaryText)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var activitySummary: String {
+        let syncCount = appState.syncHistory.count
+        let exportCount = appState.exportHistory.count
+        if syncCount == 0 && exportCount == 0 {
+            return "No recent sync or export history."
+        }
+        return "\(syncCount) syncs · \(exportCount) exports"
+    }
+
+    private var overviewTitle: String {
+        if appState.canSync {
+            return "Ready to sync"
+        }
+        if !appState.hasHealthAccess {
+            return "Allow Apple Health"
+        }
+        if !appState.hasTrackedMetrics {
+            return "Choose desktop metrics"
+        }
+        return "Connect this iPhone"
+    }
+
+    private var overviewSubtitle: String {
+        if appState.canSync {
+            return "Sync Apple Health to Ritual whenever you want."
+        }
+        if !appState.hasHealthAccess {
+            return "Approve Apple Health access to finish setup."
+        }
+        if !appState.hasTrackedMetrics {
+            return "Select the metrics you want to sync in the desktop app."
+        }
+        return "Sign in and connect this iPhone to Ritual."
+    }
+
+    private var healthCardTitle: String {
+        appState.hasHealthAccess ? "Apple Health connected" : "Apple Health needs permission"
+    }
+
+    private var healthCardDetail: String {
+        if appState.hasHealthAccess {
+            return "Connected."
+        }
+        return "Permission needed."
+    }
+
+    private var syncQueueCardTitle: String {
+        if appState.queueTelemetry.pendingCount == 0 {
+            return "No pending retries"
+        }
+        return "\(appState.queueTelemetry.pendingCount) payloads waiting"
+    }
+
+    private var syncQueueCardDetail: String {
+        if appState.queueTelemetry.pendingCount == 0 {
+            return "Queue is clear."
+        }
+        return appState.retryQueueDescription
+    }
     
     // MARK: - Notice Card
     
     private func noticeCard(icon: String, title: String, message: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 16))
-                .foregroundColor(.black)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 14, weight: .medium))
+        CompanionCard {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.black)
-                Text(message)
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.black)
+                    Text(message)
+                        .font(.system(size: 13))
+                        .foregroundColor(CompanionPalette.secondaryText)
+                }
+
+                Spacer()
             }
-            Spacer()
         }
-        .padding(14)
-        .background(Color.white)
-        .overlay(
-            Rectangle()
-                .stroke(Color.black.opacity(0.1), lineWidth: 1)
-        )
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
     }
     
     private func syncNow() {
@@ -899,9 +763,11 @@ struct FlowLayout: Layout {
 
 #Preview {
     let state = AppState()
+    let whoopService = WhoopBroadcastService()
     state.connectionStatus = .connected
     state.healthAccessStatus = .authorized
     
     return StatusView()
         .environmentObject(state)
+        .environmentObject(whoopService)
 }

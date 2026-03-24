@@ -32,14 +32,15 @@ class UserService:
                 raise Exception(f"Failed to get user profile: {str(e)}")
     
     async def update_onboarding(
-        self, 
-        user_id: str, 
+        self,
+        user_id: str,
         name: str,
         age_bracket: str,
         gender: str,
         country: str,
         tracking_interests: List[str],
-        wearable_devices: List[str]
+        wearable_devices: List[str],
+        phone_number: Optional[str] = None,
     ) -> UserDB:
         """
         Update user profile with onboarding data
@@ -57,18 +58,21 @@ class UserService:
                     raise Exception(f"User not found with ID: {user_id}")
                 
                 # Update user profile
+                values = dict(
+                    full_name=name,
+                    age_bracket=age_bracket,
+                    gender=gender,
+                    country=country,
+                    tracking_interests=json.dumps(tracking_interests),
+                    wearable_devices=json.dumps(wearable_devices),
+                    onboarding_completed=True,
+                )
+                if phone_number:
+                    values["phone_number"] = phone_number
                 await session.execute(
                     update(UserDB)
                     .where(UserDB.id == user_id)
-                    .values(
-                        full_name=name,
-                        age_bracket=age_bracket,
-                        gender=gender,
-                        country=country,
-                        tracking_interests=json.dumps(tracking_interests),  # Store as JSON string
-                        wearable_devices=json.dumps(wearable_devices),  # Store as JSON string
-                        onboarding_completed=True
-                    )
+                    .values(**values)
                 )
                 
                 await session.commit()
@@ -87,7 +91,19 @@ class UserService:
                 logger.error(f"❌ Database error updating onboarding: {str(e)}")
                 raise Exception(f"Failed to update onboarding: {str(e)}")
     
-    async def ensure_user_exists(self, user_id: str, email: str, full_name: Optional[str] = None) -> UserDB:
+    async def get_user_by_phone(self, phone_number: str) -> Optional[UserDB]:
+        """Look up a user by phone number (for Linq webhook)"""
+        async with get_db_session() as session:
+            try:
+                result = await session.execute(
+                    select(UserDB).where(UserDB.phone_number == phone_number)
+                )
+                return result.scalar_one_or_none()
+            except SQLAlchemyError as e:
+                logger.error(f"❌ Database error looking up user by phone: {str(e)}")
+                return None
+
+    async def ensure_user_exists(self, user_id: str, email: str, full_name: Optional[str] = None, phone_number: Optional[str] = None) -> UserDB:
         """
         Ensure user exists in database, create if not
         """
@@ -101,12 +117,19 @@ class UserService:
                 
                 if user:
                     # Update email if it's the fallback format and we have a real email
+                    updates = {}
                     if email and email != user.email and user.email.endswith("@clerk.user"):
-                        logger.info(f"🔄 Updating email from fallback to: {email}")
+                        updates["email"] = email
+                    # Sync phone number from Clerk if we have one and it differs
+                    if phone_number and phone_number != user.phone_number:
+                        updates["phone_number"] = phone_number
+                    if updates:
+                        updates["updated_at"] = datetime.utcnow()
+                        logger.info(f"🔄 Updating user fields: {list(updates.keys())}")
                         await session.execute(
                             update(UserDB)
                             .where(UserDB.id == user_id)
-                            .values(email=email, updated_at=datetime.utcnow())
+                            .values(**updates)
                         )
                         await session.commit()
                         await session.refresh(user)
@@ -127,6 +150,7 @@ class UserService:
                     id=user_id,
                     email=email or f"{user_id}@clerk.user",  # Fallback email if not provided
                     full_name=default_name,
+                    phone_number=phone_number,
                     onboarding_completed=False,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()

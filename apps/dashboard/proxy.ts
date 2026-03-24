@@ -7,8 +7,10 @@ const isPublicRoute = createRouteMatcher([
   '/desktop-only(.*)',
   '/privacy(.*)',
   '/data-retention(.*)',
+  '/auth/desktop-oauth-bridge(.*)',
   '/api/integrations/whoop/callback(.*)',
   '/api/integrations/whoop/store-code(.*)',
+  '/api/linq/webhook(.*)',
   '/integrations/success(.*)',
 ]);
 

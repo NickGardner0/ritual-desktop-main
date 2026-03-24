@@ -1,154 +1,199 @@
 import SwiftUI
 import Clerk
-import AuthenticationServices
+import UIKit
 
 /// Initial connect screen for authentication using Clerk
 struct ConnectView: View {
     @EnvironmentObject var appState: AppState
     @State private var isConnecting = false
     @State private var showSignIn = false
-    
+
     // Access Clerk user directly
     private var clerkUser: User? {
         Clerk.shared.user
     }
-    
+
+    private let backgroundColor = CompanionPalette.background
+    private let surfaceColor = CompanionPalette.surface
+    private let separatorColor = CompanionPalette.separator
+    private let secondaryTextColor = CompanionPalette.secondaryText
+
     var body: some View {
-        ZStack {
-            // Clean white background
-            Color.white
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                Spacer()
-                
-                // Main content - centered
-                VStack(spacing: 32) {
-                    // Ritual Sphere Logo
-                    RitualLogoShape()
-                        .fill(Color.black)
-                        .frame(width: 52, height: 52)
-                    
-                    // Title
-                    Text("Welcome to Ritual")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(.black)
-                    
-                    // Get Started / Sign In button
-                    if clerkUser != nil {
-                        // User is signed in, show status and connect
-                        signedInView
-                    } else {
-                        // Show Get Started button - SQUARE corners
-                        Button(action: { showSignIn = true }) {
-                            Text("Get Started")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(.white)
-                                .frame(width: 140, height: 48)
-                                .background(Color.black)
-                        }
-                    }
+        ScrollView {
+            VStack(spacing: 28) {
+                hero
+
+                onboardingChecklist
+
+                if clerkUser != nil {
+                    signedInView
+                } else {
+                    signedOutActions
                 }
-                
-                Spacer()
-                
-                // Terms text at bottom
+
+                if clerkUser == nil {
+                    createAccountLink
+                }
+
                 termsText
-                    .padding(.bottom, 40)
+                    .padding(.top, 4)
             }
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.top, 32)
+            .padding(.bottom, 36)
         }
+        .background(pageBackground)
         .sheet(isPresented: $showSignIn) {
             SignInOptionsView()
         }
     }
-    
+
+    private var hero: some View {
+        VStack(spacing: 14) {
+            RitualLogoMark()
+                .frame(width: 30, height: 30)
+
+            Text("Connect Ritual")
+                .font(.system(size: 30, weight: .semibold))
+                .kerning(-0.6)
+                .foregroundColor(.black)
+                .multilineTextAlignment(.center)
+
+            Text("Sign in and turn on Apple Health.")
+                .font(.system(size: 17))
+                .foregroundColor(secondaryTextColor)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var onboardingChecklist: some View {
+        ConnectSection(title: "Setup", surfaceColor: surfaceColor, separatorColor: separatorColor) {
+            ConnectStepCard(
+                number: "1",
+                title: "Sign in",
+                description: "Use your Ritual account.",
+                isComplete: clerkUser != nil
+            )
+
+            Divider()
+                .padding(.leading, 64)
+                .overlay(separatorColor)
+
+            ConnectStepCard(
+                number: "2",
+                title: "Connect iPhone",
+                description: "Link this device.",
+                isComplete: appState.connectionStatus == .connected
+            )
+
+            Divider()
+                .padding(.leading, 64)
+                .overlay(separatorColor)
+
+            ConnectStepCard(
+                number: "3",
+                title: "Allow Apple Health",
+                description: "Approve Health access.",
+                isComplete: appState.healthAccessStatus == .authorized
+            )
+        }
+    }
+
+    private var signedOutActions: some View {
+        VStack(spacing: 10) {
+            CompanionPrimaryButton(title: "Sign in to connect") {
+                showSignIn = true
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     // MARK: - Signed In View
-    
+
     private var signedInView: some View {
-        VStack(spacing: 20) {
-            // Status indicators
-            VStack(spacing: 12) {
-                StatusRow(
-                    icon: appState.connectionStatus.icon,
-                    title: "Connection",
-                    status: appState.connectionStatus.displayText,
-                    color: appState.connectionStatus.color
-                )
-                
-                StatusRow(
-                    icon: appState.healthAccessStatus.icon,
-                    title: "Health Access",
-                    status: appState.healthAccessStatus.displayText,
-                    color: appState.healthAccessStatus.color
-                )
-            }
-            .padding(.horizontal, 32)
-            
-            // User email
+        VStack(spacing: 16) {
             if let email = clerkUser?.primaryEmailAddress?.emailAddress {
-                Text("Signed in as \(email)")
-                    .font(.system(size: 13))
-                    .foregroundColor(.gray)
+                Text(email)
+                    .font(.system(size: 15))
+                    .foregroundColor(secondaryTextColor)
+                    .multilineTextAlignment(.center)
             }
-            
-            // Action buttons
+
+            if let hint = AppConfig.localDeviceAPIHint {
+                ConnectInfoCard(
+                    title: "Check debug API URL",
+                    message: hint,
+                    surfaceColor: surfaceColor,
+                    secondaryTextColor: secondaryTextColor
+                )
+            }
+
             VStack(spacing: 12) {
                 if appState.connectionStatus != .connected {
-                    Button(action: connectWithClerk) {
-                        HStack(spacing: 8) {
-                            if isConnecting {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .scaleEffect(0.7)
-                            }
-                            Text(isConnecting ? "Connecting..." : "Connect")
-                                .font(.system(size: 16, weight: .medium))
-                        }
-                        .foregroundColor(.white)
-                        .frame(width: 160, height: 48)
-                        .background(Color.black)
-                    }
-                    .disabled(isConnecting)
+                    CompanionPrimaryButton(
+                        title: isConnecting ? "Connecting..." : "Connect",
+                        isLoading: isConnecting,
+                        isDisabled: isConnecting,
+                        action: connectWithClerk
+                    )
                 }
-                
+
                 if appState.healthAccessStatus != .authorized {
-                    Button(action: requestHealthAccess) {
-                        Text("Grant Health Access")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.black)
-                            .frame(width: 180, height: 44)
-                            .background(Color.white)
-                            .overlay(
-                                Rectangle()
-                                    .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                            )
+                    CompanionSecondaryButton(title: "Allow Apple Health") {
+                        requestHealthAccess()
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity)
     }
-    
+
+    private var createAccountLink: some View {
+        Link(destination: AppConfig.desktopSetupURL) {
+            HStack(spacing: 6) {
+                Text("Create account on desktop")
+                    .font(.system(size: 14, weight: .medium))
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(.black)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     // MARK: - Terms Text
-    
+
     private var termsText: some View {
         HStack(spacing: 4) {
-            Text("By signing in you agree to our")
-                .foregroundColor(.gray)
-            Text("Terms of service")
-                .foregroundColor(.gray)
-                .underline()
-            Text("&")
-                .foregroundColor(.gray)
-            Text("Privacy policy")
-                .foregroundColor(.gray)
-                .underline()
+            Link("Terms", destination: AppConfig.termsURL)
+                .foregroundColor(.black.opacity(0.6))
+            Text("·")
+                .foregroundColor(secondaryTextColor)
+            Link("Privacy", destination: AppConfig.privacyURL)
+                .foregroundColor(.black.opacity(0.6))
         }
         .font(.system(size: 12))
+        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
     }
-    
+
+    private var pageBackground: some View {
+        backgroundColor.ignoresSafeArea()
+    }
+
     // MARK: - Methods
-    
+
     private func connectWithClerk() {
+        if let hint = AppConfig.localDeviceAPIHint {
+            appState.errorMessage = hint
+            appState.showError = true
+            return
+        }
+
         isConnecting = true
         
         Task {
@@ -185,60 +230,12 @@ struct ConnectView: View {
     }
 }
 
-// MARK: - Ritual Logo Shape (Sphere Logo from new_logo3.svg)
-
-struct RitualLogoShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        
-        // Scale factor to fit the rect (original viewBox: 0 0 150 150)
-        let scale = min(rect.width, rect.height) / 150
-        let offsetX = (rect.width - 150 * scale) / 2
-        let offsetY = (rect.height - 150 * scale) / 2
-        
-        // Helper to scale and offset points
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: x * scale + offsetX, y: y * scale + offsetY)
-        }
-        
-        // Main sphere path from new_logo3.svg
-        // Outer boundary
-        path.move(to: p(91.3043, 0))
-        path.addCurve(to: p(47.5565, 19.5652), control1: p(73.92, 0), control2: p(58.3043, 7.56))
-        path.addLine(to: p(0, 19.5652))
-        path.addLine(to: p(0, 150))
-        path.addLine(to: p(130.435, 150))
-        path.addLine(to: p(130.435, 102.443))
-        path.addCurve(to: p(150, 58.6957), control1: p(142.44, 91.6957), control2: p(150, 76.08))
-        path.addCurve(to: p(91.3043, 0), control1: p(150, 26.28), control2: p(123.72, 0))
-        path.closeSubpath()
-        
-        // Inner sphere detail (the curved stripes)
-        path.move(to: p(86.7391, 117.59))
-        path.addCurve(to: p(70.7322, 115.19), control1: p(81.167, 117.59), control2: p(75.793, 116.75))
-        path.addCurve(to: p(129.814, 87.6939), control1: p(101.009, 81.7513), control2: p(127.153, 75.4383))
-        path.addCurve(to: p(124.983, 64.2574), control1: p(132.402, 72.287), control2: p(129.689, 64.2574))
-        path.addCurve(to: p(69.4957, 114.793), control1: p(116.812, 64.2574), control2: p(86.3009, 79.4556))
-        path.addCurve(to: p(46.393, 99.6417), control1: p(60.5217, 111.793), control2: p(52.5913, 106.513))
-        path.addCurve(to: p(126.61, 58.7739), control1: p(81.7409, 55.4817), control2: p(121.758, 49.753))
-        path.addCurve(to: p(113.191, 40.033), control1: p(124.602, 49.0852), control2: p(116.718, 40.1843))
-        path.addCurve(to: p(45.2661, 98.353), control1: p(103.56, 39.6156), control2: p(67.4504, 54.407))
-        path.addCurve(to: p(33.4017, 73.6226), control1: p(39.3704, 91.393), control2: p(35.1965, 82.9304))
-        path.addCurve(to: p(111.85, 36.5896), control1: p(62.6348, 38.7548), control2: p(103.148, 29.1652))
-        path.addCurve(to: p(92.0765, 25.4452), control1: p(105.089, 29.4939), control2: p(96.48, 25.7322))
-        path.addCurve(to: p(33.0783, 71.7652), control1: p(81.4017, 24.7409), control2: p(56.4209, 33.72))
-        path.addCurve(to: p(32.4157, 63.2661), control1: p(32.6452, 68.9948), control2: p(32.4157, 66.1565))
-        path.addCurve(to: p(37.1687, 41.0139), control1: p(32.4157, 55.3356), control2: p(34.1165, 47.807))
-        path.addCurve(to: p(83.233, 22.4139), control1: p(57.5009, 21.9287), control2: p(83.233, 22.4139))
-        path.addCurve(to: p(67.1426, 19.273), control1: p(80.2278, 20.7809), control2: p(74.327, 19.273))
-        path.addCurve(to: p(50.5617, 22.7426), control1: p(60.4122, 19.273), control2: p(54.2348, 21.3026))
-        path.addCurve(to: p(86.7444, 8.94261), control1: p(60.167, 14.16), control2: p(72.8452, 8.94261))
-        path.addCurve(to: p(141.068, 63.2661), control1: p(116.75, 8.94261), control2: p(141.068, 33.2661))
-        path.addCurve(to: p(86.7444, 117.59), control1: p(141.068, 93.2661), control2: p(116.744, 117.59))
-        path.addLine(to: p(86.7391, 117.59))
-        path.closeSubpath()
-        
-        return path
+struct RitualLogoMark: View {
+    var body: some View {
+        Image("EclipseLogo")
+            .resizable()
+            .scaledToFit()
+            .accessibilityLabel("Ritual")
     }
 }
 
@@ -252,35 +249,134 @@ struct StatusRow: View {
     
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(.black.opacity(0.6))
-                .frame(width: 20)
-            
-            VStack(alignment: .leading, spacing: 2) {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(uiColor: .tertiarySystemFill))
+                .frame(width: 38, height: 38)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.black.opacity(0.65))
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(uiColor: .secondaryLabel))
                 Text(status)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.black)
             }
             
             Spacer()
-            
-            // Status indicator
-            if color == .green {
-                Circle()
-                    .fill(Color.black)
-                    .frame(width: 6, height: 6)
-            }
+
+            Circle()
+                .fill(Color.black.opacity(0.25))
+                .frame(width: 9, height: 9)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 14)
-        .background(Color.white)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+    }
+}
+
+struct ConnectStepCard: View {
+    let number: String
+    let title: String
+    let description: String
+    let isComplete: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isComplete ? Color.black : Color(uiColor: .tertiarySystemFill))
+                    .frame(width: 40, height: 40)
+
+                if isComplete {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                } else {
+                    Text(number)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.black)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.black)
+
+                Text(description)
+                    .font(.system(size: 16))
+                    .foregroundColor(Color(uiColor: .secondaryLabel))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 20)
+        .background(Color.white.opacity(0.9))
+    }
+}
+
+struct ConnectSection<Content: View>: View {
+    let title: String
+    let surfaceColor: Color
+    let separatorColor: Color
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color(uiColor: .secondaryLabel))
+                .textCase(.uppercase)
+                .tracking(1.2)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 0) {
+                content()
+            }
+            .background {
+                CompanionGlassBackground(cornerRadius: 26)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(separatorColor, lineWidth: 1)
+            )
+        }
+    }
+}
+
+struct ConnectInfoCard: View {
+    let title: String
+    let message: String
+    let surfaceColor: Color
+    let secondaryTextColor: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.black)
+
+            Text(message)
+                .font(.system(size: 14))
+                .foregroundColor(secondaryTextColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            CompanionGlassBackground(cornerRadius: 22)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
-            Rectangle()
-                .stroke(Color.black.opacity(0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
         )
     }
 }
@@ -291,127 +387,78 @@ struct SignInOptionsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showEmailSignIn = false
     @State private var isLoadingGoogle = false
-    @State private var isLoadingApple = false
     @State private var errorMessage: String?
     @State private var showError = false
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.white.ignoresSafeArea()
-                
-                VStack(spacing: 32) {
-                    Spacer()
-                    
-                    // Logo
-                    RitualLogoShape()
-                        .fill(Color.black)
-                        .frame(width: 42, height: 42)
-                    
-                    // Title
-                    VStack(spacing: 8) {
-                        Text("Sign In to Ritual")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(.black)
-                        
-                        Text("Choose how you want to sign in")
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
-                    }
-                    
-                    // Sign in options
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 28) {
+                    AuthHeroCard(
+                        title: "Sign in",
+                        subtitle: "Use the Ritual account you already use on desktop."
+                    )
+
                     VStack(spacing: 12) {
-                        // Apple Sign In Button
-                        Button(action: signInWithApple) {
-                            HStack(spacing: 12) {
-                                if isLoadingApple {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "apple.logo")
-                                        .font(.system(size: 20))
-                                }
-                                Text("Continue with Apple")
-                                    .font(.system(size: 16, weight: .medium))
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background(Color.black)
-                        }
-                        .disabled(isLoadingApple)
-                        
-                        // Google Sign In Button
-                        Button(action: signInWithGoogle) {
-                            HStack(spacing: 12) {
-                                if isLoadingGoogle {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                                        .scaleEffect(0.7)
-                                } else {
-                                    // Google "G" icon
-                                    GoogleIcon()
-                                        .frame(width: 20, height: 20)
-                                }
-                                Text("Continue with Google")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(.black)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background(Color.white)
-                            .overlay(
-                                Rectangle()
-                                    .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                            )
-                        }
+                        AuthProviderButton(
+                            title: "Continue with Google",
+                            style: .outlined,
+                            isLoading: isLoadingGoogle,
+                            icon: {
+                                GoogleIcon()
+                                    .frame(width: 18, height: 18)
+                            },
+                            action: signInWithGoogle
+                        )
                         .disabled(isLoadingGoogle)
-                        
-                        // Divider with "or"
-                        HStack {
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(height: 1)
-                            Text("or")
-                                .font(.system(size: 13))
-                                .foregroundColor(.gray)
-                                .padding(.horizontal, 16)
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(height: 1)
-                        }
-                        .padding(.vertical, 8)
-                        
-                        // Email Sign In Button
-                        Button(action: { showEmailSignIn = true }) {
-                            HStack(spacing: 12) {
+
+                        AuthProviderButton(
+                            title: "Continue with Email",
+                            style: .outlined,
+                            isLoading: false,
+                            icon: {
                                 Image(systemName: "envelope.fill")
-                                    .font(.system(size: 18))
-                                Text("Continue with Email")
-                                    .font(.system(size: 16, weight: .medium))
-                            }
-                            .foregroundColor(.black)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background(Color.white)
-                            .overlay(
-                                Rectangle()
-                                    .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                            )
-                        }
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.black)
+                            },
+                            action: { showEmailSignIn = true }
+                        )
                     }
-                    .padding(.horizontal, 32)
-                    
-                    Spacer()
-                    Spacer()
+                    .frame(maxWidth: .infinity)
+
+                    Link(destination: AppConfig.desktopSetupURL) {
+                        HStack(spacing: 6) {
+                            Text("Create your account on desktop")
+                                .font(.system(size: 14, weight: .medium))
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundColor(.black)
+                    }
+                    .padding(.leading, 4)
                 }
+                .frame(maxWidth: 460)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.top, 28)
+                .padding(.bottom, 36)
             }
+            .background(AuthSheetBackground())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundColor(.black)
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.black)
+                            .frame(width: 32, height: 32)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                            )
+                    }
                 }
             }
             .sheet(isPresented: $showEmailSignIn) {
@@ -421,35 +468,6 @@ struct SignInOptionsView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(errorMessage ?? "An error occurred")
-            }
-        }
-    }
-    
-    private func signInWithApple() {
-        isLoadingApple = true
-        
-        Task {
-            do {
-                // Create sign-in with Apple OAuth
-                let signIn = try await SignIn.create(strategy: .oauth(provider: .apple))
-                
-                // Start the external authentication - this opens the OAuth flow
-                try await signIn.authenticateWithRedirect()
-                
-                // After successful OAuth, set the session active
-                if let sessionId = signIn.createdSessionId {
-                    try await Clerk.shared.setActive(sessionId: sessionId)
-                }
-                
-                await MainActor.run {
-                    dismiss()
-                }
-            } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showError = true
-                    isLoadingApple = false
-                }
             }
         }
     }
@@ -488,45 +506,12 @@ struct SignInOptionsView: View {
 
 struct GoogleIcon: View {
     var body: some View {
-        GeometryReader { geometry in
-            let size = min(geometry.size.width, geometry.size.height)
-            
-            Canvas { context, canvasSize in
-                let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-                let radius = size * 0.45
-                let strokeWidth = size * 0.18
-                
-                // Blue section (bottom right, 0° to 90°)
-                var bluePath = Path()
-                bluePath.addArc(center: center, radius: radius, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
-                context.stroke(bluePath, with: .color(Color(red: 66/255, green: 133/255, blue: 244/255)), style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
-                
-                // Green section (bottom left, 90° to 180°)
-                var greenPath = Path()
-                greenPath.addArc(center: center, radius: radius, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
-                context.stroke(greenPath, with: .color(Color(red: 52/255, green: 168/255, blue: 83/255)), style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
-                
-                // Yellow section (top left, 180° to 270°)
-                var yellowPath = Path()
-                yellowPath.addArc(center: center, radius: radius, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
-                context.stroke(yellowPath, with: .color(Color(red: 251/255, green: 188/255, blue: 5/255)), style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
-                
-                // Red section (top right, 270° to 360°/0°) - but only partial
-                var redPath = Path()
-                redPath.addArc(center: center, radius: radius, startAngle: .degrees(270), endAngle: .degrees(330), clockwise: false)
-                context.stroke(redPath, with: .color(Color(red: 234/255, green: 67/255, blue: 53/255)), style: StrokeStyle(lineWidth: strokeWidth, lineCap: .butt))
-                
-                // Horizontal bar of the G (blue)
-                let barWidth = size * 0.45
-                let barHeight = strokeWidth
-                let barRect = CGRect(
-                    x: center.x - barWidth * 0.05,
-                    y: center.y - barHeight / 2,
-                    width: barWidth,
-                    height: barHeight
-                )
-                context.fill(Path(barRect), with: .color(Color(red: 66/255, green: 133/255, blue: 244/255)))
-            }
+        ZStack {
+            Circle()
+                .fill(Color(uiColor: .tertiarySystemFill))
+            Text("G")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.black)
         }
     }
 }
@@ -550,45 +535,43 @@ struct EmailSignInView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.white.ignoresSafeArea()
-                
-                VStack(spacing: 32) {
-                    Spacer()
-                    
-                    // Logo
-                    RitualLogoShape()
-                        .fill(Color.black)
-                        .frame(width: 42, height: 42)
-                    
-                    // Title
-                    VStack(spacing: 8) {
-                        Text("Sign In with Email")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundColor(.black)
-                        
-                        Text(step == .enterEmail ? "Enter your email to continue" : "Enter the code sent to your email")
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 28) {
+                    AuthHeroCard(
+                        title: step == .enterEmail ? "Email sign in" : "Enter code",
+                        subtitle: step == .enterEmail ? "We’ll send a one-time code to your Ritual email." : "Enter the latest code sent to \(email)."
+                    )
+
+                    AuthCard {
+                        if step == .enterEmail {
+                            emailInputView
+                        } else {
+                            codeInputView
+                        }
                     }
-                    
-                    // Input fields
-                    if step == .enterEmail {
-                        emailInputView
-                    } else {
-                        codeInputView
-                    }
-                    
-                    Spacer()
-                    Spacer()
                 }
-                .padding(.horizontal, 32)
+                .frame(maxWidth: 460)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.top, 28)
+                .padding(.bottom, 36)
             }
+            .background(AuthSheetBackground())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundColor(.black)
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.black)
+                            .frame(width: 32, height: 32)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground))
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+                            )
+                    }
                 }
             }
             .alert("Error", isPresented: $showError) {
@@ -601,35 +584,19 @@ struct EmailSignInView: View {
     
     private var emailInputView: some View {
         VStack(spacing: 16) {
-            TextField("Email address", text: $email)
-                .font(.system(size: 16))
-                .padding()
-                .background(Color.white)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.black.opacity(0.15), lineWidth: 1)
-                )
-                .textContentType(.emailAddress)
-                .keyboardType(.emailAddress)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
-            
-            Button(action: sendCode) {
-                HStack {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.7)
-                    } else {
-                        Text("Continue")
-                            .font(.system(size: 16, weight: .medium))
-                    }
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(email.isEmpty ? Color.gray.opacity(0.4) : Color.black)
-            }
+            AuthInputField(
+                prompt: "you@example.com",
+                text: $email,
+                keyboardType: .emailAddress,
+                textContentType: .emailAddress
+            )
+
+            AuthPrimaryActionButton(
+                title: "Send verification code",
+                isLoading: isLoading,
+                isEnabled: !email.isEmpty,
+                action: sendCode
+            )
             .disabled(email.isEmpty || isLoading)
         }
     }
@@ -638,35 +605,23 @@ struct EmailSignInView: View {
         VStack(spacing: 16) {
             Text(email)
                 .font(.system(size: 14))
-                .foregroundColor(.gray)
-            
-            TextField("Verification code", text: $code)
-                .font(.system(size: 20, weight: .medium))
-                .multilineTextAlignment(.center)
-                .padding()
-                .background(Color.white)
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.black.opacity(0.15), lineWidth: 1)
-                )
-                .keyboardType(.numberPad)
-            
-            Button(action: verifyCode) {
-                HStack {
-                    if isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.7)
-                    } else {
-                        Text("Verify")
-                            .font(.system(size: 16, weight: .medium))
-                    }
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(code.isEmpty ? Color.gray.opacity(0.4) : Color.black)
-            }
+                .foregroundColor(Color(uiColor: .secondaryLabel))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            AuthInputField(
+                prompt: "123456",
+                text: $code,
+                keyboardType: .numberPad,
+                textContentType: nil,
+                centered: true
+            )
+
+            AuthPrimaryActionButton(
+                title: "Verify and continue",
+                isLoading: isLoading,
+                isEnabled: !code.isEmpty,
+                action: verifyCode
+            )
             .disabled(code.isEmpty || isLoading)
             
             Button("Use different email") {
@@ -674,8 +629,8 @@ struct EmailSignInView: View {
                 code = ""
                 signIn = nil
             }
-            .font(.system(size: 14))
-            .foregroundColor(.gray)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundColor(Color(uiColor: .secondaryLabel))
         }
     }
     
@@ -737,6 +692,178 @@ struct EmailSignInView: View {
                 isLoading = false
             }
         }
+    }
+}
+
+struct AuthSheetBackground: View {
+    var body: some View {
+        LinearGradient(
+            colors: [
+                Color.white,
+                Color(red: 0.97, green: 0.97, blue: 0.99)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+}
+
+struct AuthHeroCard: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 14) {
+            RitualLogoMark()
+                .frame(width: 30, height: 30)
+
+            Text(title)
+                .font(.system(size: 30, weight: .semibold))
+                .kerning(-0.6)
+                .foregroundColor(.black)
+                .multilineTextAlignment(.center)
+
+            Text(subtitle)
+                .font(.system(size: 17))
+                .foregroundColor(Color(uiColor: .secondaryLabel))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+struct AuthCard<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 12) {
+            content()
+        }
+        .padding(0)
+        .background {
+            CompanionGlassBackground(cornerRadius: 26)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+        )
+    }
+}
+
+struct AuthProviderButton<Icon: View>: View {
+    enum Style {
+        case filled
+        case outlined
+    }
+
+    let title: String
+    let style: Style
+    let isLoading: Bool
+    @ViewBuilder let icon: () -> Icon
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: foregroundColor))
+                        .scaleEffect(0.72)
+                        .frame(width: 20, height: 20)
+                } else {
+                    icon()
+                        .frame(width: 20, height: 20)
+                }
+
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(foregroundColor.opacity(0.38))
+            }
+            .foregroundColor(foregroundColor)
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .background(backgroundColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(borderColor, lineWidth: style == .filled ? 0 : 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var foregroundColor: Color {
+        style == .filled ? .white : .black
+    }
+
+    private var backgroundColor: Color {
+        style == .filled ? .black : Color.white
+    }
+
+    private var borderColor: Color {
+        style == .filled ? .clear : Color(uiColor: .separator).opacity(0.18)
+    }
+}
+
+struct AuthInputField: View {
+    let prompt: String
+    @Binding var text: String
+    let keyboardType: UIKeyboardType
+    let textContentType: UITextContentType?
+    var centered: Bool = false
+
+    var body: some View {
+        TextField(prompt, text: $text)
+            .font(.system(size: centered ? 22 : 16, weight: centered ? .semibold : .regular))
+            .multilineTextAlignment(centered ? .center : .leading)
+            .padding(.horizontal, 18)
+            .frame(height: 56)
+            .background(Color.white.opacity(0.92))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(uiColor: .separator).opacity(0.18), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .keyboardType(keyboardType)
+            .textContentType(textContentType)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+    }
+}
+
+struct AuthPrimaryActionButton: View {
+    let title: String
+    let isLoading: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(0.72)
+                }
+
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(isEnabled ? Color.black : Color.black.opacity(0.28))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 

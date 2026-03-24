@@ -162,7 +162,7 @@ impl<'a> ActivityOps<'a> {
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
             FROM activity_events
-            WHERE device_id = ? AND ts_start >= ? AND ts_start < ?
+            WHERE device_id = ? AND ts_end > ? AND ts_start < ?
             ORDER BY ts_start ASC
             "#,
             libsql::params![device_id, ts_start, ts_end]

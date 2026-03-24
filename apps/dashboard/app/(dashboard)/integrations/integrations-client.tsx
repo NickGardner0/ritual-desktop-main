@@ -21,9 +21,19 @@ import { Monitor } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { useHabits } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -49,6 +59,18 @@ function formatHour(hour: number): string {
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${hour12}:00 ${period}`;
 }
+
+const WHOOP_SYNC_PRESETS = [
+  { id: 'smart', label: 'Smart', description: 'Only fetch what changed since the last successful sync.' },
+  { id: '30d', label: '30d', description: 'Backfill the last 30 days.' },
+  { id: '90d', label: '90d', description: 'Backfill the last 90 days.' },
+  { id: '365d', label: '365d', description: 'Backfill the last 365 days.' },
+  { id: 'custom', label: 'Custom', description: 'Choose an exact day count to backfill.' },
+  { id: 'full', label: 'Full history', description: 'Pull all available Whoop history for this account.' },
+] as const;
+
+type WhoopSyncMode = (typeof WHOOP_SYNC_PRESETS)[number]['id'];
+const MAX_CUSTOM_WHOOP_DAYS = 3650;
 
 function formatRelativeTime(dateValue: string | null | undefined): string {
   if (!dateValue) {
@@ -411,6 +433,8 @@ export function IntegrationsClient() {
   const { data: computerTrackingStatus, isLoading: isLoadingComputerTracking, refetch: refetchComputerTracking } = useComputerTrackingStatus();
   const [whoopConnected, setWhoopConnected] = useState(false);
   const [whoopSyncHour, setWhoopSyncHour] = useState(9); // Default to 9 AM
+  const [whoopSyncMode, setWhoopSyncMode] = useState<WhoopSyncMode>('smart');
+  const [whoopCustomDaysBack, setWhoopCustomDaysBack] = useState('730');
   const [whoopConnecting, setWhoopConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [plaidConnecting, setPlaidConnecting] = useState(false);
@@ -1242,13 +1266,14 @@ export function IntegrationsClient() {
 
     if (selectedIntegration === 'whoop') {
       return (
-        <button
-          onClick={handleWhoopSync}
+        <Button
+          onClick={() => handleWhoopSync()}
           disabled={syncing}
-          className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
+          variant="outline"
+          className="h-11 rounded-sm border-[#1f1e1a] px-4 text-sm text-[#1f1e1a] hover:bg-[#f3f1ea]"
         >
-          {syncing ? 'Syncing...' : 'Sync now'}
-        </button>
+          {syncing ? 'Syncing...' : 'Quick sync'}
+        </Button>
       );
     }
 
@@ -1396,12 +1421,17 @@ export function IntegrationsClient() {
                 <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
                   <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
                   <AccordionContent className="text-sm text-[#69665c]">
-                    Track recovery, sleep, and strain data from your Whoop device and keep those habits in sync with Ritual.
+                    <div className="space-y-3">
+                      <p>Track recovery, sleep, and strain data from your Whoop device and keep those habits in sync with Ritual.</p>
+                      <p>
+                        Smart sync resumes from the last successful checkpoint. If you want to backfill older history, use one of the manual sync presets below or run a full-history import.
+                      </p>
+                    </div>
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="settings" className="border-[#e7e5dd]">
                   <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
-                  <AccordionContent>{renderAutoSyncDetails('whoop', whoopConnection, whoopStatusData?.last_sync_at, whoopConnection?.stale_message || null)}</AccordionContent>
+                  <AccordionContent>{renderWhoopSyncDetails()}</AccordionContent>
                 </AccordionItem>
               </Accordion>
             </ScrollArea>
@@ -1517,7 +1547,38 @@ export function IntegrationsClient() {
     );
   };
 
-  async function handleWhoopSync() {
+  function getWhoopSyncRequestFromMode(): {
+    daysBack?: number;
+    forceFullSync?: boolean;
+    fullHistory?: boolean;
+  } {
+    switch (whoopSyncMode) {
+      case '30d':
+        return { daysBack: 30 };
+      case '90d':
+        return { daysBack: 90 };
+      case '365d':
+        return { daysBack: 365 };
+      case 'custom': {
+        const parsed = Number.parseInt(whoopCustomDaysBack, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0 || parsed > MAX_CUSTOM_WHOOP_DAYS) {
+          throw new Error(`Enter a custom backfill between 1 and ${MAX_CUSTOM_WHOOP_DAYS} days before syncing.`);
+        }
+        return { daysBack: parsed };
+      }
+      case 'full':
+        return { fullHistory: true };
+      case 'smart':
+      default:
+        return {};
+    }
+  }
+
+  async function handleWhoopSync(options?: {
+    daysBack?: number;
+    forceFullSync?: boolean;
+    fullHistory?: boolean;
+  }) {
     try {
       setSyncing(true);
 
@@ -1527,16 +1588,19 @@ export function IntegrationsClient() {
         return;
       }
 
+      const syncRequest = options ?? getWhoopSyncRequestFromMode();
+
       const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify(syncRequest),
       });
 
       if (!response.ok) {
-        throw new Error('Sync failed');
+        throw new Error(await parseApiError(response, 'Sync failed'));
       }
 
       const result = await response.json();
@@ -1551,13 +1615,21 @@ export function IntegrationsClient() {
         fetchHabitLogs()
       ]);
 
+      const syncLabel = syncRequest.fullHistory
+        ? 'full history'
+        : syncRequest.daysBack
+          ? `last ${syncRequest.daysBack} days`
+          : syncRequest.forceFullSync
+            ? 'default backfill'
+            : 'latest changes';
+
       if (total > 0) {
-        alert(`Synced ${total} record(s) successfully!\n\n` +
+        alert(`Synced ${total} record(s) successfully from ${syncLabel}!\n\n` +
           `- Recovery: ${recovery || 0}\n` +
           `- Sleep: ${sleep || 0}\n` +
           `- Workouts: ${workouts || 0}`);
       } else {
-        alert('Sync completed! No new data found.');
+        alert(`Sync completed for ${syncLabel}. No new data found.`);
       }
     } catch (error) {
       console.error('❌ Error syncing Whoop:', error);
@@ -1584,7 +1656,7 @@ export function IntegrationsClient() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to disconnect Whoop');
+        throw new Error(await parseApiError(response, 'Failed to disconnect Whoop'));
       }
 
       setWhoopConnected(false);
@@ -1743,6 +1815,164 @@ export function IntegrationsClient() {
           {staleMessage ? (
             <p className="mt-2 text-xs leading-5 text-gray-500">{staleMessage}</p>
           ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderWhoopSyncDetails = () => {
+    const autoSyncEnabled = whoopConnection?.auto_sync_enabled ?? true;
+    const syncHour = whoopConnection?.sync_hour ?? whoopSyncHour ?? 9;
+    const lastSyncValue = whoopStatusData?.last_sync_at || whoopConnection?.last_sync_at || whoopConnection?.last_successful_sync_at || null;
+    const note = whoopConnection?.auto_sync_note;
+    const staleMessage = whoopConnection?.stale_message || null;
+    const selectedPreset = WHOOP_SYNC_PRESETS.find((preset) => preset.id === whoopSyncMode);
+    const customDays = Number.parseInt(whoopCustomDaysBack, 10);
+    const customDaysValid = Number.isFinite(customDays) && customDays > 0 && customDays <= MAX_CUSTOM_WHOOP_DAYS;
+
+    return (
+      <div className="space-y-5">
+        <div className="rounded-sm border border-[#e7e5dd] bg-[#f8f7f3] p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-[#8a877d]">Auto sync</p>
+              <p className="mt-1 text-sm text-[#1f1e1a]">Keep Whoop data refreshed automatically.</p>
+              <p className="mt-1 text-xs leading-5 text-[#69665c]">
+                Background sync resumes from the last successful checkpoint with a short safety overlap.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-[0.14em] text-[#8a877d]">{autoSyncEnabled ? 'On' : 'Off'}</span>
+              <Switch
+                checked={autoSyncEnabled}
+                onCheckedChange={(checked) =>
+                  handleWearableSyncSettingsUpdate('whoop', {
+                    auto_sync_enabled: checked,
+                    sync_hour: syncHour,
+                  })
+                }
+                className="data-[state=checked]:bg-[#1f1e1a] data-[state=unchecked]:bg-[#d8d5cb]"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 border-t border-[#e7e5dd] pt-4 md:grid-cols-[1fr_180px] md:items-end">
+            <div>
+              <p className="text-sm text-[#1f1e1a]">Preferred sync time</p>
+              <p className="mt-1 text-xs text-[#69665c]">Choose the hour for automatic refreshes.</p>
+            </div>
+            <Select
+              value={String(syncHour)}
+              onValueChange={(value) =>
+                handleWearableSyncSettingsUpdate('whoop', {
+                  auto_sync_enabled: autoSyncEnabled,
+                  sync_hour: Number(value),
+                })
+              }
+              disabled={!autoSyncEnabled}
+            >
+              <SelectTrigger className="h-11 rounded-sm border-[#d8d5cb] bg-white text-[#1f1e1a] focus:ring-0 disabled:opacity-50">
+                <SelectValue placeholder="Select time" />
+              </SelectTrigger>
+              <SelectContent className="border-[#d8d5cb] bg-white text-[#1f1e1a]">
+                {Array.from({ length: 24 }, (_, hour) => (
+                  <SelectItem key={hour} value={String(hour)}>
+                    {formatHour(hour)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between text-xs text-[#8a877d]">
+            <span>Last sync</span>
+            <span className="text-[#1f1e1a]">{formatRelativeTime(lastSyncValue)}</span>
+          </div>
+          {note ? <p className="mt-2 text-xs leading-5 text-[#69665c]">{note}</p> : null}
+          {staleMessage ? <p className="mt-2 text-xs leading-5 text-[#69665c]">{staleMessage}</p> : null}
+        </div>
+
+        <div className="rounded-sm border border-[#e7e5dd] bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.14em] text-[#8a877d]">Manual sync</p>
+              <h4 className="mt-1 text-lg font-medium tracking-[-0.02em] text-[#1f1e1a]">Choose how much history to import</h4>
+              <p className="mt-2 max-w-[28rem] text-sm leading-6 text-[#69665c]">
+                Use smart sync for day-to-day refreshes, a bounded backfill for a known gap, or full history to pull everything Whoop makes available for this account.
+              </p>
+            </div>
+            <Button
+              onClick={() => handleWhoopSync()}
+              disabled={syncing || (whoopSyncMode === 'custom' && !customDaysValid)}
+              className="h-11 rounded-sm bg-[#1f1e1a] px-4 text-sm text-white hover:bg-[#111111]"
+            >
+              {syncing ? 'Syncing...' : selectedPreset ? `Run ${selectedPreset.label}` : 'Run sync'}
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            {WHOOP_SYNC_PRESETS.map((preset) => {
+              const active = whoopSyncMode === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => setWhoopSyncMode(preset.id)}
+                  className={cn(
+                    'rounded-sm border px-3 py-3 text-left transition-colors',
+                    active
+                      ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                      : 'border-[#d8d5cb] bg-white text-[#1f1e1a] hover:bg-[#f3f1ea]'
+                  )}
+                >
+                  <div className="text-sm font-medium">{preset.label}</div>
+                  <div className={cn('mt-1 text-xs leading-5', active ? 'text-white/80' : 'text-[#69665c]')}>
+                    {preset.description}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {whoopSyncMode === 'custom' ? (
+            <div className="mt-4 rounded-sm border border-[#e7e5dd] bg-[#f8f7f3] p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div className="flex-1">
+                  <label htmlFor="whoop-custom-days" className="text-sm font-medium text-[#1f1e1a]">
+                    Custom backfill window
+                  </label>
+                  <p className="mt-1 text-xs text-[#69665c]">
+                    Enter any day count from 1 to {MAX_CUSTOM_WHOOP_DAYS}. Use full history if you want everything available.
+                  </p>
+                </div>
+                <div className="w-full md:w-[180px]">
+                  <Input
+                    id="whoop-custom-days"
+                    type="number"
+                    min={1}
+                    max={MAX_CUSTOM_WHOOP_DAYS}
+                    step={1}
+                    value={whoopCustomDaysBack}
+                    onChange={(event) => setWhoopCustomDaysBack(event.target.value)}
+                    className="h-11 rounded-sm border-[#d8d5cb] bg-white text-[#1f1e1a]"
+                  />
+                </div>
+              </div>
+              {!customDaysValid ? (
+                <p className="mt-2 text-xs text-[#9a3412]">Enter a value between 1 and {MAX_CUSTOM_WHOOP_DAYS} days.</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="mt-4 rounded-sm border border-dashed border-[#d8d5cb] bg-[#fcfbf8] p-4 text-xs leading-6 text-[#69665c]">
+            {whoopSyncMode === 'full'
+              ? 'Full history imports can take longer because Ritual will request everything Whoop makes available for this connection.'
+              : whoopSyncMode === 'smart'
+                ? 'Smart sync is the recommended default. It preserves your checkpoint and only overlaps a short safety window to avoid gaps.'
+                : whoopSyncMode === 'custom'
+                  ? 'Custom backfills are useful after a short outage, reconnect, or when you want to repair a specific missing range.'
+                  : `This preset will backfill the last ${selectedPreset?.label.replace('d', '') || ''} days before returning to incremental syncs.`}
+          </div>
         </div>
       </div>
     );

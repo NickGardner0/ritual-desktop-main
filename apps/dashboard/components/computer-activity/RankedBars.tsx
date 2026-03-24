@@ -11,7 +11,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronUp, Globe } from 'lucide-react'
-import { RankedBar } from '@ritual/shared-contracts/computer-activity'
+import { RankedBar } from '@/lib/computerActivity/contracts'
 import { msToHuman } from '@/lib/computerActivity/derive'
 
 // Cache for app icons (base64 data URLs)

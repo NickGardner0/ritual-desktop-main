@@ -11,10 +11,10 @@ import httpx
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
-from database.models import WhoopIntegrationDB
+from database.models import WearableEventDB, WearableSampleDB, WhoopIntegrationDB
 from database.connection import get_db_session
 from services.tinybird_service import TinybirdService
 from services.token_crypto import token_crypto
@@ -33,6 +33,10 @@ class WhoopService:
     WHOOP_SLEEP_HABIT_NAMES = {"sleep duration", "sleep", "whoop sleep"}
     WHOOP_RECOVERY_HABIT_NAMES = {"recovery score", "recovery", "whoop recovery"}
     WHOOP_WORKOUT_HABIT_NAMES = {"daily strain", "strain", "whoop strain"}
+    DEFAULT_INITIAL_SYNC_DAYS = int(os.getenv("WHOOP_INITIAL_SYNC_DAYS", "30"))
+    DEFAULT_RECONNECT_OVERLAP_DAYS = int(os.getenv("WHOOP_RECONNECT_OVERLAP_DAYS", "2"))
+    DEFAULT_FULL_HISTORY_SYNC_DAYS = int(os.getenv("WHOOP_FULL_HISTORY_SYNC_DAYS", "3650"))
+    MAX_MANUAL_SYNC_DAYS = int(os.getenv("WHOOP_MAX_MANUAL_SYNC_DAYS", "3650"))
     
     def __init__(self):
         self.client_id = os.getenv("WHOOP_CLIENT_ID")
@@ -169,10 +173,15 @@ class WhoopService:
                     integration.whoop_user_id = whoop_user_id
                     integration.is_active = True
                     integration.connected_at = datetime.utcnow()
-                    if reconnected or provider_user_changed:
-                        # A reconnect should behave like a fresh connection so the next
-                        # sync performs a proper backfill instead of a tiny incremental pull.
+                    if provider_user_changed:
+                        # A different upstream Whoop account is effectively a brand new
+                        # connection, so the next sync should rebuild from a fresh window.
                         integration.last_sync_at = None
+                    elif reconnected:
+                        logger.info(
+                            "🔄 Whoop reconnect detected for same Whoop user; "
+                            "preserving last_sync_at so the next sync can resume incrementally"
+                        )
                     logger.info(f"✅ Updated Whoop integration for user {user_id}")
                 else:
                     # Create new integration
@@ -205,7 +214,7 @@ class WhoopService:
                         "auto_sync_enabled": True,
                     },
                     status="active",
-                    reset_sync_state=reconnected or provider_user_changed,
+                    reset_sync_state=provider_user_changed,
                 )
                 return integration
                 
@@ -236,16 +245,25 @@ class WhoopService:
         """Disconnect Whoop integration (mark as inactive)"""
         async with get_db_session() as session:
             try:
-                await session.execute(
-                    update(WhoopIntegrationDB)
-                    .where(WhoopIntegrationDB.user_id == user_id)
-                    .values(is_active=False)
-                )
+                # Avoid async libsql CursorResult cleanup bugs on write statements by
+                # running the ORM update through the sync session bridge.
+                def _mark_inactive(sync_session):
+                    sync_session.execute(
+                        update(WhoopIntegrationDB)
+                        .where(WhoopIntegrationDB.user_id == user_id)
+                        .values(is_active=False)
+                    )
+
+                await session.run_sync(_mark_inactive)
                 await session.commit()
                 await wearable_connection_service.disconnect(user_id, "whoop")
                 logger.info(f"✅ Disconnected Whoop integration for user {user_id}")
                 return True
             except SQLAlchemyError as e:
+                await session.rollback()
+                logger.error(f"❌ Error disconnecting Whoop integration: {str(e)}")
+                return False
+            except Exception as e:
                 await session.rollback()
                 logger.error(f"❌ Error disconnecting Whoop integration: {str(e)}")
                 return False
@@ -365,15 +383,56 @@ class WhoopService:
             "recovery": bool(habit_names & self.WHOOP_RECOVERY_HABIT_NAMES),
             "workouts": bool(habit_names & self.WHOOP_WORKOUT_HABIT_NAMES),
         }
+
+    async def _infer_last_sync_from_stored_data(self, user_id: str) -> Optional[datetime]:
+        """
+        Reconstruct a conservative sync checkpoint from canonical Whoop data when
+        an older reconnect flow has already cleared last_sync_at.
+        """
+        async with get_db_session() as session:
+            event_result = await session.execute(
+                select(func.max(WearableEventDB.end_time)).where(
+                    WearableEventDB.user_id == user_id,
+                    WearableEventDB.provider == "whoop",
+                    WearableEventDB.deleted_at.is_(None),
+                )
+            )
+            sample_result = await session.execute(
+                select(func.max(WearableSampleDB.end_time)).where(
+                    WearableSampleDB.user_id == user_id,
+                    WearableSampleDB.provider == "whoop",
+                    WearableSampleDB.deleted_at.is_(None),
+                )
+            )
+
+        latest_event_end = event_result.scalar_one_or_none()
+        latest_sample_end = sample_result.scalar_one_or_none()
+        candidates = [dt for dt in (latest_event_end, latest_sample_end) if dt is not None]
+        if not candidates:
+            return None
+        inferred = max(candidates)
+        logger.info(
+            "📎 Reconstructed Whoop sync checkpoint from stored data: %s",
+            inferred.isoformat(),
+        )
+        return inferred
     
-    async def sync_whoop_data(self, user_id: str, days_back: int = None, force_full_sync: bool = False) -> Dict[str, Any]:
+    async def sync_whoop_data(
+        self,
+        user_id: str,
+        days_back: int = None,
+        force_full_sync: bool = False,
+        full_history: bool = False,
+    ) -> Dict[str, Any]:
         """
         Sync data from Whoop API with smart incremental syncing.
         
-        - First sync: fetches 30 days of historical data
-        - Subsequent syncs: only fetches data since last sync (with 2-day overlap)
-        - force_full_sync=True: always fetches 30 days
-        - days_back override: manual control over sync range
+        - First sync: fetches a configurable historical window (default 30 days)
+        - Same-user reconnects: resume from prior checkpoint with a short safety overlap
+        - Subsequent syncs: only fetches data since last sync (with safety overlap)
+        - force_full_sync=True: always fetches the default historical window
+        - full_history=True: fetches the extended historical window for deep backfills
+        - days_back override: manual control over sync range (up to MAX_MANUAL_SYNC_DAYS)
         """
         access_token = await self.get_valid_access_token(user_id)
         
@@ -394,30 +453,62 @@ class WhoopService:
         
         # Smart date range calculation
         end_date = datetime.utcnow()
+        default_initial_sync_days = max(self.DEFAULT_INITIAL_SYNC_DAYS, 1)
+        overlap_days = max(self.DEFAULT_RECONNECT_OVERLAP_DAYS, 1)
         
-        if days_back is not None:
-            # Manual override - use specified days
-            start_date = end_date - timedelta(days=days_back)
-            logger.info(f"📅 Manual sync: fetching last {days_back} days")
+        if full_history:
+            full_history_days = max(self.DEFAULT_FULL_HISTORY_SYNC_DAYS, default_initial_sync_days)
+            start_date = end_date - timedelta(days=full_history_days)
+            logger.info(
+                f"📅 Full history sync requested: fetching last {full_history_days} days"
+            )
+        elif days_back is not None:
+            # Manual override - use the requested window, clamped to a safe upper bound.
+            requested_days = max(int(days_back), 1)
+            sync_days = min(requested_days, self.MAX_MANUAL_SYNC_DAYS)
+            start_date = end_date - timedelta(days=sync_days)
+            if sync_days != requested_days:
+                logger.info(
+                    f"📅 Manual sync request clamped from {requested_days} to {sync_days} days"
+                )
+            else:
+                logger.info(f"📅 Manual sync: fetching last {sync_days} days")
         elif force_full_sync:
-            # Force full sync - fetch 30 days
-            start_date = end_date - timedelta(days=30)
-            logger.info(f"📅 Full sync requested: fetching last 30 days")
+            # Force a historical refresh using the default first-sync window.
+            start_date = end_date - timedelta(days=default_initial_sync_days)
+            logger.info(
+                f"📅 Full sync requested: fetching last {default_initial_sync_days} days"
+            )
         elif integration and integration.last_sync_at:
-            # Incremental sync - fetch since last sync with 2-day overlap for safety
+            # Incremental sync - fetch since last sync with a short overlap for safety
             # The overlap ensures we don't miss any data due to timezone issues or partial syncs
             last_sync = integration.last_sync_at
             days_since_sync = (end_date - last_sync).days
             
-            # Add 2 days overlap, but minimum 1 day, maximum 30 days
-            sync_days = min(max(days_since_sync + 2, 1), 30)
+            # Add the safety overlap, but minimum 1 day, maximum manual window cap
+            sync_days = min(max(days_since_sync + overlap_days, 1), self.MAX_MANUAL_SYNC_DAYS)
             start_date = end_date - timedelta(days=sync_days)
             
-            logger.info(f"📅 Incremental sync: last sync was {days_since_sync} days ago, fetching last {sync_days} days")
+            logger.info(
+                f"📅 Incremental sync: last sync was {days_since_sync} days ago, "
+                f"fetching last {sync_days} days"
+            )
         else:
-            # First sync - fetch 30 days of historical data
-            start_date = end_date - timedelta(days=30)
-            logger.info(f"📅 First sync: fetching last 30 days of historical data")
+            inferred_last_sync = await self._infer_last_sync_from_stored_data(user_id)
+            if inferred_last_sync:
+                days_since_sync = (end_date - inferred_last_sync).days
+                sync_days = min(max(days_since_sync + overlap_days, 1), self.MAX_MANUAL_SYNC_DAYS)
+                start_date = end_date - timedelta(days=sync_days)
+                logger.info(
+                    f"📅 Recovered incremental sync: inferred checkpoint was {days_since_sync} days ago, "
+                    f"fetching last {sync_days} days"
+                )
+            else:
+                # First sync - fetch the default historical window.
+                start_date = end_date - timedelta(days=default_initial_sync_days)
+                logger.info(
+                    f"📅 First sync: fetching last {default_initial_sync_days} days of historical data"
+                )
         
         # Track whether ANY API call succeeded (to avoid updating last_sync_at on total auth failure)
         any_api_success = False
@@ -715,12 +806,19 @@ class WhoopService:
         # Update last sync time (only if we successfully talked to the API)
         async with get_db_session() as session:
             try:
-                await session.execute(
-                    update(WhoopIntegrationDB)
-                    .where(WhoopIntegrationDB.user_id == user_id)
-                    .where(WhoopIntegrationDB.is_active == True)
-                    .values(last_sync_at=datetime.utcnow())
-                )
+                synced_at = datetime.utcnow()
+
+                # Route the write through the sync bridge to avoid libsql async
+                # cursor cleanup bugs that surface after an otherwise successful sync.
+                def _mark_synced(sync_session):
+                    sync_session.execute(
+                        update(WhoopIntegrationDB)
+                        .where(WhoopIntegrationDB.user_id == user_id)
+                        .where(WhoopIntegrationDB.is_active == True)
+                        .values(last_sync_at=synced_at)
+                    )
+
+                await session.run_sync(_mark_synced)
                 await session.commit()
             except SQLAlchemyError as e:
                 logger.warning(f"⚠️  Error updating last_sync_at: {str(e)}")

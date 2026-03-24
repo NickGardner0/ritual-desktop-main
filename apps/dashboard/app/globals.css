@@ -319,7 +319,7 @@
 
   /* Desktop App - Midday's approach */
   html.desktop {
-    background: transparent !important;
+    background: hsl(var(--background)) !important;
     user-select: none;
     -webkit-user-select: none;
     overscroll-behavior: none !important;
@@ -344,6 +344,7 @@
 
   html.desktop body {
     position: relative;
+    background: hsl(var(--background)) !important;
     overscroll-behavior: none !important;
     margin: 0;
     padding: 0;
@@ -415,6 +416,21 @@
   }
   /* ===== End Transparency Probe Mode ===== */
 
+  /* Desktop fallback glass: preserve the intended frosted sidebar look even
+     if native macOS glass is unavailable or disabled for a given session. */
+  html.desktop .sidebar-vibrancy {
+    background: rgba(250, 250, 248, 0.28);
+    background-color: rgba(250, 250, 248, 0.28);
+    border-right: 1px solid rgba(0, 0, 0, 0.045);
+    backdrop-filter: saturate(155%) blur(24px);
+    -webkit-backdrop-filter: saturate(155%) blur(24px);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.34);
+  }
+
+  html.desktop .sidebar-vibrancy .sidebar-header {
+    border-color: rgba(0, 0, 0, 0.04);
+  }
+
   /* ===== macOS Liquid Glass Sidebar (native NSGlassEffectView) ===== */
   /* Apple's NSGlassEffectView (macOS 26+) renders the frosted glass
      at the OS compositor level — no CSS backdrop-filter, no flicker.
@@ -422,28 +438,28 @@
 
   /* Every wrapper from <html> down to .app-container must be transparent
      so the native NSGlassEffectView shows through the sidebar. */
-  html.desktop[data-platform="macos"],
-  html.desktop:not([data-platform]) {
+  html.desktop[data-platform="macos"][data-main-glass="1"],
+  html.desktop:not([data-platform])[data-main-glass="1"] {
     background: transparent !important;
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"] body,
-  html.desktop:not([data-platform]) body {
+  html.desktop[data-platform="macos"][data-main-glass="1"] body,
+  html.desktop:not([data-platform])[data-main-glass="1"] body {
     background: transparent !important;
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"] #__next,
-  html.desktop:not([data-platform]) #__next,
-  html.desktop[data-platform="macos"] #root,
-  html.desktop:not([data-platform]) #root {
+  html.desktop[data-platform="macos"][data-main-glass="1"] #__next,
+  html.desktop:not([data-platform])[data-main-glass="1"] #__next,
+  html.desktop[data-platform="macos"][data-main-glass="1"] #root,
+  html.desktop:not([data-platform])[data-main-glass="1"] #root {
     background: transparent !important;
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"] .app-container,
-  html.desktop:not([data-platform]) .app-container {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .app-container,
+  html.desktop:not([data-platform])[data-main-glass="1"] .app-container {
     background: transparent !important;
     background-color: transparent !important;
   }
@@ -452,28 +468,29 @@
      The NSGlassEffectView provides the blur of what's behind the window.
      This white overlay makes it frosty — lower alpha = more see-through.
      0.32 keeps the same look while making it a touch more transparent. */
-  html.desktop[data-platform="macos"] .sidebar-vibrancy,
-  html.desktop:not([data-platform]) .sidebar-vibrancy {
-    background: rgba(255, 255, 255, 0.32) !important;
-    background-color: rgba(255, 255, 255, 0.32) !important;
-    border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
+    background: rgba(255, 255, 255, 0.0) !important;
+    background-color: rgba(255, 255, 255, 0.0) !important;
+    border-right: 1px solid rgba(0, 0, 0, 0.02) !important;
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.1) !important;
   }
 
   /* All children inside the sidebar must be transparent */
-  html.desktop[data-platform="macos"] .sidebar-vibrancy *,
-  html.desktop:not([data-platform]) .sidebar-vibrancy * {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy *,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy * {
     background: transparent !important;
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"] .sidebar-vibrancy .sidebar-header,
-  html.desktop:not([data-platform]) .sidebar-vibrancy .sidebar-header {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-header {
     border-color: rgba(0, 0, 0, 0.04) !important;
   }
 
   /* Opaque main content — covers the glass so only sidebar is glassy */
-  html.desktop[data-platform="macos"] .content-opaque,
-  html.desktop:not([data-platform]) .content-opaque {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque,
+  html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque {
     background: var(--content-bg) !important;
     background-color: var(--content-bg) !important;
   }
@@ -481,7 +498,7 @@
   /* Clip any fixed-position children (like AI chat bar) inside
      the content area so they can't bleed into the sidebar column.
      The content wrapper gets isolation so fixed children are clipped. */
-  html.desktop[data-platform="macos"] .content-opaque {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque {
     clip-path: inset(0 0 0 0);
   }
 
@@ -515,30 +532,30 @@
   }
 
   /* Team dropdown must stay opaque/interactive inside vibrancy sidebar */
-  html.desktop[data-platform="macos"] .sidebar-vibrancy .team-dropdown-menu,
-  html.desktop:not([data-platform]) .sidebar-vibrancy .team-dropdown-menu {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu {
     background: #ffffff !important;
     background-color: #ffffff !important;
   }
 
-  html.desktop[data-platform="macos"] .sidebar-vibrancy .team-dropdown-divider,
-  html.desktop:not([data-platform]) .sidebar-vibrancy .team-dropdown-divider {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider {
     border-color: #dcdad2 !important;
     background: transparent !important;
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"] .sidebar-vibrancy .team-dropdown-row,
-  html.desktop:not([data-platform]) .sidebar-vibrancy .team-dropdown-row {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row {
     color: #000000 !important;
     background: transparent !important;
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"] .sidebar-vibrancy .team-dropdown-row:hover,
-  html.desktop[data-platform="macos"] .sidebar-vibrancy .team-dropdown-row:focus-visible,
-  html.desktop:not([data-platform]) .sidebar-vibrancy .team-dropdown-row:hover,
-  html.desktop:not([data-platform]) .sidebar-vibrancy .team-dropdown-row:focus-visible {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:hover,
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:focus-visible,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:hover,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:focus-visible {
     background: #f3f3f3 !important;
     background-color: #f3f3f3 !important;
   }

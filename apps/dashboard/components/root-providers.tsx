@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ClerkProvider } from '@clerk/nextjs';
 import { QueryProvider } from '@/components/providers';
@@ -10,7 +11,7 @@ import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
 import { DesktopUpdater } from '@/components/desktop-updater';
-import { showMainWindow } from '@/lib/tauri-utils';
+import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 import {
   ensureAutoSemanticBackfillOnLaunch,
   ensureEmbeddingPipelineReadyOnLaunch,
@@ -23,11 +24,19 @@ import {
  * Separated from layout.tsx to allow the layout to remain a Server Component.
  */
 export function RootProviders({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const isDesktopBootstrap = pathname === '/desktop/bootstrap';
   const [isTransparencyProbe] = useState(() => {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_transparency_probe');
     const storageValue = window.sessionStorage.getItem('ritual_transparency_probe');
     return queryValue === '1' || storageValue === '1';
+  });
+  const [isMainGlassEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const queryValue = new URLSearchParams(window.location.search).get('ritual_main_glass');
+    const storageValue = window.sessionStorage.getItem('ritual_main_glass');
+    return isTauri() || queryValue === '1' || storageValue === '1';
   });
 
   // Show the Tauri window once React has mounted and content is ready
@@ -40,12 +49,16 @@ export function RootProviders({ children }: { children: ReactNode }) {
       }
     }
 
+    if (isDesktopBootstrap) {
+      return;
+    }
+
     // Small delay to ensure DOM is painted
     const timer = setTimeout(() => {
       showMainWindow();
     }, 50);
     return () => clearTimeout(timer);
-  }, []);
+  }, [pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -63,6 +76,18 @@ export function RootProviders({ children }: { children: ReactNode }) {
   }, [isTransparencyProbe]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (isMainGlassEnabled) {
+      window.sessionStorage.setItem('ritual_main_glass', '1');
+      document.documentElement.dataset.mainGlass = '1';
+    } else {
+      window.sessionStorage.removeItem('ritual_main_glass');
+      delete document.documentElement.dataset.mainGlass;
+    }
+  }, [isMainGlassEnabled]);
+
+  useEffect(() => {
     ensureEmbeddingPipelineReadyOnLaunch().catch((error) => {
       console.warn('Embedding pipeline bootstrap failed:', error);
     });
@@ -71,6 +96,18 @@ export function RootProviders({ children }: { children: ReactNode }) {
       console.warn('Automatic semantic backfill bootstrap failed:', error);
     });
   }, []);
+
+  const content = (
+    <OpenPanelProvider>
+      <QueryProvider>
+        <HabitsProvider>
+          <DesktopUpdater />
+          <MemoryCloudUploader />
+          {children}
+        </HabitsProvider>
+      </QueryProvider>
+    </OpenPanelProvider>
+  );
 
   return (
     <ThemeProvider
@@ -82,6 +119,8 @@ export function RootProviders({ children }: { children: ReactNode }) {
       <PlatformDetector />
       {isTransparencyProbe ? (
         <TransparencyProbe />
+      ) : isDesktopBootstrap ? (
+        children
       ) : (
         <ClerkProvider
           signInUrl="/sign-in"
@@ -90,15 +129,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
           signUpForceRedirectUrl="/auth/sso-callback"
           afterSignOutUrl="/"
         >
-          <OpenPanelProvider>
-          <QueryProvider>
-            <HabitsProvider>
-              <DesktopUpdater />
-              <MemoryCloudUploader />
-              {children}
-            </HabitsProvider>
-          </QueryProvider>
-          </OpenPanelProvider>
+          {content}
         </ClerkProvider>
       )}
     </ThemeProvider>

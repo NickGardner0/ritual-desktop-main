@@ -22,10 +22,10 @@ class AuthService:
         self.clerk_publishable_key = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
         self.clerk_secret_key = os.getenv("CLERK_SECRET_KEY")
         
-        # Email cache to avoid repeated Clerk API calls
-        # Format: {user_id: {"email": email, "cached_at": timestamp}}
-        self._email_cache: Dict[str, Dict[str, Any]] = {}
-        self._email_cache_ttl = 3600  # Cache for 1 hour
+        # User info cache to avoid repeated Clerk API calls
+        # Format: {user_id: {"email": email, "phone": phone, "cached_at": timestamp}}
+        self._user_cache: Dict[str, Dict[str, Any]] = {}
+        self._user_cache_ttl = 3600  # Cache for 1 hour
         
         # Prefer an explicit JWKS endpoint so backend auth is decoupled from
         # whichever frontend sign-in route the Next app happens to use.
@@ -94,12 +94,24 @@ class AuthService:
                 return None
             
             # If email is not in token, fetch from Clerk API
+            phone = None
             if not email:
-                email = await self._fetch_email_from_clerk(user_id)
-            
+                user_info = await self._fetch_user_info_from_clerk(user_id)
+                email = user_info.get("email") if user_info else None
+                phone = user_info.get("phone") if user_info else None
+            else:
+                # Even if we have email, try to get phone from cache or Clerk
+                cached = self._user_cache.get(user_id)
+                if cached and (datetime.now(timezone.utc).timestamp() - cached["cached_at"]) < self._user_cache_ttl:
+                    phone = cached.get("phone")
+                else:
+                    user_info = await self._fetch_user_info_from_clerk(user_id)
+                    phone = user_info.get("phone") if user_info else None
+
             return {
                 "id": user_id,
                 "email": email,
+                "phone": phone,
                 "name": payload.get("name") or payload.get("full_name"),
                 "metadata": payload
             }
@@ -114,32 +126,29 @@ class AuthService:
             logger.exception("Error validating token")
             return None
     
-    async def _fetch_email_from_clerk(self, user_id: str) -> Optional[str]:
+    async def _fetch_user_info_from_clerk(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
-        Fetch user email from Clerk API with caching
-        Cache emails for 1 hour to avoid repeated API calls
+        Fetch user email and phone from Clerk API with caching.
+        Returns dict with 'email' and 'phone' keys.
         """
         # Check cache first
-        cached = self._email_cache.get(user_id)
+        cached = self._user_cache.get(user_id)
         if cached:
             cached_at = cached.get("cached_at")
             cache_age = datetime.now(timezone.utc).timestamp() - cached_at
-            
-            # Return cached email if still fresh
-            if cache_age < self._email_cache_ttl:
-                email = cached.get("email")
-                return email
+
+            if cache_age < self._user_cache_ttl:
+                return cached
             else:
-                # Cache expired, remove it
-                logger.info("Email cache expired for user %s, refreshing", user_id)
-                del self._email_cache[user_id]
-        
+                logger.info("User cache expired for user %s, refreshing", user_id)
+                del self._user_cache[user_id]
+
         if not self.clerk_secret_key:
-            logger.warning("Clerk secret key not configured, cannot fetch email")
+            logger.warning("Clerk secret key not configured, cannot fetch user info")
             return None
-        
+
         try:
-            logger.info("[CLERK API] Fetching email for user: %s", user_id)
+            logger.info("[CLERK API] Fetching user info for: %s", user_id)
             retries = 3
             response = None
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -157,35 +166,43 @@ class AuthService:
                         await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
                         continue
                     break
-                
+
                 if response.status_code == 200:
                     user_data = response.json()
-                    # Clerk returns email_addresses array
+
+                    # Extract primary email
+                    primary_email = None
                     email_addresses = user_data.get("email_addresses", [])
                     if email_addresses:
-                        # Get the primary email (first verified email, or first one)
                         primary_email = next(
                             (e.get("email_address") for e in email_addresses if e.get("verification", {}).get("status") == "verified"),
                             email_addresses[0].get("email_address")
                         )
-                        
-                        # Cache the email
-                        self._email_cache[user_id] = {
-                            "email": primary_email,
-                            "cached_at": datetime.now(timezone.utc).timestamp()
-                        }
-                        
-                        logger.info("[CLERK API] Email cached for user %s (valid for 1 hour)", user_id)
-                        return primary_email
-                    else:
-                        logger.warning("No email addresses found for user %s", user_id)
-                        return None
+
+                    # Extract primary phone number
+                    primary_phone = None
+                    phone_numbers = user_data.get("phone_numbers", [])
+                    if phone_numbers:
+                        primary_phone = next(
+                            (p.get("phone_number") for p in phone_numbers if p.get("verification", {}).get("status") == "verified"),
+                            phone_numbers[0].get("phone_number")
+                        )
+
+                    # Cache both
+                    self._user_cache[user_id] = {
+                        "email": primary_email,
+                        "phone": primary_phone,
+                        "cached_at": datetime.now(timezone.utc).timestamp()
+                    }
+
+                    logger.info("[CLERK API] User info cached for %s (valid for 1 hour)", user_id)
+                    return self._user_cache[user_id]
                 else:
                     logger.warning("Failed to fetch user from Clerk API: %s", response.status_code)
                     return None
-                    
+
         except Exception as e:
-            logger.warning("Error fetching email from Clerk API: %s", e)
+            logger.warning("Error fetching user info from Clerk API: %s", e)
             return None
     
     def extract_token_from_header(self, authorization_header: str) -> Optional[str]:

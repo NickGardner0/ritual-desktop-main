@@ -9,7 +9,7 @@
 
 import React, { useMemo } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
-import { AttentionHeader, SparklinePoint } from '@ritual/shared-contracts/computer-activity'
+import { AttentionHeader, SparklinePoint } from '@/lib/computerActivity/contracts'
 import { msToHuman, msToDecimalHours } from '@/lib/computerActivity/derive'
 
 interface AttentionIndexHeaderProps {
@@ -132,4 +132,3 @@ export function AttentionIndexHeader({ header, className = '' }: AttentionIndexH
 }
 
 export default AttentionIndexHeader
-

@@ -161,7 +161,10 @@ export default function OnboardingPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(values)
+        body: JSON.stringify({
+          ...values,
+          phone_number: user?.primaryPhoneNumber?.phoneNumber ?? undefined,
+        })
       })
 
       if (!response.ok) {

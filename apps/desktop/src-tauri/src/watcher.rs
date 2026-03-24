@@ -5,7 +5,7 @@
 
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -152,6 +152,207 @@ impl From<ritual_db::ActivityEvent> for DetailedActivityEvent {
             is_incognito: e.is_incognito,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct RangeSummary {
+    active_ms: i64,
+    afk_ms: i64,
+    app_count: i64,
+    domain_count: i64,
+    event_count: i64,
+}
+
+fn clip_interval(
+    event: &ritual_db::ActivityEvent,
+    range_start: i64,
+    range_end: i64,
+) -> Option<(i64, i64)> {
+    let start = event.ts_start.max(range_start);
+    let end = event.ts_end.min(range_end);
+    if end > start {
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
+fn merge_intervals(mut intervals: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+    if intervals.is_empty() {
+        return Vec::new();
+    }
+
+    intervals.sort_by_key(|(start, _)| *start);
+    let mut merged: Vec<(i64, i64)> = Vec::with_capacity(intervals.len());
+    let mut current = intervals[0];
+
+    for (start, end) in intervals.into_iter().skip(1) {
+        if start <= current.1 {
+            current.1 = current.1.max(end);
+        } else {
+            merged.push(current);
+            current = (start, end);
+        }
+    }
+
+    merged.push(current);
+    merged
+}
+
+fn total_interval_ms(intervals: Vec<(i64, i64)>) -> i64 {
+    merge_intervals(intervals)
+        .into_iter()
+        .map(|(start, end)| end.saturating_sub(start))
+        .sum()
+}
+
+fn build_range_summary(
+    events: &[ritual_db::ActivityEvent],
+    range_start: i64,
+    range_end: i64,
+) -> RangeSummary {
+    let mut active_intervals = Vec::new();
+    let mut afk_intervals = Vec::new();
+    let mut app_keys = HashSet::new();
+    let mut domains = HashSet::new();
+    let mut event_count = 0_i64;
+
+    for event in events {
+        let Some((start, end)) = clip_interval(event, range_start, range_end) else {
+            continue;
+        };
+
+        event_count += 1;
+
+        if event.is_afk {
+            afk_intervals.push((start, end));
+            continue;
+        }
+
+        active_intervals.push((start, end));
+
+        let app_key = if event.app_bundle_id.is_empty() {
+            event.app_name.clone()
+        } else {
+            event.app_bundle_id.clone()
+        };
+        if !app_key.is_empty() {
+            app_keys.insert(app_key);
+        }
+
+        if let Some(domain) = event.browser_domain.as_ref() {
+            if !domain.is_empty() && !event.is_incognito {
+                domains.insert(domain.clone());
+            }
+        }
+    }
+
+    RangeSummary {
+        active_ms: total_interval_ms(active_intervals),
+        afk_ms: total_interval_ms(afk_intervals),
+        app_count: app_keys.len() as i64,
+        domain_count: domains.len() as i64,
+        event_count,
+    }
+}
+
+fn build_app_summaries(
+    events: &[ritual_db::ActivityEvent],
+    range_start: i64,
+    range_end: i64,
+) -> Vec<AppActivitySummary> {
+    let mut grouped: HashMap<String, (String, Vec<(i64, i64)>, i64)> = HashMap::new();
+
+    for event in events {
+        if event.is_afk {
+            continue;
+        }
+        let Some((start, end)) = clip_interval(event, range_start, range_end) else {
+            continue;
+        };
+
+        let key = if event.app_bundle_id.is_empty() {
+            event.app_name.clone()
+        } else {
+            event.app_bundle_id.clone()
+        };
+        if key.is_empty() {
+            continue;
+        }
+
+        let entry = grouped
+            .entry(key.clone())
+            .or_insert_with(|| (event.app_name.clone(), Vec::new(), 0));
+        if entry.0.is_empty() {
+            entry.0 = event.app_name.clone();
+        }
+        entry.1.push((start, end));
+        entry.2 += 1;
+    }
+
+    let mut rows: Vec<AppActivitySummary> = grouped
+        .into_iter()
+        .map(|(key, (app_name, intervals, event_count))| AppActivitySummary {
+            app_bundle_id: key,
+            app_name,
+            total_duration_ms: total_interval_ms(intervals),
+            event_count,
+        })
+        .filter(|row| row.total_duration_ms > 0)
+        .collect();
+
+    rows.sort_by(|a, b| {
+        b.total_duration_ms
+            .cmp(&a.total_duration_ms)
+            .then_with(|| a.app_name.cmp(&b.app_name))
+    });
+    rows
+}
+
+fn build_domain_summaries(
+    events: &[ritual_db::ActivityEvent],
+    range_start: i64,
+    range_end: i64,
+) -> Vec<DomainActivitySummary> {
+    let mut grouped: HashMap<String, (Vec<(i64, i64)>, i64)> = HashMap::new();
+
+    for event in events {
+        if event.is_afk || event.is_incognito {
+            continue;
+        }
+        let Some(domain) = event.browser_domain.as_ref() else {
+            continue;
+        };
+        if domain.is_empty() {
+            continue;
+        }
+        let Some((start, end)) = clip_interval(event, range_start, range_end) else {
+            continue;
+        };
+
+        let entry = grouped
+            .entry(domain.clone())
+            .or_insert_with(|| (Vec::new(), 0));
+        entry.0.push((start, end));
+        entry.1 += 1;
+    }
+
+    let mut rows: Vec<DomainActivitySummary> = grouped
+        .into_iter()
+        .map(|(domain, (intervals, event_count))| DomainActivitySummary {
+            domain,
+            total_duration_ms: total_interval_ms(intervals),
+            event_count,
+        })
+        .filter(|row| row.total_duration_ms > 0)
+        .collect();
+
+    rows.sort_by(|a, b| {
+        b.total_duration_ms
+            .cmp(&a.total_duration_ms)
+            .then_with(|| a.domain.cmp(&b.domain))
+    });
+    rows
 }
 
 /// Summary of activity by app
@@ -710,51 +911,39 @@ pub async fn get_detailed_activity(
         .await
         .map_err(|e| format!("Failed to query events: {}", e))?;
 
-    // Apply limit (events are already sorted by ts_start ASC, reverse for DESC)
+    let mut clipped_events: Vec<DetailedActivityEvent> = all_events
+        .iter()
+        .filter_map(|event| {
+            let (clipped_start, clipped_end) = clip_interval(event, start_ts, end_ts)?;
+            Some(DetailedActivityEvent {
+                id: event.id.unwrap_or(0),
+                ts_start: clipped_start,
+                ts_end: clipped_end,
+                duration_ms: clipped_end.saturating_sub(clipped_start),
+                app_bundle_id: event.app_bundle_id.clone(),
+                app_name: event.app_name.clone(),
+                window_title: event.window_title.clone(),
+                browser_url: event.browser_url.clone(),
+                browser_domain: event.browser_domain.clone(),
+                is_afk: event.is_afk,
+                is_incognito: event.is_incognito,
+            })
+        })
+        .collect();
+
+    clipped_events.sort_by(|a, b| b.ts_start.cmp(&a.ts_start));
+
+    // Apply limit to the event list only. Aggregate summaries are computed from
+    // the full local range so desktop metrics stay accurate.
     let limit_val = limit.unwrap_or(500) as usize;
-    let events: Vec<DetailedActivityEvent> = all_events
+    let events: Vec<DetailedActivityEvent> = clipped_events
         .into_iter()
-        .rev() // DESC order like the original query
         .take(limit_val)
-        .map(DetailedActivityEvent::from)
         .collect();
 
-    // Get app summaries
-    let app_summaries = db
-        .get_app_summary(&device_id, start_ts, end_ts)
-        .await
-        .map_err(|e| format!("Failed to query app summaries: {}", e))?;
-
-    let apps: Vec<AppActivitySummary> = app_summaries
-        .into_iter()
-        .map(|s| AppActivitySummary {
-            app_bundle_id: s.bundle_id,
-            app_name: s.app_name,
-            total_duration_ms: s.total_ms,
-            event_count: s.event_count,
-        })
-        .collect();
-
-    // Get domain summaries
-    let domain_summaries = db
-        .get_domain_summary(&device_id, start_ts, end_ts)
-        .await
-        .map_err(|e| format!("Failed to query domain summaries: {}", e))?;
-
-    let domains: Vec<DomainActivitySummary> = domain_summaries
-        .into_iter()
-        .map(|s| DomainActivitySummary {
-            domain: s.domain,
-            total_duration_ms: s.total_ms,
-            event_count: s.event_count,
-        })
-        .collect();
-
-    // Get daily summary for active/afk totals
-    let summary = db
-        .get_daily_summary(&device_id, start_ts, end_ts)
-        .await
-        .map_err(|e| format!("Failed to query daily summary: {}", e))?;
+    let apps = build_app_summaries(&all_events, start_ts, end_ts);
+    let domains = build_domain_summaries(&all_events, start_ts, end_ts);
+    let summary = build_range_summary(&all_events, start_ts, end_ts);
 
     Ok(DetailedActivityResponse {
         events,
@@ -910,10 +1099,11 @@ pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
     let guard = get_activity_db().await?;
     let db = require_db(guard.as_ref())?;
 
-    let summary = db
-        .get_daily_summary(&device_id, start_ts, end_ts)
+    let events = db
+        .get_events_in_range(&device_id, start_ts, end_ts)
         .await
-        .map_err(|e| format!("Failed to get summary: {}", e))?;
+        .map_err(|e| format!("Failed to get summary events: {}", e))?;
+    let summary = build_range_summary(&events, start_ts, end_ts);
 
     Ok(DailySummary {
         date,
@@ -924,6 +1114,77 @@ pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
         domain_count: summary.domain_count,
         event_count: summary.event_count,
     })
+}
+
+/// Get daily summaries for an inclusive date range (YYYY-MM-DD)
+#[tauri::command]
+pub async fn get_daily_summaries(
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<DailySummary>, String> {
+    use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
+
+    let device_id = get_device_id_or_config().unwrap_or_default();
+    let start =
+        NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(|_| "Invalid start_date")?;
+    let end =
+        NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|_| "Invalid end_date")?;
+
+    if end < start {
+        return Err("end_date must be on or after start_date".to_string());
+    }
+
+    let guard = get_activity_db().await?;
+    let db = require_db(guard.as_ref())?;
+    let start_of_range = Local
+        .with_ymd_and_hms(start.year(), start.month(), start.day(), 0, 0, 0)
+        .single()
+        .ok_or("Invalid start_date")?;
+    let end_of_range = Local
+        .with_ymd_and_hms(end.year(), end.month(), end.day(), 23, 59, 59)
+        .single()
+        .ok_or("Invalid end_date")?;
+    let all_events = db
+        .get_events_in_range(
+            &device_id,
+            start_of_range.timestamp_millis(),
+            end_of_range.timestamp_millis(),
+        )
+        .await
+        .map_err(|e| format!("Failed to get summary events: {}", e))?;
+    let mut rows = Vec::new();
+    let mut day = start;
+
+    while day <= end {
+        let start_of_day = Local
+            .with_ymd_and_hms(day.year(), day.month(), day.day(), 0, 0, 0)
+            .single()
+            .ok_or("Invalid date")?;
+        let end_of_day = Local
+            .with_ymd_and_hms(day.year(), day.month(), day.day(), 23, 59, 59)
+            .single()
+            .ok_or("Invalid date")?;
+
+        let summary = build_range_summary(
+            &all_events,
+            start_of_day.timestamp_millis(),
+            end_of_day.timestamp_millis(),
+        );
+
+        rows.push(DailySummary {
+            date: day.format("%Y-%m-%d").to_string(),
+            total_active_ms: summary.active_ms,
+            total_afk_ms: summary.afk_ms,
+            total_hours: summary.active_ms as f64 / (1000.0 * 60.0 * 60.0),
+            app_count: summary.app_count,
+            domain_count: summary.domain_count,
+            event_count: summary.event_count,
+        });
+
+        day += Duration::days(1);
+    }
+
+    Ok(rows)
 }
 
 // ============================================================

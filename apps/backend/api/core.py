@@ -99,6 +99,7 @@ def create_core_router(
                 user_id=current_user["id"],
                 email=current_user["email"],
                 full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
             )
             logger.info("User profile ensured for %s", user.email)
             return user_db_to_profile(user)
@@ -126,6 +127,7 @@ def create_core_router(
                 country=onboarding_data.country,
                 tracking_interests=onboarding_data.tracking_interests,
                 wearable_devices=onboarding_data.wearable_devices,
+                phone_number=onboarding_data.phone_number,
             )
             logger.info("Onboarding updated successfully for user %s", current_user["id"])
             return user_db_to_profile(user)

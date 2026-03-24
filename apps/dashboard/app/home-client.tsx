@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { setStandardWindowSize, setOnboardingWindowSize } from '@/lib/tauri-utils';
+import { isTauri } from '@/lib/tauri-utils';
 import { ArrowRight } from 'lucide-react';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -45,11 +46,28 @@ export function HomeClient() {
   const [currentPage, setCurrentPage] = useState(pageParam ? parseInt(pageParam) : 1);
   const [showSignUp, setShowSignUp] = useState(authMode === 'signup');
   const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
+  const [showStartupDiagnostics, setShowStartupDiagnostics] = useState(false);
+  const desktopApp = typeof window !== 'undefined' && isTauri();
 
   // Update showSignUp when URL changes
   useEffect(() => {
     setShowSignUp(authMode === 'signup');
   }, [authMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isTauri()) return;
+    if (isLoaded && !isChecking) {
+      setShowStartupDiagnostics(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowStartupDiagnostics(true);
+    }, 8000);
+
+    return () => window.clearTimeout(timer);
+  }, [isLoaded, isChecking]);
 
   // Attach click handler directly to logo via DOM
   useEffect(() => {
@@ -207,6 +225,59 @@ export function HomeClient() {
 
   // Show loading while checking auth state for signed-in users
   if (isSignedIn && isChecking) {
+    if (showStartupDiagnostics) {
+      return (
+        <div className="min-h-screen bg-white flex items-center justify-center px-6">
+          <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+            <h1 className="text-xl font-medium text-gray-900">Desktop startup is still waiting.</h1>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              Ritual reached the hosted app, but the signed-in startup check did not finish.
+            </p>
+            <dl className="mt-6 space-y-2 text-sm text-gray-700">
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Clerk loaded</dt>
+                <dd>{String(isLoaded)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Signed in</dt>
+                <dd>{String(isSignedIn)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Checking profile</dt>
+                <dd>{String(isChecking)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Backend API</dt>
+                <dd className="break-all">{PYTHON_API_BASE}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Current URL</dt>
+                <dd className="break-all">{typeof window !== 'undefined' ? window.location.href : ''}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">User agent</dt>
+                <dd className="break-all">{typeof window !== 'undefined' ? window.navigator.userAgent : ''}</dd>
+              </div>
+            </dl>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => window.location.reload()}
+                className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
+              >
+                Reload
+              </button>
+              <Link
+                href="/sign-in"
+                className="rounded-sm border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900"
+              >
+                Open sign-in
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <BrailleSpinner className="text-2xl text-gray-900" />
@@ -216,6 +287,55 @@ export function HomeClient() {
 
   // Still determining user type
   if (isNewUser === null) {
+    if (showStartupDiagnostics) {
+      return (
+        <div className="min-h-screen bg-white flex items-center justify-center px-6">
+          <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+            <h1 className="text-xl font-medium text-gray-900">Desktop auth did not finish loading.</h1>
+            <p className="mt-3 text-sm leading-6 text-gray-600">
+              Ritual is still waiting for the initial Clerk session state inside the desktop webview.
+            </p>
+            <dl className="mt-6 space-y-2 text-sm text-gray-700">
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Clerk loaded</dt>
+                <dd>{String(isLoaded)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Signed in</dt>
+                <dd>{String(isSignedIn)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Tauri detected</dt>
+                <dd>{String(typeof window !== 'undefined' ? isTauri() : false)}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">Current URL</dt>
+                <dd className="break-all">{typeof window !== 'undefined' ? window.location.href : ''}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="min-w-[150px] font-medium text-gray-500">User agent</dt>
+                <dd className="break-all">{typeof window !== 'undefined' ? window.navigator.userAgent : ''}</dd>
+              </div>
+            </dl>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => window.location.reload()}
+                className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
+              >
+                Reload
+              </button>
+              <Link
+                href="/sign-in"
+                className="rounded-sm border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900"
+              >
+                Open sign-in
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <BrailleSpinner className="text-2xl text-gray-900" />
@@ -320,7 +440,8 @@ export function HomeClient() {
                           '&:hover': {
                             cursor: 'pointer'
                           }
-                        }
+                        },
+                        dividerRow: '',
                       }
                     }}
                   />
@@ -336,7 +457,8 @@ export function HomeClient() {
                           '&:hover': {
                             cursor: 'pointer'
                           }
-                        }
+                        },
+                        dividerRow: '',
                       }
                     }}
                   />

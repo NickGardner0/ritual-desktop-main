@@ -3,7 +3,7 @@ import HealthKit
 
 /// V2 HealthKit Manager with incremental sync via HKAnchoredObjectQuery
 /// Supports source preferences, workout sync, and proper sleep attribution
-final class HealthKitManagerV2 {
+final class HealthKitManagerV2: @unchecked Sendable {
     
     // MARK: - Properties
     
@@ -18,7 +18,7 @@ final class HealthKitManagerV2 {
     }
     
     /// Source preference per metric type
-    private let sourcePreferences: [MetricType: SourcePreference] = [
+    private static let sourcePreferences: [MetricType: SourcePreference] = [
         // Activity - Apple Watch only to avoid double counting from iPhone
         .steps: .appleWatchOnly,
         .activeEnergy: .appleWatchOnly,
@@ -103,6 +103,8 @@ final class HealthKitManagerV2 {
         do {
             let status = try await healthStore.statusForAuthorizationRequest(toShare: [], read: readTypes)
             switch status {
+            case .unknown:
+                return .notDetermined
             case .unnecessary:
                 let hasAccess = await verifyReadAccess()
                 return hasAccess ? .authorized : .denied
@@ -163,19 +165,14 @@ final class HealthKitManagerV2 {
                 predicate: nil,  // No date restriction - anchor handles it
                 anchor: existingAnchor,
                 limit: HKObjectQueryNoLimit
-            ) { [weak self] query, addedSamples, deletedSamples, newAnchor, error in
+            ) { _, addedSamples, deletedSamples, newAnchor, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                     return
                 }
-                
-                guard let self = self else {
-                    continuation.resume(throwing: HealthKitError.queryFailed("Self deallocated"))
-                    return
-                }
-                
+
                 // Convert added samples to NormalizedMetric
-                let added = self.convertSamplesToMetrics(
+                let added = Self.convertSamplesToMetrics(
                     addedSamples ?? [],
                     metricType: metricType,
                     sampleType: sampleType
@@ -300,7 +297,7 @@ final class HealthKitManagerV2 {
     
     // MARK: - Sample Conversion
     
-    private func convertSamplesToMetrics(
+    private static func convertSamplesToMetrics(
         _ samples: [HKSample],
         metricType: String,
         sampleType: HKSampleType
@@ -322,7 +319,7 @@ final class HealthKitManagerV2 {
         return metrics
     }
     
-    private func filterSamplesBySource(_ samples: [HKSample], preference: SourcePreference) -> [HKSample] {
+    private static func filterSamplesBySource(_ samples: [HKSample], preference: SourcePreference) -> [HKSample] {
         switch preference {
         case .appleWatchOnly:
             return samples.filter { isFromAppleWatch($0) }
@@ -341,7 +338,7 @@ final class HealthKitManagerV2 {
         }
     }
     
-    private func isFromAppleWatch(_ sample: HKSample) -> Bool {
+    private static func isFromAppleWatch(_ sample: HKSample) -> Bool {
         let source = sample.sourceRevision.source
         let name = source.name.lowercased()
         let bundleId = source.bundleIdentifier
@@ -353,7 +350,7 @@ final class HealthKitManagerV2 {
         return false
     }
     
-    private func convertSampleToMetric(_ sample: HKSample, metricType: String) -> NormalizedMetric? {
+    private static func convertSampleToMetric(_ sample: HKSample, metricType: String) -> NormalizedMetric? {
         let source = sample.sourceRevision.source
         let externalId = sample.uuid.uuidString
         let sourceBundleId = source.bundleIdentifier
@@ -399,7 +396,7 @@ final class HealthKitManagerV2 {
     
     /// Calculate the attributed date for a sample
     /// For sleep: uses wake day (endDate). For everything else: uses start day.
-    private func calculateAttributedDate(for sample: HKSample, metricType: String) -> Date {
+    private static func calculateAttributedDate(for sample: HKSample, metricType: String) -> Date {
         let calendar = Calendar.current
         
         // Sleep attribution: use the wake day (when the user wakes up)
@@ -412,7 +409,7 @@ final class HealthKitManagerV2 {
         return calendar.startOfDay(for: sample.startDate)
     }
     
-    private func convertQuantitySample(
+    private static func convertQuantitySample(
         _ sample: HKQuantitySample,
         metricType: String,
         externalId: String,
@@ -439,7 +436,7 @@ final class HealthKitManagerV2 {
         )
     }
     
-    private func extractValueAndUnit(from sample: HKQuantitySample, metricType: String) -> (Double, MetricUnit) {
+    private static func extractValueAndUnit(from sample: HKQuantitySample, metricType: String) -> (Double, MetricUnit) {
         switch metricType {
         case "steps", "flights_climbed":
             return (sample.quantity.doubleValue(for: .count()), .count)
@@ -462,7 +459,7 @@ final class HealthKitManagerV2 {
         }
     }
     
-    private func convertCategorySample(
+    private static func convertCategorySample(
         _ sample: HKCategorySample,
         metricType: String,
         externalId: String,
@@ -514,7 +511,7 @@ final class HealthKitManagerV2 {
         )
     }
     
-    private func convertWorkout(
+    private static func convertWorkout(
         _ workout: HKWorkout,
         externalId: String,
         sourceBundleId: String,
@@ -553,7 +550,7 @@ final class HealthKitManagerV2 {
         )
     }
     
-    private func workoutActivityTypeString(_ type: HKWorkoutActivityType) -> String {
+    private static func workoutActivityTypeString(_ type: HKWorkoutActivityType) -> String {
         switch type {
         case .running: return "running"
         case .cycling: return "cycling"
@@ -668,13 +665,13 @@ final class HealthKitManagerV2 {
                 intervalComponents: interval
             )
             
-            query.initialResultsHandler = { [weak self] _, results, error in
+            query.initialResultsHandler = { _, results, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                     return
                 }
-                
-                guard let self = self, let statsCollection = results else {
+
+                guard let statsCollection = results else {
                     continuation.resume(returning: [])
                     return
                 }
@@ -682,7 +679,7 @@ final class HealthKitManagerV2 {
                 var metrics: [NormalizedMetric] = []
                 
                 statsCollection.enumerateStatistics(from: normalizedStart, to: queryEnd) { statistics, _ in
-                    guard let metric = self.convertStatisticsToMetric(
+                    guard let metric = Self.convertStatisticsToMetric(
                         statistics,
                         metricType: metricType,
                         aggregation: aggregation
@@ -710,7 +707,7 @@ final class HealthKitManagerV2 {
     }
     
     /// Convert HKStatistics (daily aggregate) to NormalizedMetric
-    private func convertStatisticsToMetric(
+    private static func convertStatisticsToMetric(
         _ statistics: HKStatistics,
         metricType: String,
         aggregation: AggregationType
@@ -765,7 +762,7 @@ final class HealthKitManagerV2 {
     }
     
     /// Extract value and unit from an HKQuantity
-    private func extractValueFromQuantity(_ quantity: HKQuantity, metricType: String) -> (Double, MetricUnit) {
+    private static func extractValueFromQuantity(_ quantity: HKQuantity, metricType: String) -> (Double, MetricUnit) {
         switch metricType {
         case "steps", "flights_climbed":
             return (quantity.doubleValue(for: .count()), .count)
@@ -825,7 +822,7 @@ final class HealthKitManagerV2 {
         for sample in samples {
             guard shouldIncludeCategorySample(sample, for: metricType) else { continue }
 
-            let attributedDate = calculateAttributedDate(for: sample, metricType: metricType)
+            let attributedDate = Self.calculateAttributedDate(for: sample, metricType: metricType)
             let dayStart = calendar.startOfDay(for: attributedDate)
             
             // Calculate duration in appropriate unit
@@ -890,7 +887,6 @@ final class HealthKitManagerV2 {
             return value == HKCategoryValueSleepAnalysis.asleepCore.rawValue
         case "sleep_session":
             let allowedAsleepValues: Set<Int> = [
-                HKCategoryValueSleepAnalysis.asleep.rawValue,
                 HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
                 HKCategoryValueSleepAnalysis.asleepREM.rawValue,
                 HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
@@ -982,13 +978,13 @@ final class HealthKitManagerV2 {
                 predicate: predicate,
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
-            ) { [weak self] _, samples, error in
+            ) { _, samples, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                     return
                 }
                 
-                let metrics = self?.convertSamplesToMetrics(samples ?? [], metricType: metricType, sampleType: sampleType) ?? []
+                let metrics = Self.convertSamplesToMetrics(samples ?? [], metricType: metricType, sampleType: sampleType)
                 continuation.resume(returning: metrics)
             }
             healthStore.execute(query)

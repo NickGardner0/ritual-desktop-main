@@ -24,6 +24,72 @@ struct DeviceRegisterResponse: Codable {
     }
 }
 
+struct ScreenTimeRollupRequest: Codable {
+    let day: String
+    let timezone: String?
+    let breakdownKind: String
+    let entityKey: String
+    let entityLabel: String
+    let activeSeconds: Int
+    let sortSeconds: Int?
+    let metadataJSON: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case day
+        case timezone
+        case breakdownKind = "breakdown_kind"
+        case entityKey = "entity_key"
+        case entityLabel = "entity_label"
+        case activeSeconds = "active_seconds"
+        case sortSeconds = "sort_seconds"
+        case metadataJSON = "metadata_json"
+    }
+}
+
+struct ScreenTimeIngestRequest: Codable {
+    let deviceId: String
+    let clientEventId: String
+    let capturedAt: String
+    let rollups: [ScreenTimeRollupRequest]
+    let schemaVersion: Int
+    let signature: String
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId = "device_id"
+        case clientEventId = "client_event_id"
+        case capturedAt = "captured_at"
+        case rollups
+        case schemaVersion = "schema_version"
+        case signature
+    }
+}
+
+struct ScreenTimeIngestResult: Codable {
+    let index: Int
+    let success: Bool
+    let storedId: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case index
+        case success
+        case storedId = "stored_id"
+        case error
+    }
+}
+
+struct ScreenTimeIngestResponse: Codable {
+    let success: Bool
+    let results: [ScreenTimeIngestResult]
+    let serverTime: String
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case results
+        case serverTime = "server_time"
+    }
+}
+
 // MARK: - Metrics Ingestion
 
 /// V1 request format (legacy - sends all metrics)
@@ -183,6 +249,126 @@ struct DeviceStatusResponse: Codable {
         case registeredAt = "registered_at"
         case lastSyncAt = "last_sync_at"
         case isActive = "is_active"
+    }
+}
+
+// MARK: - Biometrics / WHOOP BLE
+
+struct HeartRateSessionCreateRequest: Codable {
+    let id: String
+    let sourceType: String
+    let sourceDeviceId: String
+    let startedAt: String
+    let status: String
+    let appVersion: String?
+    let deviceModel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sourceType = "source_type"
+        case sourceDeviceId = "source_device_id"
+        case startedAt = "started_at"
+        case status
+        case appVersion = "app_version"
+        case deviceModel = "device_model"
+    }
+}
+
+struct HeartRateSessionEndRequest: Codable {
+    let endedAt: String
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case endedAt = "ended_at"
+        case status
+    }
+}
+
+struct HeartRateSessionResponse: Codable {
+    let id: String
+    let userId: String
+    let sourceType: String
+    let sourceDeviceId: String
+    let status: String
+    let startedAt: String
+    let endedAt: String?
+    let appVersion: String?
+    let deviceModel: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case sourceType = "source_type"
+        case sourceDeviceId = "source_device_id"
+        case status
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
+        case appVersion = "app_version"
+        case deviceModel = "device_model"
+    }
+}
+
+struct HeartRateSampleUploadRequest: Codable {
+    let id: String
+    let sessionId: String
+    let sourceType: String
+    let sourceDeviceId: String
+    let bpmRaw: Int
+    let bpmDisplay: Int
+    let qualityScore: Double?
+    let isOutlier: Bool
+    let rrIntervalsMs: [Double]?
+    let contactDetected: Bool?
+    let receivedAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId = "session_id"
+        case sourceType = "source_type"
+        case sourceDeviceId = "source_device_id"
+        case bpmRaw = "bpm_raw"
+        case bpmDisplay = "bpm_display"
+        case qualityScore = "quality_score"
+        case isOutlier = "is_outlier"
+        case rrIntervalsMs = "rr_intervals_ms"
+        case contactDetected = "contact_detected"
+        case receivedAt = "received_at"
+    }
+}
+
+struct HeartRateSampleBatchUploadRequest: Codable {
+    let samples: [HeartRateSampleUploadRequest]
+}
+
+struct LiveBiometricsResponse: Codable {
+    let currentBpm: Int?
+    let currentSourceType: String?
+    let latestSampleAt: String?
+    let connectionState: String
+    let isStale: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case currentBpm = "current_bpm"
+        case currentSourceType = "current_source_type"
+        case latestSampleAt = "latest_sample_at"
+        case connectionState = "connection_state"
+        case isStale = "is_stale"
+    }
+}
+
+struct HeartRateBatchUploadResponse: Codable {
+    let success: Bool
+    let insertedCount: Int
+    let duplicateCount: Int
+    let rollupBucketsUpdated: Int
+    let live: LiveBiometricsResponse
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case insertedCount = "inserted_count"
+        case duplicateCount = "duplicate_count"
+        case rollupBucketsUpdated = "rollup_buckets_updated"
+        case live
     }
 }
 

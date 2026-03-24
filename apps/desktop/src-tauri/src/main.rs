@@ -7,6 +7,7 @@ mod recorder;
 mod watcher;
 mod ritual_database;
 mod local_search_bridge;
+mod desktop_runtime;
 
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager};
 use std::path::PathBuf;
@@ -26,7 +27,7 @@ use std::sync::Mutex;
 // The desktop app loads the UI from a URL based on environment:
 // - Development: http://localhost:3000 (local Next.js server)
 // - Staging: https://staging.ritual.app (when you have one)
-// - Production: https://app.ritual.app (when deployed to Vercel)
+// - Production: https://desktop.ritualdb.com
 //
 // Set RITUAL_ENV environment variable to control which URL is used.
 // Debug builds default to development; release builds default to production.
@@ -34,7 +35,7 @@ use std::sync::Mutex;
 
 const DEV_APP_URL: &str = "http://localhost:3000";
 const STAGING_APP_URL: &str = "https://staging.ritual.app";
-const PROD_APP_URL: &str = "https://app.ritual.app";
+const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
 
 fn read_nonempty_env(name: &str) -> Option<String> {
@@ -126,6 +127,14 @@ fn with_query_param(url: &str, query: &str) -> String {
     }
 }
 
+fn join_url_path(base: &str, path: &str) -> String {
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/'),
+    )
+}
+
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 fn configure_macos_window_transparency(window: &tauri::Window) {
@@ -175,7 +184,7 @@ fn configure_macos_window_transparency(window: &tauri::Window) {
 
                 // White tint on the native glass for a frostier look
                 let tint: id = NSColor::colorWithRed_green_blue_alpha_(
-                    nil, 1.0, 1.0, 1.0, 0.35,
+                    nil, 1.0, 1.0, 1.0, 0.0,
                 );
                 let _: () = msg_send![glass_view, setTintColor: tint];
 
@@ -683,6 +692,7 @@ fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_context_menu::init())
     .manage(SidebarWindowState::default())
+    .manage(desktop_runtime::DesktopShellState::default())
     // Only expose native macOS features - auth is handled by Clerk
     .invoke_handler(tauri::generate_handler![
       // Window management
@@ -717,6 +727,7 @@ fn main() {
       watcher::mark_sync_item_failed,
       watcher::get_event_for_sync,
       watcher::get_daily_summary,
+      watcher::get_daily_summaries,
       // Database maintenance & diagnostics
       watcher::get_watcher_db_stats,
       watcher::cleanup_old_events,
@@ -756,6 +767,11 @@ fn main() {
       recorder::extract_frame_image,
       recorder::clear_frame_cache,
       recorder::get_frame_cache_stats,
+      // Desktop runtime / updater commands
+      desktop_runtime::get_desktop_runtime_info,
+      desktop_runtime::desktop_frontend_ready,
+      desktop_runtime::desktop_manual_update_check,
+      desktop_runtime::desktop_install_update,
       // Ritual Database commands (unified libSQL with vector search)
       ritual_database::init_ritual_database,
       ritual_database::get_ritual_db_stats,
@@ -811,8 +827,8 @@ fn main() {
             if let Some(window) = _app.get_window("main") {
               let _ = window.show();
               let _ = window.set_focus();
-              let _ = window.emit("ritual://check-for-updates", ());
             }
+            desktop_runtime::tray_check_for_updates(_app.app_handle());
           }
           _ => {}
         }
@@ -825,24 +841,73 @@ fn main() {
       
       // Get the app URL based on environment (Midday pattern)
       let ritual_env = configured_ritual_env();
-      let mut app_url = with_query_param(&get_app_url(), &format!("ritual_desktop_env={}", ritual_env));
+      let app_origin = get_app_url();
+      let mut app_url = with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
+      let mut main_url = with_query_param(
+        &join_url_path(&app_origin, "/desktop/bootstrap"),
+        &format!("ritual_desktop_env={}", ritual_env),
+      );
       let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
+      let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+      if main_glass_enabled {
+        app_url = with_query_param(&app_url, "ritual_main_glass=1");
+        main_url = with_query_param(&main_url, "ritual_main_glass=1");
+      }
       if transparency_probe {
         println!("🧪 Transparency probe mode enabled (RITUAL_TRANSPARENCY_PROBE=1)");
         println!("🧪 Probe checklist: transparent window + clear NSWindow + guarded WKWebView clear pass + vibrancy material");
         app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
+        main_url = with_query_param(&main_url, "ritual_transparency_probe=1");
       }
       
-      // Configure window and navigate to the correct URL
-      if let Some(window) = app.get_window("main") {
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1150.0, height: 800.0 }));
-        let _ = window.center();
-        let mut main_url = app_url.clone();
+      let window = if let Some(window) = app.get_window("main") {
+        window
+      } else {
+        println!("🪟 Creating hosted main window at: {}", main_url);
+        let main_external_url = main_url
+          .parse()
+          .map_err(|e| std::io::Error::other(format!("Invalid main URL: {e}")))?;
+
+        let mut builder = tauri::WindowBuilder::new(
+          app,
+          "main",
+          tauri::WindowUrl::External(main_external_url),
+        )
+        .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+        .title("")
+        .inner_size(1150.0, 800.0)
+        .min_inner_size(800.0, 450.0)
+        .resizable(true)
+        .decorations(true)
+        .transparent(main_glass_enabled)
+        .visible(true);
 
         #[cfg(target_os = "macos")]
         {
-          configure_macos_window_transparency(&window);
-          configure_macos_webview_transparency(&window);
+          builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+        }
+
+        builder.build()
+        .map_err(|e| std::io::Error::other(format!("Failed to create main window: {e}")))?
+      };
+
+      // Configure window after creation
+      {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1150.0, height: 800.0 }));
+        let _ = window.center();
+        let _ = window.show();
+        let _ = window.set_focus();
+        #[cfg(target_os = "macos")]
+        {
+          if main_glass_enabled {
+            println!("🪟 Main window glass enabled");
+            configure_macos_window_transparency(&window);
+            configure_macos_webview_transparency(&window);
+          } else {
+            println!("🪟 Main window glass disabled for stable production rendering");
+          }
 
           let detached_sidebar_enabled = !transparency_probe
             && env::var("RITUAL_DETACHED_SIDEBAR")
@@ -889,23 +954,17 @@ fn main() {
             }
           }
         }
-        
-        // Navigate to the app URL (this overrides tauri.conf.json devPath/distDir)
-        // This allows us to load from localhost in dev or hosted URL in production
-        println!("🚀 Navigating to: {}", main_url);
-        let app_url_json = serde_json::to_string(&main_url).unwrap_or_else(|_| "\"http://localhost:3000\"".to_string());
-        let _ = window.eval(&format!("window.location.replace({});", app_url_json));
-        
-        // Fallback timer: show window after 3 seconds if frontend hasn't shown it
-        // This prevents the app from appearing stuck if there's a loading issue
+
+        // Fallback timer: only show the window if desktop bootstrap never does.
+        // The hosted bootstrap route should normally show the window itself.
         let window_clone = window.clone();
         std::thread::spawn(move || {
-          std::thread::sleep(std::time::Duration::from_secs(3));
+          std::thread::sleep(std::time::Duration::from_secs(10));
           
           // Check if window is still hidden
           if let Ok(is_visible) = window_clone.is_visible() {
             if !is_visible {
-              println!("⏰ Fallback timer: showing window after 3s");
+              println!("⏰ Fallback timer: showing window after 10s");
               let _ = window_clone.show();
               let _ = window_clone.set_focus();
             }
@@ -1043,14 +1102,18 @@ fn main() {
             // Forward the deep link to the frontend
             // In production, the app loads from tauri://localhost, so we use relative navigation
             if let Some(window) = handle.get_window("main") {
+              let _ = window.show();
+              let _ = window.set_focus();
               let _ = window.eval(&format!(
                 "window.location.href = '/auth/callback?deepLink={}';",
-                payload
+                urlencoding::encode(payload)
               ));
             }
           }
         });
       }
+
+      desktop_runtime::register_startup_update_check(app.handle());
       
       Ok(())
     })

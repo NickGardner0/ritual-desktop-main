@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Monitor, RefreshCw, X } from 'lucide-react'
-import { ActivityBreakdownSource, TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
+import { ActivityBreakdownSource, TimeRangePreset } from '@/lib/computerActivity/contracts'
 import { useComputerActivity } from '@/lib/computerActivity/useComputerActivity'
 import { RankedBars } from './RankedBars'
 import { UsageBreakdownCard } from './UsageBreakdownCard'

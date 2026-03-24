@@ -9,7 +9,7 @@
 
 import React from 'react'
 import { X, Clock, AppWindow, Globe, Eye, EyeOff } from 'lucide-react'
-import { SessionSegment, DrillDownData, ActivityEvent, KIND_COLORS } from '@ritual/shared-contracts/computer-activity'
+import { SessionSegment, DrillDownData, ActivityEvent, KIND_COLORS } from '@/lib/computerActivity/contracts'
 import { msToHuman, formatTime, formatDate, isAfk } from '@/lib/computerActivity/derive'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
 
@@ -189,4 +189,3 @@ function EventRow({
 }
 
 export default DeepDrillDrawer
-

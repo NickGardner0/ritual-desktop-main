@@ -20,7 +20,7 @@
 
 import React from 'react'
 import { ComputerActivityPanel } from '@/components/computer-activity'
-import type { TimeRangePreset } from '@ritual/shared-contracts/computer-activity'
+import type { TimeRangePreset } from '@/lib/computerActivity/contracts'
 
 interface ComputerActivityProps {
   startDate?: string

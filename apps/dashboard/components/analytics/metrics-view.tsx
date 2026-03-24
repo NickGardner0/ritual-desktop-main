@@ -47,6 +47,8 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
+import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
+import { normalizeComputerDailySummaryRow, type NormalizedComputerDailyRow } from '@/lib/computerActivity/normalize';
 import {
   COMPUTER_HABIT_DISPLAY_NAME,
   getHabitDisplayName,
@@ -201,21 +203,6 @@ type HeartRateSeriesRow = {
   bpm_max: number;
   sample_count: number;
 };
-
-function sanitizeDailyActiveHours(rawHours: number, rawActiveMs?: number): number {
-  const msDerivedHours = Number(rawActiveMs || 0) / (1000 * 60 * 60);
-  let hours = Number(rawHours || 0);
-
-  if (!Number.isFinite(hours) || hours < 0) {
-    hours = 0;
-  }
-
-  if (hours > 24 && Number.isFinite(msDerivedHours) && msDerivedHours > 0 && msDerivedHours <= 24) {
-    hours = msDerivedHours;
-  }
-
-  return Math.min(Math.max(hours, 0), 24);
-}
 
 function getHeartRateBucket(rangeKey: RangeKey, rangeDays?: number): '1m' | 'hour' | 'day' {
   if (typeof rangeDays === 'number' && Number.isFinite(rangeDays)) {
@@ -966,32 +953,35 @@ export function MetricsView({
 
     const fetchComputerActivity = async () => {
       try {
-        const dailyRes = await fetch(`/api/watcher/stats/daily?${query}`, { signal: controller.signal });
+        let dailyRows: ComputerDailyRow[] = [];
 
-        if (!dailyRes.ok) {
-          console.warn('Computer activity API returned', dailyRes.status, await dailyRes.text().catch(() => ''));
-          setComputerActivityDaily([]);
-          return;
+        if (isTauri()) {
+          const summaries = await invokeDailySummariesWithInitRetry(startDate, endDate);
+          if (controller.signal.aborted) return;
+
+          dailyRows = summaries
+            .map(normalizeComputerDailySummaryRow)
+            .filter((row): row is NormalizedComputerDailyRow => Boolean(row && row.day && row.active_hours >= 0))
+            .sort((a, b) => a.day.localeCompare(b.day));
+        } else {
+          const dailyRes = await fetch(`/api/watcher/stats/daily?${query}`, { signal: controller.signal });
+
+          if (!dailyRes.ok) {
+            console.warn('Computer activity API returned', dailyRes.status, await dailyRes.text().catch(() => ''));
+            setComputerActivityDaily([]);
+            return;
+          }
+
+          const dailyPayload = await dailyRes.json();
+
+          if (controller.signal.aborted) return;
+
+          const fallbackRows: any[] = Array.isArray(dailyPayload?.data) ? dailyPayload.data : [];
+          dailyRows = fallbackRows
+            .map(normalizeComputerDailySummaryRow)
+            .filter((row): row is NormalizedComputerDailyRow => Boolean(row && row.day && row.active_hours >= 0))
+            .sort((a, b) => a.day.localeCompare(b.day));
         }
-
-        const dailyPayload = await dailyRes.json();
-
-        if (controller.signal.aborted) return;
-
-        const dailyRows = (dailyPayload?.data || [])
-          .map((row: any) => {
-            const activeMs = Number(row.active_ms || 0);
-            const activeHours = sanitizeDailyActiveHours(Number(row.active_hours || 0), activeMs);
-            return {
-              day: String(row.day || ''),
-              active_hours: activeHours,
-              active_ms: activeMs > 0 ? activeMs : Math.round(activeHours * 60 * 60 * 1000),
-              events_count: Number(row.events_count || 0),
-              apps_count: Number(row.apps_count || 0),
-            };
-          })
-          .filter((row: ComputerDailyRow) => row.day && row.active_hours >= 0)
-          .sort((a: ComputerDailyRow, b: ComputerDailyRow) => a.day.localeCompare(b.day));
 
         setComputerActivityDaily(dailyRows);
       } catch (error) {

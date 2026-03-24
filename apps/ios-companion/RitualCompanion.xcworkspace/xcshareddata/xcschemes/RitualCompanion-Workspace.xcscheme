@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1640"
+   LastUpgradeVersion = "1010"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -22,15 +22,29 @@
          </BuildActionEntry>
          <BuildActionEntry
             buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "69F16EB2F5335C11DE820533"
+               BuildableName = "RitualCompanionTests.xctest"
+               BlueprintName = "RitualCompanionTests"
+               ReferencedContainer = "container:RitualCompanion.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
             buildForRunning = "YES"
             buildForProfiling = "YES"
             buildForArchiving = "YES"
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "69F16EB2F5335C11DE820533"
-               BuildableName = "RitualCompanionTests.xctest"
-               BlueprintName = "RitualCompanionTests"
+               BlueprintIdentifier = "B7BEEE322C1DD2797BA8B582"
+               BuildableName = "RitualScreenTimeShared.framework"
+               BlueprintName = "RitualScreenTimeShared"
                ReferencedContainer = "container:RitualCompanion.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>

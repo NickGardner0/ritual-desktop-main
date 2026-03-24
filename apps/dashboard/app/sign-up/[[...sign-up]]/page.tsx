@@ -1,11 +1,22 @@
 import { SignUp } from "@clerk/nextjs";
+import { headers } from 'next/headers';
+
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
 
-export default function SignUpPage() {
+function isDesktopUserAgent(userAgent: string): boolean {
+    return userAgent.includes('RitualDesktop/');
+}
+
+export default async function SignUpPage() {
+    const headerStore = await headers();
+    const userAgent = headerStore.get('user-agent') || '';
+    const isDesktopApp = isDesktopUserAgent(userAgent);
+
     return (
         <div className="min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
-            <ClerkOAuthHandler />
-            <div className="w-full max-w-md space-y-8 flex justify-center">
+            <div className="w-full max-w-md">
+                {isDesktopApp ? <ClerkOAuthHandler /> : null}
+                <div className="flex justify-center">
                 <SignUp
                     appearance={{
                         variables: {
@@ -16,6 +27,7 @@ export default function SignUpPage() {
                             card: "shadow-sm rounded-sm",
                             formButtonPrimary: "rounded-sm",
                             socialButtonsBlockButton: "rounded-sm",
+                            dividerRow: "",
                             formFieldInput: "rounded-sm",
                             footerActionText: "text-gray-600",
                             footerActionLink: "text-blue-600 hover:text-blue-500"
@@ -25,6 +37,7 @@ export default function SignUpPage() {
                     forceRedirectUrl="/auth/sso-callback"
                     fallbackRedirectUrl="/auth/sso-callback"
                 />
+                </div>
             </div>
         </div>
     );

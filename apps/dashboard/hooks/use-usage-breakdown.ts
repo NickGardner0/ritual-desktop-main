@@ -5,7 +5,7 @@ import type {
   ActivityBreakdownSource,
   BreakdownResponse,
   UsageBreakdownKind,
-} from '@ritual/shared-contracts/computer-activity';
+} from '@/lib/computerActivity/contracts';
 
 export interface UsageBreakdownParams {
   source?: ActivityBreakdownSource;

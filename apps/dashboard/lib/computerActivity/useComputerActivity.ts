@@ -8,7 +8,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { invoke } from '@tauri-apps/api/tauri'
+import { isTauri } from '@/lib/tauri-utils'
 import {
   ActivityBreakdownSource,
   ActivityBreakdownViewModel,
@@ -16,7 +16,7 @@ import {
   TimeRangePreset,
   SessionSegment,
   DrillDownData,
-} from '@ritual/shared-contracts/computer-activity'
+} from '@/lib/computerActivity/contracts'
 import {
   eventsToSegments,
   mergeAdjacentSegments,
@@ -28,6 +28,11 @@ import {
   endOfDayLocal,
   deduplicateEvents,
 } from './derive'
+import {
+  invokeDetailedActivityWithInitRetry,
+  invokeDailySummariesWithInitRetry,
+} from './tauri-activity'
+import { normalizeComputerDailySummaryRow } from './normalize'
 
 // ============================================================
 // Time range helpers
@@ -115,6 +120,46 @@ async function fetchAggregatedStats(startTs: number, endTs: number): Promise<Agg
     const startDate = toLocalDateString(startTs)
     const endDate = toLocalDateString(endTs)
 
+    if (isTauri()) {
+      const [detailed, daily] = await Promise.all([
+        invokeDetailedActivityWithInitRetry({
+          startTs,
+          endTs,
+          limit: 1,
+        }),
+        invokeDailySummariesWithInitRetry(startDate, endDate),
+      ])
+
+      return {
+        summary: {
+          total_active_ms: Math.max(0, Number(detailed.total_active_ms || 0)),
+          total_afk_ms: Math.max(0, Number(detailed.total_afk_ms || 0)),
+        },
+        daily: daily
+          .map(normalizeComputerDailySummaryRow)
+          .filter((row): row is NonNullable<ReturnType<typeof normalizeComputerDailySummaryRow>> => Boolean(row))
+          .map((row) => ({
+            day: row.day,
+            active_ms: row.active_ms,
+            active_hours: row.active_hours,
+            event_count: row.events_count,
+            app_count: row.apps_count ?? 0,
+            domain_count: row.domain_count ?? 0,
+          })),
+        apps: detailed.apps.map((row) => ({
+          app_bundle_id: row.app_bundle_id,
+          app_name: row.app_name,
+          total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
+          total_events: Math.max(0, Number(row.event_count || 0)),
+        })),
+        domains: detailed.domains.map((row) => ({
+          domain: row.domain,
+          total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
+          total_events: Math.max(0, Number(row.event_count || 0)),
+        })),
+      }
+    }
+
     const [summaryRes, dailyRes, appsRes, domainsRes] = await Promise.all([
       fetch(`/api/watcher/stats/summary?start_date=${startDate}&end_date=${endDate}`),
       fetch(`/api/watcher/stats/daily?start_date=${startDate}&end_date=${endDate}`),
@@ -200,83 +245,38 @@ function setCache(source: ActivityBreakdownSource, start: number, end: number, e
   }
 }
 
-// ============================================================
-// Tauri API interface
-// ============================================================
-
-interface TauriActivityEvent {
-  id: number
-  ts_start: number
-  ts_end: number
-  duration_ms: number
-  app_bundle_id: string
-  app_name: string
-  window_title?: string | null
-  browser_url?: string | null
-  browser_domain?: string | null
-  is_afk: boolean
-  is_incognito: boolean
-}
-
-interface TauriDetailedResponse {
-  events: TauriActivityEvent[]
-  apps: { app_bundle_id: string; app_name: string; total_duration_ms: number; event_count: number }[]
-  domains: { domain: string; total_duration_ms: number; event_count: number }[]
-  total_active_ms: number
-  total_afk_ms: number
-}
-
-function isDbNotInitializedError(error: unknown): boolean {
-  const message = String((error as any)?.message ?? error ?? '').toLowerCase()
-  return (
-    message.includes('database not initialized') &&
-    message.includes('initialize_database')
-  )
-}
-
-async function invokeDetailedActivityWithInitRetry(params: {
-  startTs: number
-  endTs: number
-  limit?: number
-}): Promise<TauriDetailedResponse> {
-  try {
-    return await invoke<TauriDetailedResponse>('get_detailed_activity', params)
-  } catch (error) {
-    if (!isDbNotInitializedError(error)) {
-      throw error
-    }
-
-    // First-call race safety: initialize DB then retry once.
-    await invoke<string>('init_ritual_database')
-    return await invoke<TauriDetailedResponse>('get_detailed_activity', params)
-  }
-}
-
 async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
   try {
     // Check if we're in Tauri environment
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      const response = await invokeDetailedActivityWithInitRetry({
-        startTs,
-        endTs,
-        limit,
-      })
-      
-      return response.events.map(e => ({
-        id: e.id,
-        ts_start: e.ts_start,
-        ts_end: e.ts_end,
-        duration_ms: e.duration_ms,
-        app_bundle_id: e.app_bundle_id,
-        app_name: e.app_name,
-        window_title: e.window_title,
-        browser_url: e.browser_url,
-        browser_domain: e.browser_domain,
-        is_afk: e.is_afk,
-        is_incognito: e.is_incognito,
-      }))
+    if (isTauri()) {
+      console.log('[useComputerActivity] isTauri()=true, attempting Tauri invoke for detailed activity…')
+      try {
+        const response = await invokeDetailedActivityWithInitRetry({
+          startTs,
+          endTs,
+          limit,
+        })
+        console.log(`[useComputerActivity] Tauri invoke succeeded: ${response.events.length} events, active_ms=${response.total_active_ms}`)
+
+        return response.events.map(e => ({
+          id: e.id,
+          ts_start: e.ts_start,
+          ts_end: e.ts_end,
+          duration_ms: e.duration_ms,
+          app_bundle_id: e.app_bundle_id,
+          app_name: e.app_name,
+          window_title: e.window_title,
+          browser_url: e.browser_url,
+          browser_domain: e.browser_domain,
+          is_afk: e.is_afk,
+          is_incognito: e.is_incognito,
+        }))
+      } catch (tauriError) {
+        console.error('[useComputerActivity] Tauri invoke FAILED — IPC bridge likely unavailable:', tauriError)
+        console.log('[useComputerActivity] Falling through to HTTP fetch…')
+      }
     }
-    
+
     // Fallback to API for web version
     const params = new URLSearchParams({
       start_ts: startTs.toString(),
