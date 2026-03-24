@@ -2,6 +2,8 @@
 
 Ritual desktop now uses GitHub Releases as its production update feed.
 
+For the full rollout policy, including when to deploy web-only changes versus when to release a new desktop build, see [docs/desktop-release-playbook.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-playbook.md).
+
 ## Feed
 
 - Stable updater endpoint: `https://github.com/NickGardner0/ritual-desktop-main/releases/latest/download/latest.json`
