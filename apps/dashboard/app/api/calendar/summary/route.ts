@@ -196,19 +196,32 @@ One to three sentences about what was specifically done. Only state what the evi
 The time range should be derived from the timestamps in the screen evidence — use the earliest and latest timestamps for captures related to that workstream. Format as "*9:30 AM – 11:45 AM*" (italic, 12-hour, with en dash). If timestamps overlap across workstreams, that's fine — show each workstream's own range.
 
 Rules:
-- ONLY STATE WHAT THE EVIDENCE SHOWS. If you only know the user was on cloud.tinybird.co, say "You worked in the Tinybird console." Do NOT invent what they were doing there. One accurate sentence beats three speculative ones.
-- NEVER SPECULATE OR PAD. These are all hallucination patterns — NEVER do any of them:
+
+EVIDENCE QUALITY TIERS — match your confidence and detail to the evidence strength:
+
+RICH EVIDENCE (git commit messages, OCR showing specific code/text, file paths, terminal commands, semantic summaries describing specific work, detailed page content):
+→ Write detailed, confident narrative. Name specific files, quote commit messages, describe what the code change accomplishes. Be assertive — this evidence is trustworthy.
+→ Example: "You implemented vector similarity search in \`vector.rs\`, adding a cosine distance function and integrating it with the pgvector extension. Your commit 'add cosine similarity scoring' confirmed the work landed."
+
+MODERATE EVIDENCE (window titles with specific content, domain + page titles, app name + document path):
+→ Write specific but measured statements. Describe what was visible and what the work likely involved.
+→ Example: "You worked in the Tinybird console, navigating the data sources and query editor for the analytics pipeline."
+
+THIN EVIDENCE (just app name + domain, no OCR, no semantic summary, no file paths):
+→ Write ONE factual sentence. Do not elaborate or speculate.
+→ Example: "You used Chrome on cloud.tinybird.co."
+
+CROSS-APP PROJECT THREADING: The evidence is in chronological order. When captures from DIFFERENT apps appear close in time (within ~15 minutes) and share keywords, file paths, or topics, thread them into ONE workstream. Example: Cursor editing \`vector.rs\` at 10:15 + Chrome reading "pgvector documentation" at 10:18 + Terminal running \`cargo test\` at 10:25 = one "Vector Search Implementation" workstream. Derive the workstream title from the shared project/task, not from any single app.
+
+- NEVER PAD WITH GENERIC FILLER. These patterns say NOTHING — delete them:
   Bad: "This work was essential for analyzing large volumes of data efficiently"
   Bad: "ensuring communication with colleagues and stakeholders was maintained"
-  Bad: "which could support decision-making processes or inform further development efforts"
-  Bad: "This activity was key to staying informed and connected, supporting your overall productivity"
-  These sentences say NOTHING — they're generic filler that could apply to anyone on any day. DELETE THEM.
-- If the evidence for a workstream is just an app name and a domain, write ONE sentence: "You used [app] on [domain]." That's it. Do not elaborate beyond what the evidence shows.
-- INFER specifics ONLY when the evidence supports it: OCR text showing code, git commit messages, specific page titles, file names. These are real evidence. App name + domain alone is NOT enough to infer what was done.
-- Group related activities into workstreams (e.g. all ritual-desktop file edits = one workstream)
+  Bad: "which could support decision-making processes"
+  Bad: "This activity was key to staying informed and connected"
+- Group related activities into workstreams by PROJECT, not by app
 - Order by significance (git commits and code edits first, browsing/email later)
 - Use \`backticks\` for file names, commands, and technical terms
-- BANNED phrases: "significant", "various", "likely", "possibly", "suggesting", "indicating", "engaged with", "explored", "essential for", "key to", "could support", "ensuring", "maintaining", "overall productivity", "further development", "informed and connected", "decision-making"
+- BANNED phrases: "significant", "various", "possibly", "engaged with", "essential for", "key to", "could support", "ensuring", "maintaining", "overall productivity", "further development", "informed and connected", "decision-making", "spent time in"
 - NO emotional/productivity judgments ("productive day", "great progress")
 - NO mentioning time durations in minutes/hours — focus on WHAT was done, not how long
 - Second person ("You...")`;

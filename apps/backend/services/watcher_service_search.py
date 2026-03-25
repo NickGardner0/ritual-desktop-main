@@ -3530,6 +3530,12 @@ async def query_memory_impl(
                                 scoped = [c for c in citations if _result_matches_app_scope(c, _app_scope)]
                                 if scoped:
                                     citations = scoped
+                            # For overview/recap queries, re-sort fused citations
+                            # chronologically so the LLM sees temporal flow for
+                            # cross-app project threading.
+                            if is_overview_query:
+                                citations.sort(key=lambda c: int(c.get("timestamp") or 0))
+
                             semantic_truth = semantic_truth or cloud_semantic_truth
                             if isinstance(semantic_truth, dict):
                                 semantic_truth["highlights"] = citations[: min(safe_limit, 12)]

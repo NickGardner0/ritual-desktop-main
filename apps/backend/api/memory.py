@@ -378,6 +378,44 @@ async def get_memory_cloud_health(
     }
 
 
+# ---------------------------------------------------------------------------
+# Simplified embedding pipeline: session_retrieval_docs → OpenAI → Turbopuffer
+# ---------------------------------------------------------------------------
+
+@router.post("/process-session-embeddings")
+async def process_session_embedding_batch(
+    batch_size: int = 32,
+    current_user=Depends(get_current_user),
+):
+    """
+    Embed session_retrieval_docs from activity.db directly to Turbopuffer.
+    This is the simplified pipeline that replaces the old multi-hop path.
+    """
+    from services.session_embedding_service import process_session_embeddings
+
+    try:
+        result = await process_session_embeddings(batch_size=max(1, min(batch_size, 64)))
+        return {"success": True, **result}
+    except Exception as exc:
+        logger.error(f"Session embedding error: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/session-embedding-status")
+async def session_embedding_status(
+    current_user=Depends(get_current_user),
+):
+    """Get the current status of the session embedding pipeline."""
+    from services.session_embedding_service import get_embedding_status
+
+    try:
+        status = await get_embedding_status()
+        return {"success": True, **status}
+    except Exception as exc:
+        logger.error(f"Session embedding status error: {exc}")
+        return {"success": False, "error": str(exc)}
+
+
 @router.get("/ops")
 async def get_memory_cloud_ops(
     window_minutes: int = 60,

@@ -240,29 +240,61 @@ async def get_screen_evidence(
     current_user=Depends(get_current_user),
 ):
     """
-    Fast endpoint returning OCR window titles and snippets for a specific date.
-    Reads directly from local memory.db — no cloud calls, sub-second response.
+    Fast endpoint returning screen evidence for a specific date.
+    Tries activity.db first (accessibility data), falls back to memory.db (OCR data).
+    No cloud calls, sub-second response.
     """
     import sqlite3 as _sqlite3
-    from services.watcher_service_local_db import get_local_memory_db_path_impl
+    from services.watcher_service_local_db import (
+        get_local_memory_db_path_impl,
+        get_local_activity_db_path_impl,
+    )
 
     try:
-        db_path = get_local_memory_db_path_impl()
-        conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
-        conn.row_factory = _sqlite3.Row
-
-        # Try context_snapshots first (richer accessibility data), fall back to ocr_frames
+        # Try activity.db first — this is where the watcher writes context_snapshots
+        # memory.db may have a stale/empty context_snapshots table
         has_context_snapshots = False
+        conn = None
+
+        activity_db_path = get_local_activity_db_path_impl()
         try:
-            check = conn.execute(
+            activity_conn = _sqlite3.connect(f"file:{activity_db_path}?mode=ro", uri=True, timeout=2.0)
+            activity_conn.row_factory = _sqlite3.Row
+            check = activity_conn.execute(
                 "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
                 (date,),
             ).fetchone()
-            has_context_snapshots = (check[0] or 0) > 0
+            if (check[0] or 0) > 0:
+                has_context_snapshots = True
+                conn = activity_conn
+            else:
+                activity_conn.close()
         except Exception:
             pass
 
+        # Fallback to memory.db
+        if conn is None:
+            db_path = get_local_memory_db_path_impl()
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+            conn.row_factory = _sqlite3.Row
+            try:
+                check = conn.execute(
+                    "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
+                    (date,),
+                ).fetchone()
+                has_context_snapshots = (check[0] or 0) > 0
+            except Exception:
+                pass
+
         if has_context_snapshots:
+            # JIT: ensure semantic summaries exist for this date's captures
+            try:
+                from services.memory_semantic_summary_service import process_pending_summaries
+                _jit_db_path = activity_db_path if activity_db_path else get_local_activity_db_path_impl()
+                await asyncio.to_thread(process_pending_summaries, _jit_db_path, 30)
+            except Exception:
+                pass  # Best-effort — query still works without summaries
+
             # --- Use context_snapshots (rich accessibility data) ---
             rows = conn.execute(
                 """SELECT app_name, window_title, COUNT(*) as freq
@@ -284,25 +316,26 @@ async def get_screen_evidence(
                 pass
 
             semantic_col = "semantic_summary," if has_semantic else "''" + " as semantic_summary,"
+            # Chronological evidence with min 3-minute gap per app+window.
+            # This preserves the natural temporal flow (Cursor at 10:15, Chrome
+            # at 10:18, back to Cursor at 10:22) so the LLM can thread captures
+            # from different apps into coherent project narratives.
             snippets = conn.execute(
-                f"""WITH ranked AS (
+                f"""WITH ordered AS (
                      SELECT app_name, window_title, document_path,
                             {semantic_col}
                             substr(COALESCE(visible_text_raw, visible_text_norm, ''), 1, 800) as snippet,
                             ts as timestamp,
                             ax_richness_score,
-                            ROW_NUMBER() OVER (
-                              PARTITION BY app_name, window_title
-                              ORDER BY ax_richness_score DESC, length(COALESCE(visible_text_raw, visible_text_norm, '')) DESC
-                            ) as rn
+                            LAG(ts) OVER (PARTITION BY app_name, window_title ORDER BY ts) as prev_ts
                      FROM context_snapshots
                      WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
                        AND length(COALESCE(visible_text_raw, visible_text_norm, '')) > 60
                        AND window_title IS NOT NULL AND window_title != ''
                    )
                    SELECT app_name, window_title, document_path, semantic_summary, snippet, timestamp, ax_richness_score
-                   FROM ranked
-                   WHERE rn <= 3
+                   FROM ordered
+                   WHERE prev_ts IS NULL OR (timestamp - prev_ts) > 180000
                    ORDER BY timestamp ASC
                    LIMIT 80""",
                 (date,),
@@ -384,14 +417,128 @@ async def get_screen_evidence(
             "total_captures": sum(r["freq"] for r in rows),
         }
     except Exception as e:
-        logger.error(f"Screen evidence error: {e}")
+        logger.error(f"Screen evidence local DB error: {e}")
+        # --- Fallback: Turbopuffer cloud when local DB is unavailable ---
+        # This enables the calendar summary to work from Railway (production)
+        # where activity.db doesn't exist on the server filesystem.
+        try:
+            return await _screen_evidence_from_turbopuffer(date, limit, current_user)
+        except Exception as cloud_err:
+            logger.error(f"Screen evidence Turbopuffer fallback also failed: {cloud_err}")
+            return {
+                "success": False,
+                "date": date,
+                "window_titles": [],
+                "ocr_snippets": [],
+                "total_captures": 0,
+            }
+
+
+async def _screen_evidence_from_turbopuffer(
+    date: str,
+    limit: int,
+    current_user: dict,
+) -> dict:
+    """Fallback: fetch screen evidence from Turbopuffer when local DB is unavailable."""
+    from datetime import datetime as _dt, timezone as _tz
+    from services.memory_turbopuffer_service import TurbopufferService
+
+    tp = TurbopufferService()
+    if not tp.configured:
         return {
             "success": False,
             "date": date,
             "window_titles": [],
             "ocr_snippets": [],
             "total_captures": 0,
+            "source": "turbopuffer_not_configured",
         }
+
+    # Convert date string to epoch ms range
+    day_start = _dt.strptime(date, "%Y-%m-%d").replace(tzinfo=_tz.utc)
+    start_ms = int(day_start.timestamp() * 1000)
+    end_ms = start_ms + 86_400_000  # +24 hours
+
+    user_id = current_user.get("id", "unknown")
+    namespace = tp.namespace_for_user(user_id)
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=tp.timeout_seconds) as client:
+            resp = await client.post(
+                f"{tp.base_url}/v2/namespaces/{namespace}/query",
+                headers=tp._headers(),
+                json={
+                    "queries": [
+                        {
+                            "top_k": min(limit * 4, 80),
+                            "rank_by": ["contextual_text_compact", "BM25", date],
+                            "filters": {
+                                "chunk_start_ts": [["Gte", start_ms]],
+                                "chunk_end_ts": [["Lte", end_ms]],
+                                "active": [["Eq", 1]],
+                            },
+                            "include_attributes": [
+                                "app_name", "window_title", "document_title",
+                                "document_path", "browser_domain",
+                                "raw_visible_text", "contextual_retrieval_text",
+                                "chunk_start_ts", "chunk_end_ts",
+                                "ax_richness_score", "capture_quality",
+                            ],
+                        }
+                    ]
+                },
+            )
+        if resp.status_code >= 400:
+            logger.warning(f"Turbopuffer screen-evidence query failed: {resp.status_code}")
+            return {
+                "success": False, "date": date,
+                "window_titles": [], "ocr_snippets": [], "total_captures": 0,
+            }
+
+        data = resp.json()
+        results = []
+        for query_result in data if isinstance(data, list) else [data]:
+            for row in query_result.get("data", []):
+                attrs = row.get("attributes", {})
+                results.append(attrs)
+
+        # Build window_titles (app frequency)
+        app_freq: dict = {}
+        for r in results:
+            key = (r.get("app_name", ""), r.get("window_title", ""))
+            app_freq[key] = app_freq.get(key, 0) + 1
+        window_titles = [
+            {"app_name": k[0], "window_title": k[1], "frequency": v}
+            for k, v in sorted(app_freq.items(), key=lambda x: -x[1])
+        ][:limit]
+
+        # Build ocr_snippets (chronological)
+        results.sort(key=lambda r: int(r.get("chunk_start_ts") or 0))
+        ocr_snippets = [
+            {
+                "app_name": r.get("app_name", ""),
+                "window_title": r.get("window_title", ""),
+                "document_path": r.get("document_path", ""),
+                "snippet": str(r.get("raw_visible_text") or r.get("contextual_retrieval_text") or "")
+                    .replace("\n", " ").strip()[:800],
+                "time": int(r.get("chunk_start_ts") or 0),
+                "ax_richness_score": round(float(r.get("ax_richness_score") or 0.0), 3),
+            }
+            for r in results
+            if len(str(r.get("raw_visible_text") or r.get("contextual_retrieval_text") or "")) > 30
+        ][:80]
+
+        return {
+            "success": True,
+            "date": date,
+            "window_titles": window_titles,
+            "ocr_snippets": ocr_snippets,
+            "total_captures": len(results),
+            "source": "turbopuffer",
+        }
+    except Exception as exc:
+        raise exc
 
 
 @router.get("/git-commits")
@@ -847,12 +994,13 @@ async def process_semantic_summaries(
     """
     Process a batch of context snapshots that need semantic summaries.
     Call periodically to backfill summaries for captured screen data.
+    Uses activity.db where the watcher writes context_snapshots.
     """
-    from services.watcher_service_local_db import get_local_memory_db_path_impl
+    from services.watcher_service_local_db import get_local_activity_db_path_impl
     from services.memory_semantic_summary_service import process_pending_summaries
 
     try:
-        db_path = get_local_memory_db_path_impl()
+        db_path = get_local_activity_db_path_impl()
         result = await asyncio.to_thread(
             process_pending_summaries, db_path, min(batch_size, 50)
         )

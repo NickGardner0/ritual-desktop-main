@@ -152,6 +152,42 @@ type ChatToolResults = {
   reply_chips?: string[];
 };
 
+type LocalOverviewActivityBundle = {
+  startDate?: string;
+  endDate?: string;
+  daily?: Array<{
+    day?: string;
+    active_hours?: number;
+    events_count?: number;
+    apps_count?: number;
+  }>;
+  apps?: Array<{
+    app_bundle_id?: string;
+    app_name?: string;
+    hours?: number;
+    total_events?: number;
+  }>;
+  domains?: Array<{
+    domain?: string;
+    hours?: number;
+    total_events?: number;
+  }>;
+  source?: string;
+};
+
+function selectLocalOverviewActivityBundle(
+  bundles: unknown,
+  startDate: string,
+  endDate: string,
+): LocalOverviewActivityBundle | null {
+  if (!Array.isArray(bundles)) return null;
+  const match = bundles.find((bundle) => {
+    const candidate = bundle as LocalOverviewActivityBundle;
+    return candidate?.startDate === startDate && candidate?.endDate === endDate;
+  });
+  return (match as LocalOverviewActivityBundle) || null;
+}
+
 function buildCanvasToolPayload(toolResults: ChatToolResults): Record<string, unknown> | null {
   const payload: Record<string, unknown> = {
     stats: toolResults.stats,
@@ -1102,12 +1138,113 @@ function buildWeeklyOverviewSynthesisPayload(payload: WeeklyOverviewPayload) {
   };
 }
 
+function findWeeklyPeakPoint(
+  points: Array<{ date?: string; value?: number }>,
+): { date?: string; value: number } | null {
+  const normalizedPoints = [...points]
+    .map((point) => ({
+      date: point.date,
+      value: Number(point.value || 0),
+    }))
+    .filter((point) => point.date && Number.isFinite(point.value));
+
+  if (normalizedPoints.length === 0) return null;
+  return normalizedPoints.reduce((best, point) => (point.value > best.value ? point : best), normalizedPoints[0]);
+}
+
+function buildWeeklyOverviewHighlights(payload: WeeklyOverviewPayload): string[] {
+  const habits = Array.isArray(payload.habits) ? payload.habits : [];
+  const habitsWithData = habits.filter((habit) => (habit.days_with_data || 0) > 0);
+  const rangeDays = payload.date_range?.days || 7;
+  const computer = payload.computer_activity;
+
+  const sortedByConsistency = [...habitsWithData].sort((a, b) => {
+    if ((b.days_with_data || 0) !== (a.days_with_data || 0)) {
+      return (b.days_with_data || 0) - (a.days_with_data || 0);
+    }
+    return (b.total || 0) - (a.total || 0);
+  });
+  const mostConsistent = sortedByConsistency[0];
+  const sleepHabit = habitsWithData.find((habit) => normalizeWeeklyHabitName(habit.name) === 'sleep duration');
+  const leadWorkHabit = [...habitsWithData]
+    .filter((habit) => normalizeWeeklyHabitName(habit.name) !== 'sleep duration' && Array.isArray(habit.daily) && habit.daily.length > 0)
+    .sort((a, b) => {
+      if ((b.days_with_data || 0) !== (a.days_with_data || 0)) {
+        return (b.days_with_data || 0) - (a.days_with_data || 0);
+      }
+      return (b.total || 0) - (a.total || 0);
+    })[0];
+  const topApp = Array.isArray(computer?.top_apps) ? computer?.top_apps?.[0] : undefined;
+  const secondApp = Array.isArray(computer?.top_apps) ? computer?.top_apps?.[1] : undefined;
+  const topWebsite = Array.isArray(computer?.top_domains) ? computer?.top_domains?.[0] : undefined;
+  const secondWebsite = Array.isArray(computer?.top_domains) ? computer?.top_domains?.[1] : undefined;
+
+  const highlights: string[] = [];
+
+  if (mostConsistent) {
+    highlights.push(
+      `${mostConsistent.name} was the steadiest habit, logged on ${mostConsistent.days_with_data} of ${rangeDays} days.`,
+    );
+  }
+
+  if (sleepHabit) {
+    const peakSleep = findWeeklyPeakPoint(
+      Array.isArray(sleepHabit.daily)
+        ? sleepHabit.daily.map((point) => ({ date: point.date, value: point.value }))
+        : [],
+    );
+    highlights.push(
+      `Sleep averaged ${formatWeeklyValue(sleepHabit.average || 0, sleepHabit.unit)} and was logged on ${sleepHabit.days_with_data} of ${rangeDays} days${peakSleep?.date ? `, with the strongest night on ${formatWeeklyShortDate(peakSleep.date)}` : ''}.`,
+    );
+  }
+
+  if (leadWorkHabit) {
+    const peakWorkPoint = findWeeklyPeakPoint(
+      Array.isArray(leadWorkHabit.daily)
+        ? leadWorkHabit.daily.map((point) => ({ date: point.date, value: point.value }))
+        : [],
+    );
+    highlights.push(
+      `${leadWorkHabit.name} carried the clearest work/effort signal${peakWorkPoint?.date ? `, peaking at ${formatWeeklyValue(peakWorkPoint.value, leadWorkHabit.unit)} on ${formatWeeklyShortDate(peakWorkPoint.date)}` : ''}.`,
+    );
+  }
+
+  if (computer && computer.total_hours > 0) {
+    const peakComputerPoint = findWeeklyPeakPoint(
+      Array.isArray(computer.daily)
+        ? computer.daily.map((point) => ({ date: point.day, value: point.active_hours }))
+        : [],
+    );
+    const digitalLeaders = [topApp?.app_name, topWebsite?.domain].filter(Boolean).join(' and ');
+    highlights.push(
+      `Computer use averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day${peakComputerPoint?.date ? ` and peaked on ${formatWeeklyShortDate(peakComputerPoint.date)} at ${formatWeeklyNumber(peakComputerPoint.value)}h` : ''}${digitalLeaders ? `, with most attention going to ${digitalLeaders}` : ''}.`,
+    );
+    if (secondApp || secondWebsite) {
+      highlights.push(
+        `Secondary digital context included ${[secondApp?.app_name, secondWebsite?.domain].filter(Boolean).join(' and ')}.`,
+      );
+    }
+  }
+
+  const lowFrequencyHabits = habitsWithData
+    .filter((habit) => (habit.days_with_data || 0) > 0 && (habit.days_with_data || 0) <= Math.max(2, Math.floor(rangeDays / 3)))
+    .slice(0, 2);
+  if (lowFrequencyHabits.length > 0) {
+    highlights.push(
+      `Lower-frequency habits in this window were ${lowFrequencyHabits.map((habit) => `${habit.name} (${habit.days_with_data} days)`).join(' and ')}.`,
+    );
+  }
+
+  return highlights.slice(0, 5);
+}
+
 async function generateWeeklyOverviewNarrative(
   payload: WeeklyOverviewPayload,
   title = 'Weekly Activity Overview',
 ): Promise<string> {
   const fallback = buildWeeklyOverviewNarrative(payload, title);
   const synthesisPayload = buildWeeklyOverviewSynthesisPayload(payload);
+  const highlights = buildWeeklyOverviewHighlights(payload);
   const periodLabel = title.includes('Daily')
     ? 'today'
     : title.includes('Monthly')
@@ -1124,17 +1261,21 @@ async function generateWeeklyOverviewNarrative(
           role: 'system',
           content: [
             'You write high-quality personal activity recaps from structured data.',
-            'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain what the period felt like.',
-            'Write 2 short paragraphs totaling 6-9 sentences.',
-            'Be specific and insightful: talk about the shape of the period, pacing over time, consistency, standout days, weaker spots, recovery versus effort, and what computer/app patterns imply.',
-            'Use a few concrete numbers and dates to support the narrative, but do not list every habit or dump totals line by line.',
-            'Do not use markdown bullets. Do not say "the data shows" or "based on the table". Just speak naturally.',
-            'Avoid generic coaching fluff. Make it sound like an observant analyst summarizing a real week.',
+            'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain the period cleanly.',
+            'Use this exact structure: 1 short opening sentence, then 2 to 4 sections with bold titles on their own lines, then 1 short closing line.',
+            'Each section body should usually be 2 short sentences when the evidence supports it, not a long paragraph.',
+            'Preferred section titles are: **Rhythm**, **Standout Days**, **Computer Use**, **What Shifted**. Skip a section if the evidence is thin.',
+            'Every section must include at least one concrete anchor: a date, number, habit name, app name, or website.',
+            'In at least 2 sections, include a secondary concrete detail instead of stopping after the first metric.',
+            'Be crisp and specific. Avoid filler, coaching, and abstraction.',
+            'Do not use phrases like "notable ebb and flow", "particularly", "overall", "likely", "may have", "suggests", or "illustrates".',
+            'Do not moralize. Do not speculate beyond the data. Do not mention tables, payloads, or analytics.',
+            'Keep the whole response under 260 words unless the period is monthly, then stay under 320 words.',
           ].join(' '),
         },
         {
           role: 'user',
-          content: `Write a useful recap for ${periodLabel}. Focus on what mattered, how the period evolved, where the momentum shifted, and what context from sleep, work habits, and computer usage makes the week easier to understand.\n\nStructured overview data:\n${JSON.stringify(synthesisPayload, null, 2)}`,
+          content: `Write a useful recap for ${periodLabel}.\n\nAnchoring highlights:\n${highlights.map((line) => `- ${line}`).join('\n')}\n\nStructured overview data:\n${JSON.stringify(synthesisPayload, null, 2)}`,
         },
       ],
     });
@@ -1255,24 +1396,32 @@ function buildWeeklyOverviewNarrative(
     })
     .slice(0, 2);
 
+  const openingParts: string[] = [];
   if (consistencyLeaders.length > 1) {
-    lines.push(
-      `${periodLabel} had a clear backbone: ${formatWeeklyNameList(consistencyLeaders.map((habit) => habit.name))} were all logged on ${topConsistencyDays} of ${rangeDays} days.`,
+    openingParts.push(
+      `${periodLabel} was anchored by ${formatWeeklyNameList(consistencyLeaders.map((habit) => habit.name))}, each logged on ${topConsistencyDays} of ${rangeDays} days.`,
     );
   } else if (mostConsistent) {
-    lines.push(
-      `${periodLabel} looked most consistent around ${mostConsistent.name}, which showed up on ${mostConsistent.days_with_data} of ${rangeDays} days.`,
+    openingParts.push(
+      `${periodLabel} was anchored most clearly by ${mostConsistent.name}, which showed up on ${mostConsistent.days_with_data} of ${rangeDays} days.`,
     );
   }
+  if (computer && computer.total_hours > 0) {
+    openingParts.push(`Computer use averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day.`);
+  }
+  if (openingParts.length > 0) {
+    lines.push(openingParts.join(' '));
+  }
 
+  const rhythmLines: string[] = [];
   if (sleepHabit) {
     const sleepAverage = formatWeeklyValue(sleepHabit.average || 0, sleepHabit.unit);
     if ((sleepHabit.days_with_data || 0) >= Math.max(1, rangeDays - 2)) {
-      lines.push(
+      rhythmLines.push(
         `Sleep averaged ${sleepAverage} across ${sleepHabit.days_with_data} ${sleepHabit.days_with_data === 1 ? 'night' : 'nights'}, which gave the week a fairly stable recovery baseline.`,
       );
     } else {
-      lines.push(
+      rhythmLines.push(
         `Sleep averaged ${sleepAverage} when it was logged, but it only showed up on ${sleepHabit.days_with_data} of ${rangeDays} days, so your recovery picture was thinner than your work tracking.`,
       );
     }
@@ -1284,7 +1433,7 @@ function buildWeeklyOverviewNarrative(
         : [],
     );
     if (sleepShape) {
-      lines.push(sleepShape);
+      rhythmLines.push(sleepShape);
     }
   }
 
@@ -1296,10 +1445,14 @@ function buildWeeklyOverviewNarrative(
         : [],
     );
     if (workShape) {
-      lines.push(workShape);
+      rhythmLines.push(workShape);
     }
   }
+  if (rhythmLines.length > 0) {
+    lines.push(`**Rhythm**\n${rhythmLines.slice(0, 2).join(' ')}`);
+  }
 
+  const computerLines: string[] = [];
   if (computer && computer.total_hours > 0) {
     const computerRange = computer.max_daily_hours - computer.min_daily_hours;
     const computerLine = topApp?.app_name && topWebsite?.domain
@@ -1307,9 +1460,9 @@ function buildWeeklyOverviewNarrative(
       : topApp?.app_name
         ? `Computer time averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day, and ${topApp.app_name} took the biggest share of that time.`
         : `Computer time averaged ${formatWeeklyNumber(computer.average_daily_hours)}h/day across ${computer.days_with_data || 0} active days.`;
-    lines.push(computerLine);
+    computerLines.push(computerLine);
     if (computerRange >= 2) {
-      lines.push(
+      computerLines.push(
         `Your digital workload also moved around quite a bit day to day, from ${formatWeeklyNumber(computer.min_daily_hours)}h on the lightest day to ${formatWeeklyNumber(computer.max_daily_hours)}h on the heaviest.`,
       );
     }
@@ -1321,12 +1474,16 @@ function buildWeeklyOverviewNarrative(
         : [],
     );
     if (computerShape) {
-      lines.push(computerShape);
+      computerLines.push(computerShape);
     }
   }
+  if (computerLines.length > 0) {
+    lines.push(`**Computer Use**\n${computerLines.slice(0, 2).join(' ')}`);
+  }
 
+  const shiftLines: string[] = [];
   if (occasionalHabits.length > 0) {
-    lines.push(
+    shiftLines.push(
       `The more occasional habits were ${occasionalHabits.map((habit) => `${habit.name} (${habit.days_with_data} ${habit.days_with_data === 1 ? 'day' : 'days'})`).join(' and ')}, so those showed up as situational patterns rather than fixed routines.`,
     );
   }
@@ -1336,14 +1493,17 @@ function buildWeeklyOverviewNarrative(
       && normalizeWeeklyHabitName(mostConsistent.name) !== 'sleep duration'
       && (sleepHabit.days_with_data || 0) < (mostConsistent.days_with_data || 0);
 
-    lines.push(
+    shiftLines.push(
       recoveryLagging
         ? `Overall, the pattern reads as a productive stretch with stronger follow-through on work and learning than on recovery tracking.`
         : `Overall, the week looks structured and repeatable rather than scattered.`,
     );
   }
+  if (shiftLines.length > 0) {
+    lines.push(`**What Shifted**\n${shiftLines.slice(0, 2).join(' ')}`);
+  }
 
-  return lines.slice(0, 6).join('\n\n').trim();
+  return lines.slice(0, 4).join('\n\n').trim();
 }
 
 // ====================
@@ -1852,7 +2012,7 @@ async function executeGetWeeklyOverview(token: string, params: {
   endDate?: string;
   daysBack?: number;
   appLimit?: number;
-}, timezone?: string, strictThisWeek?: boolean) {
+}, timezone?: string, strictThisWeek?: boolean, localOverviewActivity?: unknown) {
   console.log('📊 getWeeklyOverview called:', params, 'timezone:', timezone);
 
   const safeDaysBack = Number.isFinite(params.daysBack)
@@ -1928,30 +2088,65 @@ async function executeGetWeeklyOverview(token: string, params: {
       }
     }
 
-    const watcherRequests = await Promise.allSettled([
-      fetchPythonApi('/api/watcher/stats/daily', token, {
-        start_date: startDate,
-        end_date: endDate,
-      }),
-      fetchPythonApi('/api/watcher/stats/top-apps', token, {
-        start_date: startDate,
-        end_date: endDate,
-        limit: safeAppLimit,
-      }),
-      fetchPythonApi('/api/watcher/stats/top-domains', token, {
-        start_date: startDate,
-        end_date: endDate,
-        limit: safeAppLimit,
-      }),
-    ]);
+    const localActivityBundle = selectLocalOverviewActivityBundle(localOverviewActivity, startDate, endDate);
 
-    const dailyWatcherResult = watcherRequests[0].status === 'fulfilled' ? watcherRequests[0].value : null;
-    const topAppsResult = watcherRequests[1].status === 'fulfilled' ? watcherRequests[1].value : null;
-    const topDomainsResult = watcherRequests[2].status === 'fulfilled' ? watcherRequests[2].value : null;
+    let watcherDailyRows: any[] = [];
+    let topApps: any[] = [];
+    let topDomains: any[] = [];
 
-    const watcherDailyRows = Array.isArray(dailyWatcherResult?.data) ? dailyWatcherResult.data : [];
-    const topApps = Array.isArray(topAppsResult?.data) ? topAppsResult.data : [];
-    const topDomains = Array.isArray(topDomainsResult?.data) ? topDomainsResult.data : [];
+    if (localActivityBundle) {
+      watcherDailyRows = Array.isArray(localActivityBundle.daily)
+        ? localActivityBundle.daily.map((row) => ({
+            day: row.day,
+            active_hours: Number(row.active_hours || 0),
+            events_count: Number(row.events_count || 0),
+            apps_count: Number(row.apps_count || 0),
+            source: localActivityBundle.source || 'desktop_local',
+          }))
+        : [];
+      topApps = Array.isArray(localActivityBundle.apps)
+        ? localActivityBundle.apps.slice(0, safeAppLimit).map((row) => ({
+            app_bundle_id: row.app_bundle_id,
+            app_name: row.app_name,
+            hours: Number(row.hours || 0),
+            total_events: Number(row.total_events || 0),
+            source: localActivityBundle.source || 'desktop_local',
+          }))
+        : [];
+      topDomains = Array.isArray(localActivityBundle.domains)
+        ? localActivityBundle.domains.slice(0, safeAppLimit).map((row) => ({
+            domain: row.domain,
+            hours: Number(row.hours || 0),
+            total_events: Number(row.total_events || 0),
+            source: localActivityBundle.source || 'desktop_local',
+          }))
+        : [];
+    } else {
+      const watcherRequests = await Promise.allSettled([
+        fetchPythonApi('/api/watcher/stats/daily', token, {
+          start_date: startDate,
+          end_date: endDate,
+        }),
+        fetchPythonApi('/api/watcher/stats/top-apps', token, {
+          start_date: startDate,
+          end_date: endDate,
+          limit: safeAppLimit,
+        }),
+        fetchPythonApi('/api/watcher/stats/top-domains', token, {
+          start_date: startDate,
+          end_date: endDate,
+          limit: safeAppLimit,
+        }),
+      ]);
+
+      const dailyWatcherResult = watcherRequests[0].status === 'fulfilled' ? watcherRequests[0].value : null;
+      const topAppsResult = watcherRequests[1].status === 'fulfilled' ? watcherRequests[1].value : null;
+      const topDomainsResult = watcherRequests[2].status === 'fulfilled' ? watcherRequests[2].value : null;
+
+      watcherDailyRows = Array.isArray(dailyWatcherResult?.data) ? dailyWatcherResult.data : [];
+      topApps = Array.isArray(topAppsResult?.data) ? topAppsResult.data : [];
+      topDomains = Array.isArray(topDomainsResult?.data) ? topDomainsResult.data : [];
+    }
     const computedDays = Number(dateRange.days || 0) > 0
       ? Number(dateRange.days)
       : (
@@ -1991,6 +2186,7 @@ async function executeGetDailyOverview(
   token: string,
   params: { appLimit?: number },
   timezone?: string,
+  localOverviewActivity?: unknown,
 ) {
   const todayYmd = getTimezoneYmd(new Date(), timezone || 'UTC');
   return executeGetWeeklyOverview(
@@ -2003,6 +2199,7 @@ async function executeGetDailyOverview(
     },
     timezone,
     false,
+    localOverviewActivity,
   );
 }
 
@@ -2010,6 +2207,7 @@ async function executeGetMonthlyOverview(
   token: string,
   params: { appLimit?: number },
   timezone?: string,
+  localOverviewActivity?: unknown,
 ) {
   const endDate = getTimezoneYmd(new Date(), timezone || 'UTC');
   const startDate = shiftYmd(endDate, -29);
@@ -2023,6 +2221,7 @@ async function executeGetMonthlyOverview(
     },
     timezone,
     false,
+    localOverviewActivity,
   );
 }
 
@@ -4029,6 +4228,7 @@ export async function handleChatStreamPost(req: NextRequest) {
       responseMode = 'text',
       screenSearchResults,
       screenRecordingResults,
+      localOverviewActivity,
     } = await req.json();
     const normalizedScreenSearchContext = normalizeScreenSearchContext(screenSearchResults, screenRecordingResults);
     
@@ -4175,6 +4375,8 @@ Your job is to transform raw evidence into a polished, detailed narrative that r
 
    **Title format**: Bold text on its own line. Derive specific, descriptive titles from the actual work — files, branches, tools, projects. Good: "**Plaid / Spending Integration**", "**Kanban + Analytics UI Work**", "**Ritual App - Time Stats Debug**". Bad: "Main Event: Research and Design", "Supporting Workstreams", "Concrete Tasks Completed".
 
+   **CROSS-APP PROJECT THREADING**: When evidence from DIFFERENT apps appears close in time (within ~15 minutes) and shares keywords, file paths, or topics, thread them into ONE workstream. Cursor editing \`vector.rs\` + Chrome reading pgvector docs + Terminal running \`cargo test\` = one "Vector Search Implementation" workstream. Derive the title from the shared project, not any single app. The evidence is chronological — use temporal proximity + shared keywords to detect project threads.
+
    **Body format**: Write 2-5 sentences of FLOWING PROSE as a paragraph below the title. Tell the story of what happened:
    - Explain WHAT was done and WHY, weaving file names in \`backticks\` and specific details naturally into sentences
    - Connect related changes into a coherent thread with temporal flow when available
@@ -4207,6 +4409,7 @@ Your job is to transform raw evidence into a polished, detailed narrative that r
 5. Do NOT recycle UI chrome text (button labels, navigation items, tooltips, turn indicators) as descriptions of user activity. These are interface elements, not evidence of actions taken.
 6. If you are uncertain whether an action was taken, SAY SO or OMIT IT. A shorter, accurate summary is always better than a longer hallucinated one. When in doubt, use passive language: "Gmail was open" instead of "you handled emails".
 7. For email apps (Gmail, Mail, Outlook): only claim "sent", "wrote", or "replied to" emails if there is evidence of compose activity. Viewing an inbox = "checked email", not "handled email".
+8. MATCH CONFIDENCE TO EVIDENCE DEPTH: When evidence includes git commits, file diffs, terminal output, semantic summaries describing specific work, or detailed OCR text showing code/content, write confident detailed narrative citing specifics. A commit message like "fix cosine similarity NaN edge case" is STRONG evidence — describe the fix confidently. When evidence is just app names and domains with no OCR or semantic summary, write brief factual statements only. Rich evidence deserves rich narrative; thin evidence deserves brevity.
 
 FOR COMPUTER TIME-SPENT BREAKDOWN QUESTIONS ("what did I spend my time on", "where did my time go on my computer", "how much time did I spend on X", "what app did I spend the most time in"):
 → Use getComputerTimeSpentBreakdown
@@ -4309,13 +4512,14 @@ Keep total response under 500 characters when possible.`;
             },
             timezone,
             strictThisWeekForWeeklyOverview,
+            localOverviewActivity,
           );
           break;
         case 'getDailyOverview':
-          toolResultJson = await executeGetDailyOverview(token, {}, timezone);
+          toolResultJson = await executeGetDailyOverview(token, {}, timezone, localOverviewActivity);
           break;
         case 'getMonthlyOverview':
-          toolResultJson = await executeGetMonthlyOverview(token, {}, timezone);
+          toolResultJson = await executeGetMonthlyOverview(token, {}, timezone, localOverviewActivity);
           break;
         case 'searchContextMemory':
           toolResultJson = await executeSearchContextMemory(
@@ -4525,6 +4729,7 @@ Keep total response under 500 characters when possible.`;
                 },
                 timezone,
                 strictThisWeekForWeeklyOverview,
+                localOverviewActivity,
               );
               // Store weekly overview for canvas
               try {
@@ -4538,7 +4743,7 @@ Keep total response under 500 characters when possible.`;
               } catch {}
               break;
             case 'getDailyOverview':
-              result = await executeGetDailyOverview(token, args, timezone);
+              result = await executeGetDailyOverview(token, args, timezone, localOverviewActivity);
               try {
                 const parsed = JSON.parse(result);
                 if (parsed.success) {
@@ -4550,7 +4755,7 @@ Keep total response under 500 characters when possible.`;
               } catch {}
               break;
             case 'getMonthlyOverview':
-              result = await executeGetMonthlyOverview(token, args, timezone);
+              result = await executeGetMonthlyOverview(token, args, timezone, localOverviewActivity);
               try {
                 const parsed = JSON.parse(result);
                 if (parsed.success) {

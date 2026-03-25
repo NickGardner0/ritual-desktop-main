@@ -277,9 +277,7 @@ async def health_check():
 # ================================
 
 from fastapi import WebSocket, WebSocketDisconnect
-from services.websocket_manager import WebSocketManager
-
-websocket_manager = WebSocketManager()
+from services.realtime import websocket_manager
 
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
@@ -408,6 +406,7 @@ async def _semantic_summary_worker_loop() -> None:
     - Caught up: check every 5 min
     """
     from services.memory_semantic_summary_service import process_pending_summaries
+    from services.watcher_service_local_db import get_local_activity_db_path_impl
 
     # Initial delay to let other services start first
     await asyncio.sleep(10)
@@ -415,7 +414,8 @@ async def _semantic_summary_worker_loop() -> None:
     while True:
         remaining = 0
         try:
-            result = await asyncio.to_thread(process_pending_summaries, batch_size=20)
+            db_path = get_local_activity_db_path_impl()
+            result = await asyncio.to_thread(process_pending_summaries, db_path, 20)
             remaining = result.get("remaining", 0)
             processed = result.get("processed", 0)
             if processed > 0:
@@ -475,12 +475,16 @@ async def startup_event():
         except Exception as exc:
             logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
 
-    # Semantic summary worker runs regardless of cloud memory — it enriches local context_snapshots
-    try:
-        app.state.semantic_summary_task = asyncio.create_task(_semantic_summary_worker_loop())
-        logger.info("🧠 Semantic summary worker started")
-    except Exception as exc:
-        logger.warning("⚠️ Semantic summary worker not started: %s", exc)
+    # Semantic summaries are now JIT-only: generated when the user requests
+    # screen evidence (calendar day click or chat query). This avoids burning
+    # LLM tokens on captures the user never looks at.
+    # The background worker is disabled — JIT trigger is in get_screen_evidence.
+    # To re-enable continuous background processing, uncomment below:
+    # try:
+    #     app.state.semantic_summary_task = asyncio.create_task(_semantic_summary_worker_loop())
+    #     logger.info("🧠 Semantic summary worker started")
+    # except Exception as exc:
+    #     logger.warning("⚠️ Semantic summary worker not started: %s", exc)
 
 @app.on_event("shutdown") 
 async def shutdown_event():
