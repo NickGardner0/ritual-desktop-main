@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { useHabits } from '@/contexts/HabitsContext';
+import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 
 interface WatcherConfig {
   device_id: string;
@@ -135,6 +137,7 @@ interface ComputerTrackingSettingsProps {
 }
 
 export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSettingsProps) {
+  const { habits, createHabit, fetchHabits } = useHabits();
   // Load initial state from cache for instant display
   const cachedState = useRef(getCachedState());
   
@@ -494,10 +497,19 @@ export function ComputerTrackingSettings({ userId, onClose }: ComputerTrackingSe
 
   // Save settings
   const saveSettings = async () => {
-    if (!deviceId) return;
-    
     setIsSaving(true);
     try {
+      try {
+        await ensureComputerTimeHabit(habits, createHabit);
+        await fetchHabits();
+      } catch (e) {
+        console.warn('Could not ensure Computer Time habit:', e);
+      }
+
+      if (!deviceId) {
+        return;
+      }
+
       const response = await fetch(`/api/watcher/devices/${deviceId}/settings`, {
         method: 'PUT',
         headers: {

@@ -237,7 +237,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="flex items-center space-x-2.5 min-w-0">
               <div>
                 <CommandPalette
-                  className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-[#F0F0F0]/60 shadow-sm hover:bg-[#E8E8E8]/80 rounded-sm"
+                  className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
                   initialOpen={shouldOpenWhoopModal}
                 />
               </div>

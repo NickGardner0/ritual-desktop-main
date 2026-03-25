@@ -9,7 +9,7 @@ mod ritual_database;
 mod local_search_bridge;
 mod desktop_runtime;
 
-use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager};
+use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager, RunEvent};
 use std::path::PathBuf;
 use std::fs;
 use std::env;
@@ -133,6 +133,16 @@ fn join_url_path(base: &str, path: &str) -> String {
         base.trim_end_matches('/'),
         path.trim_start_matches('/'),
     )
+}
+
+fn shutdown_background_helpers() {
+    if let Err(err) = tauri::async_runtime::block_on(watcher::stop_watcher()) {
+        eprintln!("⚠️ Failed to stop Ritual Watcher during app shutdown: {}", err);
+    }
+
+    if let Err(err) = tauri::async_runtime::block_on(recorder::stop_recorder()) {
+        eprintln!("⚠️ Failed to stop Ritual Recorder during app shutdown: {}", err);
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1117,6 +1127,12 @@ fn main() {
       
       Ok(())
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|_app_handle, event| match event {
+      RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+        shutdown_background_helpers();
+      }
+      _ => {}
+    });
 }

@@ -52,16 +52,6 @@ interface ComputerDailyRow {
   events_count: number;
 }
 
-interface ComputerActivityDebugState {
-  source: 'tauri' | 'http' | 'none';
-  rows: number;
-  totalHours: number;
-  error: string | null;
-  tauriGlobal: boolean;
-  tauriIpc: boolean;
-  sample: string | null;
-}
-
 function getTauriBridgeState() {
   if (typeof window === 'undefined') {
     return { tauriGlobal: false, tauriIpc: false };
@@ -134,14 +124,6 @@ export function OverviewView({
   const [scrubberHoveredValues, setScrubberHoveredValues] = useState<Record<string, number> | null>(null);
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
-  const [computerActivityDebug, setComputerActivityDebug] = useState<ComputerActivityDebugState>({
-    source: 'none',
-    rows: 0,
-    totalHours: 0,
-    error: null,
-    ...getTauriBridgeState(),
-    sample: null,
-  });
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
     setScrubberHoveredDate(date);
@@ -239,14 +221,6 @@ export function OverviewView({
               .filter((row): row is ComputerDailyRow => Boolean(row));
 
             setComputerActivityDaily(rows);
-            setComputerActivityDebug({
-              source: 'tauri',
-              rows: rows.length,
-              totalHours: Math.round(rows.reduce((sum: number, row: ComputerDailyRow) => sum + row.active_hours, 0) * 100) / 100,
-              error: null,
-              ...bridgeState,
-              sample: summaries.length > 0 ? JSON.stringify(summaries[0]) : null,
-            });
             return;
           } catch (tauriError) {
             console.error('[Overview] Tauri invoke FAILED — IPC bridge likely unavailable on remote URL:', tauriError);
@@ -272,26 +246,10 @@ export function OverviewView({
           .map(normalizeComputerDailySummaryRow)
           .filter((row: ComputerDailyRow) => row.day);
         setComputerActivityDaily(rows);
-        setComputerActivityDebug({
-          source: 'http',
-          rows: rows.length,
-          totalHours: Math.round(rows.reduce((sum: number, row: ComputerDailyRow) => sum + row.active_hours, 0) * 100) / 100,
-          error: null,
-          ...getTauriBridgeState(),
-          sample: rows.length > 0 ? JSON.stringify(rows[0]) : null,
-        });
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error('❌ Failed loading overview computer activity:', error);
         setComputerActivityDaily([]);
-        setComputerActivityDebug({
-          source: isTauri() ? 'tauri' : 'http',
-          rows: 0,
-          totalHours: 0,
-          error: String((error as any)?.message ?? error ?? 'Unknown computer activity error'),
-          ...getTauriBridgeState(),
-          sample: null,
-        });
       }
     };
 
@@ -625,20 +583,6 @@ export function OverviewView({
 
   return (
     <div className="space-y-0">
-      {isTauri() && computerActivityDebug.totalHours === 0 && (
-        <div className="mx-auto mb-4 max-w-[700px] rounded-sm border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
-          <div className="font-medium">Desktop computer-time debug</div>
-          <div>
-            source={computerActivityDebug.source} rows={computerActivityDebug.rows} totalHours={computerActivityDebug.totalHours}
-          </div>
-          <div>
-            tauriGlobal={String(computerActivityDebug.tauriGlobal)} tauriIpc={String(computerActivityDebug.tauriIpc)}
-          </div>
-          {computerActivityDebug.error ? <div>error={computerActivityDebug.error}</div> : null}
-          {computerActivityDebug.sample ? <div className="break-all">sample={computerActivityDebug.sample}</div> : null}
-        </div>
-      )}
-
       {/* Header with controls - only show if not hidden */}
       {!hideControls && (
         <div className="relative flex items-center justify-end h-14">
@@ -741,17 +685,19 @@ export function OverviewView({
       {!isBackendUnavailable && habits.length === 0 && !isLoading && (
         <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8">
           <div className="text-xl mb-2 text-center" style={{ fontWeight: 500 }}>
-            Connect your devices
+            Start tracking anything
           </div>
           <div className="text-sm font-normal mb-2 text-center max-w-xl leading-tight" style={{ fontWeight: 400, color: '#9C9C9D' }}>
-            Connect your wearable devices to unlock personal insights.<br />Start tracking anything you want to get started.
+            Ritual is your hub for personal insights, understanding
+            <br />
+            behavioral trends, and getting a holistic view of your life.
           </div>
           <button
             onClick={() => setShowSelectionModal(true)}
             className="mt-2 px-3 py-2 bg-black text-white rounded-sm text-sm font-normal shadow transition-colors duration-200 hover:bg-[#27251E]"
             style={{ fontWeight: 400 }}
           >
-            Connect Device
+            Start Tracking
           </button>
         </div>
       )}

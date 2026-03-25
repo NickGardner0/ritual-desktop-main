@@ -44,9 +44,13 @@ if (SENTRY_DSN) {
     ],
 
     beforeSend(event) {
-      // Log errors to console in development (but still send to Sentry for testing)
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Sentry event (dev mode):', event);
+      // Avoid console.error here — Next.js dev overlay treats it as a runtime error.
+      // Opt-in: NEXT_PUBLIC_SENTRY_DEBUG=1
+      if (
+        process.env.NODE_ENV === 'development' &&
+        process.env.NEXT_PUBLIC_SENTRY_DEBUG === '1'
+      ) {
+        console.debug('Sentry event (dev mode):', event);
       }
       return event;
     },

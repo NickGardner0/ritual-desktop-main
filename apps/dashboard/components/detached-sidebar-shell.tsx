@@ -93,22 +93,19 @@ export function DetachedSidebarShell() {
   return (
     <aside
       className={cn(
-        "sidebar-vibrancy h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-center flex z-[1002] transition-all duration-200 ease-standard",
+        "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-stretch overflow-hidden flex z-[1002] transition-all duration-200 ease-standard",
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
     >
       <div
-        className={cn(
-          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center transition-all duration-200 ease-standard",
-          isExpanded ? "w-full" : "w-[69px]",
-        )}
+        className="sidebar-header absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center transition-all duration-200 ease-standard"
       >
         <button
           type="button"
           onClick={() => navigate("/dashboard")}
-          className="absolute left-1/2 -translate-x-1/2 top-[58%] -translate-y-1/2 transition-none"
+          className="flex h-full w-full items-center justify-center pt-[6px] transition-none"
         >
           <img src="/images/eclipse.svg" alt="Ritual Logo" className="w-[32px] h-[32px] flex-shrink-0" />
         </button>

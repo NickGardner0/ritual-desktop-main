@@ -7,3 +7,4 @@ __pycache__/
 .turso_replica.db-wal
 .turso_replica.db-info
 :memory*
+.env.development

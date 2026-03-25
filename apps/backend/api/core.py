@@ -143,6 +143,14 @@ def create_core_router(
         current_user=Depends(get_current_user),
     ):
         try:
+            # Habits reference users.id — Clerk JWT alone does not insert the row; without this,
+            # first habit create fails FK and surfaces as opaque 400s in dev.
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
             habit = await habits_service.create_habit(habit_data, current_user["id"])
             if tinybird_service:
                 try:
@@ -150,7 +158,10 @@ def create_core_router(
                 except Exception as tb_error:
                     logger.warning("Tinybird habit-definition sync failed (non-fatal): %s", tb_error)
             return habit
+        except HTTPException:
+            raise
         except Exception:
+            logger.exception("create_habit failed for user %s", current_user.get("id"))
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.get("/api/habits", response_model=List[Habit])

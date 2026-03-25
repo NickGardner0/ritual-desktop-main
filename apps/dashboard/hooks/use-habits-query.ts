@@ -262,20 +262,29 @@ export function useCreateHabitMutation() {
 
   return useMutation({
     mutationFn: async (habitData: any) => {
-      const token = await getToken();
       console.log('➕ [React Query] Creating habit:', habitData);
 
-      const response = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(habitData),
-      });
+      const response = await fetchWithAuthRetry(
+        `${PYTHON_API_BASE}/api/habits`,
+        getToken,
+        {
+          method: 'POST',
+          body: JSON.stringify(habitData),
+        }
+      );
 
       if (!response.ok) {
-        throw new Error(`Failed to create habit: ${response.status}`);
+        const errText = await response.text().catch(() => '');
+        let detail = errText;
+        try {
+          const j = JSON.parse(errText) as { detail?: unknown };
+          if (typeof j?.detail === 'string') detail = j.detail;
+        } catch {
+          /* use raw text */
+        }
+        throw new Error(
+          detail ? `Failed to create habit (${response.status}): ${detail}` : `Failed to create habit: ${response.status}`
+        );
       }
 
       return response.json();

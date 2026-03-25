@@ -18,6 +18,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # Load environment variables FIRST before importing services
+# .env.development overrides .env for local dev (Clerk dev keys, etc.)
+load_dotenv(".env.development", override=True)
 load_dotenv()
 
 logging.basicConfig(

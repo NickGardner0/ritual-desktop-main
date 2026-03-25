@@ -13,7 +13,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "sidebar-vibrancy h-screen flex-shrink-0 flex-col justify-between pb-4 items-center hidden md:flex",
+        "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between pb-4 items-stretch overflow-hidden hidden md:flex",
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}
       style={{ transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
@@ -22,16 +22,12 @@ export function Sidebar() {
     >
       {/* Logo Header */}
       <div
-        className={cn(
-          "sidebar-header absolute top-0 left-0 h-[70px] flex items-center justify-center",
-          isExpanded ? "w-full" : "w-[69px]",
-        )}
-        style={{ transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
+        className="sidebar-header absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center"
       >
-        <Link href="/" className="absolute left-1/2 -translate-x-1/2 top-[54%] -translate-y-1/2 transition-none">
-          <img 
-            src="/images/eclipse.svg" 
-            alt="Ritual Logo" 
+        <Link href="/" className="flex h-full w-full items-center justify-center pt-[4px] transition-none">
+          <img
+            src="/images/eclipse.svg"
+            alt="Ritual Logo"
             className="w-[24px] h-[24px] flex-shrink-0"
           />
         </Link>

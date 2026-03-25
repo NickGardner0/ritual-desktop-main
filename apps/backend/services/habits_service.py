@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
@@ -69,6 +69,23 @@ class HabitsService:
         """
         async with get_db_session() as session:
             try:
+                name_key = (habit_data.name or "").strip().lower()
+                if name_key:
+                    dup = await session.execute(
+                        select(HabitDB).where(
+                            HabitDB.user_id == user_id,
+                            func.lower(func.trim(HabitDB.name)) == name_key,
+                        )
+                    )
+                    existing_row = dup.scalar_one_or_none()
+                    if existing_row:
+                        logger.info(
+                            "Habit '%s' already exists for user %s; returning existing",
+                            habit_data.name,
+                            user_id,
+                        )
+                        return habit_db_to_pydantic(existing_row)
+
                 # Create habit record
                 habit_db = HabitDB(
                     id=str(uuid.uuid4()),

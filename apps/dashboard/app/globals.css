@@ -470,10 +470,19 @@
      0.32 keeps the same look while making it a touch more transparent. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
-    background: rgba(255, 255, 255, 0.0) !important;
-    background-color: rgba(255, 255, 255, 0.0) !important;
-    border-right: 1px solid rgba(0, 0, 0, 0.02) !important;
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.1) !important;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      rgba(255, 255, 255, 0.08) 52%,
+      rgba(255, 255, 255, 0.11) 100%
+    ) !important;
+    background-color: rgba(255, 255, 255, 0.09) !important;
+    border-right: 1px solid rgba(0, 0, 0, 0.028) !important;
+    box-shadow:
+      inset -1px 0 0 rgba(255, 255, 255, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 
   /* All children inside the sidebar must be transparent */
@@ -485,7 +494,19 @@
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-header,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-header {
-    border-color: rgba(0, 0, 0, 0.04) !important;
+    border-color: rgba(0, 0, 0, 0.026) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::before,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.02) 38%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.0) 40%);
+    opacity: 0.9;
   }
 
   /* Opaque main content — covers the glass so only sidebar is glassy */

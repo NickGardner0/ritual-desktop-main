@@ -1,21 +1,24 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   ChevronDown, 
   CheckCircle, 
   X, 
   Calendar, 
+  ChartLine,
   Brain,
-  BookOpen, 
-  Activity,
-  FlaskConical, 
+  Heart,
+  FlaskConical,
   Plus,
   Monitor
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useHabits } from '@/contexts/HabitsContext';
-import { useAuth } from '@clerk/nextjs';
+import type { Habit as StoredHabit } from '@/contexts/HabitsContext';
+import { useAuth, useUser } from '@clerk/nextjs';
+import { habitKeys } from '@/hooks/use-habits-query';
 import MiniSearch from 'minisearch';
 import dynamic from 'next/dynamic';
 import {
@@ -27,6 +30,7 @@ import {
 } from '../data/habits-data';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { isTauri } from '@/lib/tauri-utils';
+import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 
 const IconPicker = dynamic(() => import('./IconPicker'), {
   ssr: false,
@@ -36,6 +40,13 @@ const IconPicker = dynamic(() => import('./IconPicker'), {
     </div>
   ),
 });
+
+/** Fixed width so Connect / Manual / Connected columns align across rows */
+const connectRowActionClass =
+  'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm border border-gray-200 bg-white px-2 text-sm font-normal text-gray-600 transition-colors hover:bg-gray-50';
+
+const connectRowActionConnectedClass =
+  'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm bg-lime-500 px-2 text-sm font-normal text-white transition-colors hover:bg-lime-600';
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
@@ -55,11 +66,16 @@ const categoryMap: Record<string, string> = {
 };
 
 export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCreated, initialCategory = null }: HabitSelectionModalProps): React.ReactElement | null {
-  const { createHabit } = useHabits(); // Add useHabits hook
-  const { getToken, userId } = useAuth(); // Add Clerk auth hook
+  const queryClient = useQueryClient();
+  const { createHabit, habits, fetchHabits } = useHabits();
+  const { getToken, userId } = useAuth();
+  const { user } = useUser();
+  /** `useAuth().userId` can be undefined briefly; settings need a real id */
+  const resolvedUserId = userId ?? user?.id ?? null;
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(initialCategory);
   const [showComputerTracking, setShowComputerTracking] = useState(false);
   const [computerTrackingConnected, setComputerTrackingConnected] = useState(false);
+  const [isAddingComputerHabit, setIsAddingComputerHabit] = useState(false);
   
   // Update category when initialCategory prop changes and modal opens
   React.useEffect(() => {
@@ -67,6 +83,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setSelectedCategory(initialCategory);
     }
   }, [initialCategory, isOpen]);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      setIsAddingComputerHabit(false);
+      setShowComputerTracking(false);
+    }
+  }, [isOpen]);
+
   const [selectedHabit, setSelectedHabit] = React.useState<any | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [showCustomization, setShowCustomization] = useState(false);
@@ -355,16 +379,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [appleWatchConnected, setAppleWatchConnected] = useState(false);
   const [appleWatchDeviceName, setAppleWatchDeviceName] = useState<string | null>(null);
 
-  // Check if Whoop, Apple Watch, and Computer Use are connected on mount and when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      checkWhoopConnection();
-      checkAppleWatchConnection();
-      checkComputerTrackingConnection();
-    }
-  }, [isOpen]);
-
-  async function checkComputerTrackingConnection() {
+  const checkComputerTrackingConnection = useCallback(async () => {
     try {
       const response = await fetch('/api/watcher/devices');
       if (response.ok) {
@@ -377,7 +392,62 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       console.error('Error checking Computer Use connection:', error);
       setComputerTrackingConnected(false);
     }
-  }
+  }, []);
+
+  // Check if Whoop, Apple Watch, and Computer Use are connected on mount and when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      checkWhoopConnection();
+      checkAppleWatchConnection();
+      checkComputerTrackingConnection();
+    }
+  }, [isOpen, checkComputerTrackingConnection]);
+
+  /** Add Computer Time habit and stay on the list (no settings sheet). */
+  const handleComputerUseConnect = useCallback(async () => {
+    setIsAddingComputerHabit(true);
+    try {
+      const result = await ensureComputerTimeHabit(habits, createHabit);
+      if (result.created && result.habit && user?.id) {
+        const created = result.habit as StoredHabit;
+        queryClient.setQueryData<StoredHabit[]>(habitKeys.list(user.id), (old = []) => {
+          if (created.id && old.some((h) => h.id === created.id)) return old;
+          if (!created.id && old.some((h) => h.name === created.name)) return old;
+          return [...old, created];
+        });
+      }
+      if (result.created && result.habit && onHabitCreated) {
+        onHabitCreated(result.habit);
+      }
+      // Do not await refetch or watcher status — either can hang (slow Python / proxy) and
+      // leaves the button stuck on "Adding…". Mutation already invalidates; this is a safety refetch.
+      void fetchHabits().catch(() => {});
+      void checkComputerTrackingConnection();
+    } catch (e) {
+      console.warn('Could not add Computer Time habit:', e);
+    } finally {
+      setIsAddingComputerHabit(false);
+    }
+  }, [
+    habits,
+    createHabit,
+    fetchHabits,
+    onHabitCreated,
+    checkComputerTrackingConnection,
+    queryClient,
+    user?.id,
+  ]);
+
+  /** Open watcher settings (after ensuring habit exists). */
+  const openComputerUseSettings = useCallback(async () => {
+    try {
+      await ensureComputerTimeHabit(habits, createHabit);
+      await fetchHabits();
+    } catch (e) {
+      console.warn('Could not ensure Computer Time habit:', e);
+    }
+    setShowComputerTracking(true);
+  }, [habits, createHabit, fetchHabits]);
 
   async function checkWhoopConnection() {
     try {
@@ -676,18 +746,18 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               <h2 className="text-lg font-medium text-gray-900">
                 {selectedCategory
                   ? selectedCategory === 'whoop' ? 'Whoop'
-                  : selectedCategory === 'fitness' ? 'Fitness & Health'
+                  : selectedCategory === 'fitness' ? 'Health'
                   : selectedCategory === 'education' ? 'Learning'
                   : selectedCategory === 'experiments' ? 'Experiments'
                   : selectedCategory === 'productivity' ? 'Productivity'
                   : selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)
-                  : 'Start tracking anything'}
+                  : 'Connect devices'}
               </h2>
             </div>
           )}
             <button
               onClick={onClose}
-              className="rounded-sm p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              className="rounded-sm p-1 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -697,7 +767,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         {!selectedCategory && !showComputerTracking && (
           <div className="px-5 pb-4 flex-shrink-0">
             <p className="text-sm text-gray-500">
-              Ritual works best when you connect and integrate your wearable devices with manual self tracking tools.
+              Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
             </p>
         </div>
         )}
@@ -720,14 +790,16 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           {showComputerTracking ? (
             // Computer Use Settings View
             <div className="py-2">
-              {userId && (
+              {resolvedUserId ? (
                 <ComputerTrackingSettings 
-                  userId={userId} 
+                  userId={resolvedUserId} 
                   onClose={() => {
                     setShowComputerTracking(false);
                     checkComputerTrackingConnection();
                   }} 
                 />
+              ) : (
+                <p className="text-sm text-gray-500 py-2">Sign in to configure desktop tracking.</p>
               )}
             </div>
           ) : showCustomization ? (
@@ -852,16 +924,17 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             // Category Selection
             <div className="pb-2">
                 {/* Custom - Manual */}
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <Plus className="w-5 h-5 text-gray-900" />
+                      <Plus className="h-5 w-5 text-gray-900" strokeWidth={1.75} />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Custom</p>
+                    <p className="text-sm font-normal text-gray-900">Custom</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('custom')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Manual
                   </button>
@@ -869,72 +942,78 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
                 {/* Computer Use - Only show on desktop (Tauri) */}
                 {isTauri() && (
-                  <div className="flex justify-between items-center h-11">
-                    <div className="flex items-center">
+                  <div className="flex items-center gap-3 py-1.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
                       <div className="flex w-9 shrink-0 items-center justify-center">
-                        <Monitor className="w-5 h-5 text-gray-900" />
+                        <Monitor className="h-5 w-5 text-gray-900" strokeWidth={1.75} />
                       </div>
-                      <p className="text-sm font-normal text-gray-900 ml-2.5">Computer Use</p>
+                      <p className="text-sm font-normal text-gray-900">Computer Use</p>
                     </div>
                     {computerTrackingConnected ? (
                       <button 
-                        onClick={() => setShowComputerTracking(true)}
-                        className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-sm hover:bg-lime-600 transition-colors"
+                        type="button"
+                        onClick={() => void openComputerUseSettings()}
+                        className={connectRowActionConnectedClass}
                       >
                         Connected
                       </button>
                     ) : (
                       <button 
-                        onClick={() => setShowComputerTracking(true)}
-                        className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                        type="button"
+                        onClick={() => void handleComputerUseConnect()}
+                        disabled={isAddingComputerHabit}
+                        className={`${connectRowActionClass} disabled:opacity-50`}
                       >
-                        Connect
+                        {isAddingComputerHabit ? 'Adding…' : 'Connect'}
                       </button>
                     )}
                   </div>
                 )}
 
                 {/* Wearables & Devices - Connect */}
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <img src="/images/Screen_Time.svg" alt="Screen Time" className="w-5 h-5" onError={(e) => {
+                      <img src="/images/Screen_Time.svg" alt="Screen Time" className="h-5 w-5 object-contain" onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
                         if (nextSibling) nextSibling.style.display = 'block';
                       }} />
-                      <svg className="w-5 h-5 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="h-5 w-5 text-gray-700" style={{display: 'none'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Screen Time</p>
+                    <p className="text-sm font-normal text-gray-900">Screen Time</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('screentime')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
                       <svg className="h-5 w-5" viewBox="0 0 814 1000" fill="currentColor">
                         <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z"/>
                       </svg>
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Apple Watch</p>
+                    <p className="text-sm font-normal text-gray-900">Apple Watch</p>
                   </div>
                   {appleWatchConnected ? (
                     <button 
+                      type="button"
                       onClick={() => handleCategorySelect('applewatch')}
-                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-sm hover:bg-lime-600 transition-colors"
+                      className={connectRowActionConnectedClass}
                     >
                       Connected
                     </button>
                   ) : (
                     <button 
+                      type="button"
                       onClick={() => {
                         alert(
                           '📱 To connect your Apple Watch:\n\n' +
@@ -945,154 +1024,164 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                           'Your Apple Watch data syncs through your iPhone.'
                         );
                       }}
-                      className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                      className={connectRowActionClass}
                     >
                       Connect
                     </button>
                   )}
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <img src="/images/oura.svg" alt="Oura Ring" className="h-11" />
+                      <img src="/images/oura.svg" alt="Oura Ring" className="h-8 w-8 object-contain" />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Oura Ring</p>
+                    <p className="text-sm font-normal text-gray-900">Oura Ring</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('oura')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <img src="/images/whoop.svg" alt="Whoop" className="h-5" />
+                      <img src="/images/whoop.svg" alt="Whoop" className="h-5 object-contain" />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Whoop</p>
+                    <p className="text-sm font-normal text-gray-900">Whoop</p>
                   </div>
                   {whoopConnected ? (
                     <button 
+                      type="button"
                       onClick={() => handleCategorySelect('whoop')}
-                      className="px-4 py-1.5 text-sm font-normal text-white bg-lime-500 rounded-sm hover:bg-lime-600 transition-colors"
+                      className={connectRowActionConnectedClass}
                     >
                       Connected
                     </button>
                   ) : (
                     <button 
+                      type="button"
                       onClick={() => handleCategorySelect('whoop')}
                       disabled={whoopConnecting}
-                      className="px-4 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors disabled:opacity-50 mr-1"
+                      className={`${connectRowActionClass} disabled:opacity-50`}
                     >
-                      {whoopConnecting ? 'Connecting...' : 'Connect'}
+                      <span className="truncate">{whoopConnecting ? 'Connecting...' : 'Connect'}</span>
                     </button>
                   )}
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <img src="/images/fitbit.svg" alt="Fitbit" className="h-5" />
+                      <img src="/images/fitbit.svg" alt="Fitbit" className="h-5 object-contain" />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Fitbit</p>
+                    <p className="text-sm font-normal text-gray-900">Fitbit</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('fitbit')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <img src="/images/garmin.svg" alt="Garmin" className="h-5" />
+                      <img src="/images/garmin.svg" alt="Garmin" className="h-5 object-contain" />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Garmin</p>
+                    <p className="text-sm font-normal text-gray-900">Garmin</p>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleCategorySelect('garmin')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Connect
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <img src="/images/plaid-mark.svg" alt="Plaid" className="h-5" />
+                      <img src="/images/plaid-mark.svg" alt="Plaid" className="h-5 object-contain" />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Plaid</p>
+                    <p className="text-sm font-normal text-gray-900">Plaid</p>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleCategorySelect('plaid')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Connect
                   </button>
                 </div>
 
                 {/* Manual Tracking Categories */}
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <Brain className="w-5 h-5 text-gray-900" />
+                      <ChartLine className="h-5 w-5 text-gray-900" strokeWidth={2} />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Productivity</p>
+                    <p className="text-sm font-normal text-gray-900">Productivity</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('productivity')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <BookOpen className="w-5 h-5 text-gray-900" />
+                      <Brain className="h-5 w-5 text-gray-900" strokeWidth={2} />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Learning</p>
+                    <p className="text-sm font-normal text-gray-900">Learning</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('education')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <Activity className="w-5 h-5 text-gray-900" />
+                      <Heart className="h-5 w-5 text-gray-900" strokeWidth={2} />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Fitness & Health</p>
+                    <p className="text-sm font-normal text-gray-900">Health</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('fitness')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Manual
                   </button>
                 </div>
 
-                <div className="flex justify-between items-center h-11">
-                  <div className="flex items-center">
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
-                      <FlaskConical className="w-5 h-5 text-gray-900" />
+                      <FlaskConical className="h-5 w-5 text-gray-900" strokeWidth={2} />
                     </div>
-                    <p className="text-sm font-normal text-gray-900 ml-2.5">Experiments</p>
+                    <p className="text-sm font-normal text-gray-900">Experiments</p>
                   </div>
                   <button 
+                    type="button"
                     onClick={() => handleCategorySelect('experiments')}
-                    className="px-4 py-1.5 text-sm font-normal text-gray-500 bg-white border border-gray-200 rounded-sm hover:bg-gray-50 transition-colors"
+                    className={connectRowActionClass}
                   >
                     Manual
                   </button>

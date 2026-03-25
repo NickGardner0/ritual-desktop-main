@@ -10,13 +10,20 @@ const BACKEND_URL =
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
+    const contentType =
+      request.headers.get("content-type") || "application/json";
+    const webhookTimestamp =
+      request.headers.get("X-Webhook-Timestamp") || "";
+    const webhookSignature =
+      request.headers.get("X-Webhook-Signature") || "";
 
     const backendResponse = await fetch(`${BACKEND_URL}/api/linq/webhook`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        // Forward the Linq signature header for backend verification
-        "X-Linq-Signature": request.headers.get("X-Linq-Signature") || "",
+        "Content-Type": contentType,
+        // Preserve Linq's signed webhook headers for backend verification.
+        "X-Webhook-Timestamp": webhookTimestamp,
+        "X-Webhook-Signature": webhookSignature,
       },
       body,
     });
