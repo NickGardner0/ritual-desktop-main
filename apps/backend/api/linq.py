@@ -86,9 +86,9 @@ def _parse_habit_log_from_text(text: str, habits: list) -> Optional[dict]:
     """
     text_lower = text.strip().lower()
 
-    # Extract number from the text (e.g. "30mg caffeine" -> 30, "ran 5 miles" -> 5)
-    number_match = re.search(r"(\d+(?:\.\d+)?)", text)
-    amount = float(number_match.group(1)) if number_match else None
+    # Extract number from the text (e.g. "30mg caffeine" -> 30, "3,000 steps" -> 3000)
+    number_match = re.search(r"(\d[\d,]*(?:\.\d+)?)", text)
+    amount = float(number_match.group(1).replace(",", "")) if number_match else None
 
     # Try to match against habit names
     best_match = None

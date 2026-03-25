@@ -7,6 +7,8 @@ private var audioEngine: AVAudioEngine?
 private var request: SFSpeechAudioBufferRecognitionRequest?
 private var task: SFSpeechRecognitionTask?
 private var recognizer: SFSpeechRecognizer?
+private var currentTranscript = ""
+private var finalTranscriptEmitted = false
 
 // Helper function to emit events to Tauri frontend
 private func emitTauriEvent(event: String, payload: String) {
@@ -18,6 +20,52 @@ private func emitTauriEvent(event: String, payload: String) {
     userDefaults.set(payload, forKey: "speech_transcript")
     userDefaults.set(event, forKey: "speech_event")
     userDefaults.set(Date().timeIntervalSince1970, forKey: "speech_timestamp")
+}
+
+private func resetSpeechState() {
+    currentTranscript = ""
+    finalTranscriptEmitted = false
+    clear_speech_state()
+}
+
+private func requestMicrophonePermissionIfNeeded() -> Bool {
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized:
+        return true
+    case .denied, .restricted:
+        return false
+    case .notDetermined:
+        var granted = false
+        let semaphore = DispatchSemaphore(value: 0)
+        AVCaptureDevice.requestAccess(for: .audio) { access in
+            granted = access
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return granted
+    @unknown default:
+        return false
+    }
+}
+
+private func requestSpeechPermissionIfNeeded() -> Bool {
+    switch SFSpeechRecognizer.authorizationStatus() {
+    case .authorized:
+        return true
+    case .denied, .restricted:
+        return false
+    case .notDetermined:
+        var granted = false
+        let semaphore = DispatchSemaphore(value: 0)
+        SFSpeechRecognizer.requestAuthorization { status in
+            granted = (status == .authorized)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return granted
+    @unknown default:
+        return false
+    }
 }
 
 @_cdecl("start_speech_recognition")
@@ -34,6 +82,19 @@ private func startSpeechRecognitionInternal() -> Bool {
     do {
         // Stop any existing recognition first
         _ = stop_speech_recognition()
+        resetSpeechState()
+
+        guard requestMicrophonePermissionIfNeeded() else {
+            print("❌ [Swift] Microphone permission unavailable")
+            emitTauriEvent(event: "ritual:speech:error", payload: "microphone-permission-denied")
+            return false
+        }
+
+        guard requestSpeechPermissionIfNeeded() else {
+            print("❌ [Swift] Speech recognition permission unavailable")
+            emitTauriEvent(event: "ritual:speech:error", payload: "speech-permission-denied")
+            return false
+        }
         
         // Initialize recognizer
         recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -80,11 +141,13 @@ private func startSpeechRecognitionInternal() -> Bool {
             DispatchQueue.main.async {
                 if let result = result {
                     let transcript = result.bestTranscription.formattedString
+                    currentTranscript = transcript
                     print("🎤 [Swift] Transcript: \(transcript)")
                     emitTauriEvent(event: "ritual:speech:partial", payload: transcript)
                     
                     if result.isFinal {
                         print("🎤 [Swift] Final result: \(transcript)")
+                        finalTranscriptEmitted = true
                         emitTauriEvent(event: "ritual:speech:final", payload: transcript)
                         _ = stop_speech_recognition()
                     }
@@ -116,6 +179,14 @@ private func startSpeechRecognitionInternal() -> Bool {
 @_cdecl("stop_speech_recognition")
 func stop_speech_recognition() -> Bool {
     print("🎤 [Swift] stop_speech_recognition called")
+
+    let transcript = currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+    var emittedFinalOnStop = false
+    if !transcript.isEmpty && !finalTranscriptEmitted {
+        finalTranscriptEmitted = true
+        emittedFinalOnStop = true
+        emitTauriEvent(event: "ritual:speech:final", payload: transcript)
+    }
     
     // Stop audio engine safely
     if let audioEngine = audioEngine, audioEngine.isRunning {
@@ -139,6 +210,39 @@ func stop_speech_recognition() -> Bool {
     recognizer = nil
     
     print("✅ [Swift] Speech recognition stopped")
-    emitTauriEvent(event: "ritual:speech:status", payload: "stopped")
+    if !emittedFinalOnStop && !finalTranscriptEmitted {
+        emitTauriEvent(event: "ritual:speech:status", payload: "stopped")
+    }
     return true
+}
+
+@_cdecl("get_speech_state_json")
+func get_speech_state_json() -> UnsafeMutablePointer<CChar>? {
+    let userDefaults = UserDefaults.standard
+    let payload: [String: Any] = [
+        "event": userDefaults.string(forKey: "speech_event") ?? "",
+        "transcript": userDefaults.string(forKey: "speech_transcript") ?? "",
+        "timestamp": userDefaults.double(forKey: "speech_timestamp"),
+    ]
+
+    guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
+          let json = String(data: data, encoding: .utf8) else {
+        return strdup("{\"event\":\"\",\"transcript\":\"\",\"timestamp\":0}")
+    }
+
+    return strdup(json)
+}
+
+@_cdecl("clear_speech_state")
+func clear_speech_state() {
+    let userDefaults = UserDefaults.standard
+    userDefaults.removeObject(forKey: "speech_transcript")
+    userDefaults.removeObject(forKey: "speech_event")
+    userDefaults.removeObject(forKey: "speech_timestamp")
+}
+
+@_cdecl("free_swift_c_string")
+func free_swift_c_string(_ ptr: UnsafeMutablePointer<CChar>?) {
+    guard let ptr else { return }
+    free(ptr)
 }

@@ -11,6 +11,8 @@ import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
   { ssr: false }
@@ -54,6 +56,57 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const queryClient = useQueryClient();
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
   const lastDashboardRefreshRef = useRef(0);
+  const lastProfileSyncKeyRef = useRef<string | null>(null);
+  const realtimeSocketRef = useRef<WebSocket | null>(null);
+  const realtimeReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeReconnectAttemptRef = useRef(0);
+  const realtimeHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Keep the backend user profile in sync with Clerk email/phone changes.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const syncKey = JSON.stringify({
+      id: user.id,
+      email: user.primaryEmailAddress?.emailAddress ?? '',
+      phone: user.primaryPhoneNumber?.phoneNumber ?? '',
+    });
+
+    if (lastProfileSyncKeyRef.current === syncKey) {
+      return;
+    }
+    lastProfileSyncKeyRef.current = syncKey;
+
+    let cancelled = false;
+
+    const syncProfile = async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+
+        await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+        });
+      } catch (error) {
+        console.warn('Backend profile sync failed:', error);
+      }
+    };
+
+    void syncProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    getToken,
+    user?.id,
+    user?.primaryEmailAddress?.emailAddress,
+    user?.primaryPhoneNumber?.phoneNumber,
+  ]);
 
   // Keep native notch auth token available for the Swift timer widget.
   useEffect(() => {
@@ -141,6 +194,123 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     const interval = setInterval(checkForDashboardRefresh, 500);
     return () => clearInterval(interval);
   }, [user?.id, queryClient]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user?.id) return;
+
+    let cancelled = false;
+
+    const closeSocket = () => {
+      if (realtimeReconnectTimerRef.current) {
+        clearTimeout(realtimeReconnectTimerRef.current);
+        realtimeReconnectTimerRef.current = null;
+      }
+
+      if (realtimeHeartbeatRef.current) {
+        clearInterval(realtimeHeartbeatRef.current);
+        realtimeHeartbeatRef.current = null;
+      }
+
+      const activeSocket = realtimeSocketRef.current;
+      realtimeSocketRef.current = null;
+      if (activeSocket) {
+        activeSocket.close();
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (cancelled || realtimeReconnectTimerRef.current) return;
+
+      const attempt = realtimeReconnectAttemptRef.current + 1;
+      realtimeReconnectAttemptRef.current = attempt;
+      const delayMs = Math.min(30_000, 1_000 * Math.pow(2, Math.min(attempt - 1, 5)));
+
+      realtimeReconnectTimerRef.current = setTimeout(() => {
+        realtimeReconnectTimerRef.current = null;
+        void connectRealtime();
+      }, delayMs);
+    };
+
+    const connectRealtime = async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+
+        const backendBase = PYTHON_API_BASE.replace(/\/$/, '');
+        const wsBase = backendBase
+          .replace(/^http:\/\//i, 'ws://')
+          .replace(/^https:\/\//i, 'wss://');
+        const wsUrl = `${wsBase}/ws/${encodeURIComponent(user.id)}?token=${encodeURIComponent(token)}`;
+
+        closeSocket();
+
+        const socket = new WebSocket(wsUrl);
+        realtimeSocketRef.current = socket;
+
+        socket.onopen = () => {
+          realtimeReconnectAttemptRef.current = 0;
+          if (realtimeHeartbeatRef.current) {
+            clearInterval(realtimeHeartbeatRef.current);
+          }
+          realtimeHeartbeatRef.current = setInterval(() => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send('ping');
+            }
+          }, 25_000);
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            if (typeof event.data === 'string' && event.data.startsWith('pong:')) {
+              return;
+            }
+            const payload = JSON.parse(event.data);
+            if (payload?.type !== 'habit_logged') return;
+
+            const userId = user.id;
+            void Promise.all([
+              queryClient.invalidateQueries({ queryKey: habitLogKeys.list(userId) }),
+              queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
+            ]);
+
+            window.dispatchEvent(new CustomEvent('ritual:habit-log-updated', {
+              detail: payload.data || null,
+            }));
+          } catch (error) {
+            console.warn('Realtime habit update parse failed:', error);
+          }
+        };
+
+        socket.onerror = () => {
+          socket.close();
+        };
+
+        socket.onclose = () => {
+          if (realtimeHeartbeatRef.current) {
+            clearInterval(realtimeHeartbeatRef.current);
+            realtimeHeartbeatRef.current = null;
+          }
+          const wasCurrentSocket = realtimeSocketRef.current === socket;
+          if (wasCurrentSocket) {
+            realtimeSocketRef.current = null;
+          }
+          if (wasCurrentSocket) {
+            scheduleReconnect();
+          }
+        };
+      } catch (error) {
+        console.warn('Realtime habit connection failed:', error);
+        scheduleReconnect();
+      }
+    };
+
+    void connectRealtime();
+
+    return () => {
+      cancelled = true;
+      closeSocket();
+    };
+  }, [getToken, queryClient, user?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

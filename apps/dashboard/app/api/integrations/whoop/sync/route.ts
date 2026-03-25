@@ -16,6 +16,24 @@ type WhoopSyncRequest = {
   full_history?: boolean;
 };
 
+type SafeWhoopSyncCounts = {
+  recovery: number;
+  sleep: number;
+  workouts: number;
+  cycles: number;
+};
+
+type SafeWhoopSyncResult = {
+  status: string;
+  syncedAt: string | null;
+  syncPeriod: {
+    startDate: string | null;
+    endDate: string | null;
+    days: number;
+  };
+  counts: SafeWhoopSyncCounts;
+};
+
 function parseOptionalPositiveInt(value: string | null | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = parseInt(value, 10);
@@ -63,6 +81,31 @@ async function resolveSyncRequest(req: NextRequest): Promise<{
       queryFullHistory ??
       body.fullHistory ??
       body.full_history,
+  };
+}
+
+function toFiniteNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function toSafeWhoopSyncResult(raw: any): SafeWhoopSyncResult {
+  const rawCounts = raw?.data ?? {};
+  const rawSyncPeriod = raw?.sync_period ?? {};
+
+  return {
+    status: typeof raw?.status === 'string' ? raw.status : 'success',
+    syncedAt: typeof raw?.synced_at === 'string' ? raw.synced_at : null,
+    syncPeriod: {
+      startDate: typeof rawSyncPeriod?.start_date === 'string' ? rawSyncPeriod.start_date : null,
+      endDate: typeof rawSyncPeriod?.end_date === 'string' ? rawSyncPeriod.end_date : null,
+      days: toFiniteNumber(rawSyncPeriod?.days),
+    },
+    counts: {
+      recovery: toFiniteNumber(rawCounts?.recovery),
+      sleep: toFiniteNumber(rawCounts?.sleep),
+      workouts: toFiniteNumber(rawCounts?.workouts),
+      cycles: toFiniteNumber(rawCounts?.cycles),
+    },
   };
 }
 
@@ -144,13 +187,14 @@ async function handleWhoopSync(
   }
   
   const result = await response.json();
+  const safeResult = toSafeWhoopSyncResult(result);
   
   logger.info('✅ Whoop sync completed successfully');
   
   return NextResponse.json({
     success: true,
     message: 'Whoop data synchronized successfully',
-    data: result,
+    data: safeResult,
   });
 }
 

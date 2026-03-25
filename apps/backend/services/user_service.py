@@ -4,6 +4,7 @@ User Service - Handles user profile and onboarding operations
 
 import json
 import logging
+import re
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy import select, update
@@ -12,6 +13,34 @@ from database.connection import get_db_session
 from database.models import UserDB
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_phone_number(phone_number: Optional[str]) -> Optional[str]:
+    """
+    Normalize phone numbers into a stable comparable format.
+
+    Clerk tends to provide E.164 values, but webhook providers and manual inputs
+    can include spaces, parentheses, or dashes. Normalize common US inputs so
+    backend lookups remain stable.
+    """
+    if not phone_number:
+        return None
+
+    value = phone_number.strip()
+    if not value:
+        return None
+
+    digits = re.sub(r"\D", "", value)
+    if not digits:
+        return value
+
+    if value.startswith("+"):
+        return f"+{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    if len(digits) == 10:
+        return f"+1{digits}"
+    return digits
 
 class UserService:
     """Service class for user operations"""
@@ -68,7 +97,7 @@ class UserService:
                     onboarding_completed=True,
                 )
                 if phone_number:
-                    values["phone_number"] = phone_number
+                    values["phone_number"] = _normalize_phone_number(phone_number)
                 await session.execute(
                     update(UserDB)
                     .where(UserDB.id == user_id)
@@ -95,10 +124,28 @@ class UserService:
         """Look up a user by phone number (for Linq webhook)"""
         async with get_db_session() as session:
             try:
+                normalized_phone = _normalize_phone_number(phone_number)
+                candidates = [phone_number]
+                if normalized_phone and normalized_phone not in candidates:
+                    candidates.append(normalized_phone)
+
                 result = await session.execute(
-                    select(UserDB).where(UserDB.phone_number == phone_number)
+                    select(UserDB).where(UserDB.phone_number.in_(candidates))
                 )
-                return result.scalar_one_or_none()
+                user = result.scalar_one_or_none()
+                if user:
+                    return user
+
+                if not normalized_phone:
+                    return None
+
+                result = await session.execute(
+                    select(UserDB).where(UserDB.phone_number.is_not(None))
+                )
+                for candidate in result.scalars():
+                    if _normalize_phone_number(candidate.phone_number) == normalized_phone:
+                        return candidate
+                return None
             except SQLAlchemyError as e:
                 logger.error(f"❌ Database error looking up user by phone: {str(e)}")
                 return None
@@ -107,6 +154,7 @@ class UserService:
         """
         Ensure user exists in database, create if not
         """
+        normalized_phone_number = _normalize_phone_number(phone_number)
         async with get_db_session() as session:
             try:
                 # Check if user exists
@@ -121,8 +169,8 @@ class UserService:
                     if email and email != user.email and user.email.endswith("@clerk.user"):
                         updates["email"] = email
                     # Sync phone number from Clerk if we have one and it differs
-                    if phone_number and phone_number != user.phone_number:
-                        updates["phone_number"] = phone_number
+                    if normalized_phone_number and normalized_phone_number != user.phone_number:
+                        updates["phone_number"] = normalized_phone_number
                     if updates:
                         updates["updated_at"] = datetime.utcnow()
                         logger.info(f"🔄 Updating user fields: {list(updates.keys())}")
@@ -150,7 +198,7 @@ class UserService:
                     id=user_id,
                     email=email or f"{user_id}@clerk.user",  # Fallback email if not provided
                     full_name=default_name,
-                    phone_number=phone_number,
+                    phone_number=normalized_phone_number,
                     onboarding_completed=False,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()

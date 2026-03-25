@@ -1,8 +1,11 @@
 // FFI bindings for Swift components
 #[cfg(target_os = "macos")]
 extern "C" {
+    fn clear_speech_state();
     fn show_microphone_permission_dialog() -> bool;
     fn check_microphone_permission() -> bool;
+    fn get_speech_state_json() -> *mut std::os::raw::c_char;
+    fn free_swift_c_string(ptr: *mut std::os::raw::c_char);
     fn start_speech_recognition() -> bool;
     fn stop_speech_recognition() -> bool;
 }
@@ -23,6 +26,26 @@ macro_rules! nw_error {
     ($($arg:tt)*) => {
         log::error!("[NATIVE_WIDGET] {}", format!($($arg)*))
     };
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct NativeSpeechState {
+    pub event: String,
+    pub transcript: String,
+    pub timestamp: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn read_swift_json_string(ptr: *mut std::os::raw::c_char) -> Result<String, String> {
+    if ptr.is_null() {
+        return Err("Swift returned null string".to_string());
+    }
+
+    let value = unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { free_swift_c_string(ptr) };
+    Ok(value)
 }
 
 fn native_widget_process_running() -> bool {
@@ -492,5 +515,36 @@ pub async fn stop_native_speech_recognition() -> Result<(), String> {
     {
         nw_info!("🎤 Native speech recognition not available on this platform");
         Err("Speech recognition not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn get_native_speech_state() -> Result<NativeSpeechState, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let json = unsafe { read_swift_json_string(get_speech_state_json())? };
+        serde_json::from_str::<NativeSpeechState>(&json)
+            .map_err(|e| format!("Failed to parse native speech state: {}", e))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Speech state not supported on this platform".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn clear_native_speech_state() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe {
+            clear_speech_state();
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Speech state not supported on this platform".to_string())
     }
 }

@@ -62,6 +62,10 @@ use sync_queue::SyncQueue;
 #[cfg(target_os = "macos")]
 use browser_tracker::{set_active_browser, BrowserTabTracker};
 #[cfg(target_os = "macos")]
+use objc2::runtime::AnyObject;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::NSApplicationActivationPolicy;
+#[cfg(target_os = "macos")]
 use screen_events::{ScreenEventListener, ScreenEventType};
 #[cfg(target_os = "macos")]
 use window_observer::{observe_app, WindowChangeEvent, WindowChangeListener};
@@ -756,6 +760,9 @@ fn main() {
         )
         .init();
 
+    #[cfg(target_os = "macos")]
+    configure_process_as_background_agent();
+
     let args = Args::parse();
 
     info!("🚀 Ritual Watcher v2 starting...");
@@ -877,6 +884,30 @@ fn main() {
     );
 
     info!("👋 Ritual Watcher stopped");
+}
+
+#[cfg(target_os = "macos")]
+fn configure_process_as_background_agent() {
+    // The watcher uses AppKit APIs for NSWorkspace notifications and run loop
+    // pumping, but it should behave like a background helper and never claim its
+    // own Dock icon.
+    unsafe {
+        let app: *mut AnyObject = objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
+        if app.is_null() {
+            warn!("⚠️ NSApplication sharedApplication returned null for watcher background mode");
+            return;
+        }
+
+        let changed: bool = objc2::msg_send![
+            app,
+            setActivationPolicy: NSApplicationActivationPolicy::Prohibited
+        ];
+        if !changed {
+            warn!("⚠️ Failed to set watcher activation policy to Prohibited");
+        } else {
+            info!("✅ Watcher activation policy set to background-only");
+        }
+    }
 }
 
 /// Pump the main thread's run loop for the given duration instead of sleeping.

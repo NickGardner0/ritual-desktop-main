@@ -15,6 +15,16 @@ import { useHabits } from '@/contexts/HabitsContext';
 import { isScreenRecordingQuery, prefetchScreenResults, type ScreenSearchPrefetchResult } from '@/lib/screen-search';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { isTauri } from '@/lib/tauri-utils';
+import { invokeDetailedActivityWithInitRetry, invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
+import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
+import {
+  clearNativeDesktopSpeechState,
+  formatNativeSpeechError,
+  getNativeDesktopSpeechState,
+  startNativeDesktopSpeechRecognition,
+  stopNativeDesktopSpeechRecognition,
+} from '@/lib/native-voice';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
@@ -142,6 +152,150 @@ interface Message {
   content: string;
   canvasData?: HabitCanvasData;
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
+}
+
+type LocalOverviewActivityBundle = {
+  startDate: string;
+  endDate: string;
+  daily: Array<{
+    day: string;
+    active_hours: number;
+    events_count: number;
+    apps_count: number;
+  }>;
+  apps: Array<{
+    app_bundle_id: string;
+    app_name: string;
+    hours: number;
+    total_events: number;
+  }>;
+  domains: Array<{
+    domain: string;
+    hours: number;
+    total_events: number;
+  }>;
+  source: 'desktop_local';
+};
+
+function getTimezoneYmd(date: Date, timezone?: string): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(date);
+}
+
+function shiftYmd(ymd: string, deltaDays: number): string {
+  const [year, month, day] = ymd.split('-').map(Number);
+  const date = new Date(Date.UTC(year, (month || 1) - 1, day || 1, 12, 0, 0));
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function isOverviewActivityQuery(text: string): boolean {
+  const normalized = (text || '').toLowerCase().trim();
+  if (!normalized) return false;
+  const patterns = [
+    'how was my week',
+    'how was my month',
+    'how was my day',
+    'weekly overview',
+    'weekly summary',
+    'weekly recap',
+    'daily overview',
+    'daily summary',
+    'daily recap',
+    'monthly overview',
+    'monthly summary',
+    'monthly recap',
+    'this week',
+    'last week',
+    'this month',
+    'last month',
+    'today',
+  ];
+  return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+function ymdRangeToLocalTs(startDate: string, endDate: string): { startTs: number; endTs: number } {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T23:59:59.999`);
+  return {
+    startTs: start.getTime(),
+    endTs: end.getTime(),
+  };
+}
+
+async function buildLocalOverviewActivityBundle(
+  startDate: string,
+  endDate: string,
+): Promise<LocalOverviewActivityBundle> {
+  const { startTs, endTs } = ymdRangeToLocalTs(startDate, endDate);
+  const [detailed, daily] = await Promise.all([
+    invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 25 }),
+    invokeDailySummariesWithInitRetry(startDate, endDate),
+  ]);
+
+  return {
+    startDate,
+    endDate,
+    daily: daily.map((row) => ({
+      day: row.date,
+      active_hours: Number(row.total_hours || 0),
+      events_count: Number(row.event_count || 0),
+      apps_count: Number(row.app_count || 0),
+    })),
+    apps: detailed.apps.map((row) => ({
+      app_bundle_id: row.app_bundle_id,
+      app_name: row.app_name,
+      hours: Number(row.total_duration_ms || 0) / 3_600_000,
+      total_events: Number(row.event_count || 0),
+    })),
+    domains: detailed.domains.map((row) => ({
+      domain: row.domain,
+      hours: Number(row.total_duration_ms || 0) / 3_600_000,
+      total_events: Number(row.event_count || 0),
+    })),
+    source: 'desktop_local',
+  };
+}
+
+async function maybeBuildLocalOverviewActivity(
+  text: string,
+  timezone?: string,
+): Promise<LocalOverviewActivityBundle[] | null> {
+  if (!isTauri() || !isOverviewActivityQuery(text)) {
+    return null;
+  }
+
+  const todayYmd = getTimezoneYmd(new Date(), timezone || 'UTC');
+  const rollingWeek = {
+    startDate: shiftYmd(todayYmd, -7),
+    endDate: todayYmd,
+  };
+  const thisWeek = getStrictThisWeekRange(timezone || 'UTC', new Date());
+  const lastWeek = {
+    startDate: shiftYmd(thisWeek.startDate, -7),
+    endDate: shiftYmd(thisWeek.startDate, -1),
+  };
+  const monthRange = {
+    startDate: shiftYmd(todayYmd, -29),
+    endDate: todayYmd,
+  };
+
+  const bundles = await Promise.allSettled([
+    buildLocalOverviewActivityBundle(todayYmd, todayYmd),
+    buildLocalOverviewActivityBundle(rollingWeek.startDate, rollingWeek.endDate),
+    buildLocalOverviewActivityBundle(thisWeek.startDate, thisWeek.endDate),
+    buildLocalOverviewActivityBundle(lastWeek.startDate, lastWeek.endDate),
+    buildLocalOverviewActivityBundle(monthRange.startDate, monthRange.endDate),
+  ]);
+
+  return bundles
+    .filter((result): result is PromiseFulfilledResult<LocalOverviewActivityBundle> => result.status === 'fulfilled')
+    .map((result) => result.value);
 }
 
 // Smarter canvas data extraction - looks for patterns in the response
@@ -644,6 +798,10 @@ export function ChatClient() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const nativeVoicePollRef = useRef<number | null>(null);
+  const nativeVoiceAutoStopRef = useRef<number | null>(null);
+  const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
+  const nativeVoiceTimestampRef = useRef(0);
   
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
@@ -975,6 +1133,16 @@ export function ChatClient() {
         console.warn('Screen recording prefetch failed:', error);
       }
     }
+
+    let localOverviewActivity: LocalOverviewActivityBundle[] | null = null;
+    try {
+      localOverviewActivity = await maybeBuildLocalOverviewActivity(
+        text,
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+      );
+    } catch (error) {
+      console.warn('Local overview activity prefetch failed:', error);
+    }
     
     try {
       const token = await getToken();
@@ -991,6 +1159,7 @@ export function ChatClient() {
           conversationId: conversationId, // Include conversation ID for persistence
           responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
           screenSearchResults,
+          localOverviewActivity,
         }),
       });
       
@@ -1344,6 +1513,91 @@ export function ChatClient() {
     </div>
   );
 
+  const clearNativeVoiceTimers = useCallback(() => {
+    if (nativeVoicePollRef.current) {
+      clearInterval(nativeVoicePollRef.current);
+      nativeVoicePollRef.current = null;
+    }
+    if (nativeVoiceAutoStopRef.current) {
+      clearTimeout(nativeVoiceAutoStopRef.current);
+      nativeVoiceAutoStopRef.current = null;
+    }
+    if (nativeVoiceFinalizeTimeoutRef.current) {
+      clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
+      nativeVoiceFinalizeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetNativeVoiceSession = useCallback(async () => {
+    clearNativeVoiceTimers();
+    nativeVoiceTimestampRef.current = 0;
+    await clearNativeDesktopSpeechState().catch(() => undefined);
+  }, [clearNativeVoiceTimers]);
+
+  useEffect(() => {
+    return () => {
+      clearNativeVoiceTimers();
+      void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+    };
+  }, [clearNativeVoiceTimers]);
+
+  const startNativeVoiceRecognition = useCallback(async () => {
+    setVoiceError(null);
+    setIsProcessingVoice(false);
+    await resetNativeVoiceSession();
+    await startNativeDesktopSpeechRecognition();
+    setIsListening(true);
+
+    nativeVoicePollRef.current = window.setInterval(() => {
+      void (async () => {
+        try {
+          const state = await getNativeDesktopSpeechState();
+          if (!state.timestamp || state.timestamp <= nativeVoiceTimestampRef.current) {
+            return;
+          }
+          nativeVoiceTimestampRef.current = state.timestamp;
+
+          if (state.event === 'ritual:speech:final') {
+            await resetNativeVoiceSession();
+            setIsListening(false);
+            setIsProcessingVoice(false);
+            if (state.transcript?.trim()) {
+              setInput(state.transcript);
+              setTimeout(() => textareaRef.current?.focus(), 100);
+            } else {
+              setVoiceError('No speech detected. Please try again.');
+            }
+            return;
+          }
+
+          if (state.event === 'ritual:speech:error') {
+            await resetNativeVoiceSession();
+            setIsListening(false);
+            setIsProcessingVoice(false);
+            setVoiceError(formatNativeSpeechError(state.transcript));
+            return;
+          }
+
+          if (state.event === 'ritual:speech:status' && state.transcript === 'stopped') {
+            await resetNativeVoiceSession();
+            setIsListening(false);
+            setIsProcessingVoice(false);
+            setVoiceError('No speech detected. Please try again.');
+          }
+        } catch (pollError: any) {
+          await resetNativeVoiceSession();
+          setIsListening(false);
+          setIsProcessingVoice(false);
+          setVoiceError(`Voice error: ${pollError?.message || 'Unknown native speech error'}`);
+        }
+      })();
+    }, 200);
+
+    nativeVoiceAutoStopRef.current = window.setTimeout(() => {
+      stopVoiceRecording();
+    }, 5000);
+  }, [resetNativeVoiceSession]);
+
   // Voice recording
   const startVoiceRecognition = async () => {
     if (isListening) {
@@ -1353,6 +1607,11 @@ export function ChatClient() {
 
     try {
       setVoiceError(null);
+      if (isTauri()) {
+        await startNativeVoiceRecognition();
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
@@ -1424,7 +1683,7 @@ export function ChatClient() {
 
     } catch (err: any) {
       setVoiceError(err.name === 'NotAllowedError' 
-        ? 'Microphone access denied.' 
+        ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
         : `Microphone error: ${err.message}`);
       setIsListening(false);
       setIsProcessingVoice(false);
@@ -1432,6 +1691,33 @@ export function ChatClient() {
   };
 
   const stopVoiceRecording = () => {
+    if (isTauri()) {
+      if (nativeVoiceAutoStopRef.current) {
+        clearTimeout(nativeVoiceAutoStopRef.current);
+        nativeVoiceAutoStopRef.current = null;
+      }
+      if (nativeVoiceFinalizeTimeoutRef.current) {
+        clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
+      }
+
+      setIsListening(false);
+      setIsProcessingVoice(true);
+
+      void stopNativeDesktopSpeechRecognition()
+        .catch((error: any) => {
+          setVoiceError(`Voice error: ${error?.message || 'Failed to stop native speech recognition.'}`);
+          return Promise.resolve();
+        })
+        .finally(() => {
+          nativeVoiceFinalizeTimeoutRef.current = window.setTimeout(() => {
+            void resetNativeVoiceSession();
+            setIsProcessingVoice(false);
+            setVoiceError('No speech detected. Please try again.');
+          }, 1500);
+        });
+      return;
+    }
+
     const mediaRecorder = (window as any).__mediaRecorder;
     const autoStopTimer = (window as any).__autoStopTimer;
     if (autoStopTimer) clearTimeout(autoStopTimer);
@@ -1544,11 +1830,7 @@ export function ChatClient() {
                       disabled={!input.trim() || isLoading}
                       className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:cursor-not-allowed"
                     >
-                      {isLoading ? (
-                        <BrailleSpinner className="text-sm text-white" />
-                      ) : (
-                        <ArrowUp className="w-4 h-4" />
-                      )}
+                      <ArrowUp className={cn("w-4 h-4", isLoading && "opacity-70")} />
                     </button>
                   </div>
                 </div>
@@ -2004,11 +2286,7 @@ export function ChatClient() {
                     disabled={!input.trim() || isLoading}
                     className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:cursor-not-allowed"
                   >
-                    {isLoading ? (
-                      <BrailleSpinner className="text-sm text-white" />
-                    ) : (
-                      <ArrowUp className="w-4 h-4" />
-                    )}
+                    <ArrowUp className={cn("w-4 h-4", isLoading && "opacity-70")} />
                   </button>
                 </div>
               </div>

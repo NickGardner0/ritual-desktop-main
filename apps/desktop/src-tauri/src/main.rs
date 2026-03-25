@@ -720,6 +720,8 @@ fn main() {
       native_widget::check_native_microphone_permission,
       native_widget::start_native_speech_recognition,
       native_widget::stop_native_speech_recognition,
+      native_widget::get_native_speech_state,
+      native_widget::clear_native_speech_state,
       // Ritual Watcher commands for computer activity tracking
       watcher::check_accessibility_permission,
       watcher::request_accessibility_permission,

@@ -10,6 +10,14 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
 import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
+import { isTauri } from '@/lib/tauri-utils';
+import {
+  clearNativeDesktopSpeechState,
+  formatNativeSpeechError,
+  getNativeDesktopSpeechState,
+  startNativeDesktopSpeechRecognition,
+  stopNativeDesktopSpeechRecognition,
+} from '@/lib/native-voice';
 
 type InputMode = 'log' | 'chat';
 
@@ -138,6 +146,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [keyboardSuggestionActive, setKeyboardSuggestionActive] = useState(false);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestionsAbortRef = useRef<AbortController | null>(null);
+  const nativeVoicePollRef = useRef<number | null>(null);
+  const nativeVoiceAutoStopRef = useRef<number | null>(null);
+  const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
+  const nativeVoiceTimestampRef = useRef(0);
 
   const { habits, habitLogs } = useHabits();
   const { user } = useUser();
@@ -644,6 +656,91 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     setClarifications(prev => prev.filter((_, i) => i !== index));
   };
 
+  const clearNativeVoiceTimers = useCallback(() => {
+    if (nativeVoicePollRef.current) {
+      clearInterval(nativeVoicePollRef.current);
+      nativeVoicePollRef.current = null;
+    }
+    if (nativeVoiceAutoStopRef.current) {
+      clearTimeout(nativeVoiceAutoStopRef.current);
+      nativeVoiceAutoStopRef.current = null;
+    }
+    if (nativeVoiceFinalizeTimeoutRef.current) {
+      clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
+      nativeVoiceFinalizeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetNativeVoiceSession = useCallback(async () => {
+    clearNativeVoiceTimers();
+    nativeVoiceTimestampRef.current = 0;
+    await clearNativeDesktopSpeechState().catch(() => undefined);
+  }, [clearNativeVoiceTimers]);
+
+  useEffect(() => {
+    return () => {
+      clearNativeVoiceTimers();
+      void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+    };
+  }, [clearNativeVoiceTimers]);
+
+  const startNativeVoiceRecognition = useCallback(async () => {
+    setError(null);
+    setIsProcessingVoice(false);
+    await resetNativeVoiceSession();
+    await startNativeDesktopSpeechRecognition();
+    setIsListening(true);
+
+    nativeVoicePollRef.current = window.setInterval(() => {
+      void (async () => {
+        try {
+          const state = await getNativeDesktopSpeechState();
+          if (!state.timestamp || state.timestamp <= nativeVoiceTimestampRef.current) {
+            return;
+          }
+          nativeVoiceTimestampRef.current = state.timestamp;
+
+          if (state.event === 'ritual:speech:final') {
+            await resetNativeVoiceSession();
+            setIsListening(false);
+            setIsProcessingVoice(false);
+            if (state.transcript?.trim()) {
+              setInput(state.transcript);
+              setTimeout(() => textareaRef.current?.focus(), 100);
+            } else {
+              setError('No speech detected. Please try again.');
+            }
+            return;
+          }
+
+          if (state.event === 'ritual:speech:error') {
+            await resetNativeVoiceSession();
+            setIsListening(false);
+            setIsProcessingVoice(false);
+            setError(formatNativeSpeechError(state.transcript));
+            return;
+          }
+
+          if (state.event === 'ritual:speech:status' && state.transcript === 'stopped') {
+            await resetNativeVoiceSession();
+            setIsListening(false);
+            setIsProcessingVoice(false);
+            setError('No speech detected. Please try again.');
+          }
+        } catch (pollError: any) {
+          await resetNativeVoiceSession();
+          setIsListening(false);
+          setIsProcessingVoice(false);
+          setError(`Voice error: ${pollError?.message || 'Unknown native speech error'}`);
+        }
+      })();
+    }, 200);
+
+    nativeVoiceAutoStopRef.current = window.setTimeout(() => {
+      stopVoiceRecording();
+    }, 3000);
+  }, [resetNativeVoiceSession]);
+
   // Voice recording
   const startVoiceRecognition = async () => {
     if (isListening) {
@@ -653,6 +750,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     try {
       setError(null);
+      if (isTauri()) {
+        await startNativeVoiceRecognition();
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
@@ -724,7 +826,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     } catch (err: any) {
       setError(err.name === 'NotAllowedError' 
-        ? 'Microphone access denied.' 
+        ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
         : `Microphone error: ${err.message}`);
       setIsListening(false);
       setIsProcessingVoice(false);
@@ -732,6 +834,33 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   };
 
   const stopVoiceRecording = () => {
+    if (isTauri()) {
+      if (nativeVoiceAutoStopRef.current) {
+        clearTimeout(nativeVoiceAutoStopRef.current);
+        nativeVoiceAutoStopRef.current = null;
+      }
+      if (nativeVoiceFinalizeTimeoutRef.current) {
+        clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
+      }
+
+      setIsListening(false);
+      setIsProcessingVoice(true);
+
+      void stopNativeDesktopSpeechRecognition()
+        .catch((error: any) => {
+          setError(`Voice error: ${error?.message || 'Failed to stop native speech recognition.'}`);
+          return Promise.resolve();
+        })
+        .finally(() => {
+          nativeVoiceFinalizeTimeoutRef.current = window.setTimeout(() => {
+            void resetNativeVoiceSession();
+            setIsProcessingVoice(false);
+            setError('No speech detected. Please try again.');
+          }, 1500);
+        });
+      return;
+    }
+
     const mediaRecorder = (window as any).__mediaRecorder;
     const autoStopTimer = (window as any).__autoStopTimer;
     if (autoStopTimer) clearTimeout(autoStopTimer);

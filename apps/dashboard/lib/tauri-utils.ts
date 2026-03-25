@@ -17,6 +17,33 @@ export function isTauri(): boolean {
   return result;
 }
 
+/**
+ * Ensure microphone access is granted in the Tauri desktop shell before using
+ * browser media APIs. On the web we defer to the browser prompt directly.
+ */
+export async function ensureMicrophonePermission(): Promise<boolean> {
+  if (!isTauri()) return true;
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/tauri');
+
+    const alreadyGranted = await invoke<boolean>('check_native_microphone_permission').catch(() => false);
+    if (alreadyGranted) {
+      return true;
+    }
+
+    const grantedAfterPrompt = await invoke<boolean>('show_native_microphone_permission_dialog').catch(() => false);
+    if (grantedAfterPrompt) {
+      return true;
+    }
+
+    return await invoke<boolean>('check_native_microphone_permission').catch(() => false);
+  } catch (error) {
+    console.error('Failed to ensure microphone permission:', error);
+    return false;
+  }
+}
+
 // Track if window has been shown to prevent multiple calls
 let windowShown = false;
 

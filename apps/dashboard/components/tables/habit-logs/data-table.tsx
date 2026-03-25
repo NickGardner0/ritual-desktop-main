@@ -719,6 +719,12 @@ export function HabitLogsDataTable({
         onMouseDown={() => containerRef.current?.focus()}
         ref={containerRef}
       >
+        {isLoading && logs.length === 0 ? (
+          <div className="mb-3 flex items-center gap-2 text-sm text-neutral-500">
+            <BrailleSpinner className="text-sm text-neutral-500" />
+            <span>Loading logs...</span>
+          </div>
+        ) : null}
         <div
           ref={scrollViewportRef}
           className={cn(

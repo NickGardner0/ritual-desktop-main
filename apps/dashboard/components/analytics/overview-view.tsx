@@ -144,6 +144,17 @@ export function OverviewView({
     return [...habitLogs, ...optimisticLogs];
   }, [habitLogs, optimisticLogs]);
 
+  const getLogLocalDate = useCallback((log: { date?: string; completed_at?: string }) => {
+    if (log.completed_at) {
+      const completedAt = parseISO(log.completed_at);
+      if (!Number.isNaN(completedAt.getTime())) {
+        return format(completedAt, 'yyyy-MM-dd');
+      }
+    }
+
+    return typeof log.date === 'string' ? log.date.split('T')[0] : '';
+  }, []);
+
   // Fetch stats from Python analytics API
   useEffect(() => {
     const fetchStats = async () => {
@@ -406,21 +417,23 @@ export function OverviewView({
 
     if (dateRange?.from) {
       filteredLogs = filteredLogs.filter(log => {
-        const logDate = parseISO(log.date);
-        let isInRange = false;
+        const localDate = getLogLocalDate(log);
+        if (!localDate) return false;
+
+        const logDate = parseISO(localDate);
+        if (Number.isNaN(logDate.getTime())) {
+          return false;
+        }
 
         if (dateRange.to) {
-          isInRange = isWithinInterval(logDate, {
+          return isWithinInterval(logDate, {
             start: startOfDay(dateRange.from!),
             end: endOfDay(dateRange.to),
           });
-        } else {
-          const filterDateStr = dateRange.from!.toLocaleDateString('en-CA');
-          const logDateStr = typeof log.date === 'string' ? log.date.split('T')[0] : '';
-          isInRange = logDateStr === filterDateStr;
         }
 
-        return isInRange;
+        const filterDateStr = format(dateRange.from!, 'yyyy-MM-dd');
+        return localDate === filterDateStr;
       });
     }
 
@@ -470,7 +483,7 @@ export function OverviewView({
     }
     
     return `${formattedAmount} ${unitType}`;
-  }, [displayLogs, dateRange, computerActivityDaily, scrubberHoveredDate]);
+  }, [displayLogs, dateRange, computerActivityDaily, getLogLocalDate, scrubberHoveredDate]);
 
   const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
 

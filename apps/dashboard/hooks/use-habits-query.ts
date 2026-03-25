@@ -143,7 +143,11 @@ export function useHabitLogsQuery() {
       return processedLogs as HabitLog[];
     },
     enabled: isLoaded && !!user?.id,
-    staleTime: 1000 * 60 * 2, // 2 minutes (logs change more frequently)
+    staleTime: 1000 * 10, // 10 seconds; logs can change out-of-band via text logging/imports
+    refetchOnWindowFocus: 'always',
+    refetchOnReconnect: 'always',
+    refetchInterval: 1000 * 10,
+    refetchIntervalInBackground: false,
   });
 }
 

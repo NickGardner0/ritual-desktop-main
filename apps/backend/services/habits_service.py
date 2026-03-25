@@ -16,6 +16,7 @@ from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, Habit
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
+from services.realtime import websocket_manager
 from services.tinybird_service import TinybirdService
 
 logger = logging.getLogger(__name__)
@@ -334,6 +335,23 @@ class HabitsService:
                     )
                 except Exception as e:
                     logger.warning(f"⚠️  Search index failed for habit log: {e}")
+
+                try:
+                    await websocket_manager.notify_habit_logged(
+                        {
+                            "id": habit_log.id,
+                            "habit_id": habit_log.habit_id,
+                            "habit_name": habit_log.habit_name,
+                            "date": habit_log.date,
+                            "completed_at": habit_log.completed_at,
+                            "amount": habit_log.amount,
+                            "duration": habit_log.duration,
+                            "status": habit_log.status,
+                        },
+                        user_id,
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️  Realtime habit notification failed: {e}")
                 
                 return habit_log
                 

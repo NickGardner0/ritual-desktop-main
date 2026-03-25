@@ -19,6 +19,7 @@ import { subDays, format } from 'date-fns';
  * - sort: Column to sort by (date, habit, value, category, status)
  * - order: Sort order (asc, desc)
  * - limit: Max results to return (default: 500)
+ * - offset: Row offset for pagination (default: 0)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -44,39 +45,21 @@ export async function GET(request: NextRequest) {
     const sources = searchParams.get('sources')?.split(',').filter(Boolean) || [];
     const sort = searchParams.get('sort') || 'date';
     const order = searchParams.get('order') || 'desc';
-    const requestedLimit = Number.parseInt(searchParams.get('limit') || '500', 10);
-    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 500;
+    const requestedLimit = Number.parseInt(searchParams.get('limit') || '200', 10);
+    const requestedOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 200;
+    const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
 
     const tinybirdToken = process.env.TINYBIRD_TOKEN;
     const tinybirdHost = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co';
     const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
     
-    // Fetch habits metadata (for category and icon)
-    let habitsMap: Record<string, { category: string; icon?: string; unit_type?: string }> = {};
-    try {
-      const habitsRes = await fetch(`${backendUrl}/api/habits`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (habitsRes.ok) {
-        const habitsData = await habitsRes.json();
-        habitsData.forEach((h: any) => {
-          habitsMap[h.id] = { 
-            category: h.category || 'uncategorized', 
-            icon: h.icon,
-            unit_type: h.unit_type,
-          };
-        });
-      }
-    } catch (e) {
-      console.warn('Failed to fetch habits metadata:', e);
-    }
-
     // Build Tinybird query params
     const tinybirdParams = new URLSearchParams();
     tinybirdParams.set('user_id', userId);
     tinybirdParams.set('start_date', startDate);
     tinybirdParams.set('end_date', endDate);
-    tinybirdParams.set('limit', String(Math.min(limit * 2, 2000))); // Fetch extra for filtering
+    tinybirdParams.set('limit', String(Math.min((offset + limit) * 2, 5000))); // Fetch extra for filtering + pagination
     
     if (!tinybirdToken) {
       // Fall back to Python API if Tinybird not configured
@@ -97,11 +80,38 @@ export async function GET(request: NextRequest) {
     // Fetch from Tinybird habit_logs_time_range pipe
     const tinybirdUrl = `${tinybirdHost}/v0/pipes/habit_logs_time_range.json?${tinybirdParams.toString()}`;
     
-    const response = await fetch(tinybirdUrl, {
+    const habitsMapPromise = (async () => {
+      const habitsMap: Record<string, { category: string; icon?: string; unit_type?: string }> = {};
+      try {
+        const habitsRes = await fetch(`${backendUrl}/api/habits`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (habitsRes.ok) {
+          const habitsData = await habitsRes.json();
+          habitsData.forEach((h: any) => {
+            habitsMap[h.id] = {
+              category: h.category || 'uncategorized',
+              icon: h.icon,
+              unit_type: h.unit_type,
+            };
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to fetch habits metadata:', e);
+      }
+      return habitsMap;
+    })();
+
+    const tinybirdResponsePromise = fetch(tinybirdUrl, {
       headers: {
         'Authorization': `Bearer ${tinybirdToken}`,
       },
     });
+
+    const [habitsMap, response] = await Promise.all([
+      habitsMapPromise,
+      tinybirdResponsePromise,
+    ]);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -191,8 +201,13 @@ export async function GET(request: NextRequest) {
       return 0;
     });
 
-    // Apply limit
-    logs = logs.slice(0, limit);
+    const totalFiltered = logs.length;
+    const totalDuration = logs.reduce((sum: number, log: any) => sum + Number(log.duration || 0), 0);
+    const totalAmount = logs.reduce((sum: number, log: any) => sum + Number(log.amount || 0), 0);
+    const completedCount = logs.filter((log: any) => log.status === 'completed').length;
+
+    // Apply pagination after filtering/sorting
+    logs = logs.slice(offset, offset + limit);
 
     // Transform data to match expected format
     const transformedLogs = logs.map((log: any) => ({
@@ -217,6 +232,10 @@ export async function GET(request: NextRequest) {
       data: transformedLogs,
       meta: {
         total: transformedLogs.length,
+        totalFiltered,
+        offset,
+        limit,
+        hasMore: offset + transformedLogs.length < totalFiltered,
         filters: {
           q,
           startDate,
@@ -227,6 +246,13 @@ export async function GET(request: NextRequest) {
           sources,
         },
         sort: { column: sort, order },
+        totals: {
+          count: totalFiltered,
+          totalDuration,
+          totalAmount,
+          completedCount,
+          completionRate: totalFiltered > 0 ? (completedCount / totalFiltered) * 100 : 0,
+        },
       },
     });
 

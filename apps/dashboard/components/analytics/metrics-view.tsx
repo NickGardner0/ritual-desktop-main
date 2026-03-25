@@ -111,6 +111,8 @@ type ComputerDailyRow = {
 
 const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 const CARD_ORDER_KEY = 'ritual-metric-card-order';
+const DEFAULT_METRICS_SPARKLINE_DAYS = 180;
+const DEFAULT_METRICS_SUMMARY_DAYS = 1095;
 
 // ── Metric Category Tabs ──
 const METRIC_CATEGORY_TABS = [
@@ -445,6 +447,7 @@ export function MetricsView({
   const [correlationData, setCorrelationData] = useState<any>(null);
   const [loadingCorrelation, setLoadingCorrelation] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [realtimeRefreshTick, setRealtimeRefreshTick] = useState(0);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
   const [heartRateExpandedSeries, setHeartRateExpandedSeries] = useState<HeartRateSeriesRow[]>([]);
   const [heartRateExpandedSummary, setHeartRateExpandedSummary] = useState<HeartRateSummaryRow | null>(null);
@@ -512,6 +515,19 @@ export function MetricsView({
     [availableHabits, expandedHabit],
   );
   const expandedHabitUsesGranularHeartRate = isGranularHeartRateHabit(expandedHabitData);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleRealtimeHabitUpdate = () => {
+      setRealtimeRefreshTick((tick) => tick + 1);
+    };
+
+    window.addEventListener('ritual:habit-log-updated', handleRealtimeHabitUpdate);
+    return () => {
+      window.removeEventListener('ritual:habit-log-updated', handleRealtimeHabitUpdate);
+    };
+  }, []);
 
   const captureExpandedChart = useCallback(async (label: string) => {
     const captureTarget = exportCardRef.current || chartRef.current;
@@ -735,24 +751,36 @@ export function MetricsView({
 
       const params = new URLSearchParams();
       const useWideRange = !dateRange?.from || !dateRange?.to;
+      const dailyParams = new URLSearchParams();
+      const summaryParams = new URLSearchParams();
 
       if (!useWideRange) {
-        params.set('start_date', format(dateRange!.from!, 'yyyy-MM-dd'));
-        params.set('end_date', format(dateRange!.to!, 'yyyy-MM-dd'));
+        const startDate = format(dateRange!.from!, 'yyyy-MM-dd');
+        const endDate = format(dateRange!.to!, 'yyyy-MM-dd');
+        dailyParams.set('start_date', startDate);
+        dailyParams.set('end_date', endDate);
+        summaryParams.set('start_date', startDate);
+        summaryParams.set('end_date', endDate);
       } else {
-        params.set('days_back', '1095');
+        // Keep "All time" totals, but cap sparkline history so the initial metrics
+        // grid does not have to download years of daily rows for every habit.
+        dailyParams.set('days_back', String(DEFAULT_METRICS_SPARKLINE_DAYS));
+        summaryParams.set('days_back', String(DEFAULT_METRICS_SUMMARY_DAYS));
       }
 
       if (habitsToFetch.length === 1) {
-        params.set('habit_id', habitsToFetch[0]);
+        dailyParams.set('habit_id', habitsToFetch[0]);
+        summaryParams.set('habit_id', habitsToFetch[0]);
       } else {
-        params.set('habit_ids', habitsToFetch.join(','));
+        const joinedIds = habitsToFetch.join(',');
+        dailyParams.set('habit_ids', joinedIds);
+        summaryParams.set('habit_ids', joinedIds);
       }
 
       try {
         const [dailyRes, summaryRes] = await Promise.all([
-          fetch(`/api/analytics/habits/daily-values?output=daily&${params.toString()}`),
-          fetch(`/api/analytics/habits/daily-values?output=summary&${params.toString()}`),
+          fetch(`/api/analytics/habits/daily-values?output=daily&${dailyParams.toString()}`),
+          fetch(`/api/analytics/habits/daily-values?output=summary&${summaryParams.toString()}`),
         ]);
 
         if (!dailyRes.ok || !summaryRes.ok) {
@@ -802,18 +830,20 @@ export function MetricsView({
           if (token) {
             const now = new Date();
             const to = useWideRange ? now : (dateRange?.to || now);
-            const from = useWideRange ? subDays(now, 1095) : (dateRange?.from || subDays(now, 1095));
-            const startDate = format(from, 'yyyy-MM-dd');
+            const summaryFrom = useWideRange ? subDays(now, DEFAULT_METRICS_SUMMARY_DAYS) : (dateRange?.from || subDays(now, DEFAULT_METRICS_SUMMARY_DAYS));
+            const dailyFrom = useWideRange ? subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS) : (dateRange?.from || subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS));
+            const summaryStartDate = format(summaryFrom, 'yyyy-MM-dd');
+            const dailyStartDate = format(dailyFrom, 'yyyy-MM-dd');
             const endDate = format(to, 'yyyy-MM-dd');
             const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 
             const [statsResult, dailyResults] = await Promise.all([
-              analyticsApi.getHabitStats(token, { startDate, endDate }),
+              analyticsApi.getHabitStats(token, { startDate: summaryStartDate, endDate }),
               Promise.all(
                 sleepHabitIds.map((habitId) =>
                   analyticsApi.getDailyBreakdown(token, {
                     habitId,
-                    startDate,
+                    startDate: dailyStartDate,
                     endDate,
                     timezone,
                   }).catch(() => null)
@@ -860,19 +890,20 @@ export function MetricsView({
 
           const now = new Date();
           const to = useWideRange ? now : (dateRange?.to || now);
-          const from = useWideRange ? subDays(now, 1095) : (dateRange?.from || subDays(now, 1095));
+          const summaryFrom = useWideRange ? subDays(now, DEFAULT_METRICS_SUMMARY_DAYS) : (dateRange?.from || subDays(now, DEFAULT_METRICS_SUMMARY_DAYS));
+          const dailyFrom = useWideRange ? subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS) : (dateRange?.from || subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS));
           const fallbackTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
 
           const [statsResult, dailyResults] = await Promise.all([
             analyticsApi.getHabitStats(token, {
-              startDate: format(from, 'yyyy-MM-dd'),
+              startDate: format(summaryFrom, 'yyyy-MM-dd'),
               endDate: format(to, 'yyyy-MM-dd'),
             }),
             Promise.all(
               habitsToFetch.map((habitId) =>
                 analyticsApi.getDailyBreakdown(token, {
                   habitId,
-                  startDate: format(from, 'yyyy-MM-dd'),
+                  startDate: format(dailyFrom, 'yyyy-MM-dd'),
                   endDate: format(to, 'yyyy-MM-dd'),
                   timezone: fallbackTimezone,
                 }).catch(() => null)
@@ -936,6 +967,7 @@ export function MetricsView({
     dateRange?.from?.toISOString(),
     dateRange?.to?.toISOString(),
     isUserLoaded,
+    realtimeRefreshTick,
     user?.id,
     getToken,
   ]);

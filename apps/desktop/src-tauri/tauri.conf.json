@@ -8,8 +8,8 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "ritual-desktop",
-    "version": "0.1.3"
+    "productName": "Ritual",
+    "version": "0.1.4"
   },
   "tauri": {
     "macOSPrivateApi": true,

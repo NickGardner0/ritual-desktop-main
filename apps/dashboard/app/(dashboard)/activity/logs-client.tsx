@@ -20,7 +20,6 @@ import {
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { HabitLogsSearchFilter } from '@/components/habit-logs-search-filter';
 import { HabitLogsActions } from '@/components/habit-logs-actions';
-import { ActivityLoading } from './loading';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 export type HabitLog = {
@@ -80,6 +79,7 @@ const BUILT_IN_PRESETS: Array<{ id: BuiltInFilterPresetId; label: string }> = [
   { id: 'completed', label: 'Completed' },
   { id: 'manual', label: 'Manual source' },
 ];
+const LOGS_PAGE_SIZE = 200;
 
 function toLocalDateString(date: Date): string {
   return date.toLocaleDateString('en-CA');
@@ -217,6 +217,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const [density, setDensity] = useState<TableDensity>(() => readDensityFromStorage(densityStorageKey));
   const [savedViews, setSavedViews] = useState<SavedFilterView[]>(() => readSavedViewsFromStorage(savedViewsStorageKey));
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const [localEdits, setLocalEdits] = useState<Record<string, Partial<HabitLog>>>({});
   const [updatingLogIds, setUpdatingLogIds] = useState<Record<string, boolean>>({});
 
@@ -294,9 +295,11 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       params.set('sort', sortColumn);
       params.set('order', sortDirection);
     }
+    params.set('limit', String(LOGS_PAGE_SIZE));
+    params.set('offset', String(currentPage * LOGS_PAGE_SIZE));
 
     return params.toString();
-  }, [filters, sortColumn, sortDirection]);
+  }, [currentPage, filters, sortColumn, sortDirection]);
 
   // Fetch habit logs with filters
   const { data: logsData, isLoading, isFetching, refetch } = useQuery({
@@ -438,6 +441,11 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   }, [baseLogs, localEdits]);
 
   const scopedLogs = logs;
+  const logsMeta = logsData?.meta || {};
+  const totalFilteredLogs = Number(logsMeta.totalFiltered || scopedLogs.length || 0);
+  const pageLimit = Number(logsMeta.limit || LOGS_PAGE_SIZE);
+  const hasMoreLogs = Boolean(logsMeta.hasMore);
+  const totalPages = Math.max(1, Math.ceil(totalFilteredLogs / Math.max(pageLimit, 1)));
 
   // Extract unique categories from habits
   const categories = useMemo(() => {
@@ -481,12 +489,14 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   // Handle filter changes
   const handleFilterChange = useCallback((newFilters: Partial<FilterState>) => {
     setActiveViewId(null);
+    setCurrentPage(0);
     setFilters((prev) => ({ ...prev, ...newFilters }));
   }, []);
 
   // Handle sort changes
   const handleSort = useCallback((column: string) => {
     setActiveViewId(null);
+    setCurrentPage(0);
 
     if (sortColumn === column) {
       if (sortDirection === 'asc') {
@@ -503,6 +513,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
 
   const applyBuiltInPreset = useCallback((presetId: BuiltInFilterPresetId) => {
     const nextFilters = getFiltersForPreset(presetId);
+    setCurrentPage(0);
     setFilters(cloneFilters(nextFilters));
     setSortColumn('date');
     setSortDirection('desc');
@@ -513,6 +524,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     const view = savedViews.find((candidate) => candidate.id === viewId);
     if (!view) return;
 
+    setCurrentPage(0);
     setFilters(cloneFilters(view.filters));
     setSortColumn(view.sortColumn);
     setSortDirection(view.sortDirection);
@@ -588,7 +600,18 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
 
   // Calculate totals for bottom bar
   const totals = useMemo(() => {
-    if (!hasScopedFilters || scopedLogs.length === 0) return null;
+    if (!hasScopedFilters) return null;
+    const metaTotals = logsMeta?.totals;
+    if (metaTotals) {
+      return {
+        count: Number(metaTotals.count || 0),
+        totalDuration: Number(metaTotals.totalDuration || 0),
+        totalAmount: Number(metaTotals.totalAmount || 0),
+        completedCount: Number(metaTotals.completedCount || 0),
+        completionRate: Number(metaTotals.completionRate || 0),
+      };
+    }
+    if (scopedLogs.length === 0) return null;
 
     const totalDuration = scopedLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
     const totalAmount = scopedLogs.reduce((sum, log) => sum + (log.amount || 0), 0);
@@ -601,7 +624,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       completedCount,
       completionRate: scopedLogs.length > 0 ? (completedCount / scopedLogs.length) * 100 : 0,
     };
-  }, [scopedLogs, hasScopedFilters]);
+  }, [hasScopedFilters, logsMeta?.totals, scopedLogs]);
 
   // Selected logs for export bar
   const scopedLogIdSet = useMemo(() => new Set(scopedLogs.map((log) => log.id)), [scopedLogs]);
@@ -673,10 +696,6 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     deleteMutation.mutate(ids);
   }, [sanitizedRowSelection, deleteMutation]);
 
-  if (isLoading && logs.length === 0) {
-    return <ActivityLoading />;
-  }
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-6">
@@ -744,6 +763,35 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
           density={density}
         />
       </div>
+
+      {totalFilteredLogs > pageLimit && (
+        <div className="flex items-center justify-between px-6 py-4 text-sm text-neutral-600">
+          <div>
+            Showing {currentPage * pageLimit + 1}-{Math.min((currentPage * pageLimit) + scopedLogs.length, totalFilteredLogs)} of {totalFilteredLogs}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+              disabled={currentPage === 0 || isFetching}
+              className="h-8 rounded-sm border border-black/10 px-3 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <div className="min-w-[88px] text-center">
+              Page {currentPage + 1} of {totalPages}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((page) => (hasMoreLogs ? page + 1 : page))}
+              disabled={!hasMoreLogs || isFetching}
+              className="h-8 rounded-sm border border-black/10 px-3 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
         {selectedCount > 0 && (
