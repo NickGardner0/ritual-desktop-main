@@ -390,8 +390,16 @@ class TursoUserService:
         if not self.is_platform_configured():
             return user
 
+        if user.turso_db_name and user.turso_db_url and user.turso_provisioned_at is not None:
+            logger.debug(
+                "Per-user Turso metadata already present for %s; skipping provisioning",
+                user_id,
+            )
+            return user
+
         database_name = user.turso_db_name or self.build_database_name(user_id)
         database = await self._retrieve_database(database_name)
+        created_database = database is None
         if database is None:
             database = await self._create_database(database_name)
 
@@ -403,7 +411,8 @@ class TursoUserService:
             raise TursoProvisioningError(f"Turso database {database_name} is missing a hostname")
 
         sync_url = self.sync_url_for_hostname(hostname)
-        await self._ensure_remote_schema(user_id, sync_url, database_name)
+        if created_database or user.turso_provisioned_at is None or user.turso_db_url != sync_url:
+            await self._ensure_remote_schema(user_id, sync_url, database_name)
         await self._update_user_turso_metadata(
             user_id,
             database_name=database_name,
@@ -677,7 +686,13 @@ class TursoUserService:
         if not self.is_platform_configured():
             raise TursoProvisioningError("Per-user Turso sync is not configured")
 
-        user = await self.ensure_user_activity_database(user_id)
+        user = await self._load_user(user_id)
+        if user is None:
+            raise TursoProvisioningError(f"User {user_id} does not exist")
+
+        if not user.turso_db_name or not user.turso_db_url:
+            user = await self.ensure_user_activity_database(user_id)
+
         if user is None or not user.turso_db_name or not user.turso_db_url:
             raise TursoProvisioningError("Per-user Turso database metadata is missing")
 

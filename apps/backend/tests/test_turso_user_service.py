@@ -183,6 +183,57 @@ def _seed_rollout_user_source(path: str, user_id: str) -> None:
 
 
 class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ensure_user_activity_database_skips_platform_calls_when_metadata_exists(self):
+        service = TursoUserService()
+        user = SimpleNamespace(
+            id="user-1",
+            turso_db_name="ritual-user-1",
+            turso_db_url="libsql://ritual-user-1.turso.io",
+            turso_provisioned_at="2026-03-27T00:00:00Z",
+        )
+
+        with patch.object(service, "_load_user", AsyncMock(return_value=user)), patch.object(
+            service,
+            "_retrieve_database",
+            AsyncMock(side_effect=AssertionError("should not call platform API")),
+        ), patch.object(
+            service,
+            "_ensure_remote_schema",
+            AsyncMock(side_effect=AssertionError("should not ensure schema")),
+        ):
+            result = await service.ensure_user_activity_database("user-1")
+
+        self.assertIs(result, user)
+
+    async def test_get_desktop_sync_config_uses_existing_metadata_without_reprovisioning(self):
+        service = TursoUserService()
+        user = SimpleNamespace(
+            id="user-1",
+            turso_db_name="ritual-user-1",
+            turso_db_url="libsql://ritual-user-1.turso.io",
+            turso_provisioned_at="2026-03-27T00:00:00Z",
+            turso_migrated_at="2026-03-27T00:01:00Z",
+        )
+
+        with patch.object(service, "is_platform_configured", return_value=True), patch.object(
+            service,
+            "_load_user",
+            AsyncMock(return_value=user),
+        ), patch.object(
+            service,
+            "ensure_user_activity_database",
+            AsyncMock(side_effect=AssertionError("should not reprovision")),
+        ), patch.object(
+            service,
+            "_mint_database_token",
+            AsyncMock(return_value="desktop-token"),
+        ):
+            config = await service.get_desktop_sync_config("user-1")
+
+        self.assertEqual(config.sync_url, "libsql://ritual-user-1.turso.io")
+        self.assertEqual(config.auth_token, "desktop-token")
+        self.assertEqual(config.database_name, "ritual-user-1")
+
     async def test_rollout_user_does_not_cut_over_before_minimum_counts(self):
         service = TursoUserService()
         user_id = "rollout-user"
