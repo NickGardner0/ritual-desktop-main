@@ -130,6 +130,7 @@ interface RankedBarsProps {
   className?: string
   onSelect?: (item: RankedBar) => void
   selectedKey?: string | null
+  showTooltip?: boolean
 }
 
 export function RankedBars({
@@ -139,6 +140,7 @@ export function RankedBars({
   className = '',
   onSelect,
   selectedKey = null,
+  showTooltip = true,
 }: RankedBarsProps) {
   const [expanded, setExpanded] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<RankedBar | null>(null)
@@ -186,12 +188,12 @@ export function RankedBars({
             <Row
               key={item.key}
               type={isInteractive ? 'button' : undefined}
-              className={`group grid w-full grid-cols-[16px_20px_minmax(0,1fr)_84px_52px] items-center gap-3 rounded-sm px-2 py-1.5 text-left transition-colors ${
+              className={`group grid w-full grid-cols-[16px_20px_minmax(0,1fr)_84px_60px] items-center gap-3 rounded-sm px-2 py-1.5 text-left transition-colors ${
                 isInteractive ? 'cursor-pointer appearance-none bg-transparent border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-default'
-              } ${isSelected ? 'bg-[rgba(39,37,30,0.05)]' : 'hover:bg-[rgba(39,37,30,0.025)]'}`}
+              } ${isSelected ? 'bg-[rgba(39,37,30,0.05)]' : 'hover:bg-[rgba(39,37,30,0.04)]'}`}
               aria-expanded={isInteractive ? isSelected : undefined}
-              onMouseEnter={(e) => handleMouseEnter(item, e)}
-              onMouseLeave={handleMouseLeave}
+              onMouseEnter={showTooltip ? (e) => handleMouseEnter(item, e) : undefined}
+              onMouseLeave={showTooltip ? handleMouseLeave : undefined}
               onClick={isInteractive ? () => onSelect?.(item) : undefined}
             >
               <span className="text-[11px] tabular-nums text-[rgba(39,37,30,0.24)]">
@@ -227,7 +229,7 @@ export function RankedBars({
                 />
               </div>
               
-              <span className="min-w-[52px] text-right text-[13px] tabular-nums text-[rgba(39,37,30,0.6)]">
+              <span className="min-w-[60px] whitespace-nowrap text-right text-[13px] tabular-nums text-[rgba(39,37,30,0.6)]">
                 {msToHuman(item.valueMs, true)}
               </span>
             </Row>
@@ -251,13 +253,13 @@ export function RankedBars({
       
       {/* Total footer */}
       <div className="mt-3 flex justify-start border-t border-[rgba(39,37,30,0.06)] pt-3">
-        <span className="text-[11px] text-[rgba(39,37,30,0.42)]">
+        <span className="text-[12px] font-medium text-[rgba(39,37,30,0.52)]">
           {items.length} {type === 'domains' ? 'site' : 'app'}{items.length !== 1 ? 's' : ''} · {msToHuman(items.reduce((sum, item) => sum + item.valueMs, 0))}
         </span>
       </div>
       
       {/* Compact frosted glass tooltip - rendered in portal to escape CSS transforms */}
-      {hoveredItem && tooltipRect && typeof document !== 'undefined' && createPortal(
+      {showTooltip && hoveredItem && tooltipRect && typeof document !== 'undefined' && createPortal(
         <div 
           className="fixed z-[9999] pointer-events-none"
           style={{ 

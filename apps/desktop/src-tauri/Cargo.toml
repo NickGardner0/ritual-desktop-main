@@ -40,7 +40,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Unified database layer with vector search (new - for semantic search)
 ritual-db = { path = "crates/ritual-db" }
-libsql = "0.6.0"
+libsql = "0.9"
 
 # Async runtime for database operations
 tokio = { version = "1.35", features = ["rt", "sync"] }

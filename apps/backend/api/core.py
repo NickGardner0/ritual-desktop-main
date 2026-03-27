@@ -14,6 +14,7 @@ from database.models import ScheduledBlockDB
 from database.helpers import user_db_to_profile
 from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitUpdate
 from models.user_models import OnboardingData, UserProfile
+from services.turso_user_service import TursoProvisioningError, turso_user_service
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,13 @@ class BatchLogRequest(BaseModel):
     client_event_id: Optional[str] = None  # For idempotency
 
 
+class TursoSyncConfigResponse(BaseModel):
+    sync_url: str
+    auth_token: str
+    expires_at: str
+    database_name: str
+
+
 def _validate_scheduled_block_values(day: str, start_minutes: int, end_minutes: int):
     try:
         datetime.strptime(day, "%Y-%m-%d")
@@ -101,10 +109,47 @@ def create_core_router(
                 full_name=current_user.get("name"),
                 phone_number=current_user.get("phone"),
             )
+            try:
+                provisioned = await turso_user_service.ensure_user_activity_database(user.id)
+                if provisioned is not None:
+                    user = provisioned
+            except TursoProvisioningError:
+                if turso_user_service.is_platform_configured():
+                    raise
             logger.info("User profile ensured for %s", user.email)
             return user_db_to_profile(user)
+        except TursoProvisioningError as exc:
+            logger.exception("Error provisioning per-user Turso database")
+            raise HTTPException(status_code=500, detail=str(exc))
         except Exception:
             logger.exception("Error getting user profile")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.get("/api/user/turso-sync-config", response_model=TursoSyncConfigResponse)
+    async def get_turso_sync_config(current_user=Depends(get_current_user)):
+        try:
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            config = await turso_user_service.get_desktop_sync_config(current_user["id"])
+            logger.info("Providing Turso sync config to user %s", current_user["id"])
+            return TursoSyncConfigResponse(
+                sync_url=config.sync_url,
+                auth_token=config.auth_token,
+                expires_at=config.expires_at,
+                database_name=config.database_name,
+            )
+        except HTTPException:
+            raise
+        except TursoProvisioningError as exc:
+            logger.exception("Error getting per-user Turso sync config")
+            status_code = 409 if "migration" in str(exc).lower() else 503
+            raise HTTPException(status_code=status_code, detail=str(exc))
+        except Exception:
+            logger.exception("Error getting Turso sync config")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
 
     @router.put("/api/user/onboarding", response_model=UserProfile)

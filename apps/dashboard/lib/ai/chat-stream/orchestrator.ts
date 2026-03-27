@@ -371,6 +371,9 @@ function getOverviewTitleFromQuery(
   timezone?: string,
 ): string {
   if (toolName === 'getDailyOverview') return 'Daily Activity Overview';
+  if (toolName === 'getActivitySummary') {
+    return formatNarrativeDateLabel(contextMemoryRecap || {}, query, timezone);
+  }
   if (toolName === 'searchContextMemory') {
     return formatNarrativeDateLabel(contextMemoryRecap || {}, query, timezone);
   }
@@ -438,6 +441,11 @@ function isContextMemoryRecapQuery(text: string): boolean {
   const explicitPatterns = [
     'what did i work on',
     'what was i working on',
+    'what did i get done',
+    'what did i get done on',
+    'what did i accomplish',
+    'what did i accomplish on',
+    'what did i do on',
     'what did i do this morning',
     'what did i do today',
     'what did i do this week',
@@ -458,9 +466,10 @@ function isContextMemoryRecapQuery(text: string): boolean {
     return true;
   }
 
-  const hasWorkVerb = /\b(work(?:ed|ing)? on|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(normalized);
+  const hasWorkVerb = /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(normalized);
   const hasContextTarget =
     hasRelativeTimeHint(normalized) ||
+    parseExplicitRecapAnchorDate(normalized) !== null ||
     /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(normalized);
 
   return hasWorkVerb && hasContextTarget;
@@ -661,6 +670,42 @@ function renderWorkstreamSection(
   return sectionLines;
 }
 
+function getWorkstreamSortTimestamp(item: any): number {
+  const startTs = Number(item?.start_ts || 0);
+  const endTs = Number(item?.end_ts || 0);
+  if (Number.isFinite(startTs) && startTs > 0) return startTs;
+  if (Number.isFinite(endTs) && endTs > 0) return endTs;
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function sortWorkstreamsChronologically(items: any[]): any[] {
+  return [...items].sort((a: any, b: any) => {
+    const aTs = getWorkstreamSortTimestamp(a);
+    const bTs = getWorkstreamSortTimestamp(b);
+    if (aTs !== bTs) return aTs - bTs;
+
+    const aEnd = Number(a?.end_ts || 0);
+    const bEnd = Number(b?.end_ts || 0);
+    if (aEnd !== bEnd) return aEnd - bEnd;
+
+    const aSeq = Number(a?.sequence_number || 0);
+    const bSeq = Number(b?.sequence_number || 0);
+    return aSeq - bSeq;
+  });
+}
+
+function getNarrativeWorkstreamLimit(query: string, rendererKind: string): number {
+  const normalized = (query || '').toLowerCase();
+  if (
+    rendererKind === 'daypart_overview'
+    || rendererKind === 'broad_overview'
+    || /\b(what did i (work on|do|get done)|activity summary|recap)\b/.test(normalized)
+  ) {
+    return 12;
+  }
+  return 8;
+}
+
 function buildContextMemoryNarrative(
   payload: any,
   query: string,
@@ -692,6 +737,7 @@ function buildContextMemoryNarrative(
   const errorsEncountered = Array.isArray(storyPlan.errors_encountered) ? storyPlan.errors_encountered : [];
   const commitsAndPushes = Array.isArray(storyPlan.commits_and_pushes) ? storyPlan.commits_and_pushes : [];
   const heading = formatNarrativeDateLabel(payload, query, timezone);
+  const maxWorkstreamsToRender = getNarrativeWorkstreamLimit(query, rendererKind);
   const lines: string[] = [`## ${heading}`];
 
   if (!mainEvent && results.length === 0) {
@@ -723,11 +769,11 @@ function buildContextMemoryNarrative(
     }
 
     // Render numbered workstreams
-    const workstreamsToRender = numberedWorkstreams.length > 0
+    const workstreamsToRender = sortWorkstreamsChronologically(numberedWorkstreams.length > 0
       ? numberedWorkstreams.filter((ws: any) => ws?.label && ws.label !== 'General workstream')
-      : [mainEvent, ...supporting].filter(Boolean);
+      : [mainEvent, ...supporting].filter(Boolean));
 
-    for (const item of workstreamsToRender.slice(0, 8)) {
+    for (const item of workstreamsToRender.slice(0, maxWorkstreamsToRender)) {
       lines.push('');
       lines.push(...renderWorkstreamSection(item, timezone));
     }
@@ -804,23 +850,13 @@ function buildContextMemoryNarrative(
       ? numberedWorkstreams.filter((ws: any) => ws?.label && ws.label !== 'General workstream')
       : [mainEvent, ...supporting].filter(Boolean);
 
-    for (const item of workstreamsToRender.slice(0, 8)) {
+    const overviewWorkstreams = sortWorkstreamsChronologically(
+      [...workstreamsToRender, ...researchBrowsing, ...personalActivity].filter(Boolean),
+    );
+
+    for (const item of overviewWorkstreams.slice(0, maxWorkstreamsToRender)) {
       lines.push('');
       lines.push(...renderWorkstreamSection(item, timezone));
-    }
-
-    if (researchBrowsing.length > 0) {
-      for (const item of researchBrowsing.slice(0, 3)) {
-        lines.push('');
-        lines.push(...renderWorkstreamSection(item, timezone));
-      }
-    }
-
-    if (personalActivity.length > 0) {
-      for (const item of personalActivity.slice(0, 3)) {
-        lines.push('');
-        lines.push(...renderWorkstreamSection(item, timezone));
-      }
     }
 
     // Corroborating activity from terminal/browser
@@ -976,6 +1012,66 @@ function shiftYmd(ymd: string, deltaDays: number): string {
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function parseExplicitRecapAnchorDate(
+  query: string,
+  timezone?: string,
+): string | null {
+  const normalized = (query || '').toLowerCase();
+  if (!normalized) return null;
+
+  const monthMap: Record<string, number> = {
+    january: 1,
+    jan: 1,
+    february: 2,
+    feb: 2,
+    march: 3,
+    mar: 3,
+    april: 4,
+    apr: 4,
+    may: 5,
+    june: 6,
+    jun: 6,
+    july: 7,
+    jul: 7,
+    august: 8,
+    aug: 8,
+    september: 9,
+    sep: 9,
+    sept: 9,
+    october: 10,
+    oct: 10,
+    november: 11,
+    nov: 11,
+    december: 12,
+    dec: 12,
+  };
+
+  const match = normalized.match(
+    /\b(?:on\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)?(\d{4})?\b/,
+  );
+  if (!match) return null;
+
+  const month = monthMap[match[1]];
+  const day = Number.parseInt(match[2], 10);
+  const currentYear = Number.parseInt(getTimezoneYmd(new Date(), timezone).slice(0, 4), 10);
+  const year = match[3] ? Number.parseInt(match[3], 10) : currentYear;
+
+  if (!month || !Number.isFinite(day) || day < 1 || day > 31 || !Number.isFinite(year)) {
+    return null;
+  }
+
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year
+    || candidate.getUTCMonth() + 1 !== month
+    || candidate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 interface WeeklyOverviewHabitSummary {
@@ -1562,6 +1658,522 @@ async function fetchPythonApiPost(
   }
 
   return response.json();
+}
+
+function formatActivityRangeMs(ms: number): string {
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function inferRecapAnchorDate(
+  query: string,
+  safeDaysBack: number,
+  timezone?: string,
+): string | null {
+  const normalized = (query || '').toLowerCase();
+  const today = getTimezoneYmd(new Date(), timezone);
+  const explicitDate = parseExplicitRecapAnchorDate(query, timezone);
+
+  if (explicitDate) {
+    return explicitDate;
+  }
+
+  if (/\byesterday\b/.test(normalized) || /\blast night\b/.test(normalized)) {
+    return shiftYmd(today, -1);
+  }
+  if (/\btoday\b/.test(normalized) || /\btonight\b/.test(normalized)) {
+    return today;
+  }
+
+  if (
+    safeDaysBack <= 1 &&
+    /\b(what did i get done|what did i do|recap my day|activity summary|what happened today|what happened)\b/.test(normalized)
+  ) {
+    return today;
+  }
+
+  return null;
+}
+
+type CalendarEvidenceSnippet = {
+  app_name?: string;
+  window_title?: string;
+  document_path?: string;
+  semantic_summary?: string;
+  snippet?: string;
+  time?: number;
+  ax_richness_score?: number;
+};
+
+type StructuredRecapWorkstream = {
+  startTs: number;
+  endTs: number;
+  anchor: string;
+  entryCount: number;
+  maxRichness: number;
+  apps: Set<string>;
+  domains: Set<string>;
+  files: Set<string>;
+  projects: Set<string>;
+  windowFragments: Set<string>;
+  semanticSummaries: string[];
+  snippetLines: string[];
+  evidenceLines: string[];
+  commitMessages: string[];
+  tokens: Set<string>;
+};
+
+const recapOutlineStopWords = new Set([
+  'about', 'after', 'again', 'app', 'browser', 'content', 'dashboard', 'details', 'from', 'into', 'just', 'page',
+  'project', 'query', 'related', 'screen', 'session', 'some', 'task', 'tasks', 'text', 'that', 'their', 'there',
+  'this', 'today', 'using', 'viewing', 'were', 'what', 'when', 'where', 'with', 'work', 'working', 'your',
+]);
+
+function normalizeRecapTokens(value: string): string[] {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/https?:\/\//g, ' ')
+    .replace(/[^a-z0-9._/-]+/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !recapOutlineStopWords.has(token));
+}
+
+function countTokenOverlap(a: Set<string>, b: Set<string>): number {
+  let overlap = 0;
+  for (const token of a) {
+    if (b.has(token)) overlap += 1;
+  }
+  return overlap;
+}
+
+function parseRecapTimestampMs(value: unknown): number {
+  const num = Number(value || 0);
+  if (Number.isFinite(num) && num > 0) {
+    return num > 1e12 ? num : num * 1000;
+  }
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function extractRecapDomain(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    const match = String(value || '').match(/\b([a-z0-9-]+\.)+[a-z]{2,}\b/i);
+    if (match) return match[0].toLowerCase().replace(/^www\./, '');
+  }
+  return '';
+}
+
+function extractRecapWindowFragments(title: string): string[] {
+  return String(title || '')
+    .split(/\s+[|–—-]\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 4 && part.length <= 90)
+    .filter((part) => !/^(google chrome|chrome|cursor|codex|claude|finder|mail|gmail)$/i.test(part))
+    .slice(0, 4);
+}
+
+function extractRecapFileLabel(documentPath: string): string {
+  const normalized = String(documentPath || '').trim();
+  if (!normalized) return '';
+  const parts = normalized.split('/').filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+function extractRecapProjectLabel(documentPath: string, windowTitle: string): string {
+  const pathParts = String(documentPath || '').split('/').filter(Boolean);
+  const repoCandidate = pathParts.find((part) => /(desktop|backend|dashboard|ritual|main|app)/i.test(part));
+  if (repoCandidate) return repoCandidate;
+  const titleMatch = String(windowTitle || '').match(/\b([a-z0-9._-]+(?:desktop|backend|dashboard|main)[a-z0-9._-]*)\b/i);
+  return titleMatch?.[1] || '';
+}
+
+function buildRecapSnippetEvidenceLines(item: CalendarEvidenceSnippet): string[] {
+  const lines: string[] = [];
+  const semantic = clipContextText(item.semantic_summary || '', 180);
+  const snippet = clipContextText(item.snippet || '', 220);
+  const windowTitle = clipContextText(item.window_title || '', 120);
+  const documentPath = clipContextText(item.document_path || '', 120);
+
+  if (semantic) lines.push(`Semantic: ${semantic}`);
+  if (windowTitle) lines.push(`Window: ${windowTitle}`);
+  if (documentPath) lines.push(`Path: ${documentPath}`);
+  if (snippet) lines.push(`Visible text: ${snippet}`);
+
+  return lines;
+}
+
+function getRecapAnchor(item: CalendarEvidenceSnippet): string {
+  const file = extractRecapFileLabel(item.document_path || '');
+  if (file) return `file:${file.toLowerCase()}`;
+
+  const fragments = extractRecapWindowFragments(item.window_title || '');
+  if (fragments.length > 0) return `window:${fragments[0].toLowerCase()}`;
+
+  const domain = extractRecapDomain(item.window_title || '', item.semantic_summary || '', item.snippet || '');
+  if (domain) return `domain:${domain}`;
+
+  return `app:${String(item.app_name || 'unknown').toLowerCase()}`;
+}
+
+function pushUniqueClipped(target: string[], value: string, maxLen: number, maxItems: number) {
+  const clipped = clipContextText(value, maxLen);
+  if (!clipped || target.includes(clipped) || target.length >= maxItems) return;
+  target.push(clipped);
+}
+
+function shouldAppendToRecapWorkstream(
+  current: StructuredRecapWorkstream | undefined,
+  entryTs: number,
+  entryAnchor: string,
+  entryTokens: Set<string>,
+): boolean {
+  if (!current || !entryTs) return false;
+  const gapMs = Math.max(0, entryTs - current.endTs);
+  const overlap = countTokenOverlap(current.tokens, entryTokens);
+  if (entryAnchor === current.anchor && gapMs <= 90 * 60 * 1000) return true;
+  if (overlap >= 3 && gapMs <= 60 * 60 * 1000) return true;
+  if (overlap >= 1 && gapMs <= 18 * 60 * 1000) return true;
+  return false;
+}
+
+function mergeRecapWorkstreamEntry(
+  workstream: StructuredRecapWorkstream,
+  item: CalendarEvidenceSnippet,
+  entryTs: number,
+  entryTokens: Set<string>,
+) {
+  workstream.startTs = Math.min(workstream.startTs, entryTs);
+  workstream.endTs = Math.max(workstream.endTs, entryTs);
+  workstream.entryCount += 1;
+  workstream.maxRichness = Math.max(workstream.maxRichness, Number(item.ax_richness_score || 0));
+
+  if (item.app_name) workstream.apps.add(String(item.app_name));
+  const domain = extractRecapDomain(item.window_title || '', item.semantic_summary || '', item.snippet || '');
+  if (domain) workstream.domains.add(domain);
+
+  const fileLabel = extractRecapFileLabel(item.document_path || '');
+  if (fileLabel) workstream.files.add(fileLabel);
+  const projectLabel = extractRecapProjectLabel(item.document_path || '', item.window_title || '');
+  if (projectLabel) workstream.projects.add(projectLabel);
+
+  for (const fragment of extractRecapWindowFragments(item.window_title || '')) {
+    workstream.windowFragments.add(fragment);
+  }
+
+  pushUniqueClipped(workstream.semanticSummaries, item.semantic_summary || '', 180, 6);
+  pushUniqueClipped(workstream.snippetLines, item.snippet || '', 220, 8);
+  for (const line of buildRecapSnippetEvidenceLines(item)) {
+    pushUniqueClipped(workstream.evidenceLines, line, 240, 10);
+  }
+  entryTokens.forEach((token) => workstream.tokens.add(token));
+}
+
+function createRecapWorkstream(item: CalendarEvidenceSnippet, entryTs: number, entryTokens: Set<string>): StructuredRecapWorkstream {
+  const workstream: StructuredRecapWorkstream = {
+    startTs: entryTs,
+    endTs: entryTs,
+    anchor: getRecapAnchor(item),
+    entryCount: 0,
+    maxRichness: 0,
+    apps: new Set<string>(),
+    domains: new Set<string>(),
+    files: new Set<string>(),
+    projects: new Set<string>(),
+    windowFragments: new Set<string>(),
+    semanticSummaries: [],
+    snippetLines: [],
+    evidenceLines: [],
+    commitMessages: [],
+    tokens: new Set<string>(),
+  };
+  mergeRecapWorkstreamEntry(workstream, item, entryTs, entryTokens);
+  return workstream;
+}
+
+function buildStructuredRecapWorkstreams(
+  screenEvidence: any,
+  gitData: any,
+): StructuredRecapWorkstream[] {
+  const snippets = (Array.isArray(screenEvidence?.ocr_snippets) ? screenEvidence.ocr_snippets : [])
+    .map((item: CalendarEvidenceSnippet) => ({ ...item, _ts: parseRecapTimestampMs(item?.time) }))
+    .filter((item: CalendarEvidenceSnippet & { _ts: number }) => item._ts > 0)
+    .sort(
+      (
+        a: CalendarEvidenceSnippet & { _ts: number },
+        b: CalendarEvidenceSnippet & { _ts: number },
+      ) => a._ts - b._ts,
+    );
+
+  const workstreams: StructuredRecapWorkstream[] = [];
+
+  for (const item of snippets) {
+    const entryTokens = new Set(
+      normalizeRecapTokens(
+        [
+          item.app_name || '',
+          item.window_title || '',
+          item.document_path || '',
+          item.semantic_summary || '',
+          item.snippet || '',
+        ].join(' '),
+      ).slice(0, 40),
+    );
+
+    const current = workstreams[workstreams.length - 1];
+    if (shouldAppendToRecapWorkstream(current, item._ts, getRecapAnchor(item), entryTokens)) {
+      mergeRecapWorkstreamEntry(current, item, item._ts, entryTokens);
+    } else {
+      workstreams.push(createRecapWorkstream(item, item._ts, entryTokens));
+    }
+  }
+
+  const commits = Array.isArray(gitData?.commits) ? gitData.commits : [];
+  for (const commit of commits) {
+    const commitTs = parseRecapTimestampMs(commit?.time);
+    const commitMessage = clipContextText(commit?.message || '', 160);
+    if (!commitTs || !commitMessage) continue;
+
+    let bestIndex = -1;
+    let bestDistance = Number.MAX_SAFE_INTEGER;
+    for (let i = 0; i < workstreams.length; i += 1) {
+      const ws = workstreams[i];
+      const distance = commitTs < ws.startTs
+        ? ws.startTs - commitTs
+        : commitTs > ws.endTs
+          ? commitTs - ws.endTs
+          : 0;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex >= 0 && bestDistance <= 2 * 60 * 60 * 1000) {
+      const target = workstreams[bestIndex];
+      pushUniqueClipped(target.commitMessages, commitMessage, 160, 4);
+      target.startTs = Math.min(target.startTs, commitTs);
+      target.endTs = Math.max(target.endTs, commitTs);
+      normalizeRecapTokens(commitMessage).forEach((token) => target.tokens.add(token));
+    }
+  }
+
+  return workstreams;
+}
+
+function deriveRecapTitleHint(workstream: StructuredRecapWorkstream): string {
+  const project = Array.from(workstream.projects)[0] || '';
+  const file = Array.from(workstream.files)[0] || '';
+  const windowFragment = Array.from(workstream.windowFragments)[0] || '';
+  const domain = Array.from(workstream.domains)[0] || '';
+  const app = Array.from(workstream.apps)[0] || 'Work';
+  const semantic = workstream.semanticSummaries[0] || '';
+  const commit = workstream.commitMessages[0] || '';
+
+  if (file && project) return `${file} changes in ${project}`;
+  if (file) return `${file} updates`;
+  if (windowFragment && project) return `${windowFragment} in ${project}`;
+  if (windowFragment && domain) return `${windowFragment} on ${domain}`;
+  if (windowFragment) return windowFragment;
+  if (commit) return commit.replace(/^[a-z]+:\s*/i, '');
+  if (semantic) return semantic.split(/[.!?]/)[0].trim();
+  if (domain && app && !/chrome|safari|browser/i.test(app)) return `${domain} in ${app}`;
+  if (domain) return domain;
+  return `${app} work session`;
+}
+
+function buildStructuredRecapOutline(
+  date: string,
+  timezone: string | undefined,
+  screenEvidence: any,
+  appsData: any,
+  domainsData: any,
+  gitData: any,
+): string | null {
+  const workstreams = buildStructuredRecapWorkstreams(screenEvidence, gitData);
+  if (workstreams.length === 0) {
+    return null;
+  }
+
+  const mainWorkstreams = workstreams.slice(0, 12);
+  const topApps = Array.isArray(appsData?.apps || appsData?.data)
+    ? (appsData.apps || appsData.data).slice(0, 8)
+    : [];
+  const topDomains = Array.isArray(domainsData?.domains || domainsData?.data)
+    ? (domainsData.domains || domainsData.data).slice(0, 6)
+    : [];
+
+  const sections: string[] = [
+    `Date: ${date}`,
+    timezone ? `Timezone: ${timezone}` : '',
+    `Evidenced workstreams: ${mainWorkstreams.length}`,
+  ].filter(Boolean);
+
+  if (topApps.length > 0) {
+    sections.push(
+      `Top apps: ${topApps
+        .map((item: any) => {
+          const name = item.app_name || item.name || 'Unknown';
+          const ms = item.total_active_ms || item.active_ms || item.total_ms || 0;
+          return ms > 0 ? `${name} (${formatActivityRangeMs(ms)})` : name;
+        })
+        .join(', ')}`,
+    );
+  }
+
+  if (topDomains.length > 0) {
+    sections.push(
+      `Top websites: ${topDomains
+        .map((item: any) => {
+          const name = item.domain || item.name || 'Unknown';
+          const ms = item.total_active_ms || item.active_ms || item.total_ms || 0;
+          return ms > 0 ? `${name} (${formatActivityRangeMs(ms)})` : name;
+        })
+        .join(', ')}`,
+    );
+  }
+
+  mainWorkstreams.forEach((workstream, index) => {
+    sections.push('');
+    sections.push(`WORKSTREAM ${index + 1}`);
+    sections.push(`Title hint: ${clipContextText(deriveRecapTitleHint(workstream), 110)}`);
+    sections.push(`Time range: ${formatWorkstreamTimeRange(workstream.startTs, workstream.endTs, timezone)}`);
+    sections.push(`Apps: ${Array.from(workstream.apps).slice(0, 4).join(', ') || 'Unknown'}`);
+    if (workstream.domains.size > 0) {
+      sections.push(`Domains: ${Array.from(workstream.domains).slice(0, 4).join(', ')}`);
+    }
+    if (workstream.files.size > 0) {
+      sections.push(`Files: ${Array.from(workstream.files).slice(0, 5).map((file) => `\`${file}\``).join(', ')}`);
+    }
+    if (workstream.projects.size > 0) {
+      sections.push(`Projects: ${Array.from(workstream.projects).slice(0, 4).join(', ')}`);
+    }
+    if (workstream.commitMessages.length > 0) {
+      sections.push(`Commits: ${workstream.commitMessages.join(' | ')}`);
+    }
+    sections.push('Strong evidence:');
+    const evidenceLines = [
+      ...workstream.evidenceLines.slice(0, 6),
+      ...workstream.semanticSummaries
+        .filter((line) => !workstream.evidenceLines.some((evidence) => evidence.includes(line)))
+        .slice(0, 2)
+        .map((line) => `Semantic: ${line}`),
+    ].slice(0, 8);
+    evidenceLines.forEach((line) => sections.push(`- ${line}`));
+  });
+
+  return sections.join('\n');
+}
+
+function sanitizeCalendarStyleActivitySummary(text: string): string {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trimEnd());
+
+  const stripped = [...lines];
+  while (stripped.length > 0) {
+    const first = stripped[0].trim();
+    if (
+      first.length === 0 ||
+      /^let me dig through\b/i.test(first) ||
+      /^here'?s a rundown\b/i.test(first) ||
+      /^looked through your context\b/i.test(first)
+    ) {
+      stripped.shift();
+      continue;
+    }
+    break;
+  }
+
+  const cleaned = stripped.join('\n').trim();
+
+  return cleaned
+    .replace(/\bHere'?s a rundown of what you (?:were up to|accomplished)(?: (?:today|yesterday|on [^!.\n]+))?!?\s*/gi, '')
+    .replace(/\bLet me dig through [^.!?\n]+[.!?]?\s*/gi, '')
+    .replace(/\bLooked through your context\b\s*›?/gi, '')
+    .trim();
+}
+
+async function buildCalendarStyleActivitySummary(
+  token: string,
+  date: string,
+  timezone?: string,
+): Promise<string | null> {
+  try {
+    const params = {
+      start_date: date,
+      end_date: date,
+      limit: 12,
+    };
+
+    const [screenEvidence, appsData, domainsData, gitData] = await Promise.all([
+      fetchPythonApi('/api/watcher/screen-evidence', token, { date, limit: 180 }).catch(() => null),
+      fetchPythonApi('/api/watcher/stats/top-apps', token, params).catch(() => null),
+      fetchPythonApi('/api/watcher/stats/top-domains', token, params).catch(() => null),
+      fetchPythonApi('/api/watcher/git-commits', token, { date }).catch(() => null),
+    ]);
+
+    const outline = buildStructuredRecapOutline(
+      date,
+      timezone,
+      screenEvidence,
+      appsData,
+      domainsData,
+      gitData,
+    );
+    if (!outline) {
+      return null;
+    }
+
+    const prompt = `You are rewriting a PRE-CLUSTERED workday outline into a concrete, Littlebird-style work summary.
+
+The workstreams are already grouped and ordered chronologically. Your job is to turn them into clean prose, not to invent new structure from scratch.
+
+Rules:
+- Cover the full evidenced day from the earliest workstream to the latest one.
+- Keep the workstreams in chronological order.
+- Prefer 4-8 main workstreams. If there are extra small items, merge them into **Other things** bullet points.
+- Each main workstream should use this format:
+  **Specific title**
+  *7:12 AM – 7:57 AM*
+  2-4 sentences
+- Use the "Title hint" only as a starting point. Improve it when the evidence supports a more specific title.
+- The first sentence of each section must say exactly what was done using a concrete verb like edited, deployed, configured, compared, fixed, tested, scheduled, debugged, reviewed, or bought.
+- Prefer explicit objects from the outline: file names, repos, domains, commits, settings pages, products, APIs, meeting subjects, commands.
+- If a workstream only has thin evidence, keep it short or move it into **Other things**.
+- Do not invent outcomes or blockers that are not in the outline.
+- Do not write generic filler. Avoid phrases like "you worked on", "focusing on", "this involved", "you explored", "you managed", "significant", "various", "overall productivity".
+- Do not add greetings or corny lead-ins. Start directly with the summary sections.
+
+Use the strongest evidence first:
+1. Commit messages
+2. Semantic summaries
+3. Files / paths / window titles
+4. Visible text
+
+Here is the structured outline:
+
+${outline}`;
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.2,
+      max_tokens: 2200,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `Rewrite this outline into a concrete work summary for ${date}. Preserve chronology and cover the full evidenced day.` },
+      ],
+    });
+
+    const content = response.choices[0]?.message?.content?.trim();
+    return content ? sanitizeCalendarStyleActivitySummary(content) : null;
+  } catch (error) {
+    console.error('❌ buildCalendarStyleActivitySummary error:', error);
+    return null;
+  }
 }
 
 // ====================
@@ -3964,31 +4576,197 @@ async function executeGetComputerTimeSpentBreakdown(
 async function executeGetActivitySummary(
   token: string,
   params: { query?: string; daysBack?: number },
+  prefetchedScreenSearchContext: ScreenSearchContext | null,
+  timezone?: string,
 ) {
   const safeDaysBack = clampDaysBack(params.daysBack ?? 1);
   const query = params.query || 'activity summary';
   console.log('📋 getActivitySummary called:', { query, daysBack: safeDaysBack });
 
-  try {
-    const response = await fetchPythonApiPost('/api/memory/query', token, {
-      query,
-      intent: 'broad_overview',
-      days_back: safeDaysBack,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
-      group_by: 'app',
-      limit: 20,
-    });
+  const stripStoryPlanMeta = (rawPlan: any): any => {
+    if (Array.isArray(rawPlan)) return rawPlan.map(stripStoryPlanMeta);
+    if (rawPlan && typeof rawPlan === 'object') {
+      const cleaned: any = {};
+      for (const [k, v] of Object.entries(rawPlan)) {
+        if (
+          [
+            'evidence_count',
+            'score_main_event',
+            'confidence',
+            'grounding_score',
+            'grounding_reasons',
+            'supporting_evidence_ids',
+            'counter_evidence_ids',
+            'metrics',
+            'session_keys',
+          ].includes(k)
+        ) continue;
+        cleaned[k] = stripStoryPlanMeta(v);
+      }
+      return cleaned;
+    }
+    return rawPlan;
+  };
 
-    if (!response || response.error) {
+  const recapAnchorDate = inferRecapAnchorDate(query, safeDaysBack, timezone);
+  const calendarStyleSummaryPromise = recapAnchorDate
+    ? buildCalendarStyleActivitySummary(token, recapAnchorDate, timezone)
+    : Promise.resolve(null);
+
+  const buildLocalFallbackPayload = async () => {
+    let screenSearchContext = await resolveScreenSearchContext(
+      token,
+      {
+        query,
+        daysBack: safeDaysBack,
+        limit: 30,
+      },
+      prefetchedScreenSearchContext,
+    );
+
+    if (screenSearchContext) {
+      const hasOnlyAggregateRows = (
+        screenSearchContext.results.length > 0
+        && screenSearchContext.results.every((row) => isActivityAggregateText(row.ocr_text))
+      );
+
+      if (screenSearchContext.results.length === 0 || hasOnlyAggregateRows) {
+        const localContext = await fetchLocalScreenSearchContext(token, {
+          query,
+          daysBack: safeDaysBack,
+          limit: 40,
+        });
+        if (localContext) {
+          const mergedResults = mergeScreenResults(localContext.results, screenSearchContext.results);
+          screenSearchContext = {
+            modeUsed: localContext.modeUsed !== 'none' ? localContext.modeUsed : screenSearchContext.modeUsed,
+            status: localContext.status !== 'unavailable' ? localContext.status : screenSearchContext.status,
+            retrievalTier: screenSearchContext.retrievalTier || localContext.retrievalTier,
+            results: mergedResults,
+            resolvedDaysBack: localContext.resolvedDaysBack ?? screenSearchContext.resolvedDaysBack,
+            startDate: localContext.startDate ?? screenSearchContext.startDate,
+            endDate: localContext.endDate ?? screenSearchContext.endDate,
+            warning: [screenSearchContext.warning, localContext.warning].filter(Boolean).join(' ').trim() || undefined,
+            freshness: screenSearchContext.freshness,
+            confidence: screenSearchContext.confidence,
+            citations: screenSearchContext.citations,
+            semanticTruth: screenSearchContext.semanticTruth,
+            pendingEmbeddings: screenSearchContext.pendingEmbeddings,
+            totalEmbeddings: screenSearchContext.totalEmbeddings,
+            workerRunning: screenSearchContext.workerRunning,
+          };
+        }
+      }
+    } else {
+      screenSearchContext = await fetchLocalScreenSearchContext(token, {
+        query,
+        daysBack: safeDaysBack,
+        limit: 40,
+      });
+    }
+
+    if (!screenSearchContext || !Array.isArray(screenSearchContext.results) || screenSearchContext.results.length === 0) {
+      return null;
+    }
+
+    const rankedResults = rerankScreenResultsByQuery(screenSearchContext.results, query);
+    const filteredResults = rankedResults.filter((row) => !isActivityAggregateText(row.ocr_text)).slice(0, 30);
+    if (filteredResults.length === 0) {
+      return null;
+    }
+
+    const structuredEvidence = buildBroadOverviewEvidence(
+      filteredResults,
+      screenSearchContext.citations,
+      screenSearchContext.semanticTruth,
+    );
+    const citationsSource = (screenSearchContext.citations && screenSearchContext.citations.length > 0)
+      ? screenSearchContext.citations.slice(0, 25).map((citation) => ({
+          app: citation.app_name || '',
+          title: citation.window_title || '',
+          text: (citation.snippet || '').slice(0, 300),
+          ts: citation.timestamp || 0,
+        }))
+      : filteredResults.slice(0, 25).map((result) => ({
+          app: result.app_name || '',
+          title: result.window_title || '',
+          text: (result.ocr_text || '').slice(0, 300),
+          ts: result.timestamp || 0,
+        }));
+
+    return {
+      success: true,
+      query,
+      intent_resolved: 'broad_overview',
+      retrieval_tier: screenSearchContext.retrievalTier || screenSearchContext.modeUsed || 'desktop_local',
+      story_plan: stripStoryPlanMeta(structuredEvidence.recap_outline || null),
+      citations: citationsSource,
+      citations_count: citationsSource.length,
+      time_truth: null,
+      confidence: screenSearchContext.confidence || null,
+      freshness: screenSearchContext.freshness || null,
+      warning: compactScreenWarning(screenSearchContext.warning),
+      source: 'desktop_local_fallback',
+    };
+  };
+
+  try {
+    if (recapAnchorDate) {
+      const calendarStyleSummary = await calendarStyleSummaryPromise;
+      if (calendarStyleSummary) {
+        return JSON.stringify({
+          success: true,
+          query,
+          intent_resolved: 'broad_overview',
+          retrieval_tier: 'calendar_screen_evidence',
+          story_plan: null,
+          citations: [],
+          citations_count: 0,
+          time_truth: null,
+          confidence: 'high',
+          freshness: null,
+          calendar_style_summary: calendarStyleSummary,
+          calendar_style_date: recapAnchorDate,
+          source: 'calendar_screen_evidence',
+        });
+      }
+    }
+
+    const [response, calendarStyleSummary] = await Promise.all([
+      fetchPythonApiPost('/api/memory/query', token, {
+        query,
+        intent: 'broad_overview',
+        days_back: safeDaysBack,
+        timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+        group_by: 'app',
+        limit: 20,
+      }),
+      calendarStyleSummaryPromise,
+    ]);
+
+    const hasRemoteStoryPlan = Boolean(response?.semantic_truth?.story_plan);
+    const remoteCitations = Array.isArray(response?.citations) ? response.citations : [];
+    if (!response || response.error || (!hasRemoteStoryPlan && remoteCitations.length === 0)) {
+      const localFallback = await buildLocalFallbackPayload();
+      if (localFallback) {
+        if (calendarStyleSummary) {
+          (localFallback as Record<string, unknown>).calendar_style_summary = calendarStyleSummary;
+          (localFallback as Record<string, unknown>).calendar_style_date = recapAnchorDate;
+        }
+        return JSON.stringify(localFallback);
+      }
+
       return JSON.stringify({
-        success: false,
+        success: Boolean(calendarStyleSummary),
         error: response?.error || 'Activity summary unavailable.',
+        calendar_style_summary: calendarStyleSummary || null,
+        calendar_style_date: recapAnchorDate,
       });
     }
 
     // Return both story_plan AND raw citations so the LLM can synthesize
     // directly from evidence when the story_plan is weak
-    const citations = (response.citations || []).slice(0, 25).map((c: any) => ({
+    const citations = remoteCitations.slice(0, 25).map((c: any) => ({
       app: c.app_name || c.app || '',
       title: c.window_title || c.title || '',
       text: (c.text_compact || c.contextual_text_compact || c.snippet || '').slice(0, 300),
@@ -3998,24 +4776,7 @@ async function executeGetActivitySummary(
     // Strip internal metadata fields from story_plan before sending to LLM —
     // evidence_count, score_main_event, confidence etc. leak into output otherwise
     const rawPlan = response.semantic_truth?.story_plan || null;
-    let cleanPlan = rawPlan;
-    if (rawPlan) {
-      const stripMeta = (obj: any): any => {
-        if (Array.isArray(obj)) return obj.map(stripMeta);
-        if (obj && typeof obj === 'object') {
-          const cleaned: any = {};
-          for (const [k, v] of Object.entries(obj)) {
-            if (['evidence_count', 'score_main_event', 'confidence', 'grounding_score',
-                 'grounding_reasons', 'supporting_evidence_ids', 'counter_evidence_ids',
-                 'metrics', 'session_keys'].includes(k)) continue;
-            cleaned[k] = stripMeta(v);
-          }
-          return cleaned;
-        }
-        return obj;
-      };
-      cleanPlan = stripMeta(rawPlan);
-    }
+    const cleanPlan = rawPlan ? stripStoryPlanMeta(rawPlan) : rawPlan;
 
     return JSON.stringify({
       success: true,
@@ -4028,13 +4789,20 @@ async function executeGetActivitySummary(
       time_truth: response.time_truth || null,
       confidence: response.confidence || null,
       freshness: response.freshness || null,
+      calendar_style_summary: calendarStyleSummary || null,
+      calendar_style_date: recapAnchorDate,
     });
   } catch (error) {
     console.error('❌ getActivitySummary error:', error);
+    const calendarStyleSummary = await calendarStyleSummaryPromise.catch(() => null);
     return JSON.stringify({
-      success: false,
-      error: 'Activity summary is currently unavailable.',
+      success: Boolean(calendarStyleSummary),
+      error: calendarStyleSummary ? undefined : 'Activity summary is currently unavailable.',
       details: String(error),
+      query,
+      intent_resolved: 'broad_overview',
+      calendar_style_summary: calendarStyleSummary || null,
+      calendar_style_date: recapAnchorDate,
     });
   }
 }
@@ -4477,7 +5245,7 @@ Keep total response under 500 characters when possible.`;
     const forcedToolName = forceScreenTimeBreakdown
       ? 'getComputerTimeSpentBreakdown'
       : forceContextRecap
-        ? 'searchContextMemory'
+        ? 'getActivitySummary'
       : forceDailyOverview
         ? 'getDailyOverview'
         : forceMonthlyOverview
@@ -4493,7 +5261,7 @@ Keep total response under 500 characters when possible.`;
     const deterministicFastPath =
       !isVoiceMode &&
       forcedToolName &&
-      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview'].includes(forcedToolName);
+      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'getActivitySummary'].includes(forcedToolName);
 
     if (deterministicFastPath) {
       console.log(`⚡ Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
@@ -4521,14 +5289,15 @@ Keep total response under 500 characters when possible.`;
         case 'getMonthlyOverview':
           toolResultJson = await executeGetMonthlyOverview(token, {}, timezone, localOverviewActivity);
           break;
-        case 'searchContextMemory':
-          toolResultJson = await executeSearchContextMemory(
+        case 'getActivitySummary':
+          toolResultJson = await executeGetActivitySummary(
             token,
             {
               query: latestUserContent,
               daysBack: inferScreenDaysBackFromQuery(latestUserContent, 7),
-              limit: 12,
             },
+            normalizedScreenSearchContext,
+            timezone,
           );
           break;
         default:
@@ -4540,7 +5309,7 @@ Keep total response under 500 characters when possible.`;
           if (parsed.success) {
             if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
             else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
-            else if (forcedToolName === 'searchContextMemory') toolResults.contextMemoryRecap = parsed;
+            else if (forcedToolName === 'getActivitySummary') toolResults.activitySummary = parsed;
             else toolResults.monthlyOverview = parsed;
 
           if (parsed.suggested_followups) {
@@ -4552,17 +5321,26 @@ Keep total response under 500 characters when possible.`;
       const title = getOverviewTitleFromQuery(
         forcedToolName,
         latestUserContent,
-        toolResults.contextMemoryRecap,
+        toolResults.activitySummary || toolResults.contextMemoryRecap,
         timezone,
       );
 
       const overviewPayload =
-        toolResults.weeklyOverview || toolResults.dailyOverview || toolResults.monthlyOverview || toolResults.contextMemoryRecap;
+        toolResults.weeklyOverview
+        || toolResults.dailyOverview
+        || toolResults.monthlyOverview
+        || toolResults.activitySummary
+        || toolResults.contextMemoryRecap;
 
       const finalText = overviewPayload?.success
-        ? forcedToolName === 'searchContextMemory'
-          ? buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone)
-          : await generateWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
+        ? forcedToolName === 'getActivitySummary'
+          ? (
+              typeof toolResults.activitySummary?.calendar_style_summary === 'string'
+              && toolResults.activitySummary.calendar_style_summary.trim().length > 0
+            )
+              ? toolResults.activitySummary.calendar_style_summary.trim()
+              : buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone)
+            : await generateWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
         : 'I was unable to retrieve your data. Please try again.';
 
       const canvasToolPayload = buildCanvasToolPayload(toolResults);
@@ -4852,7 +5630,7 @@ Keep total response under 500 characters when possible.`;
               result = await executeGetActivitySummary(token, {
                 ...args,
                 query: chooseScreenSearchQuery(args?.query, latestUserContent),
-              });
+              }, normalizedScreenSearchContext, timezone);
               try {
                 const parsed = JSON.parse(result);
                 if (parsed.success) {
@@ -4945,6 +5723,12 @@ Keep total response under 500 characters when possible.`;
         toolResults.weeklyOverview as WeeklyOverviewPayload,
         'Weekly Activity Overview',
       );
+    } else if (
+      !isVoiceMode
+      && typeof toolResults.activitySummary?.calendar_style_summary === 'string'
+      && toolResults.activitySummary.calendar_style_summary.trim().length > 0
+    ) {
+      finalText = toolResults.activitySummary.calendar_style_summary.trim();
     }
     
     // Merge breakdown data if multiple calls were made for the same habit

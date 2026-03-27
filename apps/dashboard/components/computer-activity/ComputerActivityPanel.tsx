@@ -334,7 +334,7 @@ export function ComputerActivityPanel({
             </div>
           )}
 
-          <div className="rounded-sm border border-gray-200 bg-white px-5 py-4">
+          <div className="rounded-sm border border-gray-200 bg-white px-5 py-3">
             <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[rgba(39,37,30,0.42)]">
               Active Time
             </div>
@@ -352,19 +352,22 @@ export function ComputerActivityPanel({
           </div>
 
           {/* App Usage Section - Two Cards */}
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[760px] gap-4 md:grid-cols-2">
             {/* TOP APPS Card */}
-            <div className="rounded-sm border border-gray-200 bg-white p-4" ref={appCardRef}>
+            <div className="flex max-h-[460px] min-h-0 flex-col rounded-sm border border-gray-200 bg-white p-4" ref={appCardRef}>
               <h3 className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-[rgba(39,37,30,0.42)]">
                 Top Apps
               </h3>
-              <RankedBars 
-                items={apps} 
-                maxVisible={Infinity} 
-                type="apps"
-                selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
-                onSelect={(item) => handleUsageSelect('app', item.key, item.label)}
-              />
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                <RankedBars 
+                  items={apps} 
+                  maxVisible={Infinity} 
+                  type="apps"
+                  selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
+                  onSelect={(item) => handleUsageSelect('app', item.key, item.label)}
+                />
+              </div>
               {usageSelection?.kind === 'app' && (
                 <div
                   className={`transition-all duration-200 ease-out overflow-hidden ${
@@ -392,7 +395,7 @@ export function ComputerActivityPanel({
             </div>
             
             {/* TOP WEBSITES Card */}
-            <div className="rounded-sm border border-gray-200 bg-white p-4" ref={websiteCardRef}>
+            <div className="flex max-h-[460px] min-h-0 flex-col rounded-sm border border-gray-200 bg-white p-4" ref={websiteCardRef}>
               <h3 className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-[rgba(39,37,30,0.42)]">
                 Top Websites
               </h3>
@@ -407,13 +410,15 @@ export function ComputerActivityPanel({
                   </p>
                 </div>
               ) : (
-                <RankedBars 
-                  items={domains} 
-                  maxVisible={Infinity} 
-                  type="domains"
-                  selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
-                  onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
-                />
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                  <RankedBars 
+                    items={domains} 
+                    maxVisible={Infinity} 
+                    type="domains"
+                    selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
+                    onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
+                  />
+                </div>
               )}
               {usageSelection?.kind === 'website' && (
                 <div
@@ -440,6 +445,7 @@ export function ComputerActivityPanel({
                 </div>
               )}
             </div>
+          </div>
           </div>
         </div>
       )}

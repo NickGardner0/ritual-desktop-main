@@ -66,19 +66,30 @@ pub struct DatabaseConfig {
     pub enable_embeddings: bool,
     /// Maximum number of connections in the pool (not used for embedded, but for future)
     pub max_connections: u32,
+    /// Turso cloud sync URL (e.g., "libsql://ritual-xxx.turso.io").
+    /// When set together with `sync_auth_token`, the database opens as an
+    /// embedded replica that auto-syncs to Turso cloud.
+    pub sync_url: Option<String>,
+    /// Turso auth token (JWT) for cloud sync.
+    pub sync_auth_token: Option<String>,
+    /// Sync interval in seconds (default 30). Only used when sync_url is set.
+    pub sync_interval_secs: u64,
 }
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let data_dir = PathBuf::from(&home).join(".ritual");
-        
+
         Self {
             db_path: data_dir.join("ritual.db"),
             data_dir,
             auto_migrate: true,
             enable_embeddings: true,
             max_connections: 1,
+            sync_url: None,
+            sync_auth_token: None,
+            sync_interval_secs: 30,
         }
     }
 }
@@ -90,14 +101,28 @@ impl DatabaseConfig {
         let data_dir = db_path.parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        
+
         Self {
             db_path,
             data_dir,
             ..Default::default()
         }
     }
-    
+
+    /// Create a config with Turso cloud sync enabled.
+    /// The database will operate as an embedded replica: writes go to the
+    /// local file first (fast, offline-capable), then auto-sync to Turso cloud.
+    pub fn with_turso_sync(
+        db_path: impl Into<PathBuf>,
+        sync_url: String,
+        auth_token: String,
+    ) -> Self {
+        let mut config = Self::with_path(db_path);
+        config.sync_url = Some(sync_url);
+        config.sync_auth_token = Some(auth_token);
+        config
+    }
+
     /// Create a config for testing with a temporary database
     pub fn for_testing(temp_dir: &Path) -> Self {
         Self {
@@ -106,6 +131,9 @@ impl DatabaseConfig {
             auto_migrate: true,
             enable_embeddings: false, // Disable for faster tests
             max_connections: 1,
+            sync_url: None,
+            sync_auth_token: None,
+            sync_interval_secs: 30,
         }
     }
 }
@@ -124,21 +152,48 @@ pub struct RitualDatabase {
 }
 
 impl RitualDatabase {
-    /// Open or create the database at the configured path
+    /// Open or create the database at the configured path.
+    ///
+    /// When `sync_url` and `sync_auth_token` are set in the config, the
+    /// database opens as a Turso embedded replica: writes land in the local
+    /// file first (fast, works offline) and are automatically synced to
+    /// Turso cloud on a background interval. Otherwise falls back to a
+    /// plain local SQLite database.
     pub async fn open(config: &DatabaseConfig) -> Result<Self> {
         info!("Opening Ritual database at: {:?}", config.db_path);
-        
+
         // Ensure directory exists
         if let Some(parent) = config.db_path.parent() {
             tokio::fs::create_dir_all(parent).await
                 .map_err(|e| DatabaseError::Io(e.to_string()))?;
         }
-        
-        // Build the database
-        let db = Builder::new_local(config.db_path.to_str().unwrap())
-            .build()
-            .await
-            .map_err(|e| DatabaseError::Connection(e.to_string()))?;
+
+        // Build the database — embedded replica when Turso is configured,
+        // plain local SQLite otherwise.
+        let db_path_str = config.db_path.to_str().unwrap();
+        let db = match (&config.sync_url, &config.sync_auth_token) {
+            (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
+                info!(
+                    "Opening as Turso embedded replica (sync every {}s)",
+                    config.sync_interval_secs
+                );
+                Builder::new_remote_replica(
+                    db_path_str,
+                    url.clone(),
+                    token.clone(),
+                )
+                .sync_interval(std::time::Duration::from_secs(config.sync_interval_secs))
+                .build()
+                .await
+                .map_err(|e| DatabaseError::Connection(format!("Turso replica: {}", e)))?
+            }
+            _ => {
+                Builder::new_local(db_path_str)
+                    .build()
+                    .await
+                    .map_err(|e| DatabaseError::Connection(e.to_string()))?
+            }
+        };
         
         let conn = db.connect()
             .map_err(|e| DatabaseError::Connection(e.to_string()))?;

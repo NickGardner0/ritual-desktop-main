@@ -428,6 +428,7 @@ export function HabitLogsDataTable({
 }: DataTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState<number>(0);
+  const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(readStoredColumnWidths);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
@@ -717,6 +718,7 @@ export function HabitLogsDataTable({
         tabIndex={0}
         onKeyDown={handleKeyboardSelection}
         onMouseDown={() => containerRef.current?.focus()}
+        onMouseLeave={() => setHoveredRowIndex(null)}
         ref={containerRef}
       >
         {isLoading && logs.length === 0 ? (
@@ -808,17 +810,16 @@ export function HabitLogsDataTable({
               {logs.map((log, index) => {
                 const isSelected = rowSelection[log.id] || false;
                 const isActiveRow = index === activeRowIndex;
+                const isHoveredRow = hoveredRowIndex === index;
                 const isRowUpdating = Boolean(updatingLogIds[log.id]);
 
                 return (
                   <TableRow
                     key={log.id}
                     className={cn(
-                      'group cursor-default select-none transition-colors hover:bg-neutral-50/80',
+                      'cursor-default select-none',
                       TABLE_BORDER_CLASS,
                       tableRowHeight,
-                      isSelected && 'bg-neutral-50',
-                      isActiveRow && 'bg-neutral-50/80',
                     )}
                     onClick={(event) => {
                       if (event.shiftKey && lastClickedIndex !== null) {
@@ -826,6 +827,7 @@ export function HabitLogsDataTable({
                       }
                       setActiveRowIndex(index);
                     }}
+                    onMouseEnter={() => setHoveredRowIndex(index)}
                   >
                     {visibleColumns.map((column) => {
                       const stickyClass = column.stickyRight
@@ -834,11 +836,11 @@ export function HabitLogsDataTable({
                           ? 'md:sticky z-[15]'
                           : '';
 
-                      const stickyBg = column.sticky || column.stickyRight
-                        ? isSelected
-                          ? 'bg-neutral-50'
-                          : 'bg-white'
-                        : '';
+                      const cellBgClass = isSelected
+                        ? 'bg-neutral-50'
+                        : isHoveredRow || isActiveRow
+                          ? 'bg-[#f7f7f6]'
+                          : 'bg-white';
 
                       const cellClassName = cn(
                         bodyCellPadding,
@@ -847,8 +849,7 @@ export function HabitLogsDataTable({
                         TABLE_BORDER_CLASS,
                         getAlignmentClass(column.align),
                         stickyClass,
-                        stickyBg,
-                        'group-hover:bg-neutral-50/80',
+                        cellBgClass,
                         column.id === 'select' && 'text-center',
                       );
 

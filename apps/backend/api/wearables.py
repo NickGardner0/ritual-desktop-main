@@ -566,6 +566,7 @@ def create_wearables_router(
                         refresh_token=token_data.get("refresh_token"),
                         expires_in=token_data.get("expires_in", 3600),
                         whoop_user_id=str(user_info["user_id"]),
+                        scope=token_data.get("scope"),
                     )
                 return RedirectResponse(
                     url=f"{redirect_base}/integrations?wearable_provider=whoop&wearable_connected=1"

@@ -107,6 +107,26 @@ fn get_activity_db_path() -> PathBuf {
     get_ritual_dir().join("activity.db")
 }
 
+fn activity_database_config_from_env() -> DatabaseConfig {
+    match (
+        std::env::var("TURSO_SYNC_URL")
+            .ok()
+            .filter(|s| !s.is_empty()),
+        std::env::var("TURSO_AUTH_TOKEN")
+            .ok()
+            .filter(|s| !s.is_empty()),
+    ) {
+        (Some(url), Some(token)) => {
+            db_info!("🔄 Turso sync enabled for activity.db → {}", url);
+            DatabaseConfig::with_turso_sync(get_activity_db_path(), url, token)
+        }
+        _ => {
+            db_info!("📂 Activity DB: local-only mode (no TURSO_SYNC_URL set)");
+            DatabaseConfig::with_path(get_activity_db_path())
+        }
+    }
+}
+
 fn table_exists_in_schema(
     conn: &SqliteConnection,
     schema: &str,
@@ -134,8 +154,13 @@ fn copy_table_if_exists(conn: &SqliteConnection, table: &str) -> Result<(), Stri
 
 fn ensure_split_local_databases() -> Result<(), String> {
     let ritual_dir = get_ritual_dir();
-    std::fs::create_dir_all(&ritual_dir)
-        .map_err(|e| format!("Failed to create ritual directory {}: {}", ritual_dir.display(), e))?;
+    std::fs::create_dir_all(&ritual_dir).map_err(|e| {
+        format!(
+            "Failed to create ritual directory {}: {}",
+            ritual_dir.display(),
+            e
+        )
+    })?;
 
     let legacy_db = ritual_dir.join("ritual.db");
     let activity_db = get_activity_db_path();
@@ -236,7 +261,7 @@ fn ensure_split_local_databases() -> Result<(), String> {
                     ocr_text, ocr_confidence, thumbnail_path, video_chunk_id, frame_offset,
                     image_hash, storage_tier, created_at
                 FROM legacy.ocr_frames
-                "#
+                "#,
             )
             .map_err(|e| format!("Failed copying ocr_frames into memory.db: {}", e))?;
         }
@@ -245,12 +270,13 @@ fn ensure_split_local_databases() -> Result<(), String> {
             .map_err(|e| format!("Failed finalizing memory migration: {}", e))?;
     }
 
-    std::fs::write(&marker_path, format!("migrated_at={}\n", Utc::now().timestamp_millis()))
-        .map_err(|e| format!("Failed writing split migration marker: {}", e))?;
+    std::fs::write(
+        &marker_path,
+        format!("migrated_at={}\n", Utc::now().timestamp_millis()),
+    )
+    .map_err(|e| format!("Failed writing split migration marker: {}", e))?;
 
-    db_info!(
-        "✅ Split local DB migration complete -> activity.db + memory.db (legacy retained)"
-    );
+    db_info!("✅ Split local DB migration complete -> activity.db + memory.db (legacy retained)");
     Ok(())
 }
 
@@ -269,21 +295,22 @@ pub fn initialize_database() -> Result<(), String> {
         }
 
         let memory_config = DatabaseConfig::with_path(get_memory_db_path());
-        let activity_config = DatabaseConfig::with_path(get_activity_db_path());
 
-        let memory_db = RitualDatabase::open(&memory_config)
-            .await
-            .map_err(|e| {
-                db_error!("❌ Failed to initialize memory database: {}", e);
-                format!("Failed to initialize memory database: {}", e)
-            })?;
+        // Activity DB supports optional Turso cloud sync via env vars.
+        // When set, the local activity.db becomes an embedded replica that
+        // auto-syncs to Turso cloud, making screen data available to the
+        // Railway production backend.
+        let activity_config = activity_database_config_from_env();
 
-        let activity_db = RitualDatabase::open(&activity_config)
-            .await
-            .map_err(|e| {
-                db_error!("❌ Failed to initialize activity database: {}", e);
-                format!("Failed to initialize activity database: {}", e)
-            })?;
+        let memory_db = RitualDatabase::open(&memory_config).await.map_err(|e| {
+            db_error!("❌ Failed to initialize memory database: {}", e);
+            format!("Failed to initialize memory database: {}", e)
+        })?;
+
+        let activity_db = RitualDatabase::open(&activity_config).await.map_err(|e| {
+            db_error!("❌ Failed to initialize activity database: {}", e);
+            format!("Failed to initialize activity database: {}", e)
+        })?;
 
         db_info!(
             "✅ Memory database initialized at {:?}",
@@ -296,6 +323,34 @@ pub fn initialize_database() -> Result<(), String> {
 
         *memory_guard = Some(memory_db);
         *activity_guard = Some(activity_db);
+        Ok(())
+    })
+}
+
+pub fn reload_activity_database() -> Result<(), String> {
+    if let Err(err) = ensure_split_local_databases() {
+        db_error!(
+            "⚠️ Split DB preparation failed before activity reload: {}",
+            err
+        );
+    }
+
+    RUNTIME.block_on(async {
+        let activity_config = activity_database_config_from_env();
+        let activity_db = RitualDatabase::open(&activity_config).await.map_err(|e| {
+            db_error!("❌ Failed to reload activity database: {}", e);
+            format!("Failed to reload activity database: {}", e)
+        })?;
+
+        let mut activity_guard = ACTIVITY_DB.write().await;
+        let previous = activity_guard.take();
+        *activity_guard = Some(activity_db);
+        drop(previous);
+
+        db_info!(
+            "✅ Activity database reloaded at {:?}",
+            activity_config.db_path
+        );
         Ok(())
     })
 }
@@ -315,7 +370,9 @@ pub(crate) async fn get_activity_db(
 ) -> Result<tokio::sync::RwLockReadGuard<'static, Option<RitualDatabase>>, String> {
     let guard = ACTIVITY_DB.read().await;
     if guard.is_none() {
-        return Err("Activity database not initialized. Call initialize_database() first.".to_string());
+        return Err(
+            "Activity database not initialized. Call initialize_database() first.".to_string(),
+        );
     }
     Ok(guard)
 }
@@ -1012,11 +1069,13 @@ async fn run_backfill_chunk_embeddings_inner(
     let mut chunks_rebuilt = vector_ops
         .rebuild_recent_search_chunks(reconcile_lookback_ms)
         .await
-        .map_err(|e| format!("Failed to rebuild chunks: {}", e))? as i64;
+        .map_err(|e| format!("Failed to rebuild chunks: {}", e))?
+        as i64;
     let mut queue_seeded = vector_ops
         .ensure_chunk_embedding_queue()
         .await
-        .map_err(|e| format!("Failed to seed chunk queue: {}", e))? as i64;
+        .map_err(|e| format!("Failed to seed chunk queue: {}", e))?
+        as i64;
 
     let mut batches_run = 0i64;
     let mut total_processed = 0i64;
@@ -1027,16 +1086,23 @@ async fn run_backfill_chunk_embeddings_inner(
         let rebuilt_oldest = vector_ops
             .rebuild_oldest_missing_search_chunks(historical_frame_batch)
             .await
-            .map_err(|e| format!("Failed to rebuild oldest missing chunks: {}", e))? as i64;
+            .map_err(|e| format!("Failed to rebuild oldest missing chunks: {}", e))?
+            as i64;
         chunks_rebuilt += rebuilt_oldest;
 
         queue_seeded += vector_ops
             .ensure_chunk_embedding_queue()
             .await
-            .map_err(|e| format!("Failed to seed chunk queue: {}", e))? as i64;
+            .map_err(|e| format!("Failed to seed chunk queue: {}", e))?
+            as i64;
 
         let (processed, failed, skipped) = vector_ops
-            .embed_pending_chunks(service, safe_batch_size.saturating_mul(4).clamp(safe_batch_size, 1024))
+            .embed_pending_chunks(
+                service,
+                safe_batch_size
+                    .saturating_mul(4)
+                    .clamp(safe_batch_size, 1024),
+            )
             .await
             .map_err(|e| format!("Failed to embed pending chunks: {}", e))?;
 
@@ -1600,6 +1666,7 @@ pub fn seed_memory_upload_outbox(
                         chunk_end_ts DESC
                     LIMIT ?
                 ) AS src
+                WHERE 1=1
                 ON CONFLICT(user_id, device_id, logical_chunk_id) DO UPDATE SET
                     chunk_id = excluded.chunk_id,
                     content_hash = excluded.content_hash,
@@ -1701,6 +1768,7 @@ pub fn seed_memory_upload_outbox(
                     s.chunk_end_ts DESC
                 LIMIT ?
             ) AS src
+            WHERE 1=1
             ON CONFLICT(user_id, device_id, logical_chunk_id) DO UPDATE SET
                 chunk_id = excluded.chunk_id,
                 content_hash = excluded.content_hash,

@@ -241,181 +241,201 @@ async def get_screen_evidence(
 ):
     """
     Fast endpoint returning screen evidence for a specific date.
-    Tries activity.db first (accessibility data), falls back to memory.db (OCR data).
-    No cloud calls, sub-second response.
+    Tries Turso replica first (production), then activity.db, then memory.db.
+    No external cloud calls, sub-second response.
     """
     import sqlite3 as _sqlite3
     from services.watcher_service_local_db import (
         get_local_memory_db_path_impl,
         get_local_activity_db_path_impl,
+        open_activity_connection_for_user,
     )
 
     try:
-        # Try activity.db first — this is where the watcher writes context_snapshots
-        # memory.db may have a stale/empty context_snapshots table
         has_context_snapshots = False
         conn = None
-
+        should_close_conn = False
+        window_limit = max(8, min(limit, 30))
+        snippet_limit = max(80, min(limit, 240))
         activity_db_path = get_local_activity_db_path_impl()
-        try:
-            activity_conn = _sqlite3.connect(f"file:{activity_db_path}?mode=ro", uri=True, timeout=2.0)
-            activity_conn.row_factory = _sqlite3.Row
-            check = activity_conn.execute(
-                "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
-                (date,),
-            ).fetchone()
-            if (check[0] or 0) > 0:
-                has_context_snapshots = True
-                conn = activity_conn
+
+        async with open_activity_connection_for_user(current_user["id"], write=False) as user_activity_conn:
+            if user_activity_conn is not None:
+                try:
+                    check = user_activity_conn.execute(
+                        "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
+                        (date,),
+                    ).fetchone()
+                    if (check[0] or 0) > 0:
+                        has_context_snapshots = True
+                        conn = user_activity_conn
+                except Exception:
+                    conn = None
+
+            if conn is None:
+                try:
+                    activity_conn = _sqlite3.connect(
+                        f"file:{activity_db_path}?mode=ro", uri=True, timeout=2.0
+                    )
+                    activity_conn.row_factory = _sqlite3.Row
+                    check = activity_conn.execute(
+                        "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
+                        (date,),
+                    ).fetchone()
+                    if (check[0] or 0) > 0:
+                        has_context_snapshots = True
+                        conn = activity_conn
+                        should_close_conn = True
+                    else:
+                        activity_conn.close()
+                except Exception:
+                    pass
+
+            if conn is None:
+                db_path = get_local_memory_db_path_impl()
+                conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+                conn.row_factory = _sqlite3.Row
+                should_close_conn = True
+                try:
+                    check = conn.execute(
+                        "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
+                        (date,),
+                    ).fetchone()
+                    has_context_snapshots = (check[0] or 0) > 0
+                except Exception:
+                    pass
+
+            if has_context_snapshots:
+                try:
+                    if user_activity_conn is not None and conn is user_activity_conn:
+                        from services.memory_semantic_summary_service import process_pending_summaries_conn
+
+                        async with open_activity_connection_for_user(current_user["id"], write=True) as write_conn:
+                            if write_conn is not None:
+                                await asyncio.to_thread(process_pending_summaries_conn, write_conn, 30)
+                    else:
+                        from services.memory_semantic_summary_service import process_pending_summaries
+
+                        _jit_db_path = activity_db_path if activity_db_path else get_local_activity_db_path_impl()
+                        await asyncio.to_thread(process_pending_summaries, _jit_db_path, 30)
+                except Exception:
+                    pass
+
+                rows = conn.execute(
+                    """SELECT app_name, window_title, COUNT(*) as freq
+                       FROM context_snapshots
+                       WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
+                         AND app_name IS NOT NULL AND app_name != ''
+                       GROUP BY app_name, window_title
+                       ORDER BY freq DESC
+                       LIMIT ?""",
+                    (date, window_limit),
+                ).fetchall()
+
+                has_semantic = False
+                try:
+                    conn.execute("SELECT semantic_summary FROM context_snapshots LIMIT 0")
+                    has_semantic = True
+                except Exception:
+                    pass
+
+                semantic_col = "semantic_summary," if has_semantic else "'' as semantic_summary,"
+                snippets = conn.execute(
+                    f"""WITH ordered AS (
+                         SELECT app_name, window_title, document_path,
+                                {semantic_col}
+                                substr(COALESCE(visible_text_raw, visible_text_norm, ''), 1, 800) as snippet,
+                                ts as timestamp,
+                                ax_richness_score,
+                                LAG(ts) OVER (PARTITION BY app_name, window_title ORDER BY ts) as prev_ts
+                         FROM context_snapshots
+                         WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
+                           AND length(COALESCE(visible_text_raw, visible_text_norm, '')) > 60
+                           AND window_title IS NOT NULL AND window_title != ''
+                       )
+                       SELECT app_name, window_title, document_path, semantic_summary, snippet, timestamp, ax_richness_score
+                       FROM ordered
+                       WHERE prev_ts IS NULL OR (timestamp - prev_ts) > 180000
+                       ORDER BY timestamp ASC
+                       LIMIT ?""",
+                    (date, snippet_limit),
+                ).fetchall()
+
+                ocr_snippets = [
+                    {
+                        "app_name": s["app_name"],
+                        "window_title": s["window_title"],
+                        "document_path": s["document_path"] or "",
+                        "semantic_summary": s["semantic_summary"] or "",
+                        "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
+                        "time": s["timestamp"],
+                        "ax_richness_score": round(s["ax_richness_score"] or 0.0, 3),
+                    }
+                    for s in snippets
+                ]
             else:
-                activity_conn.close()
-        except Exception:
-            pass
+                rows = conn.execute(
+                    """SELECT app_name, window_title, COUNT(*) as freq
+                       FROM ocr_frames
+                       WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
+                         AND app_name IS NOT NULL AND app_name != ''
+                       GROUP BY app_name, window_title
+                       ORDER BY freq DESC
+                       LIMIT ?""",
+                    (date, window_limit),
+                ).fetchall()
 
-        # Fallback to memory.db
-        if conn is None:
-            db_path = get_local_memory_db_path_impl()
-            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
-            conn.row_factory = _sqlite3.Row
-            try:
-                check = conn.execute(
-                    "SELECT COUNT(*) FROM context_snapshots WHERE date(ts/1000, 'unixepoch', 'localtime') = ?",
-                    (date,),
-                ).fetchone()
-                has_context_snapshots = (check[0] or 0) > 0
-            except Exception:
-                pass
+                snippets = conn.execute(
+                    """WITH ranked AS (
+                         SELECT app_name, window_title,
+                                substr(ocr_text, 1, 800) as snippet,
+                                timestamp,
+                                ROW_NUMBER() OVER (
+                                  PARTITION BY app_name, window_title
+                                  ORDER BY length(ocr_text) DESC
+                                ) as rn
+                         FROM ocr_frames
+                         WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
+                           AND ocr_text IS NOT NULL AND length(ocr_text) > 60
+                           AND window_title IS NOT NULL AND window_title != ''
+                       )
+                       SELECT app_name, window_title, snippet, timestamp
+                       FROM ranked
+                       WHERE rn <= 3
+                       ORDER BY timestamp ASC
+                       LIMIT ?""",
+                    (date, snippet_limit),
+                ).fetchall()
 
-        if has_context_snapshots:
-            # JIT: ensure semantic summaries exist for this date's captures
-            try:
-                from services.memory_semantic_summary_service import process_pending_summaries
-                _jit_db_path = activity_db_path if activity_db_path else get_local_activity_db_path_impl()
-                await asyncio.to_thread(process_pending_summaries, _jit_db_path, 30)
-            except Exception:
-                pass  # Best-effort — query still works without summaries
+                ocr_snippets = [
+                    {
+                        "app_name": s["app_name"],
+                        "window_title": s["window_title"],
+                        "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
+                        "time": s["timestamp"],
+                    }
+                    for s in snippets
+                ]
 
-            # --- Use context_snapshots (rich accessibility data) ---
-            rows = conn.execute(
-                """SELECT app_name, window_title, COUNT(*) as freq
-                   FROM context_snapshots
-                   WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
-                     AND app_name IS NOT NULL AND app_name != ''
-                   GROUP BY app_name, window_title
-                   ORDER BY freq DESC
-                   LIMIT ?""",
-                (date, limit),
-            ).fetchall()
-
-            # Check if semantic_summary column exists
-            has_semantic = False
-            try:
-                conn.execute("SELECT semantic_summary FROM context_snapshots LIMIT 0")
-                has_semantic = True
-            except Exception:
-                pass
-
-            semantic_col = "semantic_summary," if has_semantic else "''" + " as semantic_summary,"
-            # Chronological evidence with min 3-minute gap per app+window.
-            # This preserves the natural temporal flow (Cursor at 10:15, Chrome
-            # at 10:18, back to Cursor at 10:22) so the LLM can thread captures
-            # from different apps into coherent project narratives.
-            snippets = conn.execute(
-                f"""WITH ordered AS (
-                     SELECT app_name, window_title, document_path,
-                            {semantic_col}
-                            substr(COALESCE(visible_text_raw, visible_text_norm, ''), 1, 800) as snippet,
-                            ts as timestamp,
-                            ax_richness_score,
-                            LAG(ts) OVER (PARTITION BY app_name, window_title ORDER BY ts) as prev_ts
-                     FROM context_snapshots
-                     WHERE date(ts/1000, 'unixepoch', 'localtime') = ?
-                       AND length(COALESCE(visible_text_raw, visible_text_norm, '')) > 60
-                       AND window_title IS NOT NULL AND window_title != ''
-                   )
-                   SELECT app_name, window_title, document_path, semantic_summary, snippet, timestamp, ax_richness_score
-                   FROM ordered
-                   WHERE prev_ts IS NULL OR (timestamp - prev_ts) > 180000
-                   ORDER BY timestamp ASC
-                   LIMIT 80""",
-                (date,),
-            ).fetchall()
-
-            ocr_snippets = [
+            window_titles = [
                 {
-                    "app_name": s["app_name"],
-                    "window_title": s["window_title"],
-                    "document_path": s["document_path"] or "",
-                    "semantic_summary": s["semantic_summary"] or "",
-                    "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
-                    "time": s["timestamp"],
-                    "ax_richness_score": round(s["ax_richness_score"] or 0.0, 3),
+                    "app_name": r["app_name"],
+                    "window_title": r["window_title"] or "",
+                    "frequency": r["freq"],
                 }
-                for s in snippets
-            ]
-        else:
-            # --- Fallback: legacy ocr_frames ---
-            rows = conn.execute(
-                """SELECT app_name, window_title, COUNT(*) as freq
-                   FROM ocr_frames
-                   WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
-                     AND app_name IS NOT NULL AND app_name != ''
-                   GROUP BY app_name, window_title
-                   ORDER BY freq DESC
-                   LIMIT ?""",
-                (date, limit),
-            ).fetchall()
-
-            snippets = conn.execute(
-                """WITH ranked AS (
-                     SELECT app_name, window_title,
-                            substr(ocr_text, 1, 800) as snippet,
-                            timestamp,
-                            ROW_NUMBER() OVER (
-                              PARTITION BY app_name, window_title
-                              ORDER BY length(ocr_text) DESC
-                            ) as rn
-                     FROM ocr_frames
-                     WHERE date(timestamp/1000, 'unixepoch', 'localtime') = ?
-                       AND ocr_text IS NOT NULL AND length(ocr_text) > 60
-                       AND window_title IS NOT NULL AND window_title != ''
-                   )
-                   SELECT app_name, window_title, snippet, timestamp
-                   FROM ranked
-                   WHERE rn <= 3
-                   ORDER BY timestamp ASC
-                   LIMIT 80""",
-                (date,),
-            ).fetchall()
-
-            ocr_snippets = [
-                {
-                    "app_name": s["app_name"],
-                    "window_title": s["window_title"],
-                    "snippet": (s["snippet"] or "").replace("\n", " ").strip()[:800],
-                    "time": s["timestamp"],
-                }
-                for s in snippets
+                for r in rows
             ]
 
-        window_titles = [
-            {
-                "app_name": r["app_name"],
-                "window_title": r["window_title"] or "",
-                "frequency": r["freq"],
+            if should_close_conn and conn is not None:
+                conn.close()
+
+            return {
+                "success": True,
+                "date": date,
+                "window_titles": window_titles,
+                "ocr_snippets": ocr_snippets,
+                "total_captures": sum(r["freq"] for r in rows),
             }
-            for r in rows
-        ]
-
-        conn.close()
-
-        return {
-            "success": True,
-            "date": date,
-            "window_titles": window_titles,
-            "ocr_snippets": ocr_snippets,
-            "total_captures": sum(r["freq"] for r in rows),
-        }
     except Exception as e:
         logger.error(f"Screen evidence local DB error: {e}")
         # --- Fallback: Turbopuffer cloud when local DB is unavailable ---
@@ -996,14 +1016,18 @@ async def process_semantic_summaries(
     Call periodically to backfill summaries for captured screen data.
     Uses activity.db where the watcher writes context_snapshots.
     """
-    from services.watcher_service_local_db import get_local_activity_db_path_impl
-    from services.memory_semantic_summary_service import process_pending_summaries
+    from services.memory_semantic_summary_service import process_pending_summaries_conn
+    from services.watcher_service_local_db import open_activity_connection_for_user
 
     try:
-        db_path = get_local_activity_db_path_impl()
-        result = await asyncio.to_thread(
-            process_pending_summaries, db_path, min(batch_size, 50)
-        )
+        async with open_activity_connection_for_user(current_user["id"], write=True) as conn:
+            if conn is None:
+                raise RuntimeError("No activity database is available for this user")
+            result = await asyncio.to_thread(
+                process_pending_summaries_conn,
+                conn,
+                min(batch_size, 50),
+            )
         return {"success": True, **result}
     except Exception as e:
         logger.error(f"Semantic summary processing error: {e}")

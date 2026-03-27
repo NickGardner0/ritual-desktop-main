@@ -7,11 +7,14 @@ import type { BarListItem, BarListRange } from '@/components/analytics/vercel-ba
 import { format, subDays, startOfDay } from 'date-fns';
 import { isTauri } from '@/lib/tauri-utils';
 import { invokeDetailedActivityWithInitRetry } from '@/lib/computerActivity/tauri-activity';
+import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 
 interface ComputerTimeBarListProps {
   activeRange: BarListRange;
   onRangeChange: (range: BarListRange) => void;
 }
+
+const BAR_LIST_ROW_LIMIT = 12;
 
 function getRangeDatesLocal(range: BarListRange) {
   const now = new Date();
@@ -33,12 +36,6 @@ function formatHours(hours: number): string {
   if (hours >= 1) return `${hours.toFixed(1)}h`;
   const mins = Math.round(hours * 60);
   return `${mins}m`;
-}
-
-function computeChange(currentHours: number, previousHours: number): number {
-  if (previousHours <= 0) return currentHours > 0 ? 100 : 0;
-  const change = ((currentHours - previousHours) / previousHours) * 100;
-  return Number.isFinite(change) ? change : 0;
 }
 
 async function fetchTopItems(
@@ -109,8 +106,8 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
           secondDomainMap.set(key, Number(domain.total_duration_ms || 0));
         });
 
-        const fullApps = full.apps.slice(0, 11);
-        const fullDomains = full.domains.slice(0, 11);
+        const fullApps = full.apps.slice(0, BAR_LIST_ROW_LIMIT);
+        const fullDomains = full.domains.slice(0, BAR_LIST_ROW_LIMIT);
 
         if (fullApps.length > 0) {
           const maxHours = Math.max(...fullApps.map((app) => (app.total_duration_ms || 0) / 3600000), 0.01);
@@ -118,13 +115,16 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
             fullApps.map((app) => {
               const name = app.app_name || app.app_bundle_id || 'Unknown';
               const hours = (app.total_duration_ms || 0) / 3600000;
+              const change = computeMeaningfulPercentChange(
+                (secondAppMap.get(name) || 0) / 3600000,
+                (firstAppMap.get(name) || 0) / 3600000,
+                'hours',
+              );
               return {
                 name,
                 value: formatHours(hours),
-                change: computeChange(
-                  (secondAppMap.get(name) || 0) / 3600000,
-                  (firstAppMap.get(name) || 0) / 3600000,
-                ),
+                change,
+                changeLabel: change === undefined ? 'New' : undefined,
                 barPercent: Math.round((hours / maxHours) * 100),
               };
             }),
@@ -139,13 +139,16 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
             fullDomains.map((domain) => {
               const name = domain.domain || 'Unknown';
               const hours = (domain.total_duration_ms || 0) / 3600000;
+              const change = computeMeaningfulPercentChange(
+                (secondDomainMap.get(name) || 0) / 3600000,
+                (firstDomainMap.get(name) || 0) / 3600000,
+                'hours',
+              );
               return {
                 name,
                 value: formatHours(hours),
-                change: computeChange(
-                  (secondDomainMap.get(name) || 0) / 3600000,
-                  (firstDomainMap.get(name) || 0) / 3600000,
-                ),
+                change,
+                changeLabel: change === undefined ? 'New' : undefined,
                 barPercent: Math.round((hours / maxHours) * 100),
               };
             }),
@@ -163,8 +166,8 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       const endDate = format(to, 'yyyy-MM-dd');
 
       const [appsFull, domainsFull] = await Promise.all([
-        fetchTopItems('/api/watcher/stats/top-apps', startDate, endDate, 11, token),
-        fetchTopItems('/api/watcher/stats/top-domains', startDate, endDate, 11, token),
+        fetchTopItems('/api/watcher/stats/top-apps', startDate, endDate, BAR_LIST_ROW_LIMIT, token),
+        fetchTopItems('/api/watcher/stats/top-domains', startDate, endDate, BAR_LIST_ROW_LIMIT, token),
       ]);
 
       if (id !== fetchIdRef.current) return; // stale
@@ -227,10 +230,12 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
         setAppsData(
           appsFull.map((app: any) => {
             const name = app.app_name || app.app_bundle_id || 'Unknown';
+            const change = computeMeaningfulPercentChange(secondMap.get(name) || 0, firstMap.get(name) || 0, 'hours');
             return {
               name,
               value: formatHours(app.hours || 0),
-              change: computeChange(secondMap.get(name) || 0, firstMap.get(name) || 0),
+              change,
+              changeLabel: change === undefined ? 'New' : undefined,
               barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
             };
           }),
@@ -253,10 +258,12 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
         setDomainsData(
           domainsFull.map((domain: any) => {
             const name = domain.domain || 'Unknown';
+            const change = computeMeaningfulPercentChange(secondMap.get(name) || 0, firstMap.get(name) || 0, 'hours');
             return {
               name,
               value: formatHours(domain.hours || 0),
-              change: computeChange(secondMap.get(name) || 0, firstMap.get(name) || 0),
+              change,
+              changeLabel: change === undefined ? 'New' : undefined,
               barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
             };
           }),

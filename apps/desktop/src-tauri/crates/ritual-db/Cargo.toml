@@ -7,8 +7,9 @@ authors = ["Ritual"]
 license = "MIT"
 
 [dependencies]
-# LibSQL - SQLite fork with vector search
-libsql = "0.6"
+# LibSQL - SQLite fork with vector search and Turso cloud sync
+# v0.9+ required for the "sync" feature (embedded replicas)
+libsql = { version = "0.9", features = ["sync"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }

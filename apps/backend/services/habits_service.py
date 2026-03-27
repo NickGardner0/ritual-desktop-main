@@ -6,7 +6,7 @@ Used by the FastAPI routers for habits and habit logs.
 import uuid
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func
@@ -511,7 +511,7 @@ class HabitsService:
                         duration=item.get("duration"),
                         amount=item.get("amount"),
                         date=item.get("date"),
-                        completed_at=item.get("completed_at") or datetime.utcnow().isoformat(),
+                        completed_at=item.get("completed_at") or datetime.now(timezone.utc).isoformat(),
                         status="completed",
                         notes=item.get("notes"),
                         client_event_id=client_event_id,

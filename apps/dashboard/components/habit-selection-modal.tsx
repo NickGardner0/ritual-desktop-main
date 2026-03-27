@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { invoke } from '@tauri-apps/api/tauri';
 import { 
   ChevronDown, 
   CheckCircle, 
@@ -54,6 +55,45 @@ interface HabitSelectionModalProps {
   onHabitSelect?: (habit: any) => void;
   onHabitCreated?: (habit: any) => void;
   initialCategory?: string | null;
+}
+
+type WatcherStatus = {
+  is_running?: boolean;
+  device_id?: string | null;
+};
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 // Map frontend categories to backend categories
@@ -381,13 +421,29 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
   const checkComputerTrackingConnection = useCallback(async () => {
     try {
-      const response = await fetch('/api/watcher/devices');
+      const response = await fetchWithTimeout('/api/watcher/devices', {}, 5000);
       if (response.ok) {
         const data = await response.json();
         const devices = data.devices || [];
         const hasEnabledDevice = devices.some((d: any) => d.is_enabled);
-        setComputerTrackingConnected(hasEnabledDevice);
+        if (hasEnabledDevice || devices.length > 0) {
+          setComputerTrackingConnected(true);
+          return;
+        }
       }
+
+      if (isTauri()) {
+        const watcherStatus = await withTimeout(
+          invoke<WatcherStatus>('get_watcher_status').catch(() => null),
+          2500,
+          null,
+        );
+        const localWatcherConnected = Boolean(watcherStatus?.is_running || watcherStatus?.device_id);
+        setComputerTrackingConnected(localWatcherConnected);
+        return;
+      }
+
+      setComputerTrackingConnected(false);
     } catch (error) {
       console.error('Error checking Computer Use connection:', error);
       setComputerTrackingConnected(false);
@@ -457,11 +513,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         return;
       }
       
-      const response = await fetch('http://127.0.0.1:8000/api/integrations/whoop/status', {
+      const response = await fetchWithTimeout('/api/integrations/whoop/status', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
-      });
+      }, 5000);
       
       if (response.ok) {
         const data = await response.json();
@@ -482,11 +538,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         return;
       }
       
-      const response = await fetch('http://127.0.0.1:8000/api/wearables/apple/devices', {
+      const response = await fetchWithTimeout('/api/wearables/apple/devices', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
-      });
+      }, 5000);
       
       if (response.ok) {
         const data = await response.json();

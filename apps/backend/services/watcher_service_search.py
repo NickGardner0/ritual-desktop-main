@@ -11,6 +11,7 @@ import time
 from datetime import date as dt_date
 from datetime import datetime, time as dt_time, timedelta
 from datetime import timezone as dt_timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -48,6 +49,26 @@ from services.memory_embedding_service import (
 from services.memory_backfill_service import backfill_cloud_from_local_chunks
 
 logger = logging.getLogger(__name__)
+
+
+def _prefer_explicit_local_context_db(path: str) -> bool:
+    """Honor explicit local DB overrides in dev/test before shared backend replicas."""
+    if not path:
+        return False
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except Exception:
+        resolved = Path(path)
+
+    ritual_dir = Path.home() / ".ritual"
+    try:
+        ritual_dir = ritual_dir.resolve()
+    except Exception:
+        pass
+
+    if str(resolved).startswith(str(ritual_dir)):
+        return False
+    return resolved.exists()
 
 
 OVERVIEW_TIME_HINTS = (
@@ -1002,591 +1023,582 @@ async def search_context_memory_impl(
     is_work_recap_query = _looks_like_work_recap_query(normalized_query)
     prefer_snapshot_evidence = local_budgets["kind"] in {"exact_lookup", "app_drilldown"}
     final_limit = min(safe_limit, int(local_budgets["final_limit"]))
+    from services.watcher_service_local_db import open_activity_connection_for_user
 
     memory_db_path = get_local_watcher_db_path_impl()
     activity_db_path = get_local_activity_db_path_impl()
-    if not os.path.exists(memory_db_path):
-        return {
-            "success": False,
-            "error": f"local memory database not found at {memory_db_path}",
-            "results": [],
-            "mode_used": "none",
-            "status": "unavailable",
-        }
+    force_local_context_db = _prefer_explicit_local_context_db(memory_db_path)
 
-    conn = None
-    try:
-        conn = sqlite3.connect(f"file:{memory_db_path}?mode=ro", uri=True, timeout=2.0)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        _attach_activity_view_if_needed(
-            cursor,
-            memory_db_path=memory_db_path,
-            activity_db_path=activity_db_path,
-        )
-        cursor.execute("PRAGMA query_only = ON")
-
-        has_session_docs = table_exists_impl(cursor, "session_retrieval_docs")
-        has_snapshots = table_exists_impl(cursor, "context_snapshots")
-
-        results: List[Dict[str, Any]] = []
-        mode_used = "none"
-        status = "unavailable"
-        warning: Optional[str] = None
-
-        if has_session_docs:
-            candidate_limit = int(local_budgets["session_candidate_limit"])
-            cursor.execute(
-                """
-                SELECT
-                    id AS doc_id,
-                    session_id,
-                    chunk_start_ts,
-                    chunk_end_ts,
-                    COALESCE(app_name, 'Unknown') AS app_name,
-                    COALESCE(browser_domain, '') AS browser_domain,
-                    window_title,
-                    document_title,
-                    COALESCE(raw_visible_text, '') AS raw_visible_text,
-                    COALESCE(contextual_retrieval_text, '') AS contextual_retrieval_text,
-                    COALESCE(capture_quality, 0.0) AS capture_quality,
-                    COALESCE(source_kind, 'context_session') AS source_kind
-                FROM session_retrieval_docs
-                WHERE chunk_end_ts >= ?
-                  AND chunk_start_ts <= ?
-                ORDER BY chunk_end_ts DESC
-                LIMIT ?
-                """,
-                (cutoff_ms, window_end_ms, candidate_limit),
-            )
-            scored_rows: List[Dict[str, Any]] = []
-            for row in cursor.fetchall():
-                haystack = " ".join(
-                    [
-                        str(row["app_name"] or ""),
-                        str(row["window_title"] or ""),
-                        str(row["document_title"] or ""),
-                        str(row["browser_domain"] or ""),
-                        str(row["contextual_retrieval_text"] or ""),
-                        str(row["raw_visible_text"] or ""),
-                    ]
-                ).lower()
-                if is_overview_query:
-                    lexical_score = _overview_fanout_lexical_score(haystack, tokens)
-                else:
-                    lexical_score = score_lexical_match_impl(haystack, tokens)
-                exact_match_score = _exact_context_match_score(
-                    normalized_query,
-                    [
-                        row["document_title"],
-                        row["window_title"],
-                        row["raw_visible_text"],
-                        row["contextual_retrieval_text"],
-                    ],
-                )
-                if is_overview_query:
-                    exact_match_score = 0.0
-                lexical_score = max(lexical_score, exact_match_score)
-                if is_overview_query and lexical_score <= 0:
-                    lexical_score = 0.35
-                if lexical_score <= 0:
-                    continue
-                age_hours = max(
-                    0.0,
-                    (now_ms - int(row["chunk_end_ts"] or 0)) / (1000.0 * 60.0 * 60.0),
-                )
-                recency_boost = max(0.0, 0.15 * (1.0 - min(age_hours / 72.0, 1.0)))
-                capture_quality = float(row["capture_quality"] or 0.0)
-                candidate = {
-                    "app_name": row["app_name"] or "Unknown",
-                    "window_title": row["window_title"] or row["document_title"],
-                    "document_title": row["document_title"],
-                    "browser_domain": row["browser_domain"],
-                    "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
-                    "contextual_retrieval_text": row["contextual_retrieval_text"] or "",
-                    "parent_context": _derive_parent_context(
-                        app_name=str(row["app_name"] or "Unknown"),
-                        browser_domain=str(row["browser_domain"] or ""),
-                        document_title=row["document_title"],
-                        window_title=row["window_title"],
-                        contextual_retrieval_text=str(row["contextual_retrieval_text"] or ""),
-                    ),
-                    "timestamp": int(row["chunk_end_ts"] or row["chunk_start_ts"] or 0),
-                    "session_key": row["session_id"],
-                    "capture_quality": capture_quality,
+    async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
+        using_turso = preferred_conn is not None and not force_local_context_db
+        if using_turso:
+            conn = preferred_conn
+        else:
+            if not os.path.exists(memory_db_path):
+                return {
+                    "success": False,
+                    "error": f"local memory database not found at {memory_db_path}",
+                    "results": [],
+                    "mode_used": "none",
+                    "status": "unavailable",
                 }
-                candidate_activity_class = str(
-                    enrich_story_evidence(candidate).get("activity_class") or "work"
+            conn = sqlite3.connect(f"file:{memory_db_path}?mode=ro", uri=True, timeout=2.0)
+            conn.row_factory = sqlite3.Row
+
+        try:
+            cursor = conn.cursor()
+            if not using_turso:
+                _attach_activity_view_if_needed(
+                    cursor,
+                    memory_db_path=memory_db_path,
+                    activity_db_path=activity_db_path,
                 )
-                normalized_app = str(row["app_name"] or "").strip().lower()
-                semantic_boost, _semantic_debug = _semantic_overlap_score(query_profile, candidate)
-                app_scope_match = _result_matches_app_scope(
-                    {
-                        "app_name": row["app_name"],
-                        "window_title": row["window_title"],
-                        "document_title": row["document_title"],
-                        "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
-                    },
-                    requested_app_scope,
+            cursor.execute("PRAGMA query_only = ON")
+
+            has_session_docs = table_exists_impl(cursor, "session_retrieval_docs")
+            has_snapshots = table_exists_impl(cursor, "context_snapshots")
+
+            results: List[Dict[str, Any]] = []
+            mode_used = "none"
+            status = "unavailable"
+            warning: Optional[str] = None
+
+            if has_session_docs:
+                candidate_limit = int(local_budgets["session_candidate_limit"])
+                cursor.execute(
+                    """
+                    SELECT
+                        id AS doc_id,
+                        session_id,
+                        chunk_start_ts,
+                        chunk_end_ts,
+                        COALESCE(app_name, 'Unknown') AS app_name,
+                        COALESCE(browser_domain, '') AS browser_domain,
+                        window_title,
+                        document_title,
+                        COALESCE(raw_visible_text, '') AS raw_visible_text,
+                        COALESCE(contextual_retrieval_text, '') AS contextual_retrieval_text,
+                        COALESCE(capture_quality, 0.0) AS capture_quality,
+                        COALESCE(source_kind, 'context_session') AS source_kind
+                    FROM session_retrieval_docs
+                    WHERE chunk_end_ts >= ?
+                      AND chunk_start_ts <= ?
+                    ORDER BY chunk_end_ts DESC
+                    LIMIT ?
+                    """,
+                    (cutoff_ms, window_end_ms, candidate_limit),
                 )
-                if is_overview_query and _is_low_signal_overview_row(
-                    query=normalized_query,
-                    app_name=str(row["app_name"] or ""),
-                    window_title=str(row["window_title"] or row["document_title"] or ""),
-                    document_title=str(row["document_title"] or ""),
-                    browser_domain=str(row["browser_domain"] or ""),
-                    snippet=str(row["raw_visible_text"] or row["contextual_retrieval_text"] or ""),
-                    semantic_boost=semantic_boost,
-                ):
-                    continue
-                if (
-                    is_overview_query
-                    and is_work_recap_query
-                    and (
-                        candidate_activity_class in {"personal", "entertainment"}
-                        or (
-                            str(row["app_name"] or "").strip().lower() in {"google chrome", "chrome", "safari", "arc", "firefox"}
-                            and not _is_worklike_browser_candidate(
-                                window_title=str(row["window_title"] or ""),
-                                document_title=str(row["document_title"] or ""),
-                                browser_domain=str(row["browser_domain"] or ""),
-                                snippet=str(row["raw_visible_text"] or row["contextual_retrieval_text"] or ""),
-                            )
-                        )
+                scored_rows: List[Dict[str, Any]] = []
+                for row in cursor.fetchall():
+                    haystack = " ".join(
+                        [
+                            str(row["app_name"] or ""),
+                            str(row["window_title"] or ""),
+                            str(row["document_title"] or ""),
+                            str(row["browser_domain"] or ""),
+                            str(row["contextual_retrieval_text"] or ""),
+                            str(row["raw_visible_text"] or ""),
+                        ]
+                    ).lower()
+                    if is_overview_query:
+                        lexical_score = _overview_fanout_lexical_score(haystack, tokens)
+                    else:
+                        lexical_score = score_lexical_match_impl(haystack, tokens)
+                    exact_match_score = _exact_context_match_score(
+                        normalized_query,
+                        [
+                            row["document_title"],
+                            row["window_title"],
+                            row["raw_visible_text"],
+                            row["contextual_retrieval_text"],
+                        ],
                     )
-                ):
-                    continue
-                relevance = max(
-                    0.05,
-                    min(
-                        1.0,
-                        lexical_score * 0.6
-                        + capture_quality * 0.15
-                        + recency_boost
-                        + semantic_boost
-                        + (0.2 if app_scope_match else 0.0)
-                        - (0.18 if requested_app_scope and not app_scope_match else 0.0)
-                        + (0.08 if candidate_activity_class in {"work", "admin"} else 0.0)
-                        - (0.12 if candidate_activity_class in {"personal", "entertainment"} else 0.0),
-                    ),
-                )
-                scored_rows.append(
-                    {
-                        "chunk_id": int(row["doc_id"]),
-                        "session_id": int(row["session_id"] or 0),
-                        "timestamp": int(row["chunk_end_ts"] or row["chunk_start_ts"] or 0),
-                        "app_bundle_id": "",
+                    if is_overview_query:
+                        exact_match_score = 0.0
+                    lexical_score = max(lexical_score, exact_match_score)
+                    if is_overview_query and lexical_score <= 0:
+                        lexical_score = 0.35
+                    if lexical_score <= 0:
+                        continue
+                    age_hours = max(
+                        0.0,
+                        (now_ms - int(row["chunk_end_ts"] or 0)) / (1000.0 * 60.0 * 60.0),
+                    )
+                    recency_boost = max(0.0, 0.15 * (1.0 - min(age_hours / 72.0, 1.0)))
+                    capture_quality = float(row["capture_quality"] or 0.0)
+                    candidate = {
                         "app_name": row["app_name"] or "Unknown",
                         "window_title": row["window_title"] or row["document_title"],
                         "document_title": row["document_title"],
                         "browser_domain": row["browser_domain"],
-                        "ocr_text": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
                         "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
                         "contextual_retrieval_text": row["contextual_retrieval_text"] or "",
-                        "parent_context": candidate.get("parent_context"),
-                        "relevance_score": relevance,
+                        "parent_context": _derive_parent_context(
+                            app_name=str(row["app_name"] or "Unknown"),
+                            browser_domain=str(row["browser_domain"] or ""),
+                            document_title=row["document_title"],
+                            window_title=row["window_title"],
+                            contextual_retrieval_text=str(row["contextual_retrieval_text"] or ""),
+                        ),
+                        "timestamp": int(row["chunk_end_ts"] or row["chunk_start_ts"] or 0),
+                        "session_key": row["session_id"],
                         "capture_quality": capture_quality,
-                        "semantic_overlap_debug": _semantic_debug,
-                        "activity_class": candidate_activity_class,
-                        "exact_match_score": exact_match_score,
-                        "source_type": row["source_kind"] or "context_session",
-                        "source": "hybrid",
-                        "fts_matched": False,
                     }
-                )
-            if scored_rows:
-                scored_rows.sort(
-                    key=lambda item: (item["relevance_score"], item["timestamp"]),
-                    reverse=True,
-                )
-                if is_overview_query:
-                    selected = _select_diverse_context_results(scored_rows, limit=final_limit, overview_mode=True)
-                else:
-                    selected = scored_rows[:final_limit]
-                results = _prioritize_app_scope_results(
-                    selected,
-                    requested_app_scope,
-                    hard_filter=False,
-                )
-                mode_used = "context-session-docs"
-                status = "hybrid"
-
-        # For overview queries, also pull snapshots to supplement session docs
-        # with broader temporal/app coverage.  Store session-doc results so we
-        # can merge after snapshot scoring.
-        session_doc_results = list(results) if (is_overview_query and results) else []
-
-        if (prefer_snapshot_evidence or not results or is_overview_query) and has_snapshots:
-            candidate_limit = int(local_budgets["snapshot_candidate_limit"])
-            cursor.execute(
-                """
-                SELECT
-                    id AS snapshot_id,
-                    COALESCE(session_id, 0) AS session_id,
-                    ts,
-                    source_type,
-                    COALESCE(app_bundle_id, '') AS app_bundle_id,
-                    COALESCE(app_name, 'Unknown') AS app_name,
-                    window_title,
-                    browser_url,
-                    browser_domain,
-                    tab_title,
-                    document_title,
-                    document_path,
-                    COALESCE(visible_text_raw, '') AS visible_text_raw,
-                    COALESCE(visible_text_norm, '') AS visible_text_norm,
-                    COALESCE(capture_quality, 0.0) AS capture_quality,
-                    COALESCE(ax_richness_score, 0.0) AS ax_richness_score,
-                    COALESCE(selected_text_present, 0) AS selected_text_present,
-                    capture_trigger
-                FROM context_snapshots
-                WHERE ts >= ?
-                  AND ts <= ?
-                ORDER BY ts DESC
-                LIMIT ?
-                """,
-                (cutoff_ms, window_end_ms, candidate_limit),
-            )
-            scored_rows = []
-            for row in cursor.fetchall():
-                haystack = " ".join(
-                    [
-                        str(row["app_name"] or ""),
-                        str(row["window_title"] or ""),
-                        str(row["document_title"] or ""),
-                        str(row["document_path"] or ""),
-                        str(row["tab_title"] or ""),
-                        str(row["browser_domain"] or ""),
-                        str(row["visible_text_norm"] or ""),
-                        str(row["visible_text_raw"] or ""),
-                    ]
-                ).lower()
-                if is_overview_query:
-                    lexical_score = _overview_fanout_lexical_score(haystack, tokens)
-                else:
-                    lexical_score = score_lexical_match_impl(haystack, tokens)
-                exact_match_score = _exact_context_match_score(
-                    normalized_query,
-                    [
-                        row["document_title"],
-                        row["document_path"],
-                        row["window_title"],
-                        row["tab_title"],
-                        row["browser_url"],
-                        row["visible_text_raw"],
-                        row["visible_text_norm"],
-                    ],
-                )
-                if is_overview_query:
-                    exact_match_score = 0.0
-                lexical_score = max(lexical_score, exact_match_score)
-                if is_overview_query and lexical_score <= 0:
-                    lexical_score = 0.3
-                if lexical_score <= 0:
-                    continue
-                capture_quality = float(row["capture_quality"] or 0.0)
-                candidate = {
-                    "app_name": row["app_name"] or "Unknown",
-                    "window_title": row["window_title"] or row["document_title"] or row["tab_title"],
-                    "document_title": row["document_title"],
-                    "document_path": row["document_path"],
-                    "browser_domain": row["browser_domain"],
-                    "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
-                    "parent_context": _derive_parent_context(
-                        app_name=str(row["app_name"] or "Unknown"),
+                    candidate_activity_class = str(
+                        enrich_story_evidence(candidate).get("activity_class") or "work"
+                    )
+                    semantic_boost, _semantic_debug = _semantic_overlap_score(query_profile, candidate)
+                    app_scope_match = _result_matches_app_scope(
+                        {
+                            "app_name": row["app_name"],
+                            "window_title": row["window_title"],
+                            "document_title": row["document_title"],
+                            "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                        },
+                        requested_app_scope,
+                    )
+                    if is_overview_query and _is_low_signal_overview_row(
+                        query=normalized_query,
+                        app_name=str(row["app_name"] or ""),
+                        window_title=str(row["window_title"] or row["document_title"] or ""),
+                        document_title=str(row["document_title"] or ""),
                         browser_domain=str(row["browser_domain"] or ""),
-                        document_title=row["document_title"],
-                        window_title=row["window_title"] or row["tab_title"],
-                    ),
-                    "timestamp": int(row["ts"] or 0),
-                    "session_key": row["session_id"],
-                    "capture_quality": capture_quality,
-                }
-                candidate_activity_class = str(
-                    enrich_story_evidence(candidate).get("activity_class") or "work"
-                )
-                normalized_app = str(row["app_name"] or "").strip().lower()
-                semantic_boost, _semantic_debug = _semantic_overlap_score(query_profile, candidate)
-                app_scope_match = _result_matches_app_scope(
-                    {
-                        "app_name": row["app_name"],
-                        "app_bundle_id": row["app_bundle_id"],
-                        "window_title": row["window_title"] or row["tab_title"],
-                        "document_title": row["document_title"],
-                        "document_path": row["document_path"],
-                        "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
-                    },
-                    requested_app_scope,
-                )
-                if is_overview_query and _is_low_signal_overview_row(
-                    query=normalized_query,
-                    app_name=str(row["app_name"] or ""),
-                    window_title=str(row["window_title"] or row["document_title"] or row["tab_title"] or ""),
-                    document_title=str(row["document_title"] or row["tab_title"] or ""),
-                    browser_domain=str(row["browser_domain"] or ""),
-                    snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
-                    semantic_boost=semantic_boost,
-                ):
-                    continue
-                if (
-                    is_overview_query
-                    and is_work_recap_query
-                    and (
-                        candidate_activity_class in {"personal", "entertainment"}
-                        or (
-                            normalized_app in {"google chrome", "chrome", "safari", "arc", "firefox"}
-                            and not _is_worklike_browser_candidate(
-                                window_title=str(row["window_title"] or row["tab_title"] or ""),
-                                document_title=str(row["document_title"] or row["tab_title"] or ""),
-                                browser_domain=str(row["browser_domain"] or ""),
-                                snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                        snippet=str(row["raw_visible_text"] or row["contextual_retrieval_text"] or ""),
+                        semantic_boost=semantic_boost,
+                    ):
+                        continue
+                    if (
+                        is_overview_query
+                        and is_work_recap_query
+                        and (
+                            candidate_activity_class in {"personal", "entertainment"}
+                            or (
+                                str(row["app_name"] or "").strip().lower() in {"google chrome", "chrome", "safari", "arc", "firefox"}
+                                and not _is_worklike_browser_candidate(
+                                    window_title=str(row["window_title"] or ""),
+                                    document_title=str(row["document_title"] or ""),
+                                    browser_domain=str(row["browser_domain"] or ""),
+                                    snippet=str(row["raw_visible_text"] or row["contextual_retrieval_text"] or ""),
+                                )
                             )
                         )
+                    ):
+                        continue
+                    relevance = max(
+                        0.05,
+                        min(
+                            1.0,
+                            lexical_score * 0.6
+                            + capture_quality * 0.15
+                            + recency_boost
+                            + semantic_boost
+                            + (0.2 if app_scope_match else 0.0)
+                            - (0.18 if requested_app_scope and not app_scope_match else 0.0)
+                            + (0.08 if candidate_activity_class in {"work", "admin"} else 0.0)
+                            - (0.12 if candidate_activity_class in {"personal", "entertainment"} else 0.0),
+                        ),
                     )
-                ):
-                    continue
+                    scored_rows.append(
+                        {
+                            "chunk_id": int(row["doc_id"]),
+                            "session_id": int(row["session_id"] or 0),
+                            "timestamp": int(row["chunk_end_ts"] or row["chunk_start_ts"] or 0),
+                            "app_bundle_id": "",
+                            "app_name": row["app_name"] or "Unknown",
+                            "window_title": row["window_title"] or row["document_title"],
+                            "document_title": row["document_title"],
+                            "browser_domain": row["browser_domain"],
+                            "ocr_text": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                            "snippet": row["raw_visible_text"] or row["contextual_retrieval_text"] or "",
+                            "contextual_retrieval_text": row["contextual_retrieval_text"] or "",
+                            "parent_context": candidate.get("parent_context"),
+                            "relevance_score": relevance,
+                            "capture_quality": capture_quality,
+                            "semantic_overlap_debug": _semantic_debug,
+                            "activity_class": candidate_activity_class,
+                            "exact_match_score": exact_match_score,
+                            "source_type": row["source_kind"] or "context_session",
+                            "source": "hybrid",
+                            "fts_matched": False,
+                        }
+                    )
+                if scored_rows:
+                    scored_rows.sort(
+                        key=lambda item: (item["relevance_score"], item["timestamp"]),
+                        reverse=True,
+                    )
+                    if is_overview_query:
+                        selected = _select_diverse_context_results(scored_rows, limit=final_limit, overview_mode=True)
+                    else:
+                        selected = scored_rows[:final_limit]
+                    results = _prioritize_app_scope_results(
+                        selected,
+                        requested_app_scope,
+                        hard_filter=False,
+                    )
+                    mode_used = "context-session-docs"
+                    status = "hybrid"
 
-                metadata_penalty = 0.08 if str(row["source_type"] or "") == "window_metadata_fallback" and semantic_boost < 0.08 else 0.0
-                recency_hours = max(0.0, (now_ms - int(row["ts"] or 0)) / (1000.0 * 60.0 * 60.0))
-                recency_boost = 0.06 * (1.0 - min(recency_hours / 24.0, 1.0))
-                ax_richness = float(row["ax_richness_score"] or 0.0)
-                text_length = len(str(row["visible_text_raw"] or row["visible_text_norm"] or ""))
-                richness_boost = max(ax_richness * 0.18, min(0.14, text_length / 2400.0))
-                app_bonus = 0.0
-                selected_text_bonus = 0.06 if int(row["selected_text_present"] or 0) else 0.0
-                trigger_bonus = 0.04 if str(row["capture_trigger"] or "") == "ax_event" else 0.0
-                if normalized_app in {"cursor", "codex", "paper", "things 3", "things", "finder"}:
-                    app_bonus = 0.08
-                elif normalized_app == "google chrome" and str(row["browser_domain"] or "").strip().lower() not in LOW_SIGNAL_BROWSER_DOMAINS:
-                    app_bonus = 0.03
+            session_doc_results = list(results) if (is_overview_query and results) else []
 
-                lexical_weight = 0.28 if prefer_snapshot_evidence else 0.62
-                relevance = max(
-                    0.05,
-                    min(
-                        1.0,
-                        lexical_score * lexical_weight
-                        + capture_quality * 0.2
-                        + semantic_boost
-                        + recency_boost
-                        + richness_boost
-                        + app_bonus
-                        + selected_text_bonus
-                        + trigger_bonus
-                        + (0.22 if app_scope_match else 0.0)
-                        - (0.2 if requested_app_scope and not app_scope_match else 0.0)
-                        + (0.08 if candidate_activity_class in {"work", "admin"} else 0.0)
-                        - (0.12 if candidate_activity_class in {"personal", "entertainment"} else 0.0)
-                        - metadata_penalty,
-                    ),
+            if (prefer_snapshot_evidence or not results or is_overview_query) and has_snapshots:
+                candidate_limit = int(local_budgets["snapshot_candidate_limit"])
+                cursor.execute(
+                    """
+                    SELECT
+                        id AS snapshot_id,
+                        COALESCE(session_id, 0) AS session_id,
+                        ts,
+                        source_type,
+                        COALESCE(app_bundle_id, '') AS app_bundle_id,
+                        COALESCE(app_name, 'Unknown') AS app_name,
+                        window_title,
+                        browser_url,
+                        browser_domain,
+                        tab_title,
+                        document_title,
+                        document_path,
+                        COALESCE(visible_text_raw, '') AS visible_text_raw,
+                        COALESCE(visible_text_norm, '') AS visible_text_norm,
+                        COALESCE(capture_quality, 0.0) AS capture_quality,
+                        COALESCE(ax_richness_score, 0.0) AS ax_richness_score,
+                        COALESCE(selected_text_present, 0) AS selected_text_present,
+                        capture_trigger
+                    FROM context_snapshots
+                    WHERE ts >= ?
+                      AND ts <= ?
+                    ORDER BY ts DESC
+                    LIMIT ?
+                    """,
+                    (cutoff_ms, window_end_ms, candidate_limit),
                 )
-                scored_rows.append(
-                    {
-                        "frame_id": int(row["snapshot_id"]),
-                        "session_id": int(row["session_id"] or 0),
-                        "timestamp": int(row["ts"] or 0),
-                        "app_bundle_id": row["app_bundle_id"] or "",
+                scored_rows = []
+                for row in cursor.fetchall():
+                    haystack = " ".join(
+                        [
+                            str(row["app_name"] or ""),
+                            str(row["window_title"] or ""),
+                            str(row["document_title"] or ""),
+                            str(row["document_path"] or ""),
+                            str(row["tab_title"] or ""),
+                            str(row["browser_domain"] or ""),
+                            str(row["visible_text_norm"] or ""),
+                            str(row["visible_text_raw"] or ""),
+                        ]
+                    ).lower()
+                    if is_overview_query:
+                        lexical_score = _overview_fanout_lexical_score(haystack, tokens)
+                    else:
+                        lexical_score = score_lexical_match_impl(haystack, tokens)
+                    exact_match_score = _exact_context_match_score(
+                        normalized_query,
+                        [
+                            row["document_title"],
+                            row["document_path"],
+                            row["window_title"],
+                            row["tab_title"],
+                            row["browser_url"],
+                            row["visible_text_raw"],
+                            row["visible_text_norm"],
+                        ],
+                    )
+                    if is_overview_query:
+                        exact_match_score = 0.0
+                    lexical_score = max(lexical_score, exact_match_score)
+                    if is_overview_query and lexical_score <= 0:
+                        lexical_score = 0.3
+                    if lexical_score <= 0:
+                        continue
+                    capture_quality = float(row["capture_quality"] or 0.0)
+                    candidate = {
                         "app_name": row["app_name"] or "Unknown",
                         "window_title": row["window_title"] or row["document_title"] or row["tab_title"],
                         "document_title": row["document_title"],
                         "document_path": row["document_path"],
                         "browser_domain": row["browser_domain"],
-                        "browser_url": row["browser_url"],
-                        "ocr_text": row["visible_text_raw"] or row["visible_text_norm"] or "",
                         "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
-                        "parent_context": candidate.get("parent_context"),
-                        "relevance_score": relevance,
+                        "parent_context": _derive_parent_context(
+                            app_name=str(row["app_name"] or "Unknown"),
+                            browser_domain=str(row["browser_domain"] or ""),
+                            document_title=row["document_title"],
+                            window_title=row["window_title"] or row["tab_title"],
+                        ),
+                        "timestamp": int(row["ts"] or 0),
+                        "session_key": row["session_id"],
                         "capture_quality": capture_quality,
-                        "semantic_overlap_debug": _semantic_debug,
-                        "activity_class": candidate_activity_class,
-                        "exact_match_score": exact_match_score,
-                        "source_type": row["source_type"] or "context_snapshot",
-                        "source": "text",
-                        "fts_matched": False,
                     }
-                )
-            if scored_rows:
-                scored_rows.sort(
-                    key=lambda item: (item["relevance_score"], item["timestamp"]),
+                    candidate_activity_class = str(
+                        enrich_story_evidence(candidate).get("activity_class") or "work"
+                    )
+                    normalized_app = str(row["app_name"] or "").strip().lower()
+                    semantic_boost, _semantic_debug = _semantic_overlap_score(query_profile, candidate)
+                    app_scope_match = _result_matches_app_scope(
+                        {
+                            "app_name": row["app_name"],
+                            "app_bundle_id": row["app_bundle_id"],
+                            "window_title": row["window_title"] or row["tab_title"],
+                            "document_title": row["document_title"],
+                            "document_path": row["document_path"],
+                            "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                        },
+                        requested_app_scope,
+                    )
+                    if is_overview_query and _is_low_signal_overview_row(
+                        query=normalized_query,
+                        app_name=str(row["app_name"] or ""),
+                        window_title=str(row["window_title"] or row["document_title"] or row["tab_title"] or ""),
+                        document_title=str(row["document_title"] or row["tab_title"] or ""),
+                        browser_domain=str(row["browser_domain"] or ""),
+                        snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                        semantic_boost=semantic_boost,
+                    ):
+                        continue
+                    if (
+                        is_overview_query
+                        and is_work_recap_query
+                        and (
+                            candidate_activity_class in {"personal", "entertainment"}
+                            or (
+                                normalized_app in {"google chrome", "chrome", "safari", "arc", "firefox"}
+                                and not _is_worklike_browser_candidate(
+                                    window_title=str(row["window_title"] or row["tab_title"] or ""),
+                                    document_title=str(row["document_title"] or row["tab_title"] or ""),
+                                    browser_domain=str(row["browser_domain"] or ""),
+                                    snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                                )
+                            )
+                        )
+                    ):
+                        continue
+
+                    metadata_penalty = 0.08 if str(row["source_type"] or "") == "window_metadata_fallback" and semantic_boost < 0.08 else 0.0
+                    recency_hours = max(0.0, (now_ms - int(row["ts"] or 0)) / (1000.0 * 60.0 * 60.0))
+                    recency_boost = 0.06 * (1.0 - min(recency_hours / 24.0, 1.0))
+                    ax_richness = float(row["ax_richness_score"] or 0.0)
+                    text_length = len(str(row["visible_text_raw"] or row["visible_text_norm"] or ""))
+                    richness_boost = max(ax_richness * 0.18, min(0.14, text_length / 2400.0))
+                    app_bonus = 0.0
+                    selected_text_bonus = 0.06 if int(row["selected_text_present"] or 0) else 0.0
+                    trigger_bonus = 0.04 if str(row["capture_trigger"] or "") == "ax_event" else 0.0
+                    if normalized_app in {"cursor", "codex", "paper", "things 3", "things", "finder"}:
+                        app_bonus = 0.08
+                    elif normalized_app == "google chrome" and str(row["browser_domain"] or "").strip().lower() not in LOW_SIGNAL_BROWSER_DOMAINS:
+                        app_bonus = 0.03
+
+                    lexical_weight = 0.28 if prefer_snapshot_evidence else 0.62
+                    relevance = max(
+                        0.05,
+                        min(
+                            1.0,
+                            lexical_score * lexical_weight
+                            + capture_quality * 0.2
+                            + semantic_boost
+                            + recency_boost
+                            + richness_boost
+                            + app_bonus
+                            + selected_text_bonus
+                            + trigger_bonus
+                            + (0.22 if app_scope_match else 0.0)
+                            - (0.2 if requested_app_scope and not app_scope_match else 0.0)
+                            + (0.08 if candidate_activity_class in {"work", "admin"} else 0.0)
+                            - (0.12 if candidate_activity_class in {"personal", "entertainment"} else 0.0)
+                            - metadata_penalty,
+                        ),
+                    )
+                    scored_rows.append(
+                        {
+                            "frame_id": int(row["snapshot_id"]),
+                            "session_id": int(row["session_id"] or 0),
+                            "timestamp": int(row["ts"] or 0),
+                            "app_bundle_id": row["app_bundle_id"] or "",
+                            "app_name": row["app_name"] or "Unknown",
+                            "window_title": row["window_title"] or row["document_title"] or row["tab_title"],
+                            "document_title": row["document_title"],
+                            "document_path": row["document_path"],
+                            "browser_domain": row["browser_domain"],
+                            "browser_url": row["browser_url"],
+                            "ocr_text": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                            "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                            "parent_context": candidate.get("parent_context"),
+                            "relevance_score": relevance,
+                            "capture_quality": capture_quality,
+                            "semantic_overlap_debug": _semantic_debug,
+                            "activity_class": candidate_activity_class,
+                            "exact_match_score": exact_match_score,
+                            "source_type": row["source_type"] or "context_snapshot",
+                            "source": "text",
+                            "fts_matched": False,
+                        }
+                    )
+                if scored_rows:
+                    scored_rows.sort(
+                        key=lambda item: (item["relevance_score"], item["timestamp"]),
+                        reverse=True,
+                    )
+                    selected_rows = _select_diverse_context_results(scored_rows, limit=final_limit, overview_mode=is_overview_query) if (prefer_snapshot_evidence or is_overview_query) else scored_rows[:final_limit]
+                    results = _prioritize_app_scope_results(
+                        selected_rows,
+                        requested_app_scope,
+                        hard_filter=False,
+                    )
+                    mode_used = "context-snapshots"
+                    status = "text-only"
+
+            if is_overview_query and session_doc_results and results:
+                existing_timestamps = {int(r.get("timestamp") or 0) for r in results}
+                for sdr in session_doc_results:
+                    sdr_ts = int(sdr.get("timestamp") or 0)
+                    if any(abs(sdr_ts - ts) < 30_000 for ts in existing_timestamps):
+                        continue
+                    results.append(sdr)
+                    existing_timestamps.add(sdr_ts)
+                results.sort(
+                    key=lambda item: (float(item.get("relevance_score") or 0.0), int(item.get("timestamp") or 0)),
                     reverse=True,
                 )
-                selected_rows = _select_diverse_context_results(scored_rows, limit=final_limit, overview_mode=is_overview_query) if (prefer_snapshot_evidence or is_overview_query) else scored_rows[:final_limit]
-                results = _prioritize_app_scope_results(
-                    selected_rows,
-                    requested_app_scope,
-                    hard_filter=False,
+                results = list(_select_diverse_context_results(results, limit=final_limit, overview_mode=True))
+                mode_used = "context-merged"
+                status = "hybrid"
+
+            if not results and allow_legacy_fallback:
+                legacy = await search_screen_recordings_impl(
+                    service=service,
+                    user_id=user_id,
+                    query=normalized_query,
+                    days_back=safe_days_back,
+                    limit=final_limit,
+                    allow_activity_fallback=True,
                 )
-                mode_used = "context-snapshots"
-                status = "text-only"
+                legacy["warning"] = (
+                    "Context snapshots were unavailable or empty; falling back to legacy OCR/activity search."
+                    if legacy.get("success")
+                    else legacy.get("warning")
+                )
+                return legacy
 
-        # Merge session-doc and snapshot results for overview queries so the
-        # story planner sees evidence from both retrieval paths.
-        if is_overview_query and session_doc_results and results:
-            existing_timestamps = {int(r.get("timestamp") or 0) for r in results}
-            for sdr in session_doc_results:
-                sdr_ts = int(sdr.get("timestamp") or 0)
-                # Skip near-duplicates (within 30s)
-                if any(abs(sdr_ts - ts) < 30_000 for ts in existing_timestamps):
-                    continue
-                results.append(sdr)
-                existing_timestamps.add(sdr_ts)
-            # Re-sort the merged pool and re-apply diversity selection
-            results.sort(
-                key=lambda item: (float(item.get("relevance_score") or 0.0), int(item.get("timestamp") or 0)),
-                reverse=True,
-            )
-            results = list(_select_diverse_context_results(results, limit=final_limit, overview_mode=True))
-            mode_used = "context-merged"
-            status = "hybrid"
+            if results and allow_legacy_fallback:
+                avg_quality = sum(float(r.get("capture_quality") or 0.0) for r in results) / max(len(results), 1)
+                if avg_quality < 0.5:
+                    try:
+                        ocr_supplement = await search_screen_recordings_impl(
+                            service=service,
+                            user_id=user_id,
+                            query=normalized_query,
+                            days_back=safe_days_back,
+                            limit=max(5, final_limit // 3),
+                            allow_activity_fallback=False,
+                        )
+                        ocr_results = ocr_supplement.get("results") or [] if ocr_supplement.get("success") else []
+                        if ocr_results:
+                            existing_timestamps = {int(r.get("timestamp") or 0) for r in results}
+                            for ocr_row in ocr_results:
+                                ocr_ts = int(ocr_row.get("timestamp") or 0)
+                                if any(abs(ocr_ts - ts) < 30_000 for ts in existing_timestamps):
+                                    continue
+                                ocr_row["source"] = "ocr_fallback"
+                                ocr_row["source_type"] = "ocr_fusion"
+                                results.append(ocr_row)
+                            results.sort(key=lambda r: (float(r.get("relevance_score") or 0.0), int(r.get("timestamp") or 0)), reverse=True)
+                    except Exception:
+                        pass
 
-        if not results and allow_legacy_fallback:
-            legacy = await search_screen_recordings_impl(
-                service=service,
-                user_id=user_id,
-                query=normalized_query,
-                days_back=safe_days_back,
-                limit=final_limit,
-                allow_activity_fallback=True,
-            )
-            legacy["warning"] = (
-                "Context snapshots were unavailable or empty; falling back to legacy OCR/activity search."
-                if legacy.get("success")
-                else legacy.get("warning")
-            )
-            return legacy
+            story_plan = None
+            renderer = None
+            debug = None
+            citations = []
+            rerank_info = {"provider": "none", "rerank_attempted": False, "rerank_latency_ms": 0}
+            if results:
+                if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
+                    primary_results = [r for r in results if _result_matches_app_scope(r, requested_app_scope)]
+                    corroborating_results = [r for r in results if not _result_matches_app_scope(r, requested_app_scope)]
+                    primary_budget = max(1, int(final_limit * 0.7))
+                    corroboration_budget = max(1, final_limit - primary_budget)
+                    results = primary_results[:primary_budget] + corroborating_results[:corroboration_budget]
 
-        # OCR fusion: when context memory results have low avg capture quality,
-        # supplement with legacy OCR results for richer evidence
-        if results and allow_legacy_fallback:
-            avg_quality = sum(float(r.get("capture_quality") or 0.0) for r in results) / max(len(results), 1)
-            if avg_quality < 0.5:
-                try:
-                    ocr_supplement = await search_screen_recordings_impl(
-                        service=service,
-                        user_id=user_id,
-                        query=normalized_query,
-                        days_back=safe_days_back,
-                        limit=max(5, final_limit // 3),
-                        allow_activity_fallback=False,
+                citations = _build_citations(
+                    results,
+                    start_ms=cutoff_ms,
+                    end_ms=window_end_ms,
+                    limit=max(final_limit * 2, int(local_budgets["citation_limit"])),
+                )
+                if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
+                    scoped_citations = [c for c in citations if _result_matches_app_scope(c, requested_app_scope)]
+                    other_citations = [c for c in citations if not _result_matches_app_scope(c, requested_app_scope)]
+                    citation_primary_budget = max(1, int(len(citations) * 0.7))
+                    citation_corr_budget = max(1, len(citations) - citation_primary_budget)
+                    citations = scoped_citations[:citation_primary_budget] + other_citations[:citation_corr_budget]
+                top_score = float(results[0].get("relevance_score") or 0.0)
+                runner_up_score = float(results[1].get("relevance_score") or 0.0) if len(results) > 1 else 0.0
+                strong_signal = None
+                if local_budgets["kind"] not in {"broad_overview", "daypart_overview", "time_breakdown"} and (
+                    float(results[0].get("exact_match_score") or 0.0) >= 0.95 or (
+                        top_score >= 0.85 and (top_score - runner_up_score) >= 0.15
                     )
-                    ocr_results = ocr_supplement.get("results") or [] if ocr_supplement.get("success") else []
-                    if ocr_results:
-                        # Tag OCR results and merge them into the evidence set
-                        existing_timestamps = {int(r.get("timestamp") or 0) for r in results}
-                        for ocr_row in ocr_results:
-                            ocr_ts = int(ocr_row.get("timestamp") or 0)
-                            # Skip if within 30s of an existing result to avoid near-duplicates
-                            if any(abs(ocr_ts - ts) < 30_000 for ts in existing_timestamps):
-                                continue
-                            ocr_row["source"] = "ocr_fallback"
-                            ocr_row["source_type"] = "ocr_fusion"
-                            results.append(ocr_row)
-                        results.sort(key=lambda r: (float(r.get("relevance_score") or 0.0), int(r.get("timestamp") or 0)), reverse=True)
-                except Exception:
-                    pass  # OCR fusion is best-effort
-
-        story_plan = None
-        renderer = None
-        debug = None
-        citations = []
-        rerank_info = {"provider": "none", "rerank_attempted": False, "rerank_latency_ms": 0}
-        if results:
-            if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
-                # Soft-filter: 70% primary app, 30% corroborating from other apps
-                primary_results = [r for r in results if _result_matches_app_scope(r, requested_app_scope)]
-                corroborating_results = [r for r in results if not _result_matches_app_scope(r, requested_app_scope)]
-                primary_budget = max(1, int(final_limit * 0.7))
-                corroboration_budget = max(1, final_limit - primary_budget)
-                results = primary_results[:primary_budget] + corroborating_results[:corroboration_budget]
-
-            # Reranking disabled — first-stage scoring (recency + app-scope + text
-            # matching) provides sufficient ordering and avoids 5-11s Cohere latency.
-
-            citations = _build_citations(
-                results,
-                start_ms=cutoff_ms,
-                end_ms=window_end_ms,
-                limit=max(final_limit * 2, int(local_budgets["citation_limit"])),
-            )
-            if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
-                # Keep primary app citations dominant but include corroborating evidence
-                scoped_citations = [c for c in citations if _result_matches_app_scope(c, requested_app_scope)]
-                other_citations = [c for c in citations if not _result_matches_app_scope(c, requested_app_scope)]
-                citation_primary_budget = max(1, int(len(citations) * 0.7))
-                citation_corr_budget = max(1, len(citations) - citation_primary_budget)
-                citations = scoped_citations[:citation_primary_budget] + other_citations[:citation_corr_budget]
-            top_score = float(results[0].get("relevance_score") or 0.0)
-            runner_up_score = float(results[1].get("relevance_score") or 0.0) if len(results) > 1 else 0.0
-            strong_signal = None
-            if local_budgets["kind"] not in {"broad_overview", "daypart_overview", "time_breakdown"} and (
-                float(results[0].get("exact_match_score") or 0.0) >= 0.95 or (
-                top_score >= 0.85 and (top_score - runner_up_score) >= 0.15
+                ):
+                    strong_signal = {
+                        "exact_match": float(results[0].get("exact_match_score") or 0.0) >= 0.95,
+                        "top_score": round(top_score, 3),
+                        "runner_up_score": round(runner_up_score, 3),
+                        "source_type": results[0].get("source_type"),
+                    }
+                story_plan = _build_story_semantics(
+                    query=normalized_query,
+                    intent=resolved_intent,
+                    citations=citations,
                 )
-            ):
-                strong_signal = {
-                    "exact_match": float(results[0].get("exact_match_score") or 0.0) >= 0.95,
-                    "top_score": round(top_score, 3),
-                    "runner_up_score": round(runner_up_score, 3),
-                    "source_type": results[0].get("source_type"),
-                }
-            story_plan = _build_story_semantics(
-                query=normalized_query,
-                intent=resolved_intent,
-                citations=citations,
-            )
-            if story_plan:
-                renderer = story_plan.get("renderer")
-                metrics = story_plan.get("metrics") or {}
-                debug = {
-                    "main_event_work_item_id": ((story_plan.get("main_event") or {}).get("id")),
-                    "work_items_considered": int(metrics.get("work_items_considered") or 0),
-                    "cross_app_stitches": int(metrics.get("cross_app_stitches") or 0),
-                    "claim_count": int(metrics.get("claim_count") or 0),
-                    "claim_grounding_rate": float(metrics.get("claim_grounding_rate") or 0.0),
-                    "generic_fallback_used": bool(metrics.get("generic_fallback_used")),
-                    "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
-                    "expanded_queries": expanded_queries,
-                    "strong_signal_short_circuit": strong_signal,
-                    "rerank": rerank_info,
-                    "candidate_limit_applied": {
-                        "kind": local_budgets["kind"],
-                        "session_candidate_limit": int(local_budgets["session_candidate_limit"]),
-                        "snapshot_candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
-                        "final_limit": int(final_limit),
-                    },
-                    "retrieval_lists": [
-                        {
-                            "source": "context-session-docs",
-                            "query_types": [str(item.get("type") or "original") for item in expanded_queries],
-                            "candidate_limit": int(local_budgets["session_candidate_limit"]),
+                if story_plan:
+                    renderer = story_plan.get("renderer")
+                    metrics = story_plan.get("metrics") or {}
+                    debug = {
+                        "main_event_work_item_id": ((story_plan.get("main_event") or {}).get("id")),
+                        "work_items_considered": int(metrics.get("work_items_considered") or 0),
+                        "cross_app_stitches": int(metrics.get("cross_app_stitches") or 0),
+                        "claim_count": int(metrics.get("claim_count") or 0),
+                        "claim_grounding_rate": float(metrics.get("claim_grounding_rate") or 0.0),
+                        "generic_fallback_used": bool(metrics.get("generic_fallback_used")),
+                        "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
+                        "expanded_queries": expanded_queries,
+                        "strong_signal_short_circuit": strong_signal,
+                        "rerank": rerank_info,
+                        "candidate_limit_applied": {
+                            "kind": local_budgets["kind"],
+                            "session_candidate_limit": int(local_budgets["session_candidate_limit"]),
+                            "snapshot_candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
+                            "final_limit": int(final_limit),
                         },
-                        {
-                            "source": "context-snapshots",
-                            "query_types": [str(item.get("type") or "original") for item in expanded_queries],
-                            "candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
-                        },
-                    ],
-                    "rerank_cache_hit": bool(rerank_info.get("cache_hits")),
-                }
+                        "retrieval_lists": [
+                            {
+                                "source": "context-session-docs",
+                                "query_types": [str(item.get("type") or "original") for item in expanded_queries],
+                                "candidate_limit": int(local_budgets["session_candidate_limit"]),
+                            },
+                            {
+                                "source": "context-snapshots",
+                                "query_types": [str(item.get("type") or "original") for item in expanded_queries],
+                                "candidate_limit": int(local_budgets["snapshot_candidate_limit"]),
+                            },
+                        ],
+                        "rerank_cache_hit": bool(rerank_info.get("cache_hits")),
+                    }
 
-        return {
-            "success": True,
-            "query": normalized_query,
-            "days_back": safe_days_back,
-            "result_count": len(results),
-            "results": results,
-            "mode_used": mode_used,
-            "status": status,
-            "warning": warning,
-            "citations": citations,
-            "story_plan": story_plan,
-            "renderer": renderer,
-            "debug": debug,
-            "source_db": os.path.basename(memory_db_path),
-        }
-    finally:
-        if conn is not None:
-            conn.close()
+            return {
+                "success": True,
+                "query": normalized_query,
+                "days_back": safe_days_back,
+                "result_count": len(results),
+                "results": results,
+                "mode_used": mode_used,
+                "status": status,
+                "warning": warning,
+                "citations": citations,
+                "story_plan": story_plan,
+                "renderer": renderer,
+                "debug": debug,
+                "source_db": "turso_replica" if using_turso else os.path.basename(memory_db_path),
+            }
+        finally:
+            if conn is not None and not using_turso:
+                conn.close()
 
 
 async def search_screen_recordings_impl(
@@ -3271,22 +3283,6 @@ async def query_memory_impl(
     limit: int = 20,
 ) -> Dict[str, Any]:
     normalized_query = (query or "").strip()
-    if not normalized_query:
-        return {
-            "success": False,
-            "intent_resolved": "semantic_lookup",
-            "answer_mode": "unavailable",
-            "retrieval_tier": "unavailable",
-            "time_truth": None,
-            "semantic_truth": None,
-            "citations": [],
-            "freshness": {"status": "unavailable"},
-            "confidence": {"level": "low", "score": 0.0, "corroborating_chunks": 0},
-            "provider_path": None,
-            "warning": None,
-            "error": "query is required",
-        }
-
     safe_limit = max(1, min(int(limit or 20), 100))
     safe_group_by = group_by if group_by in {"app", "domain", "window"} else "app"
     start_day, end_day, resolved_days = _resolve_query_window(
@@ -3296,19 +3292,18 @@ async def query_memory_impl(
         timezone_name=timezone,
         query=normalized_query,
     )
-    query_tz = _resolve_query_timezone(timezone)
-    start_ms = int(datetime.combine(start_day, dt_time.min, tzinfo=query_tz).timestamp() * 1000)
-    end_ms = int(datetime.combine(end_day, dt_time.max, tzinfo=query_tz).timestamp() * 1000)
-    resolved_intent = _detect_memory_intent(normalized_query, intent)
 
-    memory_db_path = get_local_memory_db_path_impl()
-    activity_db_path = get_local_activity_db_path_impl()
-    if not os.path.exists(memory_db_path):
+    def _error_response(message: str, *, resolved_intent: str = "semantic_lookup") -> Dict[str, Any]:
         return {
             "success": False,
+            "query": normalized_query,
             "intent_resolved": resolved_intent,
             "answer_mode": "unavailable",
             "retrieval_tier": "unavailable",
+            "days_back": resolved_days,
+            "start_date": start_day.isoformat(),
+            "end_date": end_day.isoformat(),
+            "group_by": safe_group_by,
             "time_truth": None,
             "semantic_truth": None,
             "citations": [],
@@ -3316,39 +3311,69 @@ async def query_memory_impl(
             "confidence": {"level": "low", "score": 0.0, "corroborating_chunks": 0},
             "provider_path": None,
             "warning": None,
-            "error": f"local memory database not found at {memory_db_path}",
+            "source_db": None,
+            "error": message,
         }
+
+    if not normalized_query:
+        return _error_response("query is required")
+
+    query_tz = _resolve_query_timezone(timezone)
+    start_ms = int(datetime.combine(start_day, dt_time.min, tzinfo=query_tz).timestamp() * 1000)
+    end_ms = int(datetime.combine(end_day, dt_time.max, tzinfo=query_tz).timestamp() * 1000)
+    resolved_intent = _detect_memory_intent(normalized_query, intent)
+
+    memory_db_path = get_local_memory_db_path_impl()
+    activity_db_path = get_local_activity_db_path_impl()
+    cloud_mode = memory_cloud_enabled()
+    local_memory_available = os.path.exists(memory_db_path)
+    if not local_memory_available and not cloud_mode:
+        response = _error_response(
+            f"local memory database not found at {memory_db_path}",
+            resolved_intent=resolved_intent,
+        )
+        response["source_db"] = os.path.basename(memory_db_path)
+        return response
 
     conn = None
     try:
-        conn = sqlite3.connect(
-            f"file:{memory_db_path}?mode=ro",
-            uri=True,
-            timeout=2.5,
-        )
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        _attach_activity_view_if_needed(
-            cursor,
-            memory_db_path=memory_db_path,
-            activity_db_path=activity_db_path,
-        )
-        cursor.execute("PRAGMA query_only = ON")
+        cursor = None
+        if local_memory_available:
+            conn = sqlite3.connect(
+                f"file:{memory_db_path}?mode=ro",
+                uri=True,
+                timeout=2.5,
+            )
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            _attach_activity_view_if_needed(
+                cursor,
+                memory_db_path=memory_db_path,
+                activity_db_path=activity_db_path,
+            )
+            cursor.execute("PRAGMA query_only = ON")
 
         should_include_time = resolved_intent in {"time_spent", "broad_overview"}
         should_include_semantic = resolved_intent in {"semantic_lookup", "evidence_timeline", "broad_overview"}
-        cloud_mode = memory_cloud_enabled()
 
         now_ms = int(time.time() * 1000)
-        freshness = _compute_freshness(
-            cursor,
-            db_path=memory_db_path,
-            now_ms=now_ms,
-            intent=resolved_intent,
-            query_end_ms=end_ms,
-        )
+        if cursor is not None:
+            freshness = _compute_freshness(
+                cursor,
+                db_path=memory_db_path,
+                now_ms=now_ms,
+                intent=resolved_intent,
+                query_end_ms=end_ms,
+            )
+        else:
+            freshness = {
+                "status": "unavailable",
+                "reasons": ["local_memory_db_missing"],
+                "source_db": os.path.basename(memory_db_path),
+                "local_db_available": False,
+            }
         semantic_readiness: Optional[Dict[str, Any]] = None
-        if should_include_semantic and not cloud_mode:
+        if should_include_semantic and not cloud_mode and cursor is not None:
             semantic_readiness = _compute_semantic_readiness(cursor, now_ms=now_ms)
             freshness["semantic_readiness"] = semantic_readiness
             if not semantic_readiness.get("ready", False):
@@ -3380,7 +3405,10 @@ async def query_memory_impl(
             else:
                 warning_parts.append("Data source mismatch or stale OCR detected; semantic claims are restricted.")
         elif freshness.get("status") == "unavailable":
-            warning_parts.append("No recent capture data is available.")
+            if cloud_mode and not local_memory_available:
+                warning_parts.append("Local capture data is unavailable on this backend instance; relying on cloud memory only.")
+            else:
+                warning_parts.append("No recent capture data is available.")
         if freshness.get("source_mismatch"):
             warning_parts.append(
                 str(freshness.get("source_mismatch_note") or "Data source mismatch detected between canonical and legacy local DBs.")
@@ -3394,6 +3422,7 @@ async def query_memory_impl(
         semantic_truth: Optional[Dict[str, Any]] = None
         citations: List[Dict[str, Any]] = []
         provider_path: Optional[Dict[str, Any]] = None
+        cloud_retrieval_debug: Optional[Dict[str, Any]] = None
         confidence = {
             "level": "low",
             "score": 0.0,
@@ -3401,7 +3430,7 @@ async def query_memory_impl(
             "reason": "No semantic evidence evaluated.",
         }
 
-        if should_include_time and _table_exists(cursor, "activity_events"):
+        if should_include_time and cursor is not None and _table_exists(cursor, "activity_events"):
             time_truth = _load_time_truth(
                 cursor=cursor,
                 start_ms=start_ms,
@@ -3412,7 +3441,7 @@ async def query_memory_impl(
                 end_date=end_day.isoformat(),
             )
 
-        semantic_allowed = freshness.get("status") not in {"stale", "unavailable"}
+        semantic_allowed = cloud_mode or freshness.get("status") not in {"stale", "unavailable"}
         if should_include_semantic and semantic_allowed:
             if cloud_mode:
                 local_strong_signal = False
@@ -3515,6 +3544,10 @@ async def query_memory_impl(
                         warning_parts.append(auto_backfill_warning)
                     if cloud_result.get("enabled"):
                         cloud_semantic_truth = cloud_result.get("semantic_truth")
+                        if isinstance(cloud_semantic_truth, dict) and isinstance(
+                            cloud_semantic_truth.get("debug"), dict
+                        ):
+                            cloud_retrieval_debug = dict(cloud_semantic_truth.get("debug") or {})
                         cloud_citations = cloud_result.get("citations") or []
                         if citations and cloud_citations:
                             citations = _fuse_citations_rrf(
@@ -3738,6 +3771,12 @@ async def query_memory_impl(
             )
 
         if citations and isinstance(semantic_truth, dict):
+            if cloud_retrieval_debug:
+                existing_debug = semantic_truth.get("debug")
+                semantic_truth["debug"] = {
+                    **cloud_retrieval_debug,
+                    **(existing_debug if isinstance(existing_debug, dict) else {}),
+                }
             story_plan = _build_story_semantics(
                 query=normalized_query,
                 intent=resolved_intent,

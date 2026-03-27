@@ -27,6 +27,20 @@ static WATCHER_PROCESS: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(Non
 /// Stored device ID from the most recent watcher start
 static DEVICE_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
+fn apply_turso_sync_env(command: &mut Command) {
+    if let Ok(sync_url) = std::env::var("TURSO_SYNC_URL") {
+        if !sync_url.trim().is_empty() {
+            command.env("TURSO_SYNC_URL", sync_url);
+        }
+    }
+
+    if let Ok(auth_token) = std::env::var("TURSO_AUTH_TOKEN") {
+        if !auth_token.trim().is_empty() {
+            command.env("TURSO_AUTH_TOKEN", auth_token);
+        }
+    }
+}
+
 fn require_db<'a, T>(db: Option<&'a T>) -> Result<&'a T, String> {
     db.ok_or_else(|| "Database not initialized. Call initialize_database() first.".to_string())
 }
@@ -65,6 +79,10 @@ fn load_saved_watcher_config() -> Option<WatcherConfig> {
     std::fs::read_to_string(&config_path)
         .ok()
         .and_then(|contents| serde_json::from_str::<WatcherConfig>(&contents).ok())
+}
+
+pub fn get_saved_watcher_config() -> Option<WatcherConfig> {
+    load_saved_watcher_config()
 }
 
 /// Watcher configuration
@@ -292,12 +310,14 @@ fn build_app_summaries(
 
     let mut rows: Vec<AppActivitySummary> = grouped
         .into_iter()
-        .map(|(key, (app_name, intervals, event_count))| AppActivitySummary {
-            app_bundle_id: key,
-            app_name,
-            total_duration_ms: total_interval_ms(intervals),
-            event_count,
-        })
+        .map(
+            |(key, (app_name, intervals, event_count))| AppActivitySummary {
+                app_bundle_id: key,
+                app_name,
+                total_duration_ms: total_interval_ms(intervals),
+                event_count,
+            },
+        )
         .filter(|row| row.total_duration_ms > 0)
         .collect();
 
@@ -704,8 +724,10 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
     watcher_info!("📋 Arguments: {:?}", args);
 
     // Spawn the watcher process
-    let child = Command::new(&executable)
-        .args(&args)
+    let mut command = Command::new(&executable);
+    command.args(&args);
+    apply_turso_sync_env(&mut command);
+    let child = command
         .spawn()
         .map_err(|e| format!("Failed to start watcher: {}", e))?;
 
@@ -779,8 +801,10 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     watcher_info!("📋 Arguments: {:?}", args);
 
     // Spawn the watcher process
-    let child = Command::new(&executable)
-        .args(&args)
+    let mut command = Command::new(&executable);
+    command.args(&args);
+    apply_turso_sync_env(&mut command);
+    let child = command
         .spawn()
         .map_err(|e| format!("Failed to start watcher: {}", e))?;
 
@@ -936,10 +960,7 @@ pub async fn get_detailed_activity(
     // Apply limit to the event list only. Aggregate summaries are computed from
     // the full local range so desktop metrics stay accurate.
     let limit_val = limit.unwrap_or(500) as usize;
-    let events: Vec<DetailedActivityEvent> = clipped_events
-        .into_iter()
-        .take(limit_val)
-        .collect();
+    let events: Vec<DetailedActivityEvent> = clipped_events.into_iter().take(limit_val).collect();
 
     let apps = build_app_summaries(&all_events, start_ts, end_ts);
     let domains = build_domain_summaries(&all_events, start_ts, end_ts);
@@ -1127,8 +1148,7 @@ pub async fn get_daily_summaries(
     let device_id = get_device_id_or_config().unwrap_or_default();
     let start =
         NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(|_| "Invalid start_date")?;
-    let end =
-        NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|_| "Invalid end_date")?;
+    let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|_| "Invalid end_date")?;
 
     if end < start {
         return Err("end_date must be on or after start_date".to_string());

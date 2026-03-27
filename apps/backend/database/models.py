@@ -18,6 +18,10 @@ class UserDB(Base):
     full_name = Column(String)
     
     phone_number = Column(String, nullable=True)
+    turso_db_name = Column(String, nullable=True)
+    turso_db_url = Column(String, nullable=True)
+    turso_provisioned_at = Column(DateTime, nullable=True)
+    turso_migrated_at = Column(DateTime, nullable=True)
 
     # Onboarding data
     age_bracket = Column(String)
@@ -241,7 +245,8 @@ class WhoopIntegrationDB(Base):
     last_sync_at = Column(DateTime)
     is_active = Column(Boolean, default=True)
     whoop_sync_hour = Column(Integer, default=9)  # Preferred sync hour (0-23), defaults to 9 AM
-    
+    scope = Column(String, nullable=True)  # OAuth scopes granted during authorization
+
     # Relationships
     user = relationship("UserDB", backref="whoop_integration")
 

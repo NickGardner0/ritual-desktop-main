@@ -5,6 +5,7 @@ import { parseISO, subDays, subMonths, subYears, startOfYear, format } from 'dat
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import { PerplexityExpandedHabitChart } from '@/components/charts/PerplexityExpandedHabitChart';
 import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
+import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 
@@ -14,6 +15,23 @@ interface HabitChartCardProps {
   logs: any[];
   higherIsBetter?: boolean | null;
   change?: number;
+  compact?: boolean;
+  fixedRange?: RangeKey;
+}
+
+function formatDisplayValue(value: number): string {
+  if (!Number.isFinite(value)) return '--';
+  const abs = Math.abs(value);
+  if (abs >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (abs >= 100) return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (abs >= 10) return value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function shouldUseAverageInRange(habitName: string, unit: string): boolean {
+  const normalizedName = habitName.toLowerCase();
+  const normalizedUnit = unit.toLowerCase();
+  return normalizedName.includes('heart rate') || normalizedUnit.includes('bpm');
 }
 
 const RANGE_OPTIONS: RangeOption[] = [
@@ -43,11 +61,20 @@ function getRangeCutoff(range: RangeKey): Date {
   }
 }
 
-export function HabitChartCard({ habitName, unit, logs, higherIsBetter, change }: HabitChartCardProps) {
+export function HabitChartCard({
+  habitName,
+  unit,
+  logs,
+  higherIsBetter,
+  change,
+  compact = false,
+  fixedRange,
+}: HabitChartCardProps) {
   const [range, setRange] = useState<RangeKey>('1M');
+  const effectiveRange = fixedRange ?? range;
 
   const { points, chartData, totalValue, avgValue, minValue, maxValue, stdDev, primaryValue, dateRangeText } = useMemo(() => {
-    const cutoff = getRangeCutoff(range);
+    const cutoff = getRangeCutoff(effectiveRange);
 
     // Process logs into daily values
     const byDate: Record<string, number> = {};
@@ -68,15 +95,16 @@ export function HabitChartCard({ habitName, unit, logs, higherIsBetter, change }
       rawDate: parseISO(d),
     }));
 
-    // Cap extreme outliers for chart display (>4x median → clip to 2x the next highest)
+    // Cap extreme outliers for chart display so one bad log does not flatten the full month.
     const rawValues = rawCd.map((d) => d.value).filter((v) => v > 0);
     let outlierCap = Infinity;
     if (rawValues.length >= 3) {
       const sorted = [...rawValues].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
-      const p95 = sorted[Math.floor(sorted.length * 0.95)];
-      if (sorted[sorted.length - 1] > median * 4 && median > 0) {
-        outlierCap = Math.max(p95 * 1.5, median * 3);
+      const maxValue = sorted[sorted.length - 1];
+      const secondHighest = sorted[sorted.length - 2] ?? maxValue;
+      if (median > 0 && secondHighest > 0 && maxValue > median * 4 && maxValue > secondHighest * 3) {
+        outlierCap = Math.max(secondHighest * 2, median * 3);
       }
     }
 
@@ -115,22 +143,30 @@ export function HabitChartCard({ habitName, unit, logs, higherIsBetter, change }
       primaryValue: pv,
       dateRangeText: drt,
     };
-  }, [logs, range]);
+  }, [effectiveRange, logs]);
 
   // Compute % change for this specific range
+  const useAverageInRange = shouldUseAverageInRange(habitName, unit);
+
   const rangeChange = useMemo(() => {
-    if (points.length < 2) return 0;
+    if (points.length < 2) return undefined;
     const mid = Math.floor(points.length / 2);
     const firstHalf = points.slice(0, mid);
     const secondHalf = points.slice(mid);
+    if (firstHalf.length === 0 || secondHalf.length === 0) return undefined;
     const firstAvg = firstHalf.reduce((s, p) => s + p.close, 0) / firstHalf.length;
     const secondAvg = secondHalf.reduce((s, p) => s + p.close, 0) / secondHalf.length;
-    if (firstAvg === 0) return secondAvg > 0 ? 100 : 0;
-    return ((secondAvg - firstAvg) / firstAvg) * 100;
-  }, [points]);
+    return computeMeaningfulPercentChange(secondAvg, firstAvg, unit);
+  }, [points, unit]);
 
-  const deltaDirection = rangeChange >= 0 ? 'up' : 'down';
-  const deltaPercentText = `${rangeChange >= 0 ? '+' : ''}${rangeChange.toFixed(2)}%`;
+  const deltaDirection = rangeChange === undefined ? 'neutral' : rangeChange >= 0 ? 'up' : 'down';
+  const deltaPercentText = rangeChange === undefined
+    ? 'New'
+    : `${rangeChange >= 0 ? '+' : ''}${rangeChange.toFixed(2)}%`;
+
+  const compactPrimaryValue = useAverageInRange ? avgValue : totalValue;
+  const compactPrimaryLabel = useAverageInRange ? 'Average in range' : 'Total in range';
+  const compactPrimaryText = formatDisplayValue(compactPrimaryValue);
 
   const stats = [
     { label: 'Total', value: totalValue.toFixed(1) },
@@ -139,6 +175,61 @@ export function HabitChartCard({ habitName, unit, logs, higherIsBetter, change }
     { label: 'Max', value: maxValue.toFixed(1) },
     { label: 'Std Dev', value: stdDev.toFixed(1) },
   ];
+
+  if (compact) {
+    return (
+      <div className="overflow-hidden rounded-sm border border-[rgba(39,37,30,0.07)] bg-white">
+        <div className="flex items-start justify-between px-4 pt-3 pb-1.5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-[14px] font-medium tracking-[-0.3px] text-[#27251E]">
+                {habitName}
+              </h3>
+              <span
+                className={
+                  deltaDirection === 'up'
+                    ? 'text-[12px] font-medium tracking-[-0.2px] text-[#136A22]'
+                    : deltaDirection === 'down'
+                      ? 'text-[12px] font-medium tracking-[-0.2px] text-[#A23544]'
+                      : 'text-[12px] font-medium tracking-[-0.2px] text-[rgba(39,37,30,0.5)]'
+                }
+              >
+                {deltaDirection === 'up' ? '↗ ' : deltaDirection === 'down' ? '↘ ' : ''}
+                {deltaPercentText}
+              </span>
+            </div>
+            <div className="mt-0.5 flex items-baseline gap-1.5">
+              <span className="text-[18px] font-medium leading-none tracking-[-0.3px] text-[#27251E] tabular-nums">
+                {compactPrimaryText}
+              </span>
+              <span className="text-[12px] leading-none tracking-[-0.2px] text-[rgba(39,37,30,0.45)]">
+                {unit}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">
+              {compactPrimaryLabel}
+            </p>
+            {dateRangeText ? (
+              <p className="mt-0.5 text-[11px] tracking-[-0.1px] text-[rgba(39,37,30,0.4)]">
+                {dateRangeText}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="px-3 pb-3">
+          <PerplexityExpandedHabitChart
+            points={points}
+            range={effectiveRange}
+            unit={unit}
+            chartType="bar"
+            showGrid
+            higherIsBetter={higherIsBetter}
+            height={170}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ExpandedMetricCard

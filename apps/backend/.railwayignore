@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.db-shm
+*.db-wal
+*.db-info
+*.db.corrupt-*
+*.db-wal.corrupt-*
+:memory:
+:memory*
+.env.development
+.trigger
+tests/

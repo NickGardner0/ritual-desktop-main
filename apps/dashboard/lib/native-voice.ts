@@ -40,6 +40,34 @@ export async function clearNativeDesktopSpeechState(): Promise<void> {
   await invoke("clear_native_speech_state");
 }
 
+export function getNativeSpeechErrorMessage(error: unknown): string {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const maybeError = error as {
+      message?: string;
+      error?: string;
+      reason?: string;
+    };
+
+    if (typeof maybeError.message === "string" && maybeError.message) {
+      return maybeError.message;
+    }
+
+    if (typeof maybeError.error === "string" && maybeError.error) {
+      return maybeError.error;
+    }
+
+    if (typeof maybeError.reason === "string" && maybeError.reason) {
+      return maybeError.reason;
+    }
+  }
+
+  return "";
+}
+
 export function formatNativeSpeechError(message: string): string {
   switch (message) {
     case "microphone-permission-denied":

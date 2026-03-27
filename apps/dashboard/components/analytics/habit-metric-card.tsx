@@ -13,7 +13,6 @@ export interface HabitMetricCardProps {
   absoluteChange?: number;
   chartData: any[];
   isPositive: boolean;
-  /** true = higher is better, false = lower is better, undefined = default (up=green) */
   higherIsBetter?: boolean | null;
   chartType?: 'spark' | 'bar';
   onClick?: () => void;
@@ -103,7 +102,6 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   absoluteChange,
   chartData,
   isPositive,
-  higherIsBetter,
   chartType = 'spark',
   onClick,
   onRemove,
@@ -111,15 +109,12 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   const numericChange = Number(change ?? 0);
   const isNeutral = change === undefined || !Number.isFinite(numericChange);
   const trend = isNeutral ? 'neutral' : (isPositive ? 'up' : 'down');
+  const changeColorClass = isNeutral
+    ? 'text-[rgba(39,37,30,0.65)]'
+    : (isPositive ? 'text-[#136A22]' : 'text-[#A23544]');
+  const sparkTrend = trend;
 
-  // Determine if this direction is "good" for coloring purposes
-  // When higherIsBetter is false, invert: going up is bad (red), going down is good (green)
-  const isGoodDirection = higherIsBetter === false ? !isPositive : isPositive;
-  const changeColorClass = isNeutral ? 'text-[rgba(39,37,30,0.65)]' : (isGoodDirection ? 'text-[#136A22]' : 'text-[#A23544]');
-  // Sparkline color should reflect polarity, not raw direction
-  const sparkTrend = isNeutral ? 'neutral' as const : (isGoodDirection ? 'up' as const : 'down' as const);
-
-  const formattedChange = formatPercentChange(numericChange);
+  const formattedChange = isNeutral ? null : formatPercentChange(numericChange);
   const numericAbsoluteChange = Number(absoluteChange ?? 0);
   const showAbsoluteChange = absoluteChange !== undefined && Number.isFinite(numericAbsoluteChange);
   const formattedPrimaryValue = formatPrimaryValue(currentValue, unit);
@@ -169,7 +164,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
               <span className={`inline-flex items-center justify-end gap-[1px] text-[12.5px] font-medium leading-[17px] tracking-[-0.16px] tabular-nums ${changeColorClass}`}>
                 {trend === 'up' ? <UpArrowIcon /> : null}
                 {trend === 'down' ? <DownArrowIcon /> : null}
-                {formattedChange}
+                {formattedChange ?? '—'}
               </span>
               <span className="mt-[1px] min-h-[14px] text-[11px] font-medium leading-[14px] tracking-[-0.18px] text-[rgba(39,37,30,0.62)] tabular-nums">
                 {showAbsoluteChange ? `${numericAbsoluteChange >= 0 ? '+' : ''}${formattedAbsoluteChange}` : ''}
@@ -185,7 +180,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
               <span className={`inline-flex items-center gap-[1px] text-[14px] font-medium leading-[20px] tracking-[-0.4px] ${changeColorClass}`}>
                 {trend === 'up' ? <UpArrowIcon /> : null}
                 {trend === 'down' ? <DownArrowIcon /> : null}
-                {formattedChange}
+                {formattedChange ?? '—'}
               </span>
             </div>
 

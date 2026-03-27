@@ -233,6 +233,24 @@ async def linq_webhook(request: Request):
         habit_log = await habits_service.log_habit(match["habit_id"], log_data, user.id)
         logger.info("Linq habit logged: %s for user %s", match["habit_name"], user.id)
 
+        # Notify the desktop app via WebSocket so it can play the success sound
+        try:
+            from services.websocket_manager import manager
+            await manager.broadcast_to_user(
+                {
+                    "type": "habit_logged",
+                    "source": "linq",
+                    "habit_name": match["habit_name"],
+                    "habit_id": match["habit_id"],
+                    "amount": match["amount"],
+                    "unit_type": match.get("unit_type"),
+                    "playSound": True,
+                },
+                user.id,
+            )
+        except Exception as ws_err:
+            logger.debug("WebSocket notify failed (non-critical): %s", ws_err)
+
         # Build confirmation message
         amount_str = ""
         if match["amount"] is not None:

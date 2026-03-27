@@ -52,6 +52,9 @@ interface ComputerDailyRow {
   events_count: number;
 }
 
+const OVERVIEW_STATS_CACHE_VERSION = 'v1';
+const OVERVIEW_STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+
 function getTauriBridgeState() {
   if (typeof window === 'undefined') {
     return { tauriGlobal: false, tauriIpc: false };
@@ -125,6 +128,17 @@ export function OverviewView({
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
+
+  const overviewStatsCacheKey = useMemo(() => {
+    if (!user?.id) return null;
+    return `ritual:overview-stats:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
+  }, [user?.id]);
+
+  const overviewComputerCacheKey = useMemo(() => {
+    if (!user?.id) return null;
+    return `ritual:overview-computer:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
+  }, [user?.id]);
+
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
     setScrubberHoveredDate(date);
     setScrubberHoveredValues(values);
@@ -154,6 +168,58 @@ export function OverviewView({
 
     return typeof log.date === 'string' ? log.date.split('T')[0] : '';
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (dateRange?.from) return;
+    if (!overviewStatsCacheKey) return;
+
+    try {
+      const raw = window.localStorage.getItem(overviewStatsCacheKey);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as {
+        timestamp?: number;
+        stats?: Record<string, HabitStats>;
+      };
+
+      if (!parsed?.stats) return;
+      if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
+        window.localStorage.removeItem(overviewStatsCacheKey);
+        return;
+      }
+
+      setCachedStats(parsed.stats);
+    } catch (cacheError) {
+      console.warn('Failed to restore overview stats cache:', cacheError);
+    }
+  }, [dateRange?.from, overviewStatsCacheKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (dateRange?.from) return;
+    if (!overviewComputerCacheKey) return;
+
+    try {
+      const raw = window.localStorage.getItem(overviewComputerCacheKey);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as {
+        timestamp?: number;
+        rows?: ComputerDailyRow[];
+      };
+
+      if (!parsed?.rows) return;
+      if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
+        window.localStorage.removeItem(overviewComputerCacheKey);
+        return;
+      }
+
+      setComputerActivityDaily(parsed.rows);
+    } catch (cacheError) {
+      console.warn('Failed to restore overview computer cache:', cacheError);
+    }
+  }, [dateRange?.from, overviewComputerCacheKey]);
 
   // Fetch stats from Python analytics API
   useEffect(() => {
@@ -186,6 +252,16 @@ export function OverviewView({
             statsMap[stat.id] = stat;
           });
           setCachedStats(statsMap);
+
+          if (typeof window !== 'undefined' && !dateRange?.from && overviewStatsCacheKey) {
+            window.localStorage.setItem(
+              overviewStatsCacheKey,
+              JSON.stringify({
+                timestamp: Date.now(),
+                stats: statsMap,
+              }),
+            );
+          }
         }
       } catch (error) {
         console.error('❌ Failed to fetch stats from Python API:', error);
@@ -232,6 +308,16 @@ export function OverviewView({
               .filter((row): row is ComputerDailyRow => Boolean(row));
 
             setComputerActivityDaily(rows);
+
+            if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
+              window.localStorage.setItem(
+                overviewComputerCacheKey,
+                JSON.stringify({
+                  timestamp: Date.now(),
+                  rows,
+                }),
+              );
+            }
             return;
           } catch (tauriError) {
             console.error('[Overview] Tauri invoke FAILED — IPC bridge likely unavailable on remote URL:', tauriError);
@@ -257,6 +343,16 @@ export function OverviewView({
           .map(normalizeComputerDailySummaryRow)
           .filter((row: ComputerDailyRow) => row.day);
         setComputerActivityDaily(rows);
+
+        if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
+          window.localStorage.setItem(
+            overviewComputerCacheKey,
+            JSON.stringify({
+              timestamp: Date.now(),
+              rows,
+            }),
+          );
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error('❌ Failed loading overview computer activity:', error);
@@ -272,7 +368,7 @@ export function OverviewView({
         clearInterval(refreshTimer);
       }
     };
-  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), userLoaded, isSignedIn, user]);
+  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   // Initialize ordered habits
   useEffect(() => {
@@ -363,6 +459,7 @@ export function OverviewView({
   const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
     const unitType = habit.unit_type || 'sessions';
     const isComputerHabit = isComputerHabitName(habit.name);
+    const cachedHabitStats = cachedStats[habit.id || ''];
 
     if (isComputerHabit) {
       const totalHours = Math.round(
@@ -406,6 +503,26 @@ export function OverviewView({
           : (Math.round(previewValue * 100) / 100).toString();
       }
       
+      return `${formattedAmount} ${unitType}`;
+    }
+
+    if (cachedHabitStats && !scrubberHoveredDate) {
+      const totalAmount = cachedHabitStats.total || 0;
+      const unitLower = unitType.toLowerCase();
+      let formattedAmount: string;
+
+      if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
+        formattedAmount = Math.round(totalAmount).toString();
+      } else if (['miles', 'km', 'kilometers'].includes(unitLower)) {
+        formattedAmount = totalAmount.toFixed(1);
+      } else if (['hours', 'minutes'].includes(unitLower)) {
+        formattedAmount = (Math.round(totalAmount * 100) / 100).toString();
+      } else {
+        formattedAmount = Number.isInteger(totalAmount)
+          ? totalAmount.toString()
+          : (Math.round(totalAmount * 100) / 100).toString();
+      }
+
       return `${formattedAmount} ${unitType}`;
     }
 
@@ -483,17 +600,114 @@ export function OverviewView({
     }
     
     return `${formattedAmount} ${unitType}`;
-  }, [displayLogs, dateRange, computerActivityDaily, getLogLocalDate, scrubberHoveredDate]);
+  }, [cachedStats, displayLogs, dateRange, computerActivityDaily, getLogLocalDate, scrubberHoveredDate]);
 
   const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
 
+  const formatHabitStatNumber = useCallback((n: number) => {
+    const rounded = Math.round(n * 100) / 100;
+    return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }, []);
+
+  const isSleepLikeHabit = useCallback((habit: Habit) => {
+    const metricType = String(habit.metric_type || '').trim().toLowerCase();
+    const habitName = String(habit.name || '').trim().toLowerCase();
+    const category = String(habit.category || '').trim().toLowerCase();
+    const integrationSource = String(habit.integration_source || '').trim().toLowerCase();
+
+    if (metricType && ['sleep', 'sleep_session', 'sleep_duration', 'sleep_total', 'in_bed'].includes(metricType)) {
+      return true;
+    }
+
+    if (habitName.includes('sleep')) {
+      return true;
+    }
+
+    if (category.includes('sleep') && ['whoop', 'oura', 'apple_health', 'fitbit', 'garmin'].includes(integrationSource)) {
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  const getLocalHabitStats = useCallback((habit: Habit) => {
+    const unitLabel = habit.unit_type || 'sessions';
+    const unitLower = unitLabel.toLowerCase();
+    const isHourBased = unitLower.includes('hour');
+    const isMinuteBased = unitLower.includes('minute');
+    const useMaxPerDay = isSleepLikeHabit(habit);
+
+    const filteredLogs = displayLogs.filter(log => {
+      const matchesHabit = log.habit_id === habit.id;
+      const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
+      if (!matchesHabit || !isCompleted) return false;
+
+      if (!dateRange?.from) return true;
+
+      const localDate = getLogLocalDate(log);
+      if (!localDate) return false;
+
+      const logDate = parseISO(localDate);
+      if (Number.isNaN(logDate.getTime())) return false;
+
+      if (dateRange.to) {
+        return isWithinInterval(logDate, {
+          start: startOfDay(dateRange.from),
+          end: endOfDay(dateRange.to),
+        });
+      }
+
+      return localDate === format(dateRange.from, 'yyyy-MM-dd');
+    });
+
+    const dailyValues = new Map<string, number>();
+
+    filteredLogs.forEach((log) => {
+      const localDate = getLogLocalDate(log);
+      if (!localDate) return;
+
+      let numericValue = 0;
+
+      if (typeof log.duration === 'number' && Number.isFinite(log.duration) && log.duration > 0) {
+        if (isHourBased) {
+          numericValue = log.duration / 3600;
+        } else if (isMinuteBased) {
+          numericValue = log.duration / 60;
+        } else {
+          numericValue = log.duration;
+        }
+      } else if (typeof log.amount === 'number' && Number.isFinite(log.amount)) {
+        numericValue = log.amount;
+      } else {
+        numericValue = 1;
+      }
+
+      const previousValue = dailyValues.get(localDate) || 0;
+      dailyValues.set(localDate, useMaxPerDay ? Math.max(previousValue, numericValue) : previousValue + numericValue);
+    });
+
+    const values = Array.from(dailyValues.values()).filter((value) => Number.isFinite(value));
+    const total = values.reduce((sum, value) => sum + value, 0);
+    const average = values.length ? total / values.length : 0;
+    const min = values.length ? Math.min(...values) : 0;
+    const max = values.length ? Math.max(...values) : 0;
+    const variance = values.length
+      ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
+      : 0;
+
+    return {
+      unitLabel,
+      sumFormatted: `${formatHabitStatNumber(total)} ${unitLabel}`,
+      avgFormatted: `${formatHabitStatNumber(average)} ${unitLabel}`,
+      minFormatted: `${formatHabitStatNumber(min)} ${unitLabel}`,
+      maxFormatted: `${formatHabitStatNumber(max)} ${unitLabel}`,
+      stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} ${unitLabel}`,
+      daysWithData: values.filter((value) => value > 0).length,
+    };
+  }, [dateRange, displayLogs, formatHabitStatNumber, getLogLocalDate, isSleepLikeHabit]);
+
   // Detailed stats for tooltip
   const getHabitMetricStats = useCallback((habit: Habit) => {
-    const formatNum = (n: number) => {
-      const rounded = Math.round(n * 100) / 100;
-      return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    };
-
     if (isComputerHabitName(habit.name)) {
       const rows = computerActivityDaily;
       const values = rows.map(row => Number(row.active_hours || 0)).filter(value => Number.isFinite(value) && value >= 0);
@@ -506,11 +720,11 @@ export function OverviewView({
         : 0;
       return {
         unitLabel: 'Hours',
-        sumFormatted: `${formatNum(total)} Hours`,
-        avgFormatted: `${formatNum(average)} Hours`,
-        minFormatted: `${formatNum(min)} Hours`,
-        maxFormatted: `${formatNum(max)} Hours`,
-        stdDevFormatted: `${formatNum(Math.sqrt(variance))} Hours`,
+        sumFormatted: `${formatHabitStatNumber(total)} Hours`,
+        avgFormatted: `${formatHabitStatNumber(average)} Hours`,
+        minFormatted: `${formatHabitStatNumber(min)} Hours`,
+        maxFormatted: `${formatHabitStatNumber(max)} Hours`,
+        stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} Hours`,
         daysWithData: values.filter(value => value > 0).length,
       };
     }
@@ -521,36 +735,17 @@ export function OverviewView({
       const unitLabel = stats.unit || habit.unit_type || 'sessions';
       return {
         unitLabel,
-        sumFormatted: `${formatNum(stats.total)} ${unitLabel}`,
-        avgFormatted: `${formatNum(stats.average)} ${unitLabel}`,
-        minFormatted: `${formatNum(stats.min)} ${unitLabel}`,
-        maxFormatted: `${formatNum(stats.max)} ${unitLabel}`,
-        stdDevFormatted: `${formatNum(stats.std_dev || Math.sqrt(stats.variance || 0))} ${unitLabel}`,
+        sumFormatted: `${formatHabitStatNumber(stats.total)} ${unitLabel}`,
+        avgFormatted: `${formatHabitStatNumber(stats.average)} ${unitLabel}`,
+        minFormatted: `${formatHabitStatNumber(stats.min)} ${unitLabel}`,
+        maxFormatted: `${formatHabitStatNumber(stats.max)} ${unitLabel}`,
+        stdDevFormatted: `${formatHabitStatNumber(stats.std_dev || Math.sqrt(stats.variance || 0))} ${unitLabel}`,
         daysWithData: stats.days_with_data,
       };
     }
 
-    const unitLabel = habit.unit_type || 'sessions';
-    if (statsLoading) {
-      return {
-        unitLabel,
-        sumFormatted: `Loading...`,
-        avgFormatted: `Loading...`,
-        minFormatted: `Loading...`,
-        maxFormatted: `Loading...`,
-        stdDevFormatted: `Loading...`,
-      };
-    }
-
-    return {
-      unitLabel,
-      sumFormatted: `0 ${unitLabel}`,
-      avgFormatted: `0 ${unitLabel}`,
-      minFormatted: `0 ${unitLabel}`,
-      maxFormatted: `0 ${unitLabel}`,
-      stdDevFormatted: `0 ${unitLabel}`,
-    };
-  }, [cachedStats, statsLoading, computerActivityDaily]);
+    return getLocalHabitStats(habit);
+  }, [cachedStats, computerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {

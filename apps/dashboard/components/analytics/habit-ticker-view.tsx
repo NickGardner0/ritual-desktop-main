@@ -12,7 +12,7 @@ interface HabitTickerCardProps {
   habitName: string;
   category?: string;
   unit: string;
-  percentChange: number;
+  percentChange?: number;
   absoluteChange: number;
   chartData: { value: number }[];
   currentValue: number;
@@ -41,7 +41,7 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
       change={percentChange}
       absoluteChange={absoluteChange}
       chartData={chartData}
-      isPositive={percentChange >= 0}
+      isPositive={(percentChange ?? 0) >= 0}
       higherIsBetter={higherIsBetter}
       onClick={onClick}
       onRemove={onRemove}

@@ -45,11 +45,19 @@ interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
+interface TursoSyncConfigResponse {
+  sync_url: string;
+  auth_token: string;
+  expires_at: string;
+  database_name: string;
+}
+
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(70);
   const { showAIChat, toggleAIChat, chatMode, isFullScreenChat } = useAI();
+  const pathname = usePathname();
   const { fontClass } = useFont();
   const { getToken } = useAuth();
   const { user } = useUser();
@@ -57,6 +65,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
   const lastDashboardRefreshRef = useRef(0);
   const lastProfileSyncKeyRef = useRef<string | null>(null);
+  const lastTursoSyncConfigRef = useRef<TursoSyncConfigResponse | null>(null);
+  const lastTursoSyncRefreshRef = useRef(0);
+  const nextTursoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeSocketRef = useRef<WebSocket | null>(null);
   const realtimeReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeReconnectAttemptRef = useRef(0);
@@ -128,13 +139,105 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
 
     void writeToken();
-    interval = setInterval(writeToken, 25_000);
+    interval = setInterval(() => {
+      void writeToken();
+    }, 5 * 60_000);
 
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
   }, [getToken]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isTauri() || !user?.id) return;
+
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const clearScheduledRefresh = () => {
+      if (nextTursoSyncTimeoutRef.current) {
+        clearTimeout(nextTursoSyncTimeoutRef.current);
+        nextTursoSyncTimeoutRef.current = null;
+      }
+    };
+
+    const shouldRefreshTursoConfig = (force: boolean) => {
+      if (force) return true;
+      const now = Date.now();
+      const currentConfig = lastTursoSyncConfigRef.current;
+
+      if (!currentConfig) return true;
+      if ((now - lastTursoSyncRefreshRef.current) >= 30 * 60 * 1000) return true;
+
+      const expiresAtMs = Date.parse(currentConfig.expires_at);
+      if (Number.isFinite(expiresAtMs)) {
+        return (expiresAtMs - now) <= 30 * 60 * 1000;
+      }
+
+      return true;
+    };
+
+    const scheduleExpiryRefresh = (config: TursoSyncConfigResponse) => {
+      clearScheduledRefresh();
+      const expiresAtMs = Date.parse(config.expires_at);
+      if (!Number.isFinite(expiresAtMs)) return;
+
+      const delayMs = Math.max(0, expiresAtMs - Date.now() - 30 * 60 * 1000);
+      nextTursoSyncTimeoutRef.current = setTimeout(() => {
+        void refreshTursoConfig(true);
+      }, delayMs);
+    };
+
+    const refreshTursoConfig = async (force = false) => {
+      if (!shouldRefreshTursoConfig(force)) return;
+
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+
+        const response = await fetch(`${PYTHON_API_BASE}/api/user/turso-sync-config`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          throw new Error(`Turso sync config fetch failed: ${response.status}`);
+        }
+
+        const config = await response.json() as TursoSyncConfigResponse;
+        if (cancelled) return;
+
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        await invoke('write_turso_sync_config', {
+          syncUrl: config.sync_url,
+          authToken: config.auth_token,
+          expiresAt: config.expires_at,
+          databaseName: config.database_name,
+        });
+
+        lastTursoSyncConfigRef.current = config;
+        lastTursoSyncRefreshRef.current = Date.now();
+        scheduleExpiryRefresh(config);
+      } catch {
+        // Ignore until the native client/backend are ready.
+      }
+    };
+
+    void refreshTursoConfig(true);
+    interval = setInterval(() => {
+      void refreshTursoConfig(false);
+    }, 30 * 60_000);
+
+    return () => {
+      cancelled = true;
+      clearScheduledRefresh();
+      if (interval) clearInterval(interval);
+    };
+  }, [getToken, user?.id]);
 
   // Monitor for token refresh requests from Swift widget
   useEffect(() => {
@@ -181,7 +284,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
           const userId = user?.id || 'anonymous';
           await Promise.all([
-            queryClient.invalidateQueries({ queryKey: habitLogKeys.list(userId) }),
+            queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
             queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
           ]);
           console.log('✅ Dashboard caches invalidated — data will refetch immediately');
@@ -269,9 +372,36 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
             const userId = user.id;
             void Promise.all([
-              queryClient.invalidateQueries({ queryKey: habitLogKeys.list(userId) }),
+              queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
               queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
             ]);
+
+            // Play the success chime for remote habit logs (Linq/iMessage, Whoop, etc.)
+            if (payload.playSound) {
+              try {
+                const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const osc1 = audioCtx.createOscillator();
+                const osc2 = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime);
+                osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+                osc1.type = 'sine';
+                osc2.type = 'sine';
+                osc1.start(audioCtx.currentTime);
+                osc2.start(audioCtx.currentTime);
+                osc1.stop(audioCtx.currentTime + 0.6);
+                osc2.stop(audioCtx.currentTime + 0.6);
+              } catch (e) {
+                console.log('Remote habit log sound failed:', e);
+              }
+            }
 
             window.dispatchEvent(new CustomEvent('ritual:habit-log-updated', {
               detail: payload.data || null,
@@ -371,7 +501,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [detachedSidebarMode]);
 
-  const contentOffset = !isFullScreenChat ? (detachedSidebarMode ? detachedSidebarWidth : 70) : 0;
+  const isChatRoute = pathname === '/chat';
+  const shouldHideAppSidebar = isFullScreenChat || isChatRoute;
 
   return (
     <div className={`app-container flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
@@ -393,24 +524,26 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       />
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-      {!isFullScreenChat && !detachedSidebarMode && (
+      {!shouldHideAppSidebar && !detachedSidebarMode && (
         <Sidebar />
       )}
 
       {/* Main Content Area */}
       <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-white">
         {/* Top Header - Midday Style - Hidden in Full-Screen Chat */}
-        {!isFullScreenChat && (
+        {!isFullScreenChat && !isChatRoute && (
         <header className="content-opaque px-5 h-[56px] flex items-center bg-white">
           <div className="relative flex items-center w-full translate-y-[6px]">
             {/* Left zone — Search + page-specific left actions */}
             <div className="flex items-center space-x-2.5 min-w-0">
-              <div>
-                <CommandPalette
-                  className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
-                  initialOpen={shouldOpenWhoopModal}
-                />
-              </div>
+              {!isChatRoute && (
+                <div>
+                  <CommandPalette
+                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
+                    initialOpen={shouldOpenWhoopModal}
+                  />
+                </div>
+              )}
               <div id="header-left-slot" className="flex items-center space-x-2.5" />
             </div>
 

@@ -8,6 +8,7 @@ export interface BarListItem {
   name: string;
   value: string;           // formatted display value (e.g. "7.3 Hours")
   change?: number;         // percent change (e.g. +2.3 or -1.8)
+  changeLabel?: string;
   barPercent: number;      // 0-100, width of the bar relative to the max
   higherIsBetter?: boolean;
   icon?: string;
@@ -35,7 +36,23 @@ interface VercelBarListCardProps {
 
 // ── Change Badge ──
 
-function ChangeBadge({ change, higherIsBetter }: { change: number; higherIsBetter?: boolean }) {
+function ChangeBadge({ change, label }: { change?: number; label?: string }) {
+  if (label) {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.58)] tabular-nums">
+        {label}
+      </span>
+    );
+  }
+
+  if (change === undefined || !Number.isFinite(change)) {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.45)] tabular-nums">
+        —
+      </span>
+    );
+  }
+
   const abs = Math.abs(change);
   const display = abs >= 100 ? Math.round(abs) : abs >= 10 ? Math.round(abs) : abs.toFixed(1);
 
@@ -47,11 +64,9 @@ function ChangeBadge({ change, higherIsBetter }: { change: number; higherIsBette
     );
   }
 
-  // Determine if the direction is "good" based on higherIsBetter
   const isUp = change > 0;
-  const isGood = higherIsBetter === false ? !isUp : isUp;
 
-  if (isGood) {
+  if (isUp) {
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(19,106,34,0.08)] text-[#136A22] tabular-nums">
         ↗ {display}%
@@ -134,9 +149,9 @@ export function VercelBarListCard({
             <span className="text-[13px] font-normal text-[#27251E] tabular-nums text-right min-w-[120px] shrink-0">
               {item.value}
             </span>
-            {item.change !== undefined && (
+            {(item.change !== undefined || item.changeLabel !== undefined) && (
               <span className="ml-2 shrink-0 min-w-[62px] text-right">
-                <ChangeBadge change={item.change} higherIsBetter={item.higherIsBetter} />
+                <ChangeBadge change={item.change} label={item.changeLabel} />
               </span>
             )}
           </div>

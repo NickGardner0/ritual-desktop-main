@@ -49,6 +49,7 @@ import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
 import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
 import { normalizeComputerDailySummaryRow, type NormalizedComputerDailyRow } from '@/lib/computerActivity/normalize';
+import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import {
   COMPUTER_HABIT_DISPLAY_NAME,
   getHabitDisplayName,
@@ -87,6 +88,11 @@ import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-li
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { HabitChartCard } from '@/components/analytics/habit-chart-card';
 
+const ComputerTimeDetailSection = dynamic(
+  () => import('@/components/analytics/computer-time-detail-section').then(m => ({ default: m.ComputerTimeDetailSection })),
+  { ssr: false }
+);
+
 type HabitData = {
   habit_id: string;
   habit_name: string;
@@ -113,6 +119,25 @@ const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 const CARD_ORDER_KEY = 'ritual-metric-card-order';
 const DEFAULT_METRICS_SPARKLINE_DAYS = 180;
 const DEFAULT_METRICS_SUMMARY_DAYS = 1095;
+
+function mapBarListRangeToChartRange(range: BarListRange): RangeKey {
+  switch (range) {
+    case '1W':
+      return '1W';
+    case '1M':
+      return '1M';
+    case '3M':
+      return '3M';
+    case '6M':
+      return '6M';
+    case '1Y':
+      return '1Y';
+    case 'ALL':
+      return 'MAX';
+    default:
+      return '1M';
+  }
+}
 
 // ── Metric Category Tabs ──
 const METRIC_CATEGORY_TABS = [
@@ -1534,15 +1559,12 @@ export function MetricsView({
       currentValue = latestValue || Number(summary.current_value ?? localAverage ?? 0);
     }
 
-    let change = previousValue > 0
-      ? ((latestValue - previousValue) / previousValue) * 100
-      : (latestValue > 0 ? 100 : 0);
+    const habitUnit = summary.unit || habit.unit_type || (habit as any).unit || 'count';
+    let change = computeMeaningfulPercentChange(latestValue, previousValue, habitUnit);
     let absoluteChange = latestValue - previousValue;
 
-    if (!Number.isFinite(change)) change = 0;
+    if (change !== undefined && !Number.isFinite(change)) change = 0;
     if (!Number.isFinite(absoluteChange)) absoluteChange = 0;
-
-    const habitUnit = summary.unit || habit.unit_type || (habit as any).unit || 'count';
 
     return {
       habitName: habit.habit_name,
@@ -1551,7 +1573,7 @@ export function MetricsView({
       change,
       absoluteChange,
       chartData: enrichedChartData,
-      isPositive: change >= 0,
+      isPositive: (change ?? 0) >= 0,
       higherIsBetter: inferHigherIsBetter(habit.habit_name, habitUnit),
       total: totalValue,
       average: localAverage,
@@ -1605,17 +1627,17 @@ export function MetricsView({
       compPreviousValue = previousDay ? Number(previousDay.value) : 0;
     }
 
-    const change = compPreviousValue > 0 ? ((compLatestValue - compPreviousValue) / compPreviousValue) * 100 : (compLatestValue > 0 ? 100 : 0);
+    const change = computeMeaningfulPercentChange(compLatestValue, compPreviousValue, 'hours');
     const absoluteChange = compLatestValue - compPreviousValue;
 
     return {
       habitName: COMPUTER_HABIT_DISPLAY_NAME,
       currentValue: compLatestValue || average,
       unit: 'hours',
-      change: Number.isFinite(change) ? change : 0,
+      change,
       absoluteChange: Number.isFinite(absoluteChange) ? absoluteChange : 0,
       chartData,
-      isPositive: (Number.isFinite(change) ? change : 0) >= 0,
+      isPositive: (change ?? 0) >= 0,
       higherIsBetter: null as boolean | null,
       total,
       average,
@@ -1659,7 +1681,7 @@ export function MetricsView({
 
     const latestVal = values.length > 0 ? values[values.length - 1] : average;
     const prevVal = values.length > 1 ? values[values.length - 2] : Number(heartRateExpandedSummary?.previous_avg_bpm || 0);
-    const change = prevVal > 0 ? ((latestVal - prevVal) / prevVal) * 100 : (latestVal > 0 ? 100 : 0);
+    const change = computeMeaningfulPercentChange(latestVal, prevVal, 'bpm');
     const absoluteChange = latestVal - prevVal;
 
     return {
@@ -1670,7 +1692,7 @@ export function MetricsView({
       totalSamples: Number(heartRateExpandedSummary?.total_samples || 0),
       buckets: chartData.length,
       daysWithData: Number(heartRateExpandedSummary?.days_with_data || 0),
-      change: Number.isFinite(change) ? change : 0,
+      change,
       absoluteChange: Number.isFinite(absoluteChange) ? absoluteChange : 0,
     };
   }, [heartRateExpandedSeries, heartRateExpandedSummary]);
@@ -1992,7 +2014,7 @@ export function MetricsView({
                         let tickerName: string;
                         let tickerUnit: string;
                         let tickerCurrentValue: number;
-                        let tickerPercentChange: number;
+                        let tickerPercentChange: number | undefined;
                         let tickerAbsoluteChange: number;
                         let tickerChartData: { value: number }[];
                         let tickerHigherIsBetter: boolean | null | undefined;
@@ -2001,7 +2023,7 @@ export function MetricsView({
                           tickerName = COMPUTER_HABIT_DISPLAY_NAME;
                           tickerUnit = computerCardData.unit || 'hours';
                           tickerCurrentValue = computerCardData.currentValue || 0;
-                          tickerPercentChange = computerCardData.change || 0;
+                          tickerPercentChange = computerCardData.change;
                           tickerAbsoluteChange = computerCardData.absoluteChange || 0;
                           tickerChartData = (computerCardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 }));
                           tickerHigherIsBetter = computerCardData.higherIsBetter;
@@ -2009,7 +2031,7 @@ export function MetricsView({
                           tickerName = cardData.habitName || habit.habit_name || 'Unknown';
                           tickerUnit = cardData.unit || habit.unit_type || 'count';
                           tickerCurrentValue = cardData.currentValue || 0;
-                          tickerPercentChange = cardData.change || 0;
+                          tickerPercentChange = cardData.change;
                           tickerAbsoluteChange = cardData.absoluteChange || 0;
                           tickerChartData = (cardData.chartData || []).map((d: ChartDataPoint) => ({ value: d.value || 0 }));
                           tickerHigherIsBetter = cardData.higherIsBetter;
@@ -2017,7 +2039,7 @@ export function MetricsView({
                           tickerName = habit.habit_name || 'Unknown';
                           tickerUnit = habit.unit_type || 'count';
                           tickerCurrentValue = 0;
-                          tickerPercentChange = 0;
+                          tickerPercentChange = undefined;
                           tickerAbsoluteChange = 0;
                           tickerChartData = [];
                           tickerHigherIsBetter = inferHigherIsBetter(habit.habit_name, habit.unit_type);
@@ -2035,7 +2057,11 @@ export function MetricsView({
                               absoluteChange={tickerAbsoluteChange}
                               chartData={tickerChartData}
                               higherIsBetter={tickerHigherIsBetter}
-                              onClick={() => setExpandedHabit(expandedHabit === habitId ? null : habitId)}
+                              onClick={() => {
+                                // Computer Time detail is always shown inline — skip expanded overlay
+                                if (habitId === COMPUTER_ACTIVITY_CARD_ID) return;
+                                setExpandedHabit(expandedHabit === habitId ? null : habitId);
+                              }}
                               onRemove={() => {
                                 const removedHabitId = habitId === COMPUTER_ACTIVITY_CARD_ID
                                   ? detectedComputerHabitId
@@ -2121,10 +2147,7 @@ export function MetricsView({
                 const firstCompare = useAverage && firstValues.length > 0 ? firstSum / firstValues.length : firstSum;
                 const secondCompare = useAverage && secondValues.length > 0 ? secondSum / secondValues.length : secondSum;
 
-                let change = firstCompare > 0
-                  ? ((secondCompare - firstCompare) / firstCompare) * 100
-                  : (secondCompare > 0 ? 100 : 0);
-                if (!Number.isFinite(change)) change = 0;
+                const change = computeMeaningfulPercentChange(secondCompare, firstCompare, unit);
 
                 return {
                   habitId: h.habit_id,
@@ -2132,6 +2155,7 @@ export function MetricsView({
                   avg: displayVal,
                   unit,
                   change,
+                  changeLabel: change === undefined ? 'New' : undefined,
                   higherIsBetter: hib,
                   daysWithData: values.length,
                   category: getMetricCategoryForHabit(h.habit_name, h.category),
@@ -2153,14 +2177,14 @@ export function MetricsView({
                 const compSecond = compLogs.filter((r) => parseISO(r.day) >= midPoint).map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
                 const compFirstTotal = compFirst.reduce((s, v) => s + v, 0);
                 const compSecondTotal = compSecond.reduce((s, v) => s + v, 0);
-                let compChange = compFirstTotal > 0 ? ((compSecondTotal - compFirstTotal) / compFirstTotal) * 100 : (compSecondTotal > 0 ? 100 : 0);
-                if (!Number.isFinite(compChange)) compChange = 0;
+                const compChange = computeMeaningfulPercentChange(compSecondTotal, compFirstTotal, 'hours');
                 habitBarData.push({
                   habitId: COMPUTER_ACTIVITY_CARD_ID,
                   name: COMPUTER_HABIT_DISPLAY_NAME,
                   avg: compTotal,
                   unit: 'Hours',
                   change: compChange,
+                  changeLabel: compChange === undefined ? 'New' : undefined,
                   higherIsBetter: null,
                   daysWithData: compValues.length,
                   category: 'digital',
@@ -2178,6 +2202,7 @@ export function MetricsView({
                 name: h.name,
                 value: formatBarValue(h.avg, h.unit),
                 change: h.change,
+                changeLabel: h.changeLabel,
                 higherIsBetter: h.higherIsBetter,
                 barPercent: Math.round((Math.abs(h.avg) / maxVal) * 100),
               }));
@@ -2235,31 +2260,56 @@ export function MetricsView({
                   <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
                 </div>
 
-                {/* Habit chart cards — top 4 by data volume */}
-                <div className="space-y-20 mt-24">
-                  {filteredHabits
-                    .filter((h: HabitData) => h.habit_id !== COMPUTER_ACTIVITY_CARD_ID)
-                    .map((h: HabitData) => ({
-                      habit: h,
-                      dataLen: (analyticsData[h.habit_id] || []).length,
-                    }))
-                    .filter((h: any) => h.dataLen > 0)
-                    .sort((a: any, b: any) => b.dataLen - a.dataLen)
-                    .slice(0, 4)
-                    .map(({ habit }: any) => {
-                      const cardData = getHabitCardData(habit.habit_id);
-                      return (
+                {/* Computer Time detail section with app icons and progress bars */}
+                <ComputerTimeDetailSection />
+
+                {/* Compact habit chart grid */}
+                <div className="mt-6 grid grid-cols-1 gap-[10px] sm:grid-cols-2">
+                  {(() => {
+                    const chartRange = mapBarListRangeToChartRange(barListRange);
+                    const compactCards: React.ReactNode[] = [];
+
+                    if (computerActivityDaily.length > 0) {
+                      const computerLogs = computerActivityDaily.map((row) => ({
+                        date: row.day,
+                        daily_value: Number(row.active_hours || 0),
+                      }));
+                      compactCards.push(
                         <HabitChartCard
-                          key={habit.habit_id}
-                          habitName={habit.habit_name}
-                          unit={habit.unit_type || (habit as any).unit || ''}
-                          logs={analyticsData[habit.habit_id] || []}
-                          higherIsBetter={cardData?.higherIsBetter}
-                          change={cardData?.change}
+                          key={COMPUTER_ACTIVITY_CARD_ID}
+                          habitName={COMPUTER_HABIT_DISPLAY_NAME}
+                          unit="Hours"
+                          logs={computerLogs}
+                          compact
+                          fixedRange={chartRange}
                         />
                       );
-                    })
-                  }
+                    }
+
+                    filteredHabits
+                      .map((habit: HabitData) => ({
+                        habit,
+                        logs: analyticsData[habit.habit_id] || [],
+                      }))
+                      .filter(({ logs }) => logs.length > 0)
+                      .forEach(({ habit, logs }) => {
+                        const cardData = getHabitCardData(habit.habit_id);
+                        compactCards.push(
+                          <HabitChartCard
+                            key={habit.habit_id}
+                            habitName={habit.habit_name}
+                            unit={habit.unit_type || (habit as any).unit || ''}
+                            logs={logs}
+                            higherIsBetter={cardData?.higherIsBetter}
+                            change={cardData?.change}
+                            compact
+                            fixedRange={chartRange}
+                          />
+                        );
+                      });
+
+                    return compactCards;
+                  })()}
                 </div>
               </div>
             );
@@ -2306,9 +2356,15 @@ export function MetricsView({
                     : (firstPoint && lastPoint
                       ? `${format(new Date(firstPoint.t), 'MMM d, yyyy')} – ${format(new Date(lastPoint.t), 'MMM d, yyyy')}`
                       : 'No data');
-                  const deltaDirection = expandedData.change >= 0 ? 'up' : 'down';
+                  const deltaDirection = expandedData.change === undefined
+                    ? 'neutral'
+                    : expandedData.change >= 0
+                      ? 'up'
+                      : 'down';
                   const deltaValueText = `${expandedData.absoluteChange >= 0 ? '+' : ''}${expandedData.absoluteChange.toFixed(1)}`;
-                  const deltaPercentText = `${expandedData.change >= 0 ? '+' : ''}${expandedData.change.toFixed(2)}%`;
+                  const deltaPercentText = expandedData.change === undefined
+                    ? undefined
+                    : `${expandedData.change >= 0 ? '+' : ''}${expandedData.change.toFixed(2)}%`;
                   const primaryValue = lastPoint
                     ? Number(lastPoint.close).toFixed(0)
                     : '--';

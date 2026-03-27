@@ -29,43 +29,57 @@ private func resetSpeechState() {
 }
 
 private func requestMicrophonePermissionIfNeeded() -> Bool {
-    switch AVCaptureDevice.authorizationStatus(for: .audio) {
-    case .authorized:
-        return true
-    case .denied, .restricted:
-        return false
-    case .notDetermined:
-        var granted = false
-        let semaphore = DispatchSemaphore(value: 0)
-        AVCaptureDevice.requestAccess(for: .audio) { access in
-            granted = access
+    var granted = false
+    let semaphore = DispatchSemaphore(value: 0)
+
+    DispatchQueue.main.async {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            granted = true
+            semaphore.signal()
+        case .denied, .restricted:
+            granted = false
+            semaphore.signal()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { access in
+                granted = access
+                semaphore.signal()
+            }
+        @unknown default:
+            granted = false
             semaphore.signal()
         }
-        semaphore.wait()
-        return granted
-    @unknown default:
-        return false
     }
+
+    semaphore.wait()
+    return granted
 }
 
 private func requestSpeechPermissionIfNeeded() -> Bool {
-    switch SFSpeechRecognizer.authorizationStatus() {
-    case .authorized:
-        return true
-    case .denied, .restricted:
-        return false
-    case .notDetermined:
-        var granted = false
-        let semaphore = DispatchSemaphore(value: 0)
-        SFSpeechRecognizer.requestAuthorization { status in
-            granted = (status == .authorized)
+    var granted = false
+    let semaphore = DispatchSemaphore(value: 0)
+
+    DispatchQueue.main.async {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            granted = true
+            semaphore.signal()
+        case .denied, .restricted:
+            granted = false
+            semaphore.signal()
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { status in
+                granted = (status == .authorized)
+                semaphore.signal()
+            }
+        @unknown default:
+            granted = false
             semaphore.signal()
         }
-        semaphore.wait()
-        return granted
-    @unknown default:
-        return false
     }
+
+    semaphore.wait()
+    return granted
 }
 
 @_cdecl("start_speech_recognition")

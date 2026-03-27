@@ -144,7 +144,8 @@ class WhoopService:
         access_token: str,
         refresh_token: Optional[str],
         expires_in: int,
-        whoop_user_id: str
+        whoop_user_id: str,
+        scope: Optional[str] = None,
     ) -> WhoopIntegrationDB:
         """Save or update Whoop integration for user"""
         async with get_db_session() as session:
@@ -173,6 +174,8 @@ class WhoopService:
                     integration.whoop_user_id = whoop_user_id
                     integration.is_active = True
                     integration.connected_at = datetime.utcnow()
+                    if scope:
+                        integration.scope = scope
                     if provider_user_changed:
                         # A different upstream Whoop account is effectively a brand new
                         # connection, so the next sync should rebuild from a fresh window.
@@ -193,7 +196,8 @@ class WhoopService:
                         refresh_token=self._encrypt_token(refresh_token) if refresh_token else None,
                         token_expires_at=expires_at,
                         connected_at=datetime.utcnow(),
-                        is_active=True
+                        is_active=True,
+                        scope=scope,
                     )
                     session.add(integration)
                     logger.info(f"✅ Created Whoop integration for user {user_id}")
@@ -275,18 +279,25 @@ class WhoopService:
         
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
+                refresh_payload = {
+                    'grant_type': 'refresh_token',
+                    'refresh_token': integration.refresh_token,
+                    'client_id': self.client_id,
+                    'client_secret': self.client_secret,
+                }
+                # Whoop's refresh-token flow is sensitive to malformed payloads.
+                # Re-sending redirect_uri here can cause a 400 if the value no longer
+                # matches the exact URI whitelisted on the Whoop app.
+                scope = getattr(integration, 'scope', None)
+                if scope:
+                    refresh_payload['scope'] = scope
+
                 response = await self._request_with_retry(
                     client=client,
                     method="POST",
                     url=self.WHOOP_TOKEN_URL,
                     headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    data={
-                        'grant_type': 'refresh_token',
-                        'refresh_token': integration.refresh_token,
-                        'client_id': self.client_id,
-                        'client_secret': self.client_secret,
-                        'redirect_uri': self.redirect_uri,  # Required by Whoop OAuth
-                    }
+                    data=refresh_payload,
                 )
                 
                 if not response.is_success:
@@ -310,6 +321,11 @@ class WhoopService:
                     if new_refresh_token:
                         update_values['refresh_token'] = self._encrypt_token(new_refresh_token)
                         logger.info(f"🔄 New refresh token received from Whoop")
+
+                    # Persist scope if returned (backfills existing rows)
+                    new_scope = token_data.get('scope')
+                    if new_scope:
+                        update_values['scope'] = new_scope
                     
                     await session.execute(
                         update(WhoopIntegrationDB)
@@ -356,7 +372,7 @@ class WhoopService:
             # Token expired or about to expire, refresh it
             logger.info(f"🔄 Token expired, refreshing for user {user_id}")
             new_token = await self.refresh_access_token(integration)
-            return new_token if new_token else integration.access_token
+            return new_token
         
         return integration.access_token
 

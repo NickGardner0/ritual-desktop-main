@@ -59,6 +59,7 @@ def create_whoop_router(
                 refresh_token=token_data.get("refresh_token"),
                 expires_in=token_data.get("expires_in", 3600),
                 whoop_user_id=str(user_info["user_id"]),
+                scope=token_data.get("scope"),
             )
             logger.info("Whoop integration saved for user %s", user_id)
 

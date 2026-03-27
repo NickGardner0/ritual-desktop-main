@@ -406,10 +406,8 @@ export function HabitLogsSearchFilter({
   const debouncedSearch = useDebounce(searchInput, 150);
 
   useEffect(() => {
-    if ((filters.q || '') !== searchInput) {
-      setSearchInput(filters.q || '');
-    }
-  }, [filters.q, searchInput]);
+    setSearchInput(filters.q || '');
+  }, [filters.q]);
 
   const hasAnyFilters = useMemo(() => {
     if (filters.q) return true;

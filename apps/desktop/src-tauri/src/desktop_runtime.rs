@@ -134,11 +134,9 @@ async fn prompt_for_native_install<R: Runtime>(
         "Ritual {latest_version} is available. You have {current_version}.\n\nRelease notes:\n{release_notes}\n\nInstall now?"
     );
 
-    tauri::async_runtime::spawn_blocking(move || {
-        ask::<R>(None, "Ritual Update Available", prompt)
-    })
-    .await
-    .map_err(|error| format!("Failed to show native update prompt: {error}"))
+    tauri::async_runtime::spawn_blocking(move || ask::<R>(None, "Ritual Update Available", prompt))
+        .await
+        .map_err(|error| format!("Failed to show native update prompt: {error}"))
 }
 
 async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
@@ -197,23 +195,21 @@ fn schedule_startup_fallback_prompt<R: Runtime + 'static>(
             return;
         }
 
-        match prompt_for_native_install(app.clone(), manifest.version.clone(), manifest.body.clone()).await {
+        match prompt_for_native_install(
+            app.clone(),
+            manifest.version.clone(),
+            manifest.body.clone(),
+        )
+        .await
+        {
             Ok(true) => {
                 if let Err(error) = install_latest_update(app.clone()).await {
-                    show_native_message::<R>(
-                        "Ritual Update Failed".to_string(),
-                        error,
-                    )
-                    .await;
+                    show_native_message::<R>("Ritual Update Failed".to_string(), error).await;
                 }
             }
             Ok(false) => {}
             Err(error) => {
-                show_native_message::<R>(
-                    "Ritual Update Failed".to_string(),
-                    error,
-                )
-                .await;
+                show_native_message::<R>("Ritual Update Failed".to_string(), error).await;
             }
         }
     });
@@ -266,7 +262,13 @@ async fn run_update_check<R: Runtime + 'static>(
                 }
             }
             UpdateCheckOrigin::Tray => {
-                if prompt_for_native_install(app.clone(), manifest.version.clone(), manifest.body.clone()).await? {
+                if prompt_for_native_install(
+                    app.clone(),
+                    manifest.version.clone(),
+                    manifest.body.clone(),
+                )
+                .await?
+                {
                     install_latest_update(app.clone()).await?;
                 }
             }
@@ -327,8 +329,6 @@ pub async fn desktop_manual_update_check<R: Runtime + 'static>(
 }
 
 #[tauri::command]
-pub async fn desktop_install_update<R: Runtime + 'static>(
-    app: AppHandle<R>,
-) -> Result<(), String> {
+pub async fn desktop_install_update<R: Runtime + 'static>(app: AppHandle<R>) -> Result<(), String> {
     install_latest_update(app).await
 }

@@ -108,7 +108,9 @@ export const TimeCell = memo(({ completedAt }: { completedAt?: string }) => {
     if (!completedAt) {
       displayTime = '—';
     } else if (completedAt.includes('T')) {
-      const date = parseISO(completedAt);
+      const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/.test(completedAt);
+      const normalized = hasTimezone ? completedAt : `${completedAt}Z`;
+      const date = parseISO(normalized);
       if (Number.isFinite(date.getTime())) {
         displayTime = format(date, 'h:mm a');
         isFormattedTime = true;
@@ -131,7 +133,7 @@ export const TimeCell = memo(({ completedAt }: { completedAt?: string }) => {
     <span
       className={
         isFormattedTime
-          ? 'whitespace-nowrap text-[13px] tabular-nums text-neutral-500'
+          ? 'whitespace-nowrap text-[13px] tabular-nums text-neutral-700'
           : 'whitespace-nowrap text-[13px] text-neutral-400'
       }
     >

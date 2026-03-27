@@ -109,6 +109,26 @@ function toSafeWhoopSyncResult(raw: any): SafeWhoopSyncResult {
   };
 }
 
+function extractBackendErrorPayload(rawText: string): {
+  detail?: unknown;
+  message?: string;
+  displayMessage?: string;
+} {
+  try {
+    const parsed = JSON.parse(rawText);
+    return {
+      detail: parsed?.detail,
+      message: parsed?.message || parsed?.error,
+      displayMessage:
+        parsed?.display_message ||
+        parsed?.detail?.display_message ||
+        parsed?.detail?.message,
+    };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Whoop Sync API Route
  *
@@ -179,9 +199,16 @@ async function handleWhoopSync(
   
   if (!response.ok) {
     const errorText = await response.text();
+    const backendError = extractBackendErrorPayload(errorText);
     logger.error(`❌ Python backend sync failed: ${response.status} - ${errorText}`);
     return NextResponse.json(
-      { error: 'Failed to sync Whoop data', details: errorText },
+      {
+        error: 'Failed to sync Whoop data',
+        detail: backendError.detail,
+        message: backendError.message,
+        display_message: backendError.displayMessage,
+        details: errorText,
+      },
       { status: response.status }
     );
   }

@@ -206,3 +206,52 @@ def process_pending_summaries(db_path: str, batch_size: int = BATCH_SIZE) -> Dic
         "remaining": max(0, remaining - len(snapshots)),
         "elapsed_ms": elapsed_ms,
     }
+
+
+def process_pending_summaries_conn(
+    conn: sqlite3.Connection,
+    batch_size: int = BATCH_SIZE,
+) -> Dict[str, Any]:
+    """
+    Process semantic summaries using an existing SQLite connection.
+    Caller owns connection lifecycle and any replica sync behavior.
+    """
+    start = time.time()
+    conn.row_factory = sqlite3.Row
+
+    _ensure_summary_column(conn)
+
+    snapshots = _fetch_unsummarized(conn, batch_size)
+    if not snapshots:
+        return {"processed": 0, "remaining": 0, "elapsed_ms": 0}
+
+    remaining = conn.execute(
+        """SELECT COUNT(*) FROM context_snapshots
+           WHERE semantic_summary IS NULL
+             AND length(COALESCE(visible_text_raw, visible_text_norm, '')) > 30"""
+    ).fetchone()[0]
+
+    summaries = generate_summaries_batch(snapshots)
+    updates = []
+    success_count = 0
+    for snapshot, summary in zip(snapshots, summaries):
+        if summary:
+            updates.append((summary, snapshot["id"]))
+            success_count += 1
+        else:
+            updates.append(("", snapshot["id"]))
+
+    if updates:
+        _save_summaries(conn, updates)
+
+    elapsed_ms = int((time.time() - start) * 1000)
+    logger.info(
+        f"Semantic summaries: processed={success_count}/{len(snapshots)}, "
+        f"remaining={remaining - len(snapshots)}, elapsed={elapsed_ms}ms"
+    )
+    return {
+        "processed": success_count,
+        "batch_size": len(snapshots),
+        "remaining": max(0, remaining - len(snapshots)),
+        "elapsed_ms": elapsed_ms,
+    }

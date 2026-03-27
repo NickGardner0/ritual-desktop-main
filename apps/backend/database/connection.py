@@ -18,6 +18,44 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Patch aiolibsql cursor to add missing _async_soft_close method
+# SQLAlchemy 2.0.48 expects this method on async cursors but sqlalchemy-libsql
+# 0.2.0 doesn't implement it, causing "'builtins.Cursor' object has no
+# attribute '_async_soft_close'" errors on every DB write.
+# ---------------------------------------------------------------------------
+try:
+    from sqlalchemy_libsql.aiolibsql import SQLiteDialect_aiolibsql
+    _orig_create_cursor = getattr(SQLiteDialect_aiolibsql, "create_connect_args", None)
+
+    # Patch at the DBAPI cursor level — add _async_soft_close if missing
+    import sqlalchemy_libsql.aiolibsql as _aiolibsql_mod
+    _orig_connect = getattr(_aiolibsql_mod, "connect", None)
+
+    if _orig_connect is not None:
+        import functools
+
+        @functools.wraps(_orig_connect)
+        def _patched_connect(*args, **kwargs):
+            conn = _orig_connect(*args, **kwargs)
+            _orig_cursor = conn.cursor
+
+            @functools.wraps(_orig_cursor)
+            def _patched_cursor(*a, **kw):
+                cur = _orig_cursor(*a, **kw)
+                if not hasattr(cur, '_async_soft_close'):
+                    async def _noop_soft_close():
+                        pass
+                    cur._async_soft_close = _noop_soft_close
+                return cur
+            conn.cursor = _patched_cursor
+            return conn
+
+        _aiolibsql_mod.connect = _patched_connect
+        logger.debug("✅ Patched aiolibsql cursor with _async_soft_close")
+except Exception as _patch_err:
+    logger.warning(f"⚠️ Could not patch aiolibsql cursor: {_patch_err}")
+
 # Load environment variables
 load_dotenv()
 
@@ -174,6 +212,7 @@ async def init_database():
                 and (
                     "database disk image is malformed" in error_msg.lower()
                     or "integrity check failed" in error_msg.lower()
+                    or "file is not a database" in error_msg.lower()
                 )
             ):
                 recovery_attempted = True
@@ -275,6 +314,12 @@ async def _run_migrations(session):
         ("wearable_devices", "sdk_version", "ALTER TABLE wearable_devices ADD COLUMN sdk_version TEXT"),
         # Phone number for Linq iMessage integration
         ("users", "phone_number", "ALTER TABLE users ADD COLUMN phone_number TEXT"),
+        ("users", "turso_db_name", "ALTER TABLE users ADD COLUMN turso_db_name TEXT"),
+        ("users", "turso_db_url", "ALTER TABLE users ADD COLUMN turso_db_url TEXT"),
+        ("users", "turso_provisioned_at", "ALTER TABLE users ADD COLUMN turso_provisioned_at DATETIME"),
+        ("users", "turso_migrated_at", "ALTER TABLE users ADD COLUMN turso_migrated_at DATETIME"),
+        # OAuth scope for Whoop token refresh
+        ("whoop_integrations", "scope", "ALTER TABLE whoop_integrations ADD COLUMN scope TEXT"),
     ]
     
     for table, column, sql in migrations:

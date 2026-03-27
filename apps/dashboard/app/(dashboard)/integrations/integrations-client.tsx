@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser, useClerk } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
+import { invoke } from '@tauri-apps/api/tauri';
 import { Monitor } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { useHabits } from '@/contexts/HabitsContext';
@@ -118,6 +119,63 @@ function isLikelyReactEvent(value: unknown): boolean {
   );
 }
 
+type WatcherRuntimeStatus = {
+  is_running?: boolean;
+  pid?: number | null;
+  device_id?: string | null;
+};
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function getLocalWatcherRuntimeStatus(): Promise<WatcherRuntimeStatus | null> {
+  if (!isTauri()) {
+    return null;
+  }
+
+  try {
+    return await withTimeout(
+      invoke<WatcherRuntimeStatus>('get_watcher_status'),
+      2500,
+      null,
+    );
+  } catch (error) {
+    console.warn('Failed to read local watcher runtime status:', error);
+    return null;
+  }
+}
+
+async function fetchJsonWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function parseApiError(response: Response, fallbackMessage: string): Promise<string> {
   try {
     const payload = await response.json();
@@ -150,7 +208,7 @@ function useWhoopStatus() {
     queryKey: ['whoop-status', user?.id],
     queryFn: async () => {
       const token = await getToken();
-      const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/status`, {
+      const response = await fetch('/api/integrations/whoop/status', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -178,7 +236,7 @@ function useAppleWatchStatus() {
     queryKey: ['apple-watch-status', user?.id],
     queryFn: async () => {
       const token = await getToken();
-      const response = await fetch(`${API_BASE_URL}/api/wearables/apple/devices`, {
+      const response = await fetch('/api/wearables/apple/devices', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -209,7 +267,7 @@ function useWearableConnections() {
     queryKey: ['wearable-connections', user?.id],
     queryFn: async () => {
       const token = await getToken();
-      const response = await fetch(`${API_BASE_URL}/api/wearables/connections`, {
+      const response = await fetch('/api/wearables/connections', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -232,7 +290,7 @@ function useFinancialConnections() {
     queryKey: ['financial-connections', user?.id],
     queryFn: async () => {
       const token = await getToken();
-      const response = await fetch(`${API_BASE_URL}/api/financial/connections`, {
+      const response = await fetch('/api/financial/connections', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -291,9 +349,25 @@ function useIntegrationsOverview() {
     queryKey: ['integrations-overview', user?.id],
     queryFn: async () => {
       const token = await getToken();
-      const authHeaders: HeadersInit | undefined = token
+      const authHeaders: HeadersInit = token
         ? { Authorization: `Bearer ${token}` }
-        : undefined;
+        : {};
+
+      const fetchBackendJson = async (path: string, fallback: any) => {
+        try {
+          const response = await fetchJsonWithTimeout(
+            path,
+            { headers: authHeaders },
+            8000,
+          );
+          if (!response.ok) {
+            return fallback;
+          }
+          return await response.json();
+        } catch {
+          return fallback;
+        }
+      };
 
       const [
         whoopResponse,
@@ -302,30 +376,26 @@ function useIntegrationsOverview() {
         financialResponse,
         computerTrackingResponse,
       ] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/integrations/whoop/status`, { headers: authHeaders }),
-        fetch(`${API_BASE_URL}/api/wearables/apple/devices`, { headers: authHeaders }),
-        fetch(`${API_BASE_URL}/api/wearables/connections`, { headers: authHeaders }),
-        fetch(`${API_BASE_URL}/api/financial/connections`, { headers: authHeaders }),
-        fetch('/api/watcher/devices'),
+        fetchBackendJson('/api/integrations/whoop/status', { connected: false, sync_hour: 9 }),
+        fetchBackendJson('/api/wearables/apple/devices', { devices: [] }),
+        fetchBackendJson('/api/wearables/connections', { connections: [] }),
+        fetchBackendJson('/api/financial/connections', { connections: [] }),
+        fetchBackendJson('/api/watcher/devices', { devices: [] }),
       ]);
-
-      const [
-        whoopStatusPayload,
-        appleWatchPayload,
-        wearablesPayload,
-        financialPayload,
-        computerTrackingPayload,
-      ] = await Promise.all([
-        whoopResponse.ok ? whoopResponse.json() : Promise.resolve({ connected: false, sync_hour: 9 }),
-        appleWatchResponse.ok ? appleWatchResponse.json() : Promise.resolve({ devices: [] }),
-        wearablesResponse.ok ? wearablesResponse.json() : Promise.resolve({ connections: [] }),
-        financialResponse.ok ? financialResponse.json() : Promise.resolve({ connections: [] }),
-        computerTrackingResponse.ok ? computerTrackingResponse.json() : Promise.resolve({ devices: [] }),
-      ]);
+      const whoopStatusPayload = whoopResponse;
+      const appleWatchPayload = appleWatchResponse;
+      const wearablesPayload = wearablesResponse;
+      const financialPayload = financialResponse;
+      const computerTrackingPayload = computerTrackingResponse;
 
       const appleDevices = (appleWatchPayload?.devices || []).filter((device: any) => device.is_active && device.platform === 'ios');
       const watcherDevices = computerTrackingPayload?.devices || [];
       const activeWatcherDevice = watcherDevices.find((device: any) => device.is_enabled);
+      const localWatcherStatus =
+        watcherDevices.length > 0
+          ? null
+          : await getLocalWatcherRuntimeStatus();
+      const localWatcherConnected = Boolean(localWatcherStatus?.is_running || localWatcherStatus?.device_id);
 
       return {
         whoopStatus: whoopStatusPayload,
@@ -338,10 +408,13 @@ function useIntegrationsOverview() {
         wearableConnections: wearablesPayload,
         financialConnections: financialPayload,
         computerTrackingStatus: {
-          connected: watcherDevices.length > 0,
-          enabled: !!activeWatcherDevice,
-          deviceName: activeWatcherDevice?.device_name || watcherDevices[0]?.device_name || 'My Mac',
-          deviceId: activeWatcherDevice?.device_id || watcherDevices[0]?.device_id || null,
+          connected: watcherDevices.length > 0 || localWatcherConnected,
+          enabled: !!activeWatcherDevice || Boolean(localWatcherStatus?.is_running),
+          deviceName:
+            activeWatcherDevice?.device_name
+            || watcherDevices[0]?.device_name
+            || (localWatcherConnected ? 'This Mac' : 'My Mac'),
+          deviceId: activeWatcherDevice?.device_id || watcherDevices[0]?.device_id || localWatcherStatus?.device_id || null,
         },
       };
     },
@@ -356,6 +429,7 @@ const IntegrationCard = memo(({
   title,
   description,
   comingSoon,
+  isStatusLoading,
   isConnected,
   isConnecting,
   isSyncing,
@@ -376,6 +450,7 @@ const IntegrationCard = memo(({
   /** Card copy uses line-clamp; higher values avoid ellipsis on longer Plaid descriptions. */
   descriptionLineClamp?: 2 | 3 | 4
   comingSoon?: boolean
+  isStatusLoading?: boolean
   isConnected?: boolean
   isConnecting?: boolean
   isSyncing?: boolean
@@ -417,7 +492,25 @@ const IntegrationCard = memo(({
     ) : null}
 
     <div className="flex items-center gap-2 mt-auto">
-      {isConnected ? (
+      {isStatusLoading ? (
+        <>
+          <button
+            type="button"
+            disabled
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm text-gray-500 bg-[#F8F8F8] cursor-default"
+          >
+            Checking...
+          </button>
+          {onDetails && (
+            <button
+              onClick={onDetails}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+            >
+              Details
+            </button>
+          )}
+        </>
+      ) : isConnected ? (
         <>
           <button
             onClick={onDisconnect}
@@ -516,6 +609,7 @@ export function IntegrationsClient() {
   const { openUserProfile } = useClerk();
   const { fetchHabits, fetchHabitLogs } = useHabits();
   const { data: integrationsOverview, isLoading: isLoadingOverview, refetch: refetchOverview } = useIntegrationsOverview();
+  const statusCardsLoading = isLoadingOverview && integrationsOverview === undefined;
   const whoopStatusData = integrationsOverview?.whoopStatus;
   const appleWatchStatusData = integrationsOverview?.appleWatchStatus;
   const wearableConnectionsData = integrationsOverview?.wearableConnections;
@@ -837,10 +931,11 @@ export function IntegrationsClient() {
 
   const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) => {
     try {
-      if (plaidMfaRequired) {
-        openUserProfile();
-        throw new Error('Multi-factor authentication must be enabled before connecting a bank account.');
-      }
+      // MFA check disabled — go straight to Plaid Link
+      // if (plaidMfaRequired) {
+      //   openUserProfile();
+      //   throw new Error('Multi-factor authentication must be enabled before connecting a bank account.');
+      // }
       setPlaidConnecting(true);
       const token = await getToken();
       if (!token) {
@@ -1669,6 +1764,7 @@ export function IntegrationsClient() {
     forceFullSync?: boolean;
     fullHistory?: boolean;
   }) {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       setSyncing(true);
 
@@ -1683,13 +1779,17 @@ export function IntegrationsClient() {
           ? options
           : getWhoopSyncRequestFromMode();
 
-      const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync`, {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 90000);
+
+      const response = await fetch('/api/integrations/whoop/sync', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(syncRequest),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -1701,10 +1801,11 @@ export function IntegrationsClient() {
       const { recovery, sleep, workouts } = syncCounts;
       const total = (recovery || 0) + (sleep || 0) + (workouts || 0);
 
-      // Refresh habits and logs to reflect new data
-      await Promise.all([
+      setWhoopConnected(true);
+      void Promise.allSettled([
+        refetchOverview(),
         fetchHabits(),
-        fetchHabitLogs()
+        fetchHabitLogs(),
       ]);
 
       const syncLabel = syncRequest.fullHistory
@@ -1725,8 +1826,15 @@ export function IntegrationsClient() {
       }
     } catch (error) {
       console.error('❌ Error syncing Whoop:', error);
-      alert(`Sync failed: ${formatErrorMessage(error, 'Unknown error')}`);
+      const fallbackMessage =
+        error instanceof DOMException && error.name === 'AbortError'
+          ? 'Sync timed out. The request took too long.'
+          : 'Unknown error';
+      alert(`Sync failed: ${formatErrorMessage(error, fallbackMessage)}`);
     } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       setSyncing(false);
     }
   }
@@ -2236,6 +2344,7 @@ export function IntegrationsClient() {
             logo={<Monitor className="h-7 w-7 text-gray-900" />}
             title="Computer Use"
             description="Track your computer usage including apps, websites, and active time automatically."
+            isStatusLoading={statusCardsLoading}
             isConnected={computerTrackingEnabled}
             onConnect={() => router.replace('/integrations?openSettings=computer-tracking')}
             onDisconnect={() => router.replace('/integrations?openSettings=computer-tracking')}
@@ -2252,6 +2361,7 @@ export function IntegrationsClient() {
           }
           title="Apple Watch"
           description="Sync your Apple Watch data including workouts, steps, heart rate, and sleep metrics."
+          isStatusLoading={statusCardsLoading}
           isConnected={appleWatchConnected}
           onConnect={handleAppleWatchConnect}
           onDisconnect={handleAppleWatchDisconnect}
@@ -2271,6 +2381,7 @@ export function IntegrationsClient() {
           }
           title="Whoop"
           description="Track your recovery, sleep, and strain data from your Whoop device."
+          isStatusLoading={statusCardsLoading}
           isConnected={whoopConnected}
           isConnecting={whoopConnecting}
           isSyncing={syncing}

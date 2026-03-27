@@ -35,6 +35,229 @@ pub struct NativeSpeechState {
     pub timestamp: f64,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct TursoSyncConfig {
+    pub sync_url: String,
+    pub auth_token: String,
+    #[serde(default)]
+    pub expires_at: String,
+    #[serde(default)]
+    pub database_name: String,
+}
+
+fn turso_sync_config_path() -> Result<std::path::PathBuf, String> {
+    dirs::home_dir()
+        .ok_or_else(|| "Failed to resolve home directory".to_string())
+        .map(|home| home.join(".ritual").join("turso_sync.json"))
+}
+
+pub fn load_turso_sync_config() -> Result<Option<TursoSyncConfig>, String> {
+    use std::fs;
+
+    let path = turso_sync_config_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read Turso sync config: {e}"))?;
+    let config: TursoSyncConfig = serde_json::from_str(&contents)
+        .map_err(|e| format!("Failed to parse Turso sync config: {e}"))?;
+
+    if config.sync_url.trim().is_empty() || config.auth_token.trim().is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(config))
+}
+
+#[tauri::command]
+pub async fn write_turso_sync_config(
+    sync_url: String,
+    auth_token: String,
+    expires_at: String,
+    database_name: String,
+) -> Result<String, String> {
+    nw_info!("🔄 Applying Turso sync config...");
+
+    use crate::{ritual_database, watcher};
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let config = TursoSyncConfig {
+        sync_url: sync_url.trim().to_string(),
+        auth_token: auth_token.trim().to_string(),
+        expires_at: expires_at.trim().to_string(),
+        database_name: database_name.trim().to_string(),
+    };
+
+    if config.sync_url.is_empty()
+        || config.auth_token.is_empty()
+        || config.expires_at.is_empty()
+        || config.database_name.is_empty()
+    {
+        return Err(
+            "Turso sync config requires sync_url, auth_token, expires_at, and database_name"
+                .to_string(),
+        );
+    }
+
+    let previous_config = load_turso_sync_config()?;
+    let previous_env = [
+        (
+            "TURSO_SYNC_URL",
+            std::env::var("TURSO_SYNC_URL")
+                .ok()
+                .filter(|value| !value.is_empty()),
+        ),
+        (
+            "TURSO_AUTH_TOKEN",
+            std::env::var("TURSO_AUTH_TOKEN")
+                .ok()
+                .filter(|value| !value.is_empty()),
+        ),
+        (
+            "TURSO_SYNC_EXPIRES_AT",
+            std::env::var("TURSO_SYNC_EXPIRES_AT")
+                .ok()
+                .filter(|value| !value.is_empty()),
+        ),
+        (
+            "TURSO_DATABASE_NAME",
+            std::env::var("TURSO_DATABASE_NAME")
+                .ok()
+                .filter(|value| !value.is_empty()),
+        ),
+    ];
+
+    let watcher_status = watcher::get_watcher_status().await;
+    let watcher_restart_config = if watcher_status.is_running {
+        Some(watcher::get_saved_watcher_config().ok_or_else(|| {
+            "Watcher is running but no saved watcher config is available for restart".to_string()
+        })?)
+    } else {
+        None
+    };
+
+    let config_file = turso_sync_config_path()?;
+    if let Some(parent) = config_file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create Turso config directory: {e}"))?;
+    }
+
+    fn persist_turso_sync_config(
+        config_file: &std::path::Path,
+        config: &TursoSyncConfig,
+    ) -> Result<(), String> {
+        let contents = serde_json::to_string_pretty(config)
+            .map_err(|e| format!("Failed to serialize Turso sync config: {e}"))?;
+        fs::write(config_file, contents)
+            .map_err(|e| format!("Failed to write Turso sync config: {e}"))?;
+
+        let mut perms = fs::metadata(config_file)
+            .map_err(|e| format!("Failed to read Turso config metadata: {e}"))?
+            .permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(config_file, perms)
+            .map_err(|e| format!("Failed to set Turso config permissions: {e}"))?;
+        Ok(())
+    }
+
+    fn clear_turso_sync_config(config_file: &std::path::Path) -> Result<(), String> {
+        if config_file.exists() {
+            fs::remove_file(config_file)
+                .map_err(|e| format!("Failed to remove Turso sync config: {e}"))?;
+        }
+        Ok(())
+    }
+
+    fn apply_turso_env(config: Option<&TursoSyncConfig>) {
+        if let Some(config) = config {
+            std::env::set_var("TURSO_SYNC_URL", &config.sync_url);
+            std::env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
+            std::env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
+            std::env::set_var("TURSO_DATABASE_NAME", &config.database_name);
+        } else {
+            std::env::remove_var("TURSO_SYNC_URL");
+            std::env::remove_var("TURSO_AUTH_TOKEN");
+            std::env::remove_var("TURSO_SYNC_EXPIRES_AT");
+            std::env::remove_var("TURSO_DATABASE_NAME");
+        }
+    }
+
+    fn restore_env(entries: &[(&str, Option<String>)]) {
+        for (key, value) in entries {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    async fn rollback_turso_config(
+        config_file: &std::path::Path,
+        previous_config: &Option<TursoSyncConfig>,
+        previous_env: &[(&str, Option<String>)],
+        watcher_restart_config: &Option<watcher::WatcherConfig>,
+    ) -> Result<(), String> {
+        if let Some(config) = previous_config {
+            persist_turso_sync_config(config_file, config)?;
+            apply_turso_env(Some(config));
+        } else {
+            clear_turso_sync_config(config_file)?;
+            restore_env(previous_env);
+        }
+
+        ritual_database::reload_activity_database()?;
+
+        if let Some(config) = watcher_restart_config.clone() {
+            watcher::start_watcher(config).await?;
+        }
+
+        Ok(())
+    }
+
+    if watcher_restart_config.is_some() {
+        watcher::stop_watcher().await?;
+    }
+
+    let apply_result: Result<(), String> = async {
+        persist_turso_sync_config(&config_file, &config)?;
+        apply_turso_env(Some(&config));
+        ritual_database::reload_activity_database()?;
+
+        if let Some(saved_config) = watcher_restart_config.clone() {
+            watcher::start_watcher(saved_config).await?;
+        }
+
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = apply_result {
+        nw_error!("❌ Failed to apply Turso sync config: {}", error);
+        if let Err(rollback_error) = rollback_turso_config(
+            &config_file,
+            &previous_config,
+            &previous_env,
+            &watcher_restart_config,
+        )
+        .await
+        {
+            return Err(format!(
+                "Failed to apply Turso sync config: {error}; rollback also failed: {rollback_error}"
+            ));
+        }
+        return Err(format!(
+            "Failed to apply Turso sync config; previous config restored: {error}"
+        ));
+    }
+
+    nw_info!("✅ Turso sync config written to: {:?}", config_file);
+    Ok(format!("Turso sync config written to: {:?}", config_file))
+}
+
 #[cfg(target_os = "macos")]
 fn read_swift_json_string(ptr: *mut std::os::raw::c_char) -> Result<String, String> {
     if ptr.is_null() {
@@ -481,7 +704,16 @@ pub async fn start_native_speech_recognition() -> Result<(), String> {
                 Ok(())
             } else {
                 nw_error!("❌ Failed to start native speech recognition");
-                Err("Failed to start speech recognition".to_string())
+                let detailed_error = read_swift_json_string(get_speech_state_json())
+                    .ok()
+                    .and_then(|json| serde_json::from_str::<NativeSpeechState>(&json).ok())
+                    .filter(|state| {
+                        state.event == "ritual:speech:error" && !state.transcript.is_empty()
+                    })
+                    .map(|state| state.transcript);
+
+                Err(detailed_error
+                    .unwrap_or_else(|| "Failed to start speech recognition".to_string()))
             }
         }
     }

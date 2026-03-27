@@ -21,9 +21,9 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const TOTAL_PAGES = 4;
 
 /** Shared “Welcome to Ritual” hero on Get Started + Sign In home */
-const HOME_WELCOME_LOGO_PX = 42;
+const HOME_WELCOME_LOGO_PX = 36;
 const homeWelcomeHeadingStyle: CSSProperties = {
-  fontSize: '32px',
+  fontSize: '28px',
   lineHeight: '1.2',
   WebkitFontSmoothing: 'antialiased',
   letterSpacing: '-0.01em',

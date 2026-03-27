@@ -2,18 +2,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unexpected_cfgs)]
 
+mod desktop_runtime;
+mod local_search_bridge;
 mod native_widget;
 mod recorder;
-mod watcher;
 mod ritual_database;
-mod local_search_bridge;
-mod desktop_runtime;
+mod watcher;
 
-use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager, RunEvent};
-use std::path::PathBuf;
-use std::fs;
 use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
+use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
 
 // ============================================================================
 // AUTHENTICATION NOTE:
@@ -23,7 +23,7 @@ use std::sync::Mutex;
 
 // ============================================================================
 // APP URL CONFIGURATION (Midday Pattern)
-// 
+//
 // The desktop app loads the UI from a URL based on environment:
 // - Development: http://localhost:3000 (local Next.js server)
 // - Staging: https://staging.ritual.app (when you have one)
@@ -65,7 +65,10 @@ fn configured_ritual_env() -> String {
 /// This follows the Midday pattern where the desktop app loads from a hosted URL
 fn get_app_url() -> String {
     if let Some(explicit_url) = read_nonempty_env("RITUAL_APP_URL") {
-        println!("🌍 Using explicit Ritual app URL override: {}", explicit_url);
+        println!(
+            "🌍 Using explicit Ritual app URL override: {}",
+            explicit_url
+        );
         return explicit_url;
     }
 
@@ -75,23 +78,23 @@ fn get_app_url() -> String {
 
     match env.as_str() {
         "development" | "dev" => {
-            let url = read_nonempty_env("RITUAL_DEV_URL")
-                .unwrap_or_else(|| DEV_APP_URL.to_string());
+            let url =
+                read_nonempty_env("RITUAL_DEV_URL").unwrap_or_else(|| DEV_APP_URL.to_string());
             println!("🌍 Using development URL: {}", url);
             url
-        },
+        }
         "staging" => {
             let url = read_nonempty_env("RITUAL_STAGING_URL")
                 .unwrap_or_else(|| STAGING_APP_URL.to_string());
             println!("🌍 Using staging URL: {}", url);
             url
-        },
+        }
         "production" | "prod" => {
-            let url = read_nonempty_env("RITUAL_PROD_URL")
-                .unwrap_or_else(|| PROD_APP_URL.to_string());
+            let url =
+                read_nonempty_env("RITUAL_PROD_URL").unwrap_or_else(|| PROD_APP_URL.to_string());
             println!("🌍 Using production URL: {}", url);
             url
-        },
+        }
         _ => {
             let fallback = if cfg!(debug_assertions) {
                 DEV_APP_URL
@@ -101,7 +104,11 @@ fn get_app_url() -> String {
             eprintln!(
                 "⚠️ Unknown environment: {}, defaulting to {}",
                 env,
-                if cfg!(debug_assertions) { "development" } else { "production" }
+                if cfg!(debug_assertions) {
+                    "development"
+                } else {
+                    "production"
+                }
             );
             let url = fallback.to_string();
             println!("🌍 Using fallback URL: {}", url);
@@ -117,6 +124,28 @@ fn env_flag_enabled(name: &str) -> bool {
             matches!(value.as_str(), "1" | "true" | "yes" | "on")
         })
         .unwrap_or(false)
+}
+
+fn load_persisted_turso_sync_config() {
+    match native_widget::load_turso_sync_config() {
+        Ok(Some(config)) => {
+            env::set_var("TURSO_SYNC_URL", &config.sync_url);
+            env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
+            if !config.expires_at.trim().is_empty() {
+                env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
+            }
+            if !config.database_name.trim().is_empty() {
+                env::set_var("TURSO_DATABASE_NAME", &config.database_name);
+            }
+            println!("🔄 Loaded persisted Turso sync config");
+        }
+        Ok(None) => {
+            println!("📂 No persisted Turso sync config found");
+        }
+        Err(error) => {
+            eprintln!("⚠️ Failed to load persisted Turso sync config: {}", error);
+        }
+    }
 }
 
 fn with_query_param(url: &str, query: &str) -> String {
@@ -137,11 +166,17 @@ fn join_url_path(base: &str, path: &str) -> String {
 
 fn shutdown_background_helpers() {
     if let Err(err) = tauri::async_runtime::block_on(watcher::stop_watcher()) {
-        eprintln!("⚠️ Failed to stop Ritual Watcher during app shutdown: {}", err);
+        eprintln!(
+            "⚠️ Failed to stop Ritual Watcher during app shutdown: {}",
+            err
+        );
     }
 
     if let Err(err) = tauri::async_runtime::block_on(recorder::stop_recorder()) {
-        eprintln!("⚠️ Failed to stop Ritual Recorder during app shutdown: {}", err);
+        eprintln!(
+            "⚠️ Failed to stop Ritual Recorder during app shutdown: {}",
+            err
+        );
     }
 }
 
@@ -193,9 +228,7 @@ fn configure_macos_window_transparency(window: &tauri::Window) {
                 let _: () = msg_send![glass_view, setStyle: 16_isize];
 
                 // White tint on the native glass for a frostier look
-                let tint: id = NSColor::colorWithRed_green_blue_alpha_(
-                    nil, 1.0, 1.0, 1.0, 0.0,
-                );
+                let tint: id = NSColor::colorWithRed_green_blue_alpha_(nil, 1.0, 1.0, 1.0, 0.0);
                 let _: () = msg_send![glass_view, setTintColor: tint];
 
                 // Make it resize with the window
@@ -227,7 +260,12 @@ fn configure_macos_window_transparency(window: &tauri::Window) {
 fn apply_vibrancy_fallback(window: &tauri::Window) {
     use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
 
-    match apply_vibrancy(window, NSVisualEffectMaterial::Sidebar, Some(NSVisualEffectState::Active), None) {
+    match apply_vibrancy(
+        window,
+        NSVisualEffectMaterial::Sidebar,
+        Some(NSVisualEffectState::Active),
+        None,
+    ) {
         Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material)"),
         Err(e) => eprintln!("❌ Fallback vibrancy also failed: {e:?}"),
     }
@@ -239,12 +277,14 @@ fn configure_macos_webview_transparency(window: &tauri::Window) {
     use cocoa::appkit::NSColor;
     use cocoa::base::{id, nil, NO, YES};
     use cocoa::foundation::NSString;
-    use objc::{class, msg_send, sel, sel_impl};
     use objc::runtime::BOOL;
+    use objc::{class, msg_send, sel, sel_impl};
 
     /// Recursively clear background on a view and all its subviews/layers.
     unsafe fn clear_view_tree(view: id, depth: usize) {
-        if view.is_null() { return; }
+        if view.is_null() {
+            return;
+        }
         let prefix = "  ".repeat(depth);
         let cls: id = msg_send![view, class];
         let cls_name: id = msg_send![cls, className];
@@ -252,7 +292,9 @@ fn configure_macos_webview_transparency(window: &tauri::Window) {
         let name = if name_cstr.is_null() {
             "<unknown>".to_string()
         } else {
-            std::ffi::CStr::from_ptr(name_cstr).to_string_lossy().to_string()
+            std::ffi::CStr::from_ptr(name_cstr)
+                .to_string_lossy()
+                .to_string()
         };
 
         // Make the view itself non-opaque
@@ -334,7 +376,8 @@ fn configure_macos_webview_transparency(window: &tauri::Window) {
             }
 
             // 3. Set underPageBackgroundColor to clear (public API, macOS 12+).
-            let has_under_page: BOOL = msg_send![wk, respondsToSelector: sel!(setUnderPageBackgroundColor:)];
+            let has_under_page: BOOL =
+                msg_send![wk, respondsToSelector: sel!(setUnderPageBackgroundColor:)];
             if has_under_page != NO {
                 let _: () = msg_send![wk, setUnderPageBackgroundColor: clear];
                 println!("✅ WKWebView underPageBackgroundColor set to clear");
@@ -376,7 +419,8 @@ fn configure_macos_webview_transparency(window: &tauri::Window) {
             let superview: id = msg_send![wk, superview];
             if !superview.is_null() {
                 let _: () = msg_send![superview, setOpaque: NO];
-                let responds_bg: BOOL = msg_send![superview, respondsToSelector: sel!(setBackgroundColor:)];
+                let responds_bg: BOOL =
+                    msg_send![superview, respondsToSelector: sel!(setBackgroundColor:)];
                 if responds_bg != NO {
                     let _: () = msg_send![superview, setBackgroundColor: clear];
                 }
@@ -394,7 +438,9 @@ fn configure_macos_webview_transparency(window: &tauri::Window) {
                 let name = if name_cstr.is_null() {
                     "<unknown>".to_string()
                 } else {
-                    std::ffi::CStr::from_ptr(name_cstr).to_string_lossy().to_string()
+                    std::ffi::CStr::from_ptr(name_cstr)
+                        .to_string_lossy()
+                        .to_string()
                 };
                 println!("✅ Superview ({name}) cleared");
             }
@@ -429,7 +475,11 @@ struct SidebarWindowState {
 impl SidebarWindowState {
     fn get_width(&self) -> f64 {
         let lock = self.width.lock().unwrap();
-        if *lock <= 0.0 { 70.0 } else { *lock }
+        if *lock <= 0.0 {
+            70.0
+        } else {
+            *lock
+        }
     }
 
     fn set_width(&self, width: f64) -> f64 {
@@ -479,7 +529,11 @@ fn sync_detached_sidebar_window(app: &tauri::AppHandle, width: f64) -> Result<()
 }
 
 #[cfg(target_os = "macos")]
-fn ensure_detached_sidebar_window(app: &tauri::AppHandle, app_url: &str, width: f64) -> Result<(), String> {
+fn ensure_detached_sidebar_window(
+    app: &tauri::AppHandle,
+    app_url: &str,
+    width: f64,
+) -> Result<(), String> {
     let sidebar_url = with_query_param(
         &format!("{}/sidebar", app_url.trim_end_matches('/')),
         "ritual_sidebar_window=1",
@@ -506,7 +560,8 @@ fn ensure_detached_sidebar_window(app: &tauri::AppHandle, app_url: &str, width: 
         .build()
         .map_err(|e| format!("Failed to create detached sidebar window: {e}"))?;
     } else if let Some(sidebar) = app.get_window("sidebar") {
-        let sidebar_url_json = serde_json::to_string(&sidebar_url).unwrap_or_else(|_| "\"http://localhost:3000/sidebar\"".to_string());
+        let sidebar_url_json = serde_json::to_string(&sidebar_url)
+            .unwrap_or_else(|_| "\"http://localhost:3000/sidebar\"".to_string());
         let _ = sidebar.eval(&format!("window.location.replace({});", sidebar_url_json));
     }
 
@@ -554,8 +609,7 @@ fn sidebar_navigate(
     let main = app
         .get_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
-    main
-        .eval(&format!("window.location.replace({});", target_json))
+    main.eval(&format!("window.location.replace({});", target_json))
         .map_err(|e| format!("Failed to navigate main window: {e}"))?;
     if let Some(sidebar) = app.get_window("sidebar") {
         let _ = sidebar.emit("sidebar:route", target);
@@ -593,8 +647,12 @@ fn sidebar_get_main_state(
 /// Show the main window (called from frontend when React is ready)
 #[tauri::command]
 fn show_main_window(window: tauri::Window) -> Result<(), String> {
-    window.show().map_err(|e| format!("Failed to show window: {}", e))?;
-    window.set_focus().map_err(|e| format!("Failed to focus window: {}", e))?;
+    window
+        .show()
+        .map_err(|e| format!("Failed to show window: {}", e))?;
+    window
+        .set_focus()
+        .map_err(|e| format!("Failed to focus window: {}", e))?;
     Ok(())
 }
 
@@ -624,18 +682,17 @@ fn read_watcher_config() -> Option<watcher::WatcherConfig> {
 #[tauri::command]
 fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String> {
     let config_path = get_watcher_config_path();
-    
+
     // Ensure directory exists
     if let Some(parent) = config_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    
+
     let json = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    
-    fs::write(&config_path, json)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
-    
+
+    fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
+
     println!("💾 Watcher config saved for auto-start");
     Ok(())
 }
@@ -645,8 +702,7 @@ fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String>
 fn clear_watcher_config_cmd() -> Result<(), String> {
     let config_path = get_watcher_config_path();
     if config_path.exists() {
-        fs::remove_file(&config_path)
-            .map_err(|e| format!("Failed to remove config: {}", e))?;
+        fs::remove_file(&config_path).map_err(|e| format!("Failed to remove config: {}", e))?;
         println!("🗑️ Watcher config cleared (auto-start disabled)");
     }
     Ok(())
@@ -665,8 +721,8 @@ fn get_voice_hotkey() -> Result<String, String> {
     if !path.exists() {
         return Ok("cmd_shift_l".to_string());
     }
-    let contents = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read voice settings: {}", e))?;
+    let contents =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read voice settings: {}", e))?;
     let json: serde_json::Value = serde_json::from_str(&contents)
         .map_err(|e| format!("Failed to parse voice settings: {}", e))?;
     Ok(json["hotkey"].as_str().unwrap_or("cmd_shift_l").to_string())
@@ -681,25 +737,24 @@ fn set_voice_hotkey(hotkey: String) -> Result<(), String> {
     let json = serde_json::json!({ "hotkey": hotkey });
     let contents = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Failed to serialize voice settings: {}", e))?;
-    fs::write(&path, contents)
-        .map_err(|e| format!("Failed to write voice settings: {}", e))?;
+    fs::write(&path, contents).map_err(|e| format!("Failed to write voice settings: {}", e))?;
     println!("🎙️ Voice hotkey updated to: {}", hotkey);
     Ok(())
 }
 
 fn main() {
-  // Create system tray menu with native timer widget access
-  let quit = CustomMenuItem::new("quit".to_string(), "Quit");
-  let show_widget = CustomMenuItem::new("show_widget".to_string(), "Show Focus Timer");
-  let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
-  let tray_menu = SystemTrayMenu::new()
-    .add_item(show_widget)
-    .add_item(check_updates)
-    .add_item(quit);
-  
-  let system_tray = SystemTray::new().with_menu(tray_menu);
+    // Create system tray menu with native timer widget access
+    let quit = CustomMenuItem::new("quit".to_string(), "Quit");
+    let show_widget = CustomMenuItem::new("show_widget".to_string(), "Show Focus Timer");
+    let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
+    let tray_menu = SystemTrayMenu::new()
+        .add_item(show_widget)
+        .add_item(check_updates)
+        .add_item(quit);
 
-  tauri::Builder::default()
+    let system_tray = SystemTray::new().with_menu(tray_menu);
+
+    tauri::Builder::default()
     .plugin(tauri_plugin_context_menu::init())
     .manage(SidebarWindowState::default())
     .manage(desktop_runtime::DesktopShellState::default())
@@ -714,6 +769,7 @@ fn main() {
       native_widget::create_native_timer_widget,
       native_widget::close_native_timer_widget,
       native_widget::write_auth_token_to_file,
+      native_widget::write_turso_sync_config,
       native_widget::check_dashboard_refresh_trigger,
       native_widget::check_token_refresh_request,
       native_widget::show_native_microphone_permission_dialog,
@@ -993,6 +1049,8 @@ fn main() {
           native_widget::restart_native_timer_widget();
         }
       }
+
+      load_persisted_turso_sync_config();
       
       // Initialize Ritual Database (unified libSQL with vector search)
       // This also handles migration from legacy databases

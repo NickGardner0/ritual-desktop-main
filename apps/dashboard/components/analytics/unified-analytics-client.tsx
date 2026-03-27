@@ -430,7 +430,8 @@ function UnifiedAnalyticsContent() {
                     try {
                       await Promise.all([
                         fetchHabits(),
-                        fetchHabitLogs()
+                        fetchHabitLogs(),
+                        queryClient.invalidateQueries({ queryKey: habitLogKeys.all })
                       ]);
                       console.log('✅ Dashboard data refreshed after habit log');
                       

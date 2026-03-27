@@ -19,7 +19,6 @@ interface ExpandedMetricCardProps {
   deltaValue?: React.ReactNode;
   deltaPercent?: React.ReactNode;
   deltaDirection?: DeltaDirection;
-  /** true = higher is better, false = lower is better. Flips green/red for delta color. */
   higherIsBetter?: boolean | null;
   dateRangeText?: string;
   rangePreset?: string;
@@ -68,7 +67,6 @@ export function ExpandedMetricCard({
   deltaValue,
   deltaPercent,
   deltaDirection,
-  higherIsBetter,
   dateRangeText,
   rangePreset,
   onRangePresetChange,
@@ -87,12 +85,7 @@ export function ExpandedMetricCard({
   const arrow = resolvedDirection === 'up' ? '↗' : (resolvedDirection === 'down' ? '↘' : '');
   const percentLabel = normalizePercentLabel(deltaPercent);
 
-  // When higherIsBetter is false, flip the color: up=red, down=green
-  const colorDirection: DeltaDirection = resolvedDirection === 'neutral'
-    ? 'neutral'
-    : higherIsBetter === false
-      ? (resolvedDirection === 'up' ? 'down' : 'up')
-      : resolvedDirection;
+  const colorDirection: DeltaDirection = resolvedDirection;
 
   return (
     <div

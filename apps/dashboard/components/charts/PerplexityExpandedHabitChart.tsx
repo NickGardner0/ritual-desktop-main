@@ -82,8 +82,8 @@ interface PerplexityExpandedHabitChartProps {
   chartType?: "spark" | "bar";
   showReferenceLine?: boolean;
   showGrid?: boolean;
-  /** Determines gradient color: true/undefined=green, false=red */
   higherIsBetter?: boolean | null;
+  height?: number;
 }
 
 export function PerplexityExpandedHabitChart({
@@ -95,7 +95,7 @@ export function PerplexityExpandedHabitChart({
   chartType = "spark",
   showReferenceLine = true,
   showGrid = true,
-  higherIsBetter,
+  height = 220,
 }: PerplexityExpandedHabitChartProps) {
   const baseline = points[0]?.close ?? 0;
   const lastValue = points[points.length - 1]?.close ?? 0;
@@ -137,10 +137,8 @@ export function PerplexityExpandedHabitChart({
   const chartDomainMin = isBarChart ? Math.min(0, dataMin) : domainMin;
   const chartDomainMax = isBarChart ? Math.max(0, dataMax) : domainMax;
 
-  // Determine chart color based on trend direction and higherIsBetter
   const trendUp = lastValue >= baseline;
-  const isGoodTrend = higherIsBetter === false ? !trendUp : trendUp;
-  const chartColor = isGoodTrend ? COLORS.positive : COLORS.negative;
+  const chartColor = trendUp ? COLORS.positive : COLORS.negative;
 
   const yTicks = React.useMemo(() => {
     if (!hasData) return [0];
@@ -159,7 +157,7 @@ export function PerplexityExpandedHabitChart({
   const fillGradientId = `expanded-fill-${reactId}`;
 
   return (
-    <div className="h-[220px] w-full">
+    <div className="w-full" style={{ height }}>
       {hasData ? (
         <ResponsiveContainer width="100%" height="100%">
           {isBarChart ? (

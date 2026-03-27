@@ -10,12 +10,13 @@ import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 export async function GET(request: NextRequest) {
   try {
     const { userId, getToken } = await auth();
+    const headerToken = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() || null;
 
-    if (!userId) {
+    if (!userId && !headerToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const token = await getToken();
+    const token = (await getToken()) || headerToken;
 
     const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/watcher/devices`, {
       method: 'GET',
@@ -48,12 +49,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { userId, getToken } = await auth();
+    const headerToken = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() || null;
 
-    if (!userId) {
+    if (!userId && !headerToken) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const token = await getToken();
+    const token = (await getToken()) || headerToken;
     const body = await request.json();
 
     const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/watcher/devices`, {

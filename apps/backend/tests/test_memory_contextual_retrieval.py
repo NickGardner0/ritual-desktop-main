@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -437,6 +438,47 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result.get("renderer"), dict)
         self.assertGreater((result.get("debug") or {}).get("claim_count", 0), 0)
         self.assertGreater(len((result.get("story_plan") or {}).get("document_items") or []), 0)
+
+    async def test_search_context_memory_uses_per_user_activity_provider_after_cutover(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            replica_path = f"{tmp}/per-user-activity.db"
+            _create_context_memory_db(replica_path, now_ms)
+
+            @asynccontextmanager
+            async def _open_per_user_conn(user_id: str, *, write: bool = False):
+                self.assertEqual(user_id, "user-1")
+                self.assertFalse(write)
+                conn = sqlite3.connect(replica_path)
+                conn.row_factory = sqlite3.Row
+                try:
+                    yield conn
+                finally:
+                    conn.close()
+
+            with patch(
+                "services.watcher_service_search.get_local_watcher_db_path_impl",
+                return_value=f"{tmp}/missing-memory.db",
+            ), patch(
+                "services.watcher_service_search.get_local_activity_db_path_impl",
+                return_value=f"{tmp}/missing-activity.db",
+            ), patch(
+                "services.watcher_service_local_db.open_activity_connection_for_user",
+                _open_per_user_conn,
+            ):
+                result = await search_context_memory_impl(
+                    service=_DummyWatcherService(),
+                    user_id="user-1",
+                    query="ritual dashboard implementation notes",
+                    days_back=1,
+                    limit=5,
+                    allow_legacy_fallback=False,
+                )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["mode_used"], "context-session-docs")
+        self.assertEqual(result["source_db"], "turso_replica")
+        self.assertEqual(result["result_count"], 1)
 
     async def test_search_context_memory_overview_prefers_snapshots_and_filters_browser_noise(self):
         now_ms = int(time.time() * 1000)

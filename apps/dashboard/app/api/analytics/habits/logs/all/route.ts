@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const habits = searchParams.get('habits')?.split(',').filter(Boolean) || [];
     const statuses = searchParams.get('statuses')?.split(',').filter(Boolean) || [];
     const sources = searchParams.get('sources')?.split(',').filter(Boolean) || [];
-    const sort = searchParams.get('sort') || 'date';
+    const sort = searchParams.get('sort') || 'time';
     const order = searchParams.get('order') || 'desc';
     const requestedLimit = Number.parseInt(searchParams.get('limit') || '200', 10);
     const requestedOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
@@ -60,25 +60,6 @@ export async function GET(request: NextRequest) {
     tinybirdParams.set('start_date', startDate);
     tinybirdParams.set('end_date', endDate);
     tinybirdParams.set('limit', String(Math.min((offset + limit) * 2, 5000))); // Fetch extra for filtering + pagination
-    
-    if (!tinybirdToken) {
-      // Fall back to Python API if Tinybird not configured
-      const response = await fetch(`${backendUrl}/api/habit-logs?${tinybirdParams.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Backend API error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      return NextResponse.json({ success: true, data: data.logs || data });
-    }
-
-    // Fetch from Tinybird habit_logs_time_range pipe
-    const tinybirdUrl = `${tinybirdHost}/v0/pipes/habit_logs_time_range.json?${tinybirdParams.toString()}`;
     
     const habitsMapPromise = (async () => {
       const habitsMap: Record<string, { category: string; icon?: string; unit_type?: string }> = {};
@@ -102,34 +83,200 @@ export async function GET(request: NextRequest) {
       return habitsMap;
     })();
 
+    const normalizeLog = (
+      log: any,
+      habitsMap: Record<string, { category: string; icon?: string; unit_type?: string }>,
+    ) => ({
+      id: log.id,
+      habit_id: log.habit_id,
+      habit_name: log.habit_name,
+      category: habitsMap[log.habit_id]?.category || log.category || 'uncategorized',
+      icon: habitsMap[log.habit_id]?.icon || log.icon,
+      date: log.date,
+      completed_at: log.timestamp || log.completed_at,
+      duration: log.duration,
+      amount: log.amount,
+      unit_type: habitsMap[log.habit_id]?.unit_type || log.unit_type || log.unit,
+      status: log.status || 'completed',
+      notes: log.notes,
+      integration_source: log.integration_source || log.source || 'manual',
+      metadata:
+        log.metadata
+          ? (typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata)
+          : null,
+    });
+
+    const backendLogsPromise = (async () => {
+      const response = await fetch(`${backendUrl}/api/habit-logs`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Backend API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const rawLogs = Array.isArray(data) ? data : data.logs || data.data || [];
+      return rawLogs;
+    })();
+
+    if (!tinybirdToken) {
+      const [habitsMap, backendLogs] = await Promise.all([
+        habitsMapPromise,
+        backendLogsPromise,
+      ]);
+
+      let logs = backendLogs.map((log: any) => normalizeLog(log, habitsMap));
+
+      logs = logs.filter((log: any) => log.date >= startDate && log.date <= endDate);
+
+      if (q) {
+        const searchLower = q.toLowerCase();
+        logs = logs.filter((log: any) =>
+          log.habit_name?.toLowerCase().includes(searchLower) ||
+          log.notes?.toLowerCase().includes(searchLower)
+        );
+      }
+
+      if (categories.length > 0) {
+        logs = logs.filter((log: any) =>
+          categories.some((cat) => log.category?.toLowerCase() === cat.toLowerCase())
+        );
+      }
+
+      if (habits.length > 0) {
+        logs = logs.filter((log: any) => habits.includes(log.habit_id));
+      }
+
+      if (statuses.length > 0) {
+        logs = logs.filter((log: any) => statuses.includes(log.status));
+      }
+
+      if (sources.length > 0) {
+        logs = logs.filter((log: any) => {
+          const logSource = log.integration_source || 'manual';
+          return sources.some((src) => logSource.toLowerCase() === src.toLowerCase());
+        });
+      }
+
+      logs.sort((a: any, b: any) => {
+        let aVal: any;
+        let bVal: any;
+
+        switch (sort) {
+          case 'date':
+            aVal = new Date(a.date).getTime();
+            bVal = new Date(b.date).getTime();
+            break;
+          case 'habit':
+            aVal = a.habit_name?.toLowerCase() || '';
+            bVal = b.habit_name?.toLowerCase() || '';
+            break;
+          case 'value':
+            aVal = a.amount || a.duration || 0;
+            bVal = b.amount || b.duration || 0;
+            break;
+          case 'category':
+            aVal = a.category?.toLowerCase() || '';
+            bVal = b.category?.toLowerCase() || '';
+            break;
+          case 'status':
+            aVal = a.status || '';
+            bVal = b.status || '';
+            break;
+          case 'time':
+            aVal = a.completed_at ? new Date(a.completed_at).getTime() : new Date(a.date).getTime();
+            bVal = b.completed_at ? new Date(b.completed_at).getTime() : new Date(b.date).getTime();
+            break;
+          default:
+            aVal = a[sort] || '';
+            bVal = b[sort] || '';
+        }
+
+        if (aVal < bVal) return order === 'asc' ? -1 : 1;
+        if (aVal > bVal) return order === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      const totalFiltered = logs.length;
+      const totalDuration = logs.reduce((sum: number, log: any) => sum + Number(log.duration || 0), 0);
+      const totalAmount = logs.reduce((sum: number, log: any) => sum + Number(log.amount || 0), 0);
+      const completedCount = logs.filter((log: any) => log.status === 'completed').length;
+
+      const pagedLogs = logs.slice(offset, offset + limit);
+      return NextResponse.json({
+        success: true,
+        data: pagedLogs,
+        meta: {
+          total: pagedLogs.length,
+          totalFiltered,
+          offset,
+          limit,
+          hasMore: offset + pagedLogs.length < totalFiltered,
+          filters: { q, startDate, endDate, categories, habits, statuses, sources },
+          sort: { column: sort, order },
+          totals: {
+            count: totalFiltered,
+            totalDuration,
+            totalAmount,
+            completedCount,
+            completionRate: totalFiltered > 0 ? (completedCount / totalFiltered) * 100 : 0,
+          },
+        },
+      });
+    }
+
+    // Fetch from Tinybird habit_logs_time_range pipe
+    const tinybirdUrl = `${tinybirdHost}/v0/pipes/habit_logs_time_range.json?${tinybirdParams.toString()}`;
+
     const tinybirdResponsePromise = fetch(tinybirdUrl, {
       headers: {
         'Authorization': `Bearer ${tinybirdToken}`,
       },
+      cache: 'no-store',
     });
 
-    const [habitsMap, response] = await Promise.all([
+    const [habitsMap, backendLogs, tinybirdResponse] = await Promise.all([
       habitsMapPromise,
-      tinybirdResponsePromise,
+      backendLogsPromise.catch((error) => {
+        console.warn('Failed to fetch backend logs for merge:', error);
+        return [];
+      }),
+      tinybirdResponsePromise.catch((error) => {
+        console.warn('Failed to fetch Tinybird logs:', error);
+        return null;
+      }),
     ]);
 
-    if (!response.ok) {
-      const errorText = await response.text();
+    let logs: any[] = [];
+
+    if (tinybirdResponse?.ok) {
+      const result = await tinybirdResponse.json();
+      logs = (result.data || []).map((log: any) => normalizeLog(log, habitsMap));
+    } else if (tinybirdResponse) {
+      const errorText = await tinybirdResponse.text();
       console.error('Tinybird API error:', errorText);
-      throw new Error(`Tinybird API error: ${response.status}`);
     }
 
-    const result = await response.json();
-    let logs = result.data || [];
-    
-    // Merge habit metadata (category, icon, unit_type)
-    logs = logs.map((log: any) => ({
-      ...log,
-      category: habitsMap[log.habit_id]?.category || 'uncategorized',
-      icon: habitsMap[log.habit_id]?.icon,
-      unit_type: habitsMap[log.habit_id]?.unit_type || log.unit,
-      integration_source: log.source || 'manual',
-    }));
+    const normalizedBackendLogs = backendLogs.map((log: any) => normalizeLog(log, habitsMap));
+    const mergedById = new Map<string, any>();
+
+    for (const log of logs) {
+      if (log?.id) {
+        mergedById.set(log.id, log);
+      }
+    }
+
+    for (const log of normalizedBackendLogs) {
+      if (!log?.id) continue;
+      const existing = mergedById.get(log.id);
+      mergedById.set(log.id, existing ? { ...existing, ...log } : log);
+    }
+
+    logs = Array.from(mergedById.values());
 
     // Apply client-side filters
     if (q) {
@@ -188,8 +335,8 @@ export async function GET(request: NextRequest) {
           bVal = b.status || '';
           break;
         case 'time':
-          aVal = a.completed_at ? new Date(a.completed_at).getTime() : 0;
-          bVal = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+          aVal = a.completed_at ? new Date(a.completed_at).getTime() : new Date(a.date).getTime();
+          bVal = b.completed_at ? new Date(b.completed_at).getTime() : new Date(b.date).getTime();
           break;
         default:
           aVal = a[sort] || '';
@@ -209,33 +356,15 @@ export async function GET(request: NextRequest) {
     // Apply pagination after filtering/sorting
     logs = logs.slice(offset, offset + limit);
 
-    // Transform data to match expected format
-    const transformedLogs = logs.map((log: any) => ({
-      id: log.id,
-      habit_id: log.habit_id,
-      habit_name: log.habit_name,
-      category: log.category || 'uncategorized',
-      icon: log.icon,
-      date: log.date,
-      completed_at: log.timestamp || log.completed_at,
-      duration: log.duration,
-      amount: log.amount,
-      unit_type: log.unit_type,
-      status: log.status || 'completed',
-      notes: log.notes,
-      integration_source: log.integration_source || 'manual',
-      metadata: log.metadata ? (typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata) : null,
-    }));
-
     return NextResponse.json({
       success: true,
-      data: transformedLogs,
+      data: logs,
       meta: {
-        total: transformedLogs.length,
+        total: logs.length,
         totalFiltered,
         offset,
         limit,
-        hasMore: offset + transformedLogs.length < totalFiltered,
+        hasMore: offset + logs.length < totalFiltered,
         filters: {
           q,
           startDate,

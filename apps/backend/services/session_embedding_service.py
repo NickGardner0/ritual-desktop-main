@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 from openai import AsyncOpenAI
 
 from services.memory_turbopuffer_service import TurbopufferService
-from services.watcher_service_local_db import get_local_activity_db_path_impl
+from services.watcher_service_local_db import open_activity_connection_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +182,7 @@ def _extract_parent_context(doc: Dict[str, Any]) -> str:
     return context_text[:240]
 
 
-async def process_session_embeddings(batch_size: int = BATCH_SIZE) -> Dict[str, Any]:
+async def process_session_embeddings(user_id: str, batch_size: int = BATCH_SIZE) -> Dict[str, Any]:
     """
     Main entry point: fetch unembedded session docs from activity.db,
     embed with OpenAI, upsert to Turbopuffer.
@@ -201,12 +201,15 @@ async def process_session_embeddings(batch_size: int = BATCH_SIZE) -> Dict[str, 
             "error": "Turbopuffer is not configured (TURBOPUFFER_API_KEY)",
         }
 
-    # Connect to activity.db (read-write for tracking embedded_at)
-    db_path = get_local_activity_db_path_impl()
-    conn = sqlite3.connect(db_path, timeout=5.0)
-    conn.row_factory = sqlite3.Row
-
-    try:
+    async with open_activity_connection_for_user(user_id, write=True) as conn:
+        if conn is None:
+            return {
+                "processed": 0,
+                "failed": 0,
+                "remaining": 0,
+                "error": "No activity database is available for this user",
+            }
+        conn.row_factory = sqlite3.Row
         _ensure_tracking_column(conn)
         docs = _fetch_unembedded(conn, batch_size)
 
@@ -217,7 +220,6 @@ async def process_session_embeddings(batch_size: int = BATCH_SIZE) -> Dict[str, 
                      AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?""",
                 (MIN_TEXT_LENGTH,),
             ).fetchone()[0]
-            conn.close()
             return {
                 "processed": 0,
                 "failed": 0,
@@ -236,7 +238,6 @@ async def process_session_embeddings(batch_size: int = BATCH_SIZE) -> Dict[str, 
                 input=texts,
             )
         except Exception as exc:
-            conn.close()
             return {
                 "processed": 0,
                 "failed": len(docs),
@@ -338,8 +339,6 @@ async def process_session_embeddings(batch_size: int = BATCH_SIZE) -> Dict[str, 
             (MIN_TEXT_LENGTH,),
         ).fetchone()[0]
 
-        conn.close()
-
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.info(
             "Session embedding: processed=%d failed=%d remaining=%d elapsed=%dms",
@@ -353,43 +352,34 @@ async def process_session_embeddings(batch_size: int = BATCH_SIZE) -> Dict[str, 
             "elapsed_ms": elapsed_ms,
         }
 
-    except Exception as exc:
-        conn.close()
-        raise exc
 
-
-async def get_embedding_status() -> Dict[str, Any]:
+async def get_embedding_status(user_id: str) -> Dict[str, Any]:
     """Get current status of the session embedding pipeline."""
-    db_path = get_local_activity_db_path_impl()
     try:
-        # Open read-write to ensure tracking column exists, then query
-        rw_conn = sqlite3.connect(db_path, timeout=2.0)
-        _ensure_tracking_column(rw_conn)
-        rw_conn.close()
+        async with open_activity_connection_for_user(user_id, write=True) as conn:
+            if conn is None:
+                return {"error": "No activity database is available for this user"}
+            conn.row_factory = sqlite3.Row
+            _ensure_tracking_column(conn)
 
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
-        conn.row_factory = sqlite3.Row
+            total = conn.execute("SELECT COUNT(*) FROM session_retrieval_docs").fetchone()[0]
+            embedded = conn.execute(
+                "SELECT COUNT(*) FROM session_retrieval_docs WHERE embedded_at IS NOT NULL"
+            ).fetchone()[0]
+            pending = conn.execute(
+                """SELECT COUNT(*) FROM session_retrieval_docs
+                   WHERE embedded_at IS NULL
+                     AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?""",
+                (MIN_TEXT_LENGTH,),
+            ).fetchone()[0]
+            skippable = total - embedded - pending
 
-        total = conn.execute("SELECT COUNT(*) FROM session_retrieval_docs").fetchone()[0]
-        embedded = conn.execute(
-            "SELECT COUNT(*) FROM session_retrieval_docs WHERE embedded_at IS NOT NULL"
-        ).fetchone()[0]
-        pending = conn.execute(
-            """SELECT COUNT(*) FROM session_retrieval_docs
-               WHERE embedded_at IS NULL
-                 AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?""",
-            (MIN_TEXT_LENGTH,),
-        ).fetchone()[0]
-        skippable = total - embedded - pending
-
-        latest_embedded = conn.execute(
-            "SELECT datetime(MAX(embedded_at)/1000, 'unixepoch', 'localtime') FROM session_retrieval_docs"
-        ).fetchone()[0]
-        latest_session = conn.execute(
-            "SELECT datetime(MAX(chunk_end_ts)/1000, 'unixepoch', 'localtime') FROM session_retrieval_docs"
-        ).fetchone()[0]
-
-        conn.close()
+            latest_embedded = conn.execute(
+                "SELECT datetime(MAX(embedded_at)/1000, 'unixepoch', 'localtime') FROM session_retrieval_docs"
+            ).fetchone()[0]
+            latest_session = conn.execute(
+                "SELECT datetime(MAX(chunk_end_ts)/1000, 'unixepoch', 'localtime') FROM session_retrieval_docs"
+            ).fetchone()[0]
 
         tp = TurbopufferService()
         return {

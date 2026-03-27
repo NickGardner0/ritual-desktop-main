@@ -60,13 +60,12 @@ pub fn bridge_health_check() -> bool {
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(DEFAULT_BRIDGE_PORT);
     let addr = format!("127.0.0.1:{}", port);
-    let stream = match TcpStream::connect_timeout(
-        &addr.parse().unwrap(),
-        std::time::Duration::from_secs(2),
-    ) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
+    let stream =
+        match TcpStream::connect_timeout(&addr.parse().unwrap(), std::time::Duration::from_secs(2))
+        {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(2)));
     let mut stream = stream;
@@ -183,7 +182,11 @@ fn extract_origin(request: &Request) -> Option<String> {
 }
 
 fn maybe_cors_headers(request: &Request) -> Vec<Header> {
-    let mut headers = vec![cors_methods_header(), cors_headers_header(), cors_vary_header()];
+    let mut headers = vec![
+        cors_methods_header(),
+        cors_headers_header(),
+        cors_vary_header(),
+    ];
     if let Some(origin) = extract_origin(request) {
         if let Some(header) = cors_origin_header(&origin) {
             headers.push(header);
@@ -483,17 +486,17 @@ fn handle_request(mut request: Request, expected_token: &str) {
         let limit = parse_query_i64(&params, "limit");
 
         let response = match (start_ts, end_ts) {
-            (Some(start_ts), Some(end_ts)) => match RUNTIME.block_on(
-                watcher::get_detailed_activity(start_ts, end_ts, limit),
-            ) {
-                Ok(payload) => {
-                    return send_json(request, 200, &payload);
+            (Some(start_ts), Some(end_ts)) => {
+                match RUNTIME.block_on(watcher::get_detailed_activity(start_ts, end_ts, limit)) {
+                    Ok(payload) => {
+                        return send_json(request, 200, &payload);
+                    }
+                    Err(error) => serde_json::json!({
+                        "success": false,
+                        "error": error,
+                    }),
                 }
-                Err(error) => serde_json::json!({
-                    "success": false,
-                    "error": error,
-                }),
-            },
+            }
             _ => serde_json::json!({
                 "success": false,
                 "error": "missing required query params: start_ts and end_ts",
@@ -510,17 +513,17 @@ fn handle_request(mut request: Request, expected_token: &str) {
         let end_date = params.get("end_date").cloned();
 
         let response = match (start_date, end_date) {
-            (Some(start_date), Some(end_date)) => match RUNTIME.block_on(
-                watcher::get_daily_summaries(start_date, end_date),
-            ) {
-                Ok(payload) => {
-                    return send_json(request, 200, &payload);
+            (Some(start_date), Some(end_date)) => {
+                match RUNTIME.block_on(watcher::get_daily_summaries(start_date, end_date)) {
+                    Ok(payload) => {
+                        return send_json(request, 200, &payload);
+                    }
+                    Err(error) => serde_json::json!({
+                        "success": false,
+                        "error": error,
+                    }),
                 }
-                Err(error) => serde_json::json!({
-                    "success": false,
-                    "error": error,
-                }),
-            },
+            }
             _ => serde_json::json!({
                 "success": false,
                 "error": "missing required query params: start_date and end_date",
@@ -618,10 +621,7 @@ fn parse_query_params(query: &str) -> std::collections::HashMap<String, String> 
     params
 }
 
-fn parse_query_i64(
-    params: &std::collections::HashMap<String, String>,
-    key: &str,
-) -> Option<i64> {
+fn parse_query_i64(params: &std::collections::HashMap<String, String>, key: &str) -> Option<i64> {
     params.get(key).and_then(|value| value.parse::<i64>().ok())
 }
 
@@ -659,7 +659,11 @@ pub fn start_local_search_bridge() -> Result<(), String> {
     };
 
     lsb_info!("🔎 Local hybrid search bridge listening on http://{}", addr);
-    lsb_info!("🩺 Local hybrid search bridge health endpoint: http://{}{}", addr, HEALTH_PATH);
+    lsb_info!(
+        "🩺 Local hybrid search bridge health endpoint: http://{}{}",
+        addr,
+        HEALTH_PATH
+    );
     lsb_info!(
         "🔐 Local hybrid search bridge token source: {}",
         token_source
@@ -679,7 +683,10 @@ pub fn start_local_search_bridge() -> Result<(), String> {
             } else {
                 "unknown panic".to_string()
             };
-            log::error!("[LOCAL_SEARCH_BRIDGE] Bridge thread panicked: {}. Watchdog can restart.", msg);
+            log::error!(
+                "[LOCAL_SEARCH_BRIDGE] Bridge thread panicked: {}. Watchdog can restart.",
+                msg
+            );
             BRIDGE_STARTED.store(false, Ordering::SeqCst);
         }
     });

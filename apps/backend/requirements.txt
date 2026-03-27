@@ -8,6 +8,7 @@ slowapi>=0.1.9
 # Database - Turso Cloud only
 sqlalchemy[asyncio]>=2.0.0
 libsql-client>=0.1.0  # For Turso Cloud support
+libsql-experimental>=0.0.50  # For direct Turso embedded replica access (activity data)
 sqlalchemy-libsql>=0.1.0  # SQLAlchemy dialect for libSQL/Turso
 
 # Data validation

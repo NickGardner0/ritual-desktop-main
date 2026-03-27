@@ -200,13 +200,13 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const densityStorageKey = `ritual-logs-density-${userId ?? 'anonymous'}`;
 
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
-  const [sortColumn, setSortColumn] = useState<string | null>('date');
+  const [sortColumn, setSortColumn] = useState<string | null>('time');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({
     select: true,
     date: true,
-    time: false,
+    time: true,
     habit: true,
     value: true,
     category: true,
@@ -599,7 +599,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   }, [saveCurrentView]);
 
   // Calculate totals for bottom bar
-  const totals = useMemo(() => {
+  const totals = (() => {
     if (!hasScopedFilters) return null;
     const metaTotals = logsMeta?.totals;
     if (metaTotals) {
@@ -624,7 +624,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       completedCount,
       completionRate: scopedLogs.length > 0 ? (completedCount / scopedLogs.length) * 100 : 0,
     };
-  }, [hasScopedFilters, logsMeta?.totals, scopedLogs]);
+  })();
 
   // Selected logs for export bar
   const scopedLogIdSet = useMemo(() => new Set(scopedLogs.map((log) => log.id)), [scopedLogs]);

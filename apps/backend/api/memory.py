@@ -394,7 +394,10 @@ async def process_session_embedding_batch(
     from services.session_embedding_service import process_session_embeddings
 
     try:
-        result = await process_session_embeddings(batch_size=max(1, min(batch_size, 64)))
+        result = await process_session_embeddings(
+            current_user["id"],
+            batch_size=max(1, min(batch_size, 64)),
+        )
         return {"success": True, **result}
     except Exception as exc:
         logger.error(f"Session embedding error: {exc}")
@@ -409,7 +412,7 @@ async def session_embedding_status(
     from services.session_embedding_service import get_embedding_status
 
     try:
-        status = await get_embedding_status()
+        status = await get_embedding_status(current_user["id"])
         return {"success": True, **status}
     except Exception as exc:
         logger.error(f"Session embedding status error: {exc}")

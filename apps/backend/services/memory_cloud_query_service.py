@@ -281,6 +281,112 @@ def _build_query_budgets(intent: str) -> Dict[str, int]:
     return {"lane_top_k": 50, "candidate_limit": 30, "final_limit": 16}
 
 
+def _query_memory_chunk_lexical_lists(
+    *,
+    user_id: str,
+    expanded_queries: List[ExpandedMemoryQuery],
+    query_profile: Dict[str, Any],
+    start_ms: int,
+    end_ms: int,
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    sample_limit = max(300, min(max(top_k, 1) * 20, 2000))
+    with get_memory_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                id,
+                provider_doc_id,
+                chunk_id,
+                logical_chunk_id,
+                chunk_start_ts,
+                chunk_end_ts,
+                source_kind,
+                session_id,
+                app_name,
+                window_title,
+                document_title,
+                browser_domain,
+                text_compact,
+                raw_text_compact,
+                contextual_text_compact,
+                context_version,
+                session_key,
+                session_position,
+                session_chunk_count,
+                quality_score,
+                capture_quality
+            FROM memory_chunks
+            WHERE user_id = ?
+              AND deleted_at IS NULL
+              AND chunk_end_ts >= ?
+              AND chunk_start_ts <= ?
+            ORDER BY chunk_end_ts DESC
+            LIMIT ?
+            """,
+            (user_id, int(start_ms), int(end_ms), int(sample_limit)),
+        ).fetchall()
+
+    candidates: List[Dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["doc_id"] = (
+            str(item.get("provider_doc_id") or "").strip()
+            or str(item.get("logical_chunk_id") or "").strip()
+            or f"memory-chunk:{item.get('id')}"
+        )
+        item["raw_visible_text"] = item.get("raw_text_compact") or item.get("text_compact") or ""
+        item["contextual_retrieval_text"] = item.get("contextual_text_compact") or item.get("text_compact") or ""
+        item["parent_context"] = item.get("window_title") or item.get("document_title") or ""
+        candidates.append(item)
+
+    ranked_lists: List[Dict[str, Any]] = []
+    for expanded in expanded_queries:
+        query_text = str(expanded.get("text") or "").strip()
+        tokens = [token for token in _normalized_key(query_text).split() if token]
+        if not query_text or not tokens:
+            continue
+
+        scored: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            lexical_score = score_lexical_match_impl(_candidate_haystack(candidate), tokens)
+            if lexical_score <= 0:
+                continue
+            semantic_bonus = _candidate_semantic_bonus(query_profile, candidate)
+            quality_signal = max(
+                float(candidate.get("capture_quality") or 0.0),
+                float(candidate.get("quality_score") or 0.0),
+            )
+            combined_score = lexical_score + semantic_bonus + min(quality_signal, 1.0) * 0.05
+            row = dict(candidate)
+            row["lexical_match_score"] = round(lexical_score, 4)
+            row["combined_score"] = round(combined_score, 4)
+            row["retrieval_score"] = round(combined_score, 4)
+            scored.append(row)
+
+        scored.sort(
+            key=lambda row: (
+                float(row.get("combined_score") or 0.0),
+                int(row.get("chunk_end_ts") or row.get("chunk_start_ts") or 0),
+            ),
+            reverse=True,
+        )
+        if not scored:
+            continue
+
+        ranked_lists.append(
+            {
+                "source": "fts",
+                "query_type": str(expanded.get("type") or "original"),
+                "query_text": query_text,
+                "weight": float(expanded.get("weight") or 1.0),
+                "items": scored[: max(1, int(top_k))],
+            }
+        )
+
+    return ranked_lists
+
+
 def _strong_signal_short_circuit(
     *,
     query: str,
@@ -600,17 +706,41 @@ async def query_semantic_cloud(
             retrieval_queries.append(retrieval_query)
 
         tp = TurbopufferService()
-        tp_result = await tp.hybrid_candidates(
-            user_id=user_id,
-            queries=retrieval_queries,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            top_k=budgets["lane_top_k"],
-        )
-        candidate_count_raw = int(tp_result.get("candidate_count_raw") or 0)
-        ranked_lists = tp_result.get("lists") or []
-        ranked_lists = _filter_active_ranked_lists(user_id=user_id, ranked_lists=ranked_lists)
-        candidate_count_active = sum(len(item.get("items") or []) for item in ranked_lists)
+        tp_error: Optional[str] = None
+        try:
+            tp_result = await tp.hybrid_candidates(
+                user_id=user_id,
+                queries=retrieval_queries,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                top_k=budgets["lane_top_k"],
+            )
+            candidate_count_raw = int(tp_result.get("candidate_count_raw") or 0)
+            ranked_lists = tp_result.get("lists") or []
+            ranked_lists = _filter_active_ranked_lists(user_id=user_id, ranked_lists=ranked_lists)
+            candidate_count_active = sum(len(item.get("items") or []) for item in ranked_lists)
+        except Exception as exc:
+            tp_error = str(exc)[:300]
+            lexical_only = True
+            ranked_lists = []
+            candidate_count_raw = 0
+            candidate_count_active = 0
+        used_db_lexical_fallback = False
+        if candidate_count_active <= 0:
+            db_ranked_lists = _query_memory_chunk_lexical_lists(
+                user_id=user_id,
+                expanded_queries=expanded_queries,
+                query_profile=query_profile,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                top_k=budgets["lane_top_k"],
+            )
+            if db_ranked_lists:
+                ranked_lists = db_ranked_lists
+                candidate_count_raw = sum(len(item.get("items") or []) for item in ranked_lists)
+                candidate_count_active = candidate_count_raw
+                lexical_only = True
+                used_db_lexical_fallback = True
 
         strong_signal = _strong_signal_short_circuit(query=query, ranked_lists=ranked_lists)
         fused, rrf_trace = _rrf_fuse(ranked_lists, query=query, query_profile=query_profile, k=60)
@@ -696,7 +826,7 @@ async def query_semantic_cloud(
         except Exception:
             pass
 
-        mode_used = "cloud-lexical" if lexical_only else "cloud-hybrid"
+        mode_used = "cloud-db-lexical" if used_db_lexical_fallback else ("cloud-lexical" if lexical_only else "cloud-hybrid")
         if lexical_only:
             retrieval_tier = "cloud_lexical_only" if citations else "unavailable"
         else:
@@ -709,6 +839,7 @@ async def query_semantic_cloud(
             "embed_attempted": embed_attempted,
             "embed_succeeded": embed_succeeded,
             "embed_error": embed_error,
+            "turbopuffer_error": tp_error,
             "candidate_count_raw": candidate_count_raw,
             "candidate_count_active": candidate_count_active,
             "rerank_input_count": rerank_input_count,
@@ -722,6 +853,7 @@ async def query_semantic_cloud(
             "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=raw_text_compact",
             "rerank_provider": rerank_provider or "none",
             "query_vector_present": bool(query_vectors),
+            "db_lexical_fallback": used_db_lexical_fallback,
             "query_window_start": start_ms,
             "query_window_end": end_ms,
             "cloud_max_embedded_ts": cloud_max_embedded_ts,
@@ -760,13 +892,14 @@ async def query_semantic_cloud(
         }
         logger.info(
             "memory.cloud query lexical_only=%s embed_ok=%s candidates_raw=%s candidates_active=%s "
-            "rerank_provider=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
+            "db_lexical_fallback=%s rerank_provider=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
             "final_evidence=%s distinct_sessions=%s distinct_apps=%s distinct_domains=%s distinct_buckets=%s "
             "citations=%s tier=%s cloud_max_embedded_ts=%s cloud_pending_in_window=%s",
             lexical_only,
             embed_succeeded,
             candidate_count_raw,
             candidate_count_active,
+            used_db_lexical_fallback,
             rerank_provider or "none",
             rerank_items_count,
             rerank_attempted,
@@ -789,7 +922,7 @@ async def query_semantic_cloud(
             "confidence": confidence,
             "debug": debug_payload,
             "provider_path": {
-                "retrieval": "turbopuffer",
+                "retrieval": "memory_cloud_db" if used_db_lexical_fallback else "turbopuffer",
                 "rerank": rerank_provider or "none",
                 "answer": "openai",
             },

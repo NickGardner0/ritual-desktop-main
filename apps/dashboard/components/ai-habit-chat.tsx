@@ -14,6 +14,7 @@ import { isTauri } from '@/lib/tauri-utils';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
+  getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
   startNativeDesktopSpeechRecognition,
   stopNativeDesktopSpeechRecognition,
@@ -85,6 +86,8 @@ interface BrailleSpinnerProps {
   name?: BrailleSpinnerName;
   className?: string;
 }
+
+const MAX_VISIBLE_INLINE_SUGGESTIONS = 2;
 
 function BrailleSpinner({ name = 'braille', className }: BrailleSpinnerProps) {
   const spinner = useMemo(() => spinners[name] ?? spinners.braille, [name]);
@@ -361,6 +364,21 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [mode, router, trackAIChatMessageSent]);
+
+  const visibleSuggestions = useMemo(
+    () => suggestions.slice(0, MAX_VISIBLE_INLINE_SUGGESTIONS),
+    [suggestions],
+  );
+
+  useEffect(() => {
+    if (visibleSuggestions.length === 0) {
+      if (selectedSuggestionIndex !== 0) setSelectedSuggestionIndex(0);
+      return;
+    }
+    if (selectedSuggestionIndex >= visibleSuggestions.length) {
+      setSelectedSuggestionIndex(0);
+    }
+  }, [selectedSuggestionIndex, visibleSuggestions]);
 
   // Smart habit parsing that uses your actual habits
   const parseHabitInput = (text: string) => {
@@ -825,9 +843,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       (window as any).__autoStopTimer = autoStopTimer;
 
     } catch (err: any) {
-      setError(err.name === 'NotAllowedError' 
-        ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
-        : `Microphone error: ${err.message}`);
+      const nativeMessage = getNativeSpeechErrorMessage(err);
+      setError(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
+          : formatNativeSpeechError(nativeMessage),
+      );
       setIsListening(false);
       setIsProcessingVoice(false);
     }
@@ -1107,7 +1128,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const canUseSuggestions =
       isFocused &&
-      suggestions.length > 0 &&
+      visibleSuggestions.length > 0 &&
       !error &&
       !isListening &&
       !isProcessingVoice &&
@@ -1117,26 +1138,26 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     if (canUseSuggestions && e.key === 'ArrowDown') {
       e.preventDefault();
       setKeyboardSuggestionActive(true);
-      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+      setSelectedSuggestionIndex((prev) => (prev + 1) % visibleSuggestions.length);
       return;
     }
 
     if (canUseSuggestions && e.key === 'ArrowUp') {
       e.preventDefault();
       setKeyboardSuggestionActive(true);
-      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+      setSelectedSuggestionIndex((prev) => (prev - 1 + visibleSuggestions.length) % visibleSuggestions.length);
       return;
     }
 
-    if (canUseSuggestions && e.key === 'Tab' && suggestions[selectedSuggestionIndex]) {
+    if (canUseSuggestions && e.key === 'Tab' && visibleSuggestions[selectedSuggestionIndex]) {
       e.preventDefault();
-      handleSuggestionClick(suggestions[selectedSuggestionIndex]);
+      handleSuggestionClick(visibleSuggestions[selectedSuggestionIndex]);
       return;
     }
 
-    if (canUseSuggestions && e.key === 'Enter' && !e.shiftKey && keyboardSuggestionActive && suggestions[selectedSuggestionIndex]) {
+    if (canUseSuggestions && e.key === 'Enter' && !e.shiftKey && keyboardSuggestionActive && visibleSuggestions[selectedSuggestionIndex]) {
       e.preventDefault();
-      handleSuggestionClick(suggestions[selectedSuggestionIndex]);
+      handleSuggestionClick(visibleSuggestions[selectedSuggestionIndex]);
       return;
     }
 
@@ -1157,7 +1178,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const showSuggestions =
     isFocused &&
     input.trim().length > 0 &&
-    suggestions.length > 0 &&
+    visibleSuggestions.length > 0 &&
     !error &&
     !isListening &&
     !isProcessingVoice &&
@@ -1512,7 +1533,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     ? "Log anything..." 
                     : "Ask about your personal data..."
                   }
-                  className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent py-2 font-normal leading-6"
+                  className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent py-1.5 font-normal leading-6"
                   rows={1}
                   disabled={isLoading}
                 />
@@ -1522,11 +1543,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
             <div
               className={cn(
                 "overflow-hidden transition-all duration-150 ease-out",
-                showSuggestions ? "max-h-[172px] opacity-100 pt-2 pb-1" : "max-h-0 opacity-0"
+                showSuggestions ? "max-h-[104px] opacity-100 pt-1 pb-0" : "max-h-0 opacity-0"
               )}
             >
-              <div className="max-h-[168px] overflow-y-auto border-t border-gray-200/80 pt-1">
-                {suggestions.map((suggestion, idx) => (
+              <div className="max-h-[98px] overflow-y-auto border-t border-gray-200/70 pt-0.5">
+                {visibleSuggestions.map((suggestion, idx) => (
                   <button
                     key={`${suggestion.type}-${idx}-${suggestion.text.slice(0, 20)}`}
                     type="button"
@@ -1537,7 +1558,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                       setKeyboardSuggestionActive(true);
                     }}
                     className={cn(
-                      "w-full flex items-center justify-between gap-3 px-0 py-[9px] text-left text-[13px] transition-colors group",
+                      "w-full flex items-center justify-between gap-3 px-0 py-[7px] text-left text-[13px] transition-colors group",
                       idx === selectedSuggestionIndex
                         ? "text-gray-950"
                         : "text-gray-500 hover:text-gray-900"

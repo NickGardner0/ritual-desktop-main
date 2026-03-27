@@ -2,10 +2,42 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import logging
 import os
 import sqlite3
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import AsyncIterator, List, Optional, Tuple
+
+from services.turso_user_service import TursoProvisioningError, turso_user_service
+
+logger = logging.getLogger(__name__)
+
+_USER_ACTIVITY_BUNDLES: dict[str, "PerUserReplicaBundle"] = {}
+_USER_ACTIVITY_LOCKS: dict[str, asyncio.Lock] = {}
+_USER_ACTIVITY_REPLICA_SYNC_INTERVAL_SECONDS = max(
+    5,
+    int(os.getenv("TURSO_USER_REPLICA_SYNC_INTERVAL_SECONDS", "15") or "15"),
+)
+_TOKEN_REFRESH_LEEWAY_SECONDS = max(
+    300,
+    int(os.getenv("TURSO_USER_TOKEN_REFRESH_LEEWAY_SECONDS", "1800") or "1800"),
+)
+
+
+@dataclass
+class PerUserReplicaBundle:
+    user_id: str
+    database_name: str
+    sync_url: str
+    replica_path: Path
+    auth_token: str
+    expires_at_epoch: float
+    libsql_conn: object
+    last_sync_epoch: float
 
 
 def _allow_legacy_reads() -> bool:
@@ -115,6 +147,227 @@ def get_local_memory_db_path_impl() -> str:
     if os.path.exists(resolved) and _has_table(resolved, "context_snapshots"):
         return resolved
     return resolved
+
+
+def _legacy_replica_path() -> Optional[Path]:
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url or "turso.io" not in database_url:
+        return None
+
+    try:
+        from database.connection import DATABASE_RUNTIME_STATE
+    except Exception:
+        DATABASE_RUNTIME_STATE = {"db_ready": None, "last_error": None}
+
+    try:
+        from database.connection import local_db_path as configured_local_db_path
+
+        replica_path = Path(configured_local_db_path)
+    except Exception:
+        replica_path = Path(__file__).parent.parent / ".turso_replica.db"
+
+    try:
+        if not replica_path.exists():
+            logger.warning("Backend Turso replica missing at %s", replica_path)
+            return None
+        if DATABASE_RUNTIME_STATE.get("db_ready") is False:
+            logger.warning(
+                "Backend Turso replica is not marked ready; last_error=%s",
+                DATABASE_RUNTIME_STATE.get("last_error"),
+            )
+        return replica_path
+    except Exception as exc:
+        logger.warning("Failed to resolve backend Turso replica: %s", exc)
+        return None
+
+
+def _open_sqlite_conn(path: Path, *, write: bool) -> sqlite3.Connection:
+    if write:
+        conn = sqlite3.connect(str(path), timeout=5.0)
+    else:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
+        conn.execute("PRAGMA query_only = ON")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def get_turso_activity_conn():
+    """Get a read-only connection to the backend-managed Turso replica.
+
+    The backend already maintains `.turso_replica.db` via
+    ``database.connection``. Activity/search routes should read from that
+    replica instead of creating and syncing a second replica file on every
+    request. That per-request sync path was fragile on Railway and caused the
+    calendar summary and memory query endpoints to fall back to empty local
+    SQLite databases.
+    """
+    replica_path = _legacy_replica_path()
+    if replica_path is None:
+        return None
+
+    try:
+        conn = _open_sqlite_conn(replica_path, write=False)
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='context_snapshots' LIMIT 1"
+        ).fetchone()
+        if not has_table:
+            conn.close()
+            return None
+
+        count = conn.execute("SELECT COUNT(*) FROM context_snapshots").fetchone()[0]
+        if count == 0:
+            conn.close()
+            return None
+
+        logger.info(
+            "Turso activity conn: %d context_snapshots via backend replica %s",
+            count,
+            replica_path.name,
+        )
+        return conn
+    except Exception as exc:
+        logger.warning("Failed to open backend Turso replica for activity data: %s", exc)
+
+        return None
+
+
+def _lock_for_user(user_id: str) -> asyncio.Lock:
+    lock = _USER_ACTIVITY_LOCKS.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _USER_ACTIVITY_LOCKS[user_id] = lock
+    return lock
+
+
+def _bundle_is_fresh(bundle: PerUserReplicaBundle) -> bool:
+    if not bundle.replica_path.exists():
+        return False
+    return bundle.expires_at_epoch - time.time() > _TOKEN_REFRESH_LEEWAY_SECONDS
+
+
+def _close_bundle(bundle: PerUserReplicaBundle) -> None:
+    close = getattr(bundle.libsql_conn, "close", None)
+    if callable(close):
+        close()
+
+
+def _sync_bundle_now(bundle: PerUserReplicaBundle) -> None:
+    bundle.libsql_conn.sync()
+    bundle.last_sync_epoch = time.time()
+
+
+async def _ensure_bundle_synced(bundle: PerUserReplicaBundle, *, force: bool = False) -> None:
+    now = time.time()
+    if not force and (now - bundle.last_sync_epoch) < _USER_ACTIVITY_REPLICA_SYNC_INTERVAL_SECONDS:
+        return
+    await asyncio.to_thread(_sync_bundle_now, bundle)
+
+
+async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]:
+    access = await turso_user_service.get_user_activity_access(user_id)
+    if not access.use_per_user_db or not access.sync_url or not access.database_name:
+        return None
+
+    token = await turso_user_service._mint_database_token(
+        access.database_name,
+        expiration=turso_user_service.server_token_ttl,
+        authorization="full-access",
+    )
+    replica_path = turso_user_service.replica_path_for_user(user_id)
+    expiry_epoch = time.time() + turso_user_service._ttl_to_timedelta(
+        turso_user_service.server_token_ttl
+    ).total_seconds()
+
+    def _connect() -> object:
+        return turso_user_service._open_remote_replica(replica_path, access.sync_url or "", token)
+
+    libsql_conn = await asyncio.to_thread(_connect)
+    bundle = PerUserReplicaBundle(
+        user_id=user_id,
+        database_name=access.database_name,
+        sync_url=access.sync_url,
+        replica_path=replica_path,
+        auth_token=token,
+        expires_at_epoch=expiry_epoch,
+        libsql_conn=libsql_conn,
+        last_sync_epoch=time.time(),
+    )
+    return bundle
+
+
+async def _get_or_create_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]:
+    async with _lock_for_user(user_id):
+        bundle = _USER_ACTIVITY_BUNDLES.get(user_id)
+        if bundle is not None and _bundle_is_fresh(bundle):
+            await _ensure_bundle_synced(bundle)
+            return bundle
+
+        if bundle is not None:
+            await asyncio.to_thread(_close_bundle, bundle)
+            _USER_ACTIVITY_BUNDLES.pop(user_id, None)
+
+        new_bundle = await _build_per_user_bundle(user_id)
+        if new_bundle is None:
+            return None
+
+        _USER_ACTIVITY_BUNDLES[user_id] = new_bundle
+        return new_bundle
+
+
+@contextlib.asynccontextmanager
+async def open_activity_connection_for_user(
+    user_id: str,
+    *,
+    write: bool = False,
+) -> AsyncIterator[Optional[sqlite3.Connection]]:
+    bundle = None
+    conn = None
+    try:
+        try:
+            bundle = await _get_or_create_per_user_bundle(user_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed resolving per-user activity bundle for %s; falling back to legacy replica: %s",
+                user_id,
+                exc,
+            )
+            bundle = None
+        if bundle is not None:
+            conn = _open_sqlite_conn(bundle.replica_path, write=write)
+            yield conn
+            return
+
+        replica_path = _legacy_replica_path()
+        if replica_path is None:
+            yield None
+            return
+        if not any(
+            _has_table(str(replica_path), table_name)
+            for table_name in ("context_snapshots", "session_retrieval_docs", "activity_events")
+        ):
+            yield None
+            return
+
+        try:
+            conn = _open_sqlite_conn(replica_path, write=write)
+        except Exception as exc:
+            logger.warning("Failed opening legacy activity replica for %s: %s", user_id, exc)
+            yield None
+            return
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        if bundle is not None and write:
+            try:
+                await _ensure_bundle_synced(bundle, force=True)
+            except Exception as exc:
+                logger.warning("Failed syncing per-user Turso replica for %s: %s", user_id, exc)
+
+
+async def using_per_user_activity_db(user_id: str) -> bool:
+    access = await turso_user_service.get_user_activity_access(user_id)
+    return access.use_per_user_db
 
 
 def get_local_watcher_db_path_impl() -> str:

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { startTransition, useDeferredValue, useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X } from 'lucide-react';
@@ -10,8 +11,8 @@ import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Streamdown } from 'streamdown';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
-import { useAI } from '@/contexts/AIContext';
 import { useHabits } from '@/contexts/HabitsContext';
+import { ViewModeToggle, type ViewMode } from '@/components/analytics/view-mode-toggle';
 import { isScreenRecordingQuery, prefetchScreenResults, type ScreenSearchPrefetchResult } from '@/lib/screen-search';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -21,6 +22,7 @@ import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-uti
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
+  getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
   startNativeDesktopSpeechRecognition,
   stopNativeDesktopSpeechRecognition,
@@ -29,6 +31,8 @@ import {
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
 }
+
+const MAX_VISIBLE_CHAT_SUGGESTIONS = 2;
 
 // TextShimmer component
 const TextShimmer = memo(function TextShimmer({ 
@@ -761,7 +765,6 @@ export function ChatClient() {
   const initialConversationId = searchParams.get('conversation');
   const { getToken } = useAuth();
   const { user } = useUser();
-  const { setIsFullScreenChat } = useAI();
   const { habits, habitLogs } = useHabits();
 
   // Time-of-day greeting
@@ -816,6 +819,7 @@ export function ChatClient() {
   const [viewportWidth, setViewportWidth] = useState<number>(() => (
     typeof window !== 'undefined' ? window.innerWidth : 1400
   ));
+  const [headerCenterSlot, setHeaderCenterSlot] = useState<HTMLElement | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const maxCanvasWidthForViewport = Math.min(
     MAX_CANVAS_WIDTH,
@@ -824,11 +828,9 @@ export function ChatClient() {
   const effectiveCanvasWidth = Math.min(canvasWidth, maxCanvasWidthForViewport);
   const deferredInput = useDeferredValue(input.trim());
 
-  // Set full screen chat mode on mount, reset on unmount
   useEffect(() => {
-    setIsFullScreenChat(true);
-    return () => setIsFullScreenChat(false);
-  }, [setIsFullScreenChat]);
+    setHeaderCenterSlot(document.getElementById('header-center-slot'));
+  }, []);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -844,6 +846,11 @@ export function ChatClient() {
   // Warm dashboard route so header controls don't pop in late on return.
   useEffect(() => {
     router.prefetch('/dashboard');
+  }, [router]);
+
+  const handleViewChange = useCallback((newView: ViewMode) => {
+    if (newView === 'chat') return;
+    router.push(`/dashboard?view=${newView}`);
   }, [router]);
 
   const fetchSuggestions = useCallback(async (
@@ -1418,10 +1425,25 @@ export function ChatClient() {
     void sendMessage(question);
   }, [isLoading, sendMessage]);
 
+  const visibleSuggestions = useMemo(
+    () => suggestions.slice(0, MAX_VISIBLE_CHAT_SUGGESTIONS),
+    [suggestions],
+  );
+
+  useEffect(() => {
+    if (visibleSuggestions.length === 0) {
+      if (selectedSuggestionIndex !== 0) setSelectedSuggestionIndex(0);
+      return;
+    }
+    if (selectedSuggestionIndex >= visibleSuggestions.length) {
+      setSelectedSuggestionIndex(0);
+    }
+  }, [selectedSuggestionIndex, visibleSuggestions]);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const canUseSuggestions =
       isFocused &&
-      suggestions.length > 0 &&
+      visibleSuggestions.length > 0 &&
       input.trim().length > 0 &&
       !isLoading &&
       !isListening &&
@@ -1430,20 +1452,20 @@ export function ChatClient() {
     if (canUseSuggestions && e.key === 'ArrowDown') {
       e.preventDefault();
       setKeyboardSuggestionActive(true);
-      setSelectedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+      setSelectedSuggestionIndex((prev) => (prev + 1) % visibleSuggestions.length);
       return;
     }
 
     if (canUseSuggestions && e.key === 'ArrowUp') {
       e.preventDefault();
       setKeyboardSuggestionActive(true);
-      setSelectedSuggestionIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+      setSelectedSuggestionIndex((prev) => (prev - 1 + visibleSuggestions.length) % visibleSuggestions.length);
       return;
     }
 
-    if (canUseSuggestions && e.key === 'Tab' && suggestions[selectedSuggestionIndex]) {
+    if (canUseSuggestions && e.key === 'Tab' && visibleSuggestions[selectedSuggestionIndex]) {
       e.preventDefault();
-      handleSuggestionSelect(suggestions[selectedSuggestionIndex]);
+      handleSuggestionSelect(visibleSuggestions[selectedSuggestionIndex]);
       return;
     }
 
@@ -1452,10 +1474,10 @@ export function ChatClient() {
       e.key === 'Enter' &&
       !e.shiftKey &&
       keyboardSuggestionActive &&
-      suggestions[selectedSuggestionIndex]
+      visibleSuggestions[selectedSuggestionIndex]
     ) {
       e.preventDefault();
-      handleSuggestionSelect(suggestions[selectedSuggestionIndex]);
+      handleSuggestionSelect(visibleSuggestions[selectedSuggestionIndex]);
       return;
     }
 
@@ -1468,7 +1490,7 @@ export function ChatClient() {
   const showSuggestions =
     isFocused &&
     input.trim().length > 0 &&
-    suggestions.length > 0 &&
+    visibleSuggestions.length > 0 &&
     !isLoading &&
     !isListening &&
     !isProcessingVoice;
@@ -1477,11 +1499,11 @@ export function ChatClient() {
     <div
       className={cn(
         "overflow-hidden transition-all duration-150 ease-out",
-        showSuggestions ? "max-h-[172px] opacity-100 pt-2 pb-1" : "max-h-0 opacity-0",
+        showSuggestions ? "max-h-[104px] opacity-100 pt-1 pb-0" : "max-h-0 opacity-0",
       )}
     >
-      <div className="max-h-[168px] overflow-y-auto border-t border-gray-200/80 pt-1">
-        {suggestions.map((suggestion, idx) => (
+      <div className="max-h-[98px] overflow-y-auto border-t border-gray-200/70 pt-0.5">
+        {visibleSuggestions.map((suggestion, idx) => (
           <button
             key={`${suggestion.type}-${idx}-${suggestion.text.slice(0, 24)}`}
             type="button"
@@ -1492,7 +1514,7 @@ export function ChatClient() {
               setKeyboardSuggestionActive(true);
             }}
             className={cn(
-              "group flex w-full items-center justify-between gap-3 px-0 py-[9px] text-left text-[13px] transition-colors",
+              "group flex w-full items-center justify-between gap-3 px-0 py-[7px] text-left text-[13px] transition-colors",
               idx === selectedSuggestionIndex
                 ? "text-gray-950"
                 : "text-gray-500 hover:text-gray-900",
@@ -1682,9 +1704,12 @@ export function ChatClient() {
       (window as any).__autoStopTimer = autoStopTimer;
 
     } catch (err: any) {
-      setVoiceError(err.name === 'NotAllowedError' 
-        ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
-        : `Microphone error: ${err.message}`);
+      const nativeMessage = getNativeSpeechErrorMessage(err);
+      setVoiceError(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
+          : formatNativeSpeechError(nativeMessage),
+      );
       setIsListening(false);
       setIsProcessingVoice(false);
     }
@@ -1777,7 +1802,7 @@ export function ChatClient() {
             <div className="max-w-3xl mx-auto px-8">
               <form onSubmit={handleSubmit}>
                 <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
-                  <div className="px-4 py-3">
+                  <div className="px-4 py-2.5">
                     <textarea
                       ref={textareaRef}
                       value={input}
@@ -1790,7 +1815,7 @@ export function ChatClient() {
                       onFocus={handleInputFocus}
                       onBlur={handleInputBlur}
                       placeholder="Ask a follow-up question..."
-                      className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[24px] max-h-[120px]"
+                      className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[22px] max-h-[96px]"
                       rows={1}
                       disabled={isLoading}
                     />
@@ -1798,7 +1823,7 @@ export function ChatClient() {
                   <div className="px-4">
                     {suggestionList}
                   </div>
-                  <div className="flex justify-between items-center px-3 pb-3">
+                  <div className="flex justify-between items-center px-3 pb-2.5">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2 group">
                         <button
@@ -1842,119 +1867,134 @@ export function ChatClient() {
     );
   }
 
+  const headerNavigation = headerCenterSlot
+    ? createPortal(
+        <ViewModeToggle currentView="chat" onViewChange={handleViewChange} />,
+        headerCenterSlot,
+      )
+    : null;
+
+  const renderConversationSidebar = () => (
+    <AnimatePresence>
+      {!isSidebarCollapsed && (
+        <motion.aside
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 304, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+          className="h-full shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)]"
+        >
+          <div className="px-4 pt-5 pb-3">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="flex items-center gap-2 text-[#2f2c25] transition-opacity hover:opacity-75"
+                title="Go to Dashboard"
+              >
+                <img src="/images/eclipse.svg" alt="Ritual" className="h-5 w-5 opacity-90" />
+              </button>
+              <button
+                onClick={() => setIsSidebarCollapsed(true)}
+                className="flex h-9 w-9 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
+                title="Collapse sidebar"
+              >
+                <PanelRight className="h-[18px] w-[18px]" />
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <button
+                onClick={startNewConversation}
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2.5 text-[14px] font-medium text-[#3d392f] transition-colors hover:border-gray-300"
+                title="New Chat"
+                aria-label="New Chat"
+              >
+                <Plus className="h-4 w-4" />
+                <span>New chat</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3 pb-4">
+            <div className="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.14em] text-gray-400">
+              Recent chats
+            </div>
+            <div className="flex flex-col gap-1">
+              {isLoadingConversations ? (
+                <div className="flex items-center justify-center py-6">
+                  <BrailleSpinner className="text-sm text-gray-400" />
+                </div>
+              ) : conversations.length === 0 ? (
+                <div className="rounded-md border border-dashed border-gray-300 px-4 py-6 text-center text-xs text-gray-400">
+                  No conversations yet
+                </div>
+              ) : (
+                conversations.slice(0, 10).map((conv) => {
+                  const displayTitle = conv.first_message || conv.title || 'New conversation';
+                  const truncatedTitle =
+                    displayTitle.length > 36 ? `${displayTitle.substring(0, 36)}...` : displayTitle;
+
+                  return (
+                    <div
+                      key={conv.id}
+                      className="group flex items-center gap-1"
+                      onContextMenu={(e) => showConversationContextMenu(conv.id, e)}
+                    >
+                      <button
+                        onClick={() => switchConversation(conv.id)}
+                        className={cn(
+                          "flex-1 min-w-0 rounded-md px-3 py-2.5 text-left text-[14px] leading-5 transition-colors",
+                          conv.id === conversationId
+                            ? "bg-white text-[#232119]"
+                            : "text-[#605b51] hover:text-[#2f2c25]"
+                        )}
+                        title={displayTitle}
+                      >
+                        <span className="block truncate">{truncatedTitle}</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteConversation(conv.id);
+                        }}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:text-gray-600"
+                        title="Delete conversation"
+                        aria-label="Delete conversation"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </motion.aside>
+      )}
+    </AnimatePresence>
+  );
+
+  const renderCollapsedSidebarToggle = () =>
+    isSidebarCollapsed ? (
+      <div className="absolute left-3 top-3 z-10">
+        <button
+          onClick={() => setIsSidebarCollapsed(false)}
+          className="flex h-11 w-11 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
+          title="Expand sidebar"
+        >
+          <PanelRight className="h-5 w-5" />
+        </button>
+      </div>
+    ) : null;
+
   // Empty state
   if (messages.length === 0 && !isLoading) {
     return (
-      <div className="h-full flex bg-white relative overflow-x-hidden">
-        {/* Conversation History Sidebar - Also shown in empty state */}
-        <AnimatePresence>
-          {!isSidebarCollapsed && (
-            <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 280, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="h-full border-r border-gray-200 flex flex-col overflow-hidden"
-              style={{ backgroundColor: CHAT_PAGE_CARD_BG }}
-            >
-              {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
-              <div className="flex items-center justify-between pl-4 pr-2 pt-6 pb-2">
-                <button
-                  onClick={() => router.push('/dashboard')}
-                  className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
-                  title="Go to Dashboard"
-                >
-                  <img src="/images/eclipse.svg" alt="Ritual" className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => setIsSidebarCollapsed(true)}
-                  className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-                  title="Collapse sidebar"
-                >
-                  <PanelRight className="w-5 h-5" />
-                </button>
-              </div>
-              
-              {/* New Chat Button - Perplexity-style compact pill */}
-              <div className="px-3 pt-3 pb-3">
-                <button
-                  onClick={startNewConversation}
-                  className="w-full flex items-center justify-center py-2 px-3 text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
-                  title="New Chat"
-                  aria-label="New Chat"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-              
-              {/* Conversations List */}
-              <div className="flex-1 overflow-y-auto py-1">
-                <div className="flex flex-col gap-0.5 px-2">
-                  {isLoadingConversations ? (
-                    <div className="flex items-center justify-center py-4">
-                      <BrailleSpinner className="text-sm text-gray-400" />
-                    </div>
-                  ) : conversations.length === 0 ? (
-                    <div className="px-3 py-4 text-xs text-gray-400 text-center">
-                      No conversations yet
-                    </div>
-                  ) : (
-                    conversations.slice(0, 10).map((conv) => {
-                      const displayTitle = conv.first_message || conv.title || 'New conversation';
-                      const truncatedTitle = displayTitle.length > 28 
-                        ? displayTitle.substring(0, 28) + '...' 
-                        : displayTitle;
-                      
-                      return (
-                        <div
-                          key={conv.id}
-                          className="group flex items-center gap-1 rounded hover:bg-[#F3F3F3]"
-                        >
-                          <button
-                            onClick={() => switchConversation(conv.id)}
-                            className={cn(
-                              "flex-1 min-w-0 text-left px-2.5 py-1.5 text-sm transition-colors truncate rounded",
-                              conv.id === conversationId
-                                ? "bg-[#E8E8E8] text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
-                            )}
-                            title={displayTitle}
-                          >
-                            {truncatedTitle}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteConversation(conv.id);
-                            }}
-                            className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-gray-500 transition-opacity"
-                            title="Delete conversation"
-                            aria-label="Delete conversation"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        
-        {/* Expand sidebar button when collapsed */}
-        {isSidebarCollapsed && (
-          <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
-            <button
-              onClick={() => setIsSidebarCollapsed(false)}
-              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-              title="Expand sidebar"
-            >
-              <PanelRight className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+      <>
+        {headerNavigation}
+        <div className="h-full flex bg-white relative overflow-x-hidden">
+        {renderConversationSidebar()}
+        {renderCollapsedSidebarToggle()}
 
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -1963,11 +2003,14 @@ export function ChatClient() {
             <div className="max-w-xl w-full space-y-5">
               {/* Logo + Greeting — Claude-style centered hero */}
               <div className="flex flex-col items-center gap-4 mb-2">
-                <img
-                  src="/images/eclipse.svg"
-                  alt="Ritual"
-                  className="w-10 h-10"
-                />
+                <div className="relative flex h-16 w-16 items-center justify-center">
+                  <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(15,23,42,0.08)_0%,rgba(15,23,42,0)_72%)] blur-sm" />
+                  <img
+                    src="/images/eclipse.svg"
+                    alt="Ritual"
+                    className="relative h-10 w-10 opacity-70 saturate-[0.8]"
+                  />
+                </div>
                 <h1 className="text-[28px] font-medium text-gray-900 tracking-tight">
                   {greeting}{user?.firstName ? `, ${user.firstName}` : ''}
                 </h1>
@@ -1991,13 +2034,13 @@ export function ChatClient() {
                     onFocus={handleInputFocus}
                     onBlur={handleInputBlur}
                     placeholder="Ask about your personal data"
-                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-5 pt-4 pb-2 min-h-[56px] max-h-[120px]"
+                    className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-5 pt-3 pb-1.5 min-h-[48px] max-h-[96px]"
                     rows={1}
                   />
                   <div className="px-5">
                     {suggestionList}
                   </div>
-                  <div className="flex justify-between items-center px-4 pb-3">
+                  <div className="flex justify-between items-center px-4 pb-2.5">
                     {/* Voice Input */}
                     <div className="flex items-center gap-3">
                       <button
@@ -2035,123 +2078,18 @@ export function ChatClient() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      </>
     );
   }
 
   // Chat view
   return (
-    <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
-      {/* Conversation History Sidebar */}
-      <AnimatePresence>
-        {!isSidebarCollapsed && (
-          <motion.div
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 280, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-              className="h-full border-r border-gray-200 flex flex-col overflow-hidden"
-              style={{ backgroundColor: CHAT_PAGE_CARD_BG }}
-          >
-            {/* Sidebar Header with Logo - Clickable to go to Dashboard */}
-            <div className="flex items-center justify-between pl-3 pr-2 pt-6 pb-2">
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center gap-0.5 hover:opacity-70 transition-opacity"
-                title="Go to Dashboard"
-              >
-                <img src="/images/eclipse.svg" alt="Ritual" className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setIsSidebarCollapsed(true)}
-                className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-                title="Collapse sidebar"
-              >
-                <PanelRight className="w-5 h-5" />
-              </button>
-            </div>
-            
-            {/* New Chat Button - Perplexity-style compact pill */}
-            <div className="px-3 pt-3 pb-3">
-              <button
-                onClick={startNewConversation}
-                className="w-full flex items-center justify-center py-2 px-3 text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors"
-                title="New Chat"
-                aria-label="New Chat"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            
-            {/* Conversations List */}
-            <div className="flex-1 overflow-y-auto py-1">
-              <div className="flex flex-col gap-0.5 px-2">
-                {isLoadingConversations ? (
-                  <div className="flex items-center justify-center py-4">
-                    <BrailleSpinner className="text-sm text-gray-400" />
-                  </div>
-                ) : conversations.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-gray-400 text-center">
-                    No conversations yet
-                  </div>
-                ) : (
-                  conversations.slice(0, 10).map((conv) => {
-                    const displayTitle = conv.first_message || conv.title || 'New conversation';
-                    const truncatedTitle = displayTitle.length > 28 
-                      ? displayTitle.substring(0, 28) + '...' 
-                      : displayTitle;
-                    
-                    return (
-                      <div
-                        key={conv.id}
-                        className="group flex items-center gap-1 rounded"
-                        onContextMenu={(e) => showConversationContextMenu(conv.id, e)}
-                      >
-                        <button
-                          onClick={() => switchConversation(conv.id)}
-                          className={cn(
-                            "flex-1 min-w-0 text-left px-2.5 py-1.5 rounded text-sm transition-colors truncate",
-                            conv.id === conversationId
-                              ? "bg-[#E8E8E8] text-gray-900 font-medium"
-                              : "text-gray-600 hover:bg-[#F3F3F3] hover:text-gray-800"
-                          )}
-                          title={displayTitle}
-                        >
-                          {truncatedTitle}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteConversation(conv.id);
-                          }}
-                          className="flex-shrink-0 p-0.5 rounded opacity-0 group-hover:opacity-100 text-gray-500 transition-opacity"
-                          title="Delete conversation"
-                          aria-label="Delete conversation"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Expand sidebar button when collapsed */}
-      {isSidebarCollapsed && (
-        <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
-          <button
-            onClick={() => setIsSidebarCollapsed(false)}
-            className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-            title="Expand sidebar"
-          >
-            <PanelRight className="w-5 h-5" />
-          </button>
-        </div>
-      )}
+    <>
+      {headerNavigation}
+      <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
+      {renderConversationSidebar()}
+      {renderCollapsedSidebarToggle()}
 
       {/* Chat Area */}
       <div className={cn(
@@ -2243,7 +2181,7 @@ export function ChatClient() {
                       onFocus={handleInputFocus}
                       onBlur={handleInputBlur}
                       placeholder="Ask a follow-up question..."
-                      className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[24px] max-h-[120px]"
+                      className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[22px] max-h-[96px]"
                       rows={1}
                       disabled={isLoading}
                     />
@@ -2251,7 +2189,7 @@ export function ChatClient() {
                   <div className="px-4">
                     {suggestionList}
                   </div>
-                  <div className="flex justify-between items-center px-3 pb-3">
+                  <div className="flex justify-between items-center px-3 pb-2.5">
                   {/* Voice Input */}
                   <div className="flex items-center gap-3">
                     {/* Voice Recording Button */}
@@ -2327,6 +2265,7 @@ export function ChatClient() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      </div>
+    </>
   );
 }

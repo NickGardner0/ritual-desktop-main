@@ -31,50 +31,29 @@ const COLORS = {
 
 const POINT_COUNT = 70;
 
-function hashSeed(values: number[]): number {
-  let h = 0;
-  for (let i = 0; i < values.length; i++) {
-    h = ((h << 5) - h) + ((values[i] * 1000) | 0);
-    h |= 0;
-  }
-  return h >>> 0;
-}
+function resampleValues(values: number[], targetCount: number): number[] {
+  if (values.length === 0) return [];
+  if (values.length === 1) return Array.from({ length: targetCount }, () => values[0]);
 
-function mulberry32(seed: number): () => number {
-  let s = seed;
-  return () => {
-    s = (s + 0x6D2B79F5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+  const interpolated = Array.from({ length: targetCount }, (_, index) => {
+    const position = (index / Math.max(targetCount - 1, 1)) * (values.length - 1);
+    const lowIndex = Math.floor(position);
+    const highIndex = Math.min(values.length - 1, Math.ceil(position));
+    const ratio = position - lowIndex;
+    const low = values[lowIndex];
+    const high = values[highIndex];
+    return low + (high - low) * ratio;
+  });
 
-function generateMarketSparkline(trend: MiniSparkTrend, seed: number): number[] {
-  const rng = mulberry32(seed);
-  const drift = trend === 'up' ? 0.015 : trend === 'down' ? -0.015 : 0;
-  const volatility = 0.75;
-  const origin = 50;
-
-  const raw: number[] = [origin];
-  for (let i = 1; i < POINT_COUNT; i++) {
-    const prev = raw[i - 1];
-    const noise = (rng() - 0.5) * volatility;
-    const reversion = (origin - prev) * 0.008;
-    raw.push(prev + drift + noise + reversion);
-  }
-
-  const points: number[] = raw.map((_, i) => {
-    const start = Math.max(0, i - 1);
-    const end = Math.min(raw.length - 1, i + 1);
+  return interpolated.map((_, index) => {
+    const start = Math.max(0, index - 2);
+    const end = Math.min(interpolated.length - 1, index + 2);
     let sum = 0;
-    for (let j = start; j <= end; j++) sum += raw[j];
+    for (let pointIndex = start; pointIndex <= end; pointIndex += 1) {
+      sum += interpolated[pointIndex];
+    }
     return sum / (end - start + 1);
   });
-  points[0] = raw[0];
-  points[raw.length - 1] = raw[raw.length - 1];
-
-  return points;
 }
 
 export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: PerplexityMiniSparkChartProps) {
@@ -84,8 +63,7 @@ export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: Perp
     const numericValues = values.filter((value) => Number.isFinite(value));
     if (numericValues.length === 0) return null;
 
-    const seed = hashSeed(numericValues);
-    const sparkline = generateMarketSparkline(trend, seed);
+    const sparkline = resampleValues(numericValues, Math.max(POINT_COUNT, numericValues.length));
     const chartData: ChartPoint[] = sparkline.map((value, index) => ({ index, value }));
 
     const referenceValue = sparkline[0];
