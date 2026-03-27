@@ -234,6 +234,34 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.auth_token, "desktop-token")
         self.assertEqual(config.database_name, "ritual-user-1")
 
+    async def test_get_desktop_sync_config_refuses_rollout_user_until_operator_migration_completes(self):
+        service = TursoUserService()
+        user = SimpleNamespace(
+            id="rollout-user",
+            turso_db_name="ritual-user-rollout",
+            turso_db_url="libsql://ritual-user-rollout.turso.io",
+            turso_provisioned_at="2026-03-27T00:00:00Z",
+            turso_migrated_at=None,
+        )
+
+        with patch.object(service, "is_platform_configured", return_value=True), patch.object(
+            service,
+            "_load_user",
+            AsyncMock(return_value=user),
+        ), patch.object(
+            service,
+            "is_rollout_gate_user",
+            return_value=True,
+        ), patch.object(
+            service,
+            "migrate_rollout_user_if_needed",
+            AsyncMock(side_effect=AssertionError("should not auto-migrate")),
+        ):
+            with self.assertRaises(TursoProvisioningError) as exc:
+                await service.get_desktop_sync_config("rollout-user")
+
+        self.assertIn("migration has not completed", str(exc.exception).lower())
+
     async def test_rollout_user_does_not_cut_over_before_minimum_counts(self):
         service = TursoUserService()
         user_id = "rollout-user"

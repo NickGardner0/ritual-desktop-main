@@ -697,9 +697,7 @@ class TursoUserService:
             raise TursoProvisioningError("Per-user Turso database metadata is missing")
 
         if self.is_rollout_gate_user(user_id) and user.turso_migrated_at is None:
-            user = await self.migrate_rollout_user_if_needed(user_id)
-            if user.turso_migrated_at is None:
-                raise TursoProvisioningError("Per-user Turso migration has not completed yet")
+            raise TursoProvisioningError("Per-user Turso migration has not completed yet")
 
         token = await self._mint_database_token(
             user.turso_db_name,
