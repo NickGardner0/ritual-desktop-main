@@ -198,6 +198,7 @@ class TursoUserService:
         self.rollout_gate_user_id = (os.getenv("TURSO_MIGRATION_GATE_USER_ID") or "").strip()
         self.desktop_token_ttl = os.getenv("TURSO_DESKTOP_TOKEN_TTL", "12h").strip() or "12h"
         self.server_token_ttl = os.getenv("TURSO_SERVER_TOKEN_TTL", "1h").strip() or "1h"
+        self.migration_source_user_id = (os.getenv("TURSO_MIGRATION_SOURCE_USER_ID") or "").strip()
         self.replica_dir = Path(__file__).parent.parent / ".turso_user_replicas"
         self.replica_dir.mkdir(parents=True, exist_ok=True)
 
@@ -224,6 +225,14 @@ class TursoUserService:
     def replica_path_for_user(self, user_id: str) -> Path:
         hashed = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:24]
         return self.replica_dir / f"{hashed}.db"
+
+    def resolve_migration_source_user_id(
+        self,
+        target_user_id: str,
+        source_user_id: Optional[str] = None,
+    ) -> str:
+        candidate = (source_user_id or self.migration_source_user_id or "").strip()
+        return candidate or target_user_id
 
     def _ttl_to_timedelta(self, ttl: str) -> timedelta:
         match = re.fullmatch(r"\s*(\d+)\s*([smhd])\s*", ttl or "")
@@ -425,7 +434,12 @@ class TursoUserService:
         finally:
             conn.close()
 
-    async def migrate_rollout_user_if_needed(self, user_id: str) -> UserDB:
+    async def migrate_rollout_user_if_needed(
+        self,
+        user_id: str,
+        *,
+        source_user_id: Optional[str] = None,
+    ) -> UserDB:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
             raise TursoProvisioningError(f"User {user_id} does not exist")
@@ -433,20 +447,32 @@ class TursoUserService:
             return user
         if not self.is_rollout_gate_user(user_id):
             return user
-        await self._migrate_user_rows(user)
+        await self._migrate_user_rows(
+            user,
+            source_user_id=self.resolve_migration_source_user_id(user_id, source_user_id),
+        )
         return await self._load_user(user_id) or user
 
-    async def migrate_user(self, user_id: str) -> UserDB:
+    async def migrate_user(self, user_id: str, *, source_user_id: Optional[str] = None) -> UserDB:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
             raise TursoProvisioningError(f"User {user_id} does not exist")
         if user.turso_migrated_at is None:
-            await self._migrate_user_rows(user)
+            await self._migrate_user_rows(
+                user,
+                source_user_id=self.resolve_migration_source_user_id(user_id, source_user_id),
+            )
         return await self._load_user(user_id) or user
 
-    async def _migrate_user_rows(self, user: UserDB) -> None:
+    async def _migrate_user_rows(
+        self,
+        user: UserDB,
+        *,
+        source_user_id: Optional[str] = None,
+    ) -> None:
         if not user.turso_db_name or not user.turso_db_url:
             raise TursoProvisioningError("Cannot migrate user without Turso database metadata")
+        source_user_id = self.resolve_migration_source_user_id(user.id, source_user_id)
 
         token = await self._mint_database_token(
             user.turso_db_name,
@@ -480,12 +506,19 @@ class TursoUserService:
                     placeholders = ", ".join(["?"] * len(columns))
                     rows = source.execute(
                         f"SELECT {column_list} FROM {table_name} WHERE user_id = ? ORDER BY id ASC",
-                        (user.id,),
+                        (source_user_id,),
                     ).fetchall()
+                    user_id_index = next(
+                        (index for index, column in enumerate(columns) if column == "user_id"),
+                        None,
+                    )
                     for row in rows:
+                        values = list(row)
+                        if user_id_index is not None:
+                            values[user_id_index] = user.id
                         remote.execute(
                             f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
-                            tuple(row),
+                            tuple(values),
                         )
 
                 remote.commit()
@@ -496,7 +529,7 @@ class TursoUserService:
                     source_count = int(
                         source.execute(
                             f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                            (user.id,),
+                            (source_user_id,),
                         ).fetchone()[0]
                     )
                     target_count = int(
@@ -538,12 +571,18 @@ class TursoUserService:
         )
         logger.info("Marked user %s as migrated to per-user Turso DB %s", user.id, user.turso_db_name)
 
-    async def get_user_migration_counts(self, user_id: str) -> Dict[str, Dict[str, int]]:
+    async def get_user_migration_counts(
+        self,
+        user_id: str,
+        *,
+        source_user_id: Optional[str] = None,
+    ) -> Dict[str, Dict[str, int]]:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
             raise TursoProvisioningError(f"User {user_id} does not exist")
         if not user.turso_db_name or not user.turso_db_url:
             raise TursoProvisioningError("Per-user Turso database metadata is missing")
+        source_user_id = self.resolve_migration_source_user_id(user.id, source_user_id)
 
         token = await self._mint_database_token(
             user.turso_db_name,
@@ -565,7 +604,7 @@ class TursoUserService:
                     source_count = int(
                         source.execute(
                             f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                            (user.id,),
+                            (source_user_id,),
                         ).fetchone()[0]
                     )
                     try:
@@ -587,12 +626,18 @@ class TursoUserService:
 
         return await asyncio.to_thread(_counts)
 
-    async def get_user_migration_status(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_migration_status(
+        self,
+        user_id: str,
+        *,
+        source_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
             raise TursoProvisioningError(f"User {user_id} does not exist")
 
-        counts = await self.get_user_migration_counts(user_id)
+        source_user_id = self.resolve_migration_source_user_id(user_id, source_user_id)
+        counts = await self.get_user_migration_counts(user_id, source_user_id=source_user_id)
         exact_match = {
             table_name: (pair["source"] == pair["target"])
             for table_name, pair in counts.items()
@@ -606,6 +651,7 @@ class TursoUserService:
 
         return {
             "user_id": user.id,
+            "source_user_id": source_user_id,
             "database_name": user.turso_db_name,
             "sync_url": user.turso_db_url,
             "provisioned_at": user.turso_provisioned_at.isoformat() if user.turso_provisioned_at else None,

@@ -21,6 +21,7 @@ from services.turso_user_service import TursoProvisioningError, turso_user_servi
 
 async def _run(args: argparse.Namespace) -> int:
     try:
+        source_user_id = (args.source_user_id or "").strip() or None
         if args.ensure_provisioned:
             user = await turso_user_service.ensure_user_activity_database(args.user_id)
             print(
@@ -41,12 +42,16 @@ async def _run(args: argparse.Namespace) -> int:
             )
 
         if args.migrate:
-            user = await turso_user_service.migrate_user(args.user_id)
+            user = await turso_user_service.migrate_user(
+                args.user_id,
+                source_user_id=source_user_id,
+            )
             print(
                 json.dumps(
                     {
                         "action": "migrate",
                         "user_id": args.user_id,
+                        "source_user_id": source_user_id or args.user_id,
                         "database_name": getattr(user, "turso_db_name", None),
                         "migrated_at": (
                             user.turso_migrated_at.isoformat()
@@ -58,7 +63,10 @@ async def _run(args: argparse.Namespace) -> int:
                 )
             )
 
-        status = await turso_user_service.get_user_migration_status(args.user_id)
+        status = await turso_user_service.get_user_migration_status(
+            args.user_id,
+            source_user_id=source_user_id,
+        )
         print(json.dumps({"action": "status", **status}, indent=2))
         return 0
     except TursoProvisioningError as exc:
@@ -69,6 +77,10 @@ async def _run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Provision/migrate a per-user Turso activity database")
     parser.add_argument("--user-id", required=True, help="Clerk user id to provision/migrate")
+    parser.add_argument(
+        "--source-user-id",
+        help="Optional historical source user id to copy from while writing rows to --user-id",
+    )
     parser.add_argument(
         "--ensure-provisioned",
         action="store_true",
