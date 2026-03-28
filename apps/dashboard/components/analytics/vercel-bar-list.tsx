@@ -98,7 +98,7 @@ export function VercelBarListCard({
   return (
     <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-xl overflow-hidden flex flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
       {/* Header */}
-      <div className="px-5 pt-4 pb-2">
+      <div className="px-4 pt-3 pb-1.5">
         <div className="flex items-center justify-between">
           {/* Tabs */}
           <div className="flex items-center gap-0">
@@ -119,12 +119,12 @@ export function VercelBarListCard({
 
           {/* Date range selector */}
           {showRangeSelector && onRangeChange && (
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-0">
               {RANGE_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
                   onClick={() => onRangeChange(opt.value)}
-                  className={`text-[11px] px-2 py-0.5 transition-colors ${
+                  className={`text-[11px] px-1.5 py-0.5 transition-colors ${
                     activeRange === opt.value
                       ? 'font-medium text-[#27251E]'
                       : 'font-normal text-[rgba(39,37,30,0.35)] hover:text-[rgba(39,37,30,0.55)]'
@@ -141,16 +141,16 @@ export function VercelBarListCard({
       {/* Rows */}
       <div className="flex flex-col">
         {items.map((item, i) => (
-          <div key={i} className="flex items-center px-5 py-[5px] hover:bg-[rgba(39,37,30,0.04)] transition-colors">
-            <span className="text-[13px] font-normal text-[#27251E] flex-1 min-w-0 truncate">
+          <div key={i} className="flex items-center px-4 py-[4.5px] hover:bg-[rgba(39,37,30,0.04)] transition-colors">
+            <span className="text-[12.5px] font-normal text-[#27251E] flex-1 min-w-0 truncate">
               {item.icon && <span className="mr-1.5">{item.icon}</span>}
               {item.name}
             </span>
-            <span className="text-[13px] font-normal text-[#27251E] tabular-nums text-right min-w-[120px] shrink-0">
+            <span className="text-[12.5px] font-normal text-[#27251E] tabular-nums text-right min-w-[90px] shrink-0">
               {item.value}
             </span>
             {(item.change !== undefined || item.changeLabel !== undefined) && (
-              <span className="ml-2 shrink-0 min-w-[62px] text-right">
+              <span className="ml-1.5 shrink-0 min-w-[56px] text-right">
                 <ChangeBadge change={item.change} label={item.changeLabel} />
               </span>
             )}

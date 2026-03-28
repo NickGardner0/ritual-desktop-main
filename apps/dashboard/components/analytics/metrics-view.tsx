@@ -44,6 +44,7 @@ import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import { MultiHabitOverlayChart } from '@/components/charts/MultiHabitOverlayChart';
+import { InsightCardsGrid } from '@/components/analytics/insight-cards';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
 import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
@@ -2079,6 +2080,13 @@ export function MetricsView({
             );
           })()}
 
+          {/* ── Insight agent cards ── */}
+          {!expandedHabit && (
+            <div className="mx-auto mt-4 w-full max-w-[920px]">
+              <InsightCardsGrid />
+            </div>
+          )}
+
           {/* ── Vercel-style analytics sections ── */}
           {!expandedHabit && (() => {
             if (filteredHabits.length === 0) return null;
@@ -2233,23 +2241,25 @@ export function MetricsView({
 
             return (
               <div className="mx-auto mt-8 w-full max-w-[920px]">
-                {/* Horizontal bar list cards - 2 col */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-[6px]">
-                  <VercelBarListCard
-                    tabs={[
-                      { id: 'habits', label: 'Habits' },
-                      { id: 'streaks', label: 'Streaks' },
-                    ]}
-                    defaultTab="habits"
-                    data={{
-                      habits: habitBarItems,
-                      streaks: streakBarItems,
-                    }}
-                    showRangeSelector
-                    activeRange={barListRange}
-                    onRangeChange={setBarListRange}
-                  />
-                  <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
+                {/* Horizontal bar list cards - narrow 2 col */}
+                <div className="mx-auto max-w-[680px]">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-[6px]">
+                    <VercelBarListCard
+                      tabs={[
+                        { id: 'habits', label: 'Habits' },
+                        { id: 'streaks', label: 'Streaks' },
+                      ]}
+                      defaultTab="habits"
+                      data={{
+                        habits: habitBarItems,
+                        streaks: streakBarItems,
+                      }}
+                      showRangeSelector
+                      activeRange={barListRange}
+                      onRangeChange={setBarListRange}
+                    />
+                    <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
+                  </div>
                 </div>
 
                 {/* Computer Time detail section with app icons and progress bars */}
