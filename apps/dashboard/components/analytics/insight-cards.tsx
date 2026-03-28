@@ -72,21 +72,23 @@ export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-[6px] sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-[6px] sm:grid-cols-4 lg:grid-cols-6">
         {INSIGHT_CARDS.map((card) => (
           <button
             key={card.title}
             type="button"
             onClick={() => onCardClick?.({ title: card.title, description: card.description })}
-            className="group flex flex-col items-start rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 py-3.5 text-left transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
+            className="group flex aspect-square cursor-pointer flex-col items-start justify-between rounded-sm border border-[rgba(39,37,30,0.08)] bg-white p-3.5 text-left transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
           >
-            <card.Icon className="mb-2 h-[18px] w-[18px] text-[#27251E]" strokeWidth={1.5} />
-            <span className="text-[13px] font-medium tracking-[-0.2px] text-[#27251E]">
-              {card.title}
-            </span>
-            <span className="mt-0.5 text-[11.5px] leading-[1.4] tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">
-              {card.description}
-            </span>
+            <card.Icon className="h-[18px] w-[18px] text-[#27251E]" strokeWidth={1.5} />
+            <div>
+              <span className="block text-[12.5px] font-medium leading-tight tracking-[-0.2px] text-[#27251E]">
+                {card.title}
+              </span>
+              <span className="mt-0.5 block text-[10.5px] leading-[1.35] tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">
+                {card.description}
+              </span>
+            </div>
           </button>
         ))}
       </div>

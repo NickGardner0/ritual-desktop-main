@@ -2240,34 +2240,32 @@ export function MetricsView({
 
             return (
               <div className="mx-auto mt-8 w-full max-w-[920px]">
-                {/* Horizontal bar list cards — side by side, right-aligned */}
-                <div className="ml-auto flex max-w-[720px] gap-[6px]">
-                  <div className="min-w-0 flex-1">
-                  <VercelBarListCard
-                    tabs={[
-                      { id: 'habits', label: 'Habits' },
-                      { id: 'streaks', label: 'Streaks' },
-                    ]}
-                    defaultTab="habits"
-                    data={{
-                      habits: habitBarItems,
-                      streaks: streakBarItems,
-                    }}
-                    showRangeSelector
-                    activeRange={barListRange}
-                    onRangeChange={setBarListRange}
-                  />
+                {/* Two-column layout: Computer Activity left, Bar lists right */}
+                <div className="flex gap-[6px]">
+                  {/* Left column — Computer Activity detail (~60%) */}
+                  <div className="min-w-0 flex-[3]">
+                    <ComputerTimeDetailSection />
                   </div>
-                  <div className="min-w-0 flex-1">
+
+                  {/* Right column — Bar list cards stacked (~40%) */}
+                  <div className="flex min-w-0 flex-[2] flex-col gap-[6px]">
+                    <VercelBarListCard
+                      tabs={[
+                        { id: 'habits', label: 'Habits' },
+                        { id: 'streaks', label: 'Streaks' },
+                      ]}
+                      defaultTab="habits"
+                      data={{
+                        habits: habitBarItems,
+                        streaks: streakBarItems,
+                      }}
+                      showRangeSelector
+                      activeRange={barListRange}
+                      onRangeChange={setBarListRange}
+                    />
                     <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
                   </div>
                 </div>
-
-                {/* Computer Time detail section with app icons and progress bars */}
-                <ComputerTimeDetailSection />
-
-
-
               </div>
             );
           })()}
