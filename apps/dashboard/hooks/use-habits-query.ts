@@ -90,7 +90,7 @@ export function useHabitsQuery() {
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
-      console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress);
+      if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress); }
 
       const response = await fetchWithAuthRetry(
         `${PYTHON_API_BASE}/api/habits`,
@@ -102,7 +102,7 @@ export function useHabitsQuery() {
       }
 
       const habits = await response.json();
-      console.log('✅ [React Query] Habits fetched:', habits.length);
+      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', habits.length); }
       return habits as Habit[];
     },
     enabled: isLoaded && !!user?.id,
@@ -122,7 +122,7 @@ export function useHabitLogsQuery() {
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
-      console.log('🔄 [React Query] Fetching habit logs...');
+      if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habit logs...'); }
 
       const response = await fetchWithAuthRetry(
         `${PYTHON_API_BASE}/api/habit-logs`,
@@ -139,7 +139,7 @@ export function useHabitLogsQuery() {
         duration: log.duration || 0,
       }));
 
-      console.log('✅ [React Query] Habit logs fetched:', processedLogs.length);
+      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', processedLogs.length); }
       return processedLogs as HabitLog[];
     },
     enabled: isLoaded && !!user?.id,
@@ -165,7 +165,7 @@ export function useLogHabitMutation() {
   return useMutation({
     mutationFn: async (habitLog: Omit<HabitLog, 'id'> & { habit_name?: string }) => {
       const token = await getToken();
-      console.log('📝 [React Query] Logging habit:', habitLog);
+      if (process.env.NODE_ENV !== 'production') { console.log('📝 [React Query] Logging habit:', habitLog); }
 
       // Use correct endpoint: /api/habits/{habit_id}/logs
       // This endpoint syncs to Tinybird automatically!
@@ -192,7 +192,7 @@ export function useLogHabitMutation() {
       }
 
       const result = await response.json();
-      console.log('✅ Habit logged and synced to Tinybird!');
+      if (process.env.NODE_ENV !== 'production') { console.log('✅ Habit logged and synced to Tinybird!'); }
       
       // Track analytics event
       trackHabitLogged({
@@ -223,7 +223,7 @@ export function useLogHabitMutation() {
         ]);
       }
 
-      console.log('⚡ [React Query] Optimistic update applied!');
+      if (process.env.NODE_ENV !== 'production') { console.log('⚡ [React Query] Optimistic update applied!'); }
 
       return { previousLogs };
     },
@@ -241,7 +241,7 @@ export function useLogHabitMutation() {
 
     // Refetch after mutation completes
     onSettled: async () => {
-      console.log('✅ [React Query] Refetching logs after mutation...');
+      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Refetching logs after mutation...'); }
       // Invalidate habit logs to mark as stale (will refetch on next mount)
       await queryClient.invalidateQueries({ 
         queryKey: habitLogKeys.list(user?.id || 'anonymous')
@@ -250,7 +250,7 @@ export function useLogHabitMutation() {
       await queryClient.invalidateQueries({ 
         queryKey: ['analytics-summary', user?.id]
       });
-      console.log('🔄 [React Query] Analytics cache invalidated - will refetch on navigation!');
+      if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Analytics cache invalidated - will refetch on navigation!'); }
     },
   });
 }
@@ -266,7 +266,7 @@ export function useCreateHabitMutation() {
 
   return useMutation({
     mutationFn: async (habitData: any) => {
-      console.log('➕ [React Query] Creating habit:', habitData);
+      if (process.env.NODE_ENV !== 'production') { console.log('➕ [React Query] Creating habit:', habitData); }
 
       const response = await fetchWithAuthRetry(
         `${PYTHON_API_BASE}/api/habits`,
@@ -295,7 +295,7 @@ export function useCreateHabitMutation() {
     },
 
     onSuccess: (data) => {
-      console.log('✅ [React Query] Habit created, refetching...');
+      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit created, refetching...'); }
       queryClient.invalidateQueries({ 
         queryKey: habitKeys.list(user?.id || 'anonymous') 
       });
@@ -323,7 +323,7 @@ export function useDeleteHabitMutation() {
   return useMutation({
     mutationFn: async ({ habitId, habitName, category }: { habitId: string; habitName?: string; category?: string }) => {
       const token = await getToken();
-      console.log('🗑️ [React Query] Deleting habit:', habitId);
+      if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [React Query] Deleting habit:', habitId); }
 
       const response = await fetch(`${PYTHON_API_BASE}/api/habits/${habitId}`, {
         method: 'DELETE',
@@ -354,7 +354,7 @@ export function useDeleteHabitMutation() {
         );
       }
 
-      console.log('⚡ [React Query] Optimistic delete applied!');
+      if (process.env.NODE_ENV !== 'production') { console.log('⚡ [React Query] Optimistic delete applied!'); }
 
       return { previousHabits };
     },
@@ -379,7 +379,7 @@ export function useDeleteHabitMutation() {
     },
 
     onSettled: () => {
-      console.log('✅ [React Query] Refetching habits after delete...');
+      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Refetching habits after delete...'); }
       queryClient.invalidateQueries({ 
         queryKey: habitKeys.list(user?.id || 'anonymous') 
       });

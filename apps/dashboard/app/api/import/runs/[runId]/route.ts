@@ -34,6 +34,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(15000),
     });
     
     const result = await response.json();

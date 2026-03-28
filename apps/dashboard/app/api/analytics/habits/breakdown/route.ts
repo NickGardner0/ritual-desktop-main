@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
+        signal: AbortSignal.timeout(15000),
       }
     );
 

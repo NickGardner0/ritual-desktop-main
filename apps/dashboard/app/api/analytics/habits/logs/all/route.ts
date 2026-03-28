@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
       try {
         const habitsRes = await fetch(`${backendUrl}/api/habits`, {
           headers: { 'Authorization': `Bearer ${token}` },
+          signal: AbortSignal.timeout(15000),
         });
         if (habitsRes.ok) {
           const habitsData = await habitsRes.json();
@@ -112,6 +113,7 @@ export async function GET(request: NextRequest) {
           'Authorization': `Bearer ${token}`,
         },
         cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!response.ok) {
@@ -237,6 +239,7 @@ export async function GET(request: NextRequest) {
         'Authorization': `Bearer ${tinybirdToken}`,
       },
       cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
     });
 
     const [habitsMap, backendLogs, tinybirdResponse] = await Promise.all([

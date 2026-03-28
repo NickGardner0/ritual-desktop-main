@@ -17,6 +17,7 @@ Performance optimizations:
 import uuid
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Set
 from sqlalchemy import select, and_, or_, func, insert
@@ -34,6 +35,8 @@ from models.import_models import (
     BatchLogCreate, BatchLogsRequest, BatchLogsResponse, BatchLogResult,
     ChunkIngestResponse, UndoImportResponse, ValidationMessage
 )
+
+logger = logging.getLogger(__name__)
 
 
 def generate_dedupe_key(
@@ -1045,21 +1048,24 @@ class ImportService:
         if db.options_json:
             try:
                 options = ImportOptions(**json.loads(db.options_json))
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse import options JSON: {e}")
                 pass
         
         summary = None
         if db.summary_json:
             try:
                 summary = ImportRunSummary(**json.loads(db.summary_json))
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse import summary JSON: {e}")
                 pass
         
         errors = None
         if db.error_json:
             try:
                 errors = json.loads(db.error_json)
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse import error JSON: {e}")
                 pass
         
         return ImportRun(

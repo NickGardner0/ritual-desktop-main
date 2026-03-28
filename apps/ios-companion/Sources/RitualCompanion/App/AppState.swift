@@ -1,5 +1,6 @@
 import SwiftUI
 import Clerk
+import Security
 
 /// Global app state for Ritual Companion
 @MainActor
@@ -77,8 +78,13 @@ final class AppState: ObservableObject {
     /// Notification permission status for actionable sync alerts.
     @Published var notificationsEnabled: Bool = false
     
+    // MARK: - Rate Limiting
+
+    private var lastManualSyncTime: Date?
+    private let manualSyncCooldown: TimeInterval = 300 // 5 minutes
+
     // MARK: - Services
-    
+
     let healthKitManager = HealthKitManagerV2()
     let apiClient = RitualAPIClient()
     private let syncManager = BackgroundSyncManagerV2.shared
@@ -206,7 +212,9 @@ final class AppState: ObservableObject {
             let isValid = await verifyConnectionIsValid()
             if !isValid {
                 // Token expired - clear credentials and show sign-in
+                #if DEBUG
                 print("⚠️ Stored credentials are invalid/expired - clearing")
+                #endif
                 await disconnect()
                 return
             }
@@ -231,23 +239,33 @@ final class AppState: ObservableObject {
             let response = try await apiClient.fetchTrackedMetrics()
             trackedMetricTypes = response.metricTypes
             trackedHabits = response.habits
+            #if DEBUG
             print("📊 Tracked metrics: \(trackedMetricTypes)")
+            #endif
             return true
         } catch let error as APIError {
             if case .httpError(401) = error {
+                #if DEBUG
                 print("❌ Token expired (401)")
+                #endif
                 return false
             }
             if case .serverError(401, _) = error {
+                #if DEBUG
                 print("❌ Token expired (401)")
+                #endif
                 return false
             }
             // Other errors (network, etc.) - assume still valid
+            #if DEBUG
             print("⚠️ Error checking connection: \(error)")
+            #endif
             return true
         } catch {
             // Non-API errors - assume still valid
+            #if DEBUG
             print("⚠️ Error checking connection: \(error)")
+            #endif
             return true
         }
     }
@@ -266,12 +284,14 @@ final class AppState: ObservableObject {
             let response = try await apiClient.fetchTrackedMetrics()
             trackedMetricTypes = response.metricTypes
             trackedHabits = response.habits
+            #if DEBUG
             print("📊 Tracked metrics: \(trackedMetricTypes)")
-            
+            #endif
+
             // Enable background delivery for these specific metrics
             if !trackedMetricTypes.isEmpty {
                 await syncManager.enableBackgroundDelivery(forMetricTypes: trackedMetricTypes)
-                
+
                 // Schedule background sync if not already scheduled
                 syncManager.scheduleBackgroundSync()
             }
@@ -279,27 +299,35 @@ final class AppState: ObservableObject {
         } catch let error as APIError {
             // Check for expired token
             if case .httpError(401) = error {
+                #if DEBUG
                 print("❌ Token expired during fetch - disconnecting")
+                #endif
                 await disconnect()
                 return
             }
             if case .serverError(401, _) = error {
+                #if DEBUG
                 print("❌ Token expired during fetch - disconnecting")
+                #endif
                 await disconnect()
                 return
             }
+            #if DEBUG
             print("⚠️ Failed to fetch tracked metrics: \(error.localizedDescription)")
+            #endif
             trackedMetricTypes = previousMetricTypes
             trackedHabits = previousHabits
         } catch {
+            #if DEBUG
             print("⚠️ Failed to fetch tracked metrics: \(error.localizedDescription)")
+            #endif
             trackedMetricTypes = previousMetricTypes
             trackedHabits = previousHabits
         }
 
         refreshSyncDiagnostics()
     }
-    
+
     func requestHealthAccess() async {
         do {
             let authorized = try await healthKitManager.requestAuthorization()
@@ -318,7 +346,9 @@ final class AppState: ObservableObject {
     /// Refresh health access status (call when returning from settings or permissions sheet)
     func refreshHealthStatus() async {
         healthAccessStatus = await healthKitManager.checkAuthorizationStatus()
+        #if DEBUG
         print("📱 Health access status refreshed: \(healthAccessStatus.displayText)")
+        #endif
         
         // If we now have access and are connected, enable background delivery
         if healthAccessStatus == .authorized && isConnected && !trackedMetricTypes.isEmpty {
@@ -396,16 +426,29 @@ final class AppState: ObservableObject {
         do {
             try await Clerk.shared.signOut()
         } catch {
+            #if DEBUG
             print("⚠️ Error signing out of Clerk: \(error)")
+            #endif
         }
-        
+
+        #if DEBUG
         print("📱 Disconnected - user will need to sign in again")
+        #endif
         refreshSyncDiagnostics()
     }
     
     /// Sync metrics to the backend using V2 incremental sync
     /// - Parameter showErrorsToUser: If true, show error dialogs to user. Set to false for background syncs.
     func syncNow(showErrorsToUser: Bool = true) async {
+        // Rate limiting: enforce cooldown between manual syncs
+        if let lastSync = lastManualSyncTime, Date().timeIntervalSince(lastSync) < manualSyncCooldown {
+            let remaining = Int(manualSyncCooldown - Date().timeIntervalSince(lastSync))
+            if showErrorsToUser {
+                showError(message: "Please wait \(remaining) seconds before syncing again")
+            }
+            return
+        }
+
         guard isConnected else {
             if showErrorsToUser {
                 showError(message: "Device is not connected. Please connect first.")
@@ -431,10 +474,13 @@ final class AppState: ObservableObject {
         }
         
         guard !isSyncing else { return }
-        
+
         isSyncing = true
-        
+        lastManualSyncTime = Date()
+
+        #if DEBUG
         print("📱 Starting manual sync via V2 incremental sync...")
+        #endif
         
         // Use V2 sync manager which handles incremental sync with batching
         await syncManager.performIncrementalSync(isBackground: false)
@@ -456,7 +502,9 @@ final class AppState: ObservableObject {
         } else if lastSyncTime != nil {
             // Clear any previous errors on success
             errorMessage = nil
+            #if DEBUG
             print("✅ Manual sync completed successfully")
+            #endif
         }
     }
 
@@ -704,7 +752,19 @@ final class AppState: ObservableObject {
     }
 
     private func loadTrustedPeers() -> [TrustedPeer] {
-        guard let data = UserDefaults.standard.data(forKey: trustedPeersStorageKey) else {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.ritual.trustedPeers",
+            kSecAttrAccount as String: trustedPeersStorageKey,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data else {
             return []
         }
 
@@ -712,8 +772,27 @@ final class AppState: ObservableObject {
     }
 
     private func saveTrustedPeers() {
-        if let data = try? JSONEncoder().encode(trustedPeers) {
-            UserDefaults.standard.set(data, forKey: trustedPeersStorageKey)
+        guard let data = try? JSONEncoder().encode(trustedPeers) else { return }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.ritual.trustedPeers",
+            kSecAttrAccount as String: trustedPeersStorageKey,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        let attributes: [String: Any] = [
+            kSecValueData as String: data
+        ]
+
+        let existingStatus = SecItemCopyMatching(query as CFDictionary, nil)
+
+        if existingStatus == errSecSuccess {
+            SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        } else {
+            var createQuery = query
+            createQuery[kSecValueData as String] = data
+            SecItemAdd(createQuery as CFDictionary, nil)
         }
     }
     

@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
     
     const result = await response.json();

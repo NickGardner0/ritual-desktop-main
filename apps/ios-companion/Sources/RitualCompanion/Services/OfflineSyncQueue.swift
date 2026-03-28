@@ -34,7 +34,7 @@ final class OfflineSyncQueue {
     // MARK: - Constants
     
     private let queueFileName = "offline_sync_queue.json"
-    private let maxRetentionDays: Int = 14
+    private let maxRetentionDays: Int = 30
     private let maxAttempts: Int = 10
     private let baseRetryInterval: TimeInterval = 60 // 1 minute
     private let maxRetryInterval: TimeInterval = 3600 // 1 hour
@@ -108,7 +108,9 @@ final class OfflineSyncQueue {
         
         saveQueue()
         
+        #if DEBUG
         print("📥 Queued payload \(id) with \(metricCount) metrics")
+        #endif
         return id
     }
     
@@ -119,7 +121,9 @@ final class OfflineSyncQueue {
         queueLock.unlock()
         
         saveQueue()
+        #if DEBUG
         print("✅ Removed successful payload \(id) from queue")
+        #endif
     }
     
     /// Mark a payload as failed
@@ -132,7 +136,9 @@ final class OfflineSyncQueue {
             
             // Remove if max attempts exceeded
             if queue[index].attemptCount >= maxAttempts {
+                #if DEBUG
                 print("❌ Payload \(id) exceeded max attempts, removing from queue")
+                #endif
                 queue.remove(at: index)
             }
         }
@@ -163,7 +169,9 @@ final class OfflineSyncQueue {
         
         if beforeCount != afterCount {
             saveQueue()
+            #if DEBUG
             print("🗑️ Cleaned up \(beforeCount - afterCount) old payloads from queue")
+            #endif
         }
     }
     
@@ -174,7 +182,9 @@ final class OfflineSyncQueue {
         queueLock.unlock()
         
         saveQueue()
+        #if DEBUG
         print("🗑️ Cleared all queued payloads")
+        #endif
     }
     
     // MARK: - Processing
@@ -183,12 +193,16 @@ final class OfflineSyncQueue {
     /// Returns the payloads that should be sent
     func processQueue() async -> [QueuedPayload] {
         guard !isProcessing else {
+            #if DEBUG
             print("⚠️ Queue processing already in progress")
+            #endif
             return []
         }
         
         guard isNetworkAvailable else {
+            #if DEBUG
             print("⚠️ Network unavailable, skipping queue processing")
+            #endif
             return []
         }
         
@@ -202,9 +216,13 @@ final class OfflineSyncQueue {
         let payloads = getPayloadsReadyForRetry()
         
         if payloads.isEmpty {
+            #if DEBUG
             print("📭 No payloads ready for retry")
+            #endif
         } else {
+            #if DEBUG
             print("📤 Processing \(payloads.count) queued payloads")
+            #endif
         }
         
         return payloads
@@ -227,9 +245,13 @@ final class OfflineSyncQueue {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             queue = try decoder.decode([QueuedPayload].self, from: data)
+            #if DEBUG
             print("📂 Loaded \(queue.count) payloads from offline queue")
+            #endif
         } catch {
+            #if DEBUG
             print("⚠️ Failed to load offline queue: \(error)")
+            #endif
             queue = []
         }
     }
@@ -241,7 +263,9 @@ final class OfflineSyncQueue {
             let data = try encoder.encode(queue)
             try data.write(to: queueFileURL, options: .atomicWrite)
         } catch {
+            #if DEBUG
             print("⚠️ Failed to save offline queue: \(error)")
+            #endif
         }
     }
     
@@ -254,7 +278,9 @@ final class OfflineSyncQueue {
             self?.isNetworkAvailable = path.status == .satisfied
             
             if !wasAvailable && path.status == .satisfied {
+                #if DEBUG
                 print("🌐 Network became available - triggering queue flush")
+                #endif
                 NotificationCenter.default.post(
                     name: NSNotification.Name("NetworkBecameAvailable"),
                     object: nil

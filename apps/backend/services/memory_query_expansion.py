@@ -19,7 +19,7 @@ class ExpandedMemoryQuery(TypedDict):
     weight: float
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=128)
 def _load_config() -> Dict[str, Dict[str, List[str]]]:
     config_path = Path(__file__).resolve().parents[1] / "config" / "memory_query_expansion.json"
     try:

@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
         'Authorization': `Bearer ${TINYBIRD_TOKEN}`,
       },
       cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

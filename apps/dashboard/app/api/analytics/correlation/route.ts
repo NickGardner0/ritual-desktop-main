@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
         'Authorization': `Bearer ${tinybirdToken}`,
       },
       next: { revalidate: 120 }, // Cache for 2 minutes (correlation doesn't change frequently)
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

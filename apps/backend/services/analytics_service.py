@@ -320,11 +320,12 @@ class AnalyticsService:
                 try:
                     from zoneinfo import ZoneInfo
                     user_tz = ZoneInfo(timezone)
-                except:
+                except Exception as e:
                     try:
                         import pytz
                         user_tz = pytz.timezone(timezone)
-                    except:
+                    except Exception as e2:
+                        logger.warning(f"Failed to parse timezone '{timezone}': zoneinfo={e}, pytz={e2}")
                         pass
             
             # Group individual log entries by LOCAL date (after timezone conversion)
@@ -350,14 +351,15 @@ class AnalyticsService:
                                 if completed_dt.tzinfo is None:
                                     completed_dt = completed_dt.replace(tzinfo=utc)
                                 completed_dt = completed_dt.astimezone(user_tz)
-                            except:
+                            except Exception as e:
                                 try:
                                     import pytz
                                     utc = pytz.UTC
                                     if completed_dt.tzinfo is None:
                                         completed_dt = utc.localize(completed_dt)
                                     completed_dt = completed_dt.astimezone(user_tz)
-                                except:
+                                except Exception as e2:
+                                    logger.warning(f"Failed to convert completed_at to timezone: zoneinfo={e}, pytz={e2}")
                                     pass
                         
                         # Extract the LOCAL date after timezone conversion
@@ -411,7 +413,8 @@ class AnalyticsService:
                                 period = "am" if hour < 12 else "pm"
                                 display_hour = hour % 12 or 12
                                 sleep_start = f"{display_hour}:{minute:02d}{period}"
-                            except:
+                            except Exception as e:
+                                logger.warning(f"Failed to convert sleep_start to timezone: {e}")
                                 sleep_start = sleep_start_raw
                         elif sleep_start_raw:
                             sleep_start = sleep_start_raw
@@ -429,11 +432,13 @@ class AnalyticsService:
                                 period = "am" if hour < 12 else "pm"
                                 display_hour = hour % 12 or 12
                                 sleep_end = f"{display_hour}:{minute:02d}{period}"
-                            except:
+                            except Exception as e:
+                                logger.warning(f"Failed to convert sleep_end to timezone: {e}")
                                 sleep_end = sleep_end_raw
                         elif sleep_end_raw:
                             sleep_end = sleep_end_raw
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Failed to parse sleep metadata: {e}")
                         pass
 
                 if (not sleep_start or not sleep_end) and log.origin_record_kind == "event" and log.origin_record_id:
@@ -451,14 +456,15 @@ class AnalyticsService:
                                         if event_dt.tzinfo is None:
                                             event_dt = event_dt.replace(tzinfo=utc)
                                         event_dt = event_dt.astimezone(user_tz)
-                                    except:
+                                    except Exception as e:
                                         try:
                                             import pytz
                                             utc = pytz.UTC
                                             if event_dt.tzinfo is None:
                                                 event_dt = utc.localize(event_dt)
                                             event_dt = event_dt.astimezone(user_tz)
-                                        except:
+                                        except Exception as e2:
+                                            logger.warning(f"Failed to convert event time to timezone: zoneinfo={e}, pytz={e2}")
                                             pass
 
                                 hour = event_dt.hour

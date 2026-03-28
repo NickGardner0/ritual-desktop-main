@@ -164,7 +164,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 type: sampleType,
                 predicate: nil,  // No date restriction - anchor handles it
                 anchor: existingAnchor,
-                limit: HKObjectQueryNoLimit
+                limit: 5000
             ) { _, addedSamples, deletedSamples, newAnchor, error in
                 if let error = error {
                     continuation.resume(throwing: error)
@@ -184,7 +184,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 // For now, treat modifications as part of "added" (HealthKit doesn't distinguish)
                 let modified: [NormalizedMetric] = []
                 
+                #if DEBUG
                 print("📊 Incremental sync for \(metricType): \(added.count) added, \(deleted.count) deleted")
+                #endif
                 
                 continuation.resume(returning: IncrementalSyncResult(
                     added: added,
@@ -208,7 +210,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 let result = try await fetchIncrementalChanges(for: metricType)
                 results.append(result)
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to fetch incremental changes for \(metricType): \(error)")
+                #endif
             }
         }
         
@@ -230,7 +234,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 let data = try NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true)
                 tokens[metricType] = data.base64EncodedString()
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to serialize anchor for \(metricType): \(error)")
+                #endif
             }
         }
 
@@ -255,7 +261,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
             }
 
             guard pendingToken == confirmedToken else {
+                #if DEBUG
                 print("⚠️ Anchor token mismatch for \(metricType); skipping local anchor update")
+                #endif
                 continue
             }
 
@@ -453,12 +461,14 @@ final class HealthKitManagerV2: @unchecked Sendable {
         case "respiratory_rate":
             return (sample.quantity.doubleValue(for: .count().unitDivided(by: .minute())), .breathsPerMinute)
         case "oxygen_saturation":
-            return (sample.quantity.doubleValue(for: .percent()) * 100, .percent)
+            let rawValue = sample.quantity.doubleValue(for: .percent()) * 100
+            let value = min(max(rawValue, 0), 100) // Clamp to valid range
+            return (value, .percent)
         default:
             return (sample.quantity.doubleValue(for: .count()), .count)
         }
     }
-    
+
     private static func convertCategorySample(
         _ sample: HKCategorySample,
         metricType: String,
@@ -688,7 +698,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
                     metrics.append(metric)
                 }
                 
+                #if DEBUG
                 print("📊 Daily aggregated sync for \(metricType): \(metrics.count) daily values (\(normalizedStart) -> \(queryEnd))")
+                #endif
                 continuation.resume(returning: metrics)
             }
             
@@ -779,12 +791,14 @@ final class HealthKitManagerV2: @unchecked Sendable {
         case "respiratory_rate":
             return (quantity.doubleValue(for: .count().unitDivided(by: .minute())), .breathsPerMinute)
         case "oxygen_saturation":
-            return (quantity.doubleValue(for: .percent()) * 100, .percent)
+            let rawValue = quantity.doubleValue(for: .percent()) * 100
+            let value = min(max(rawValue, 0), 100) // Clamp to valid range
+            return (value, .percent)
         default:
             return (quantity.doubleValue(for: .count()), .count)
         }
     }
-    
+
     /// Fetch and aggregate category metrics (sleep, mindfulness) by day.
     private func fetchAndAggregateCategoryMetrics(for metricType: String, startDate: Date, endDate: Date) async throws -> [NormalizedMetric] {
         guard let sampleType = healthKitType(for: metricType) else {
@@ -905,7 +919,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
     func performDailyAggregatedBackfill(for metricTypes: [String], daysBack: Int = 730, progressHandler: ((Int, Int) -> Void)? = nil) async throws -> [NormalizedMetric] {
         var allMetrics: [NormalizedMetric] = []
         
+        #if DEBUG
         print("📊 Starting daily aggregated backfill for \(metricTypes.count) metrics over \(daysBack) days...")
+        #endif
         
         for (index, metricType) in metricTypes.enumerated() {
             progressHandler?(index, metricTypes.count)
@@ -916,16 +932,22 @@ final class HealthKitManagerV2: @unchecked Sendable {
             do {
                 let metrics = try await fetchDailyAggregatedMetrics(for: metricType, daysBack: daysBack)
                 allMetrics.append(contentsOf: metrics)
+                #if DEBUG
                 print("   ✓ \(metricType): \(metrics.count) daily values")
+                #endif
             } catch {
+                #if DEBUG
                 print("   ⚠️ Failed to fetch \(metricType): \(error.localizedDescription)")
+                #endif
             }
         }
         
         progressHandler?(metricTypes.count, metricTypes.count)
         
+        #if DEBUG
         print("📊 Daily aggregated backfill complete: \(allMetrics.count) total daily values")
         print("   (Compare to ~50,000+ raw samples - this is much more efficient!)")
+        #endif
         return allMetrics
     }
     
@@ -955,13 +977,17 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 )
                 allMetrics.append(contentsOf: metrics)
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to backfill \(metricType): \(error)")
+                #endif
             }
         }
         
         progressHandler?(metricTypes.count, metricTypes.count)
         
+        #if DEBUG
         print("📊 Full backfill complete: \(allMetrics.count) metrics for \(daysBack) days")
+        #endif
         return allMetrics
     }
     

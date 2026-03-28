@@ -70,8 +70,8 @@ fn configured_ritual_env() -> String {
 
 fn build_runtime_info<R: Runtime>(app: &AppHandle<R>) -> DesktopRuntimeInfo {
     let state = app.state::<DesktopShellState>();
-    let frontend_ready = *state.frontend_ready.lock().unwrap();
-    let pending_update = state.pending_update.lock().unwrap().clone();
+    let frontend_ready = *state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pending_update = state.pending_update.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
 
     DesktopRuntimeInfo {
         version: app.package_info().version.to_string(),
@@ -89,7 +89,7 @@ fn build_runtime_info<R: Runtime>(app: &AppHandle<R>) -> DesktopRuntimeInfo {
 
 fn begin_update_check<R: Runtime>(app: &AppHandle<R>) -> bool {
     let state = app.state::<DesktopShellState>();
-    let mut in_progress = state.update_check_in_progress.lock().unwrap();
+    let mut in_progress = state.update_check_in_progress.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if *in_progress {
         return false;
     }
@@ -100,19 +100,19 @@ fn begin_update_check<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 fn end_update_check<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<DesktopShellState>();
-    let mut in_progress = state.update_check_in_progress.lock().unwrap();
+    let mut in_progress = state.update_check_in_progress.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *in_progress = false;
 }
 
 fn set_pending_update<R: Runtime>(app: &AppHandle<R>, update: Option<PendingUpdateManifest>) {
     let state = app.state::<DesktopShellState>();
-    let mut pending = state.pending_update.lock().unwrap();
+    let mut pending = state.pending_update.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *pending = update;
 }
 
 fn frontend_is_ready<R: Runtime>(app: &AppHandle<R>) -> bool {
     let state = app.state::<DesktopShellState>();
-    let ready = *state.frontend_ready.lock().unwrap();
+    let ready = *state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     ready
 }
 
@@ -184,7 +184,7 @@ fn schedule_startup_fallback_prompt<R: Runtime + 'static>(
             let is_pending = state
                 .pending_update
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .as_ref()
                 .map(|pending| pending.version == manifest.version)
                 .unwrap_or(false);
@@ -313,7 +313,7 @@ pub fn get_desktop_runtime_info<R: Runtime>(app: AppHandle<R>) -> DesktopRuntime
 #[tauri::command]
 pub fn desktop_frontend_ready<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeInfo {
     let state = app.state::<DesktopShellState>();
-    let mut frontend_ready = state.frontend_ready.lock().unwrap();
+    let mut frontend_ready = state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     *frontend_ready = true;
     drop(frontend_ready);
 

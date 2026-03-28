@@ -242,6 +242,7 @@ async function parseScreenshot(file: File) {
         image: `data:${mimeType};base64,${base64}`,
         filename: file.name,
       }),
+      signal: AbortSignal.timeout(15000),
     });
     
     if (!response.ok) {

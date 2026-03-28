@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
         "X-Webhook-Signature": webhookSignature,
       },
       body,
+      signal: AbortSignal.timeout(15000),
     });
 
     const data = await backendResponse.json();

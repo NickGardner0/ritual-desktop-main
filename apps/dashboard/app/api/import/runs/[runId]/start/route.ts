@@ -36,6 +36,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
     
     const result = await response.json();

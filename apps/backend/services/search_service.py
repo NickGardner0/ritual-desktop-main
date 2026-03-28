@@ -1282,7 +1282,8 @@ class SearchService:
             try:
                 dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
                 return int(dt.timestamp())
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to parse timestamp string '{value}': {e}")
                 return int(datetime.utcnow().timestamp())
         
         return int(datetime.utcnow().timestamp())
@@ -1295,7 +1296,8 @@ class SearchService:
         try:
             dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
             return int(dt.timestamp())
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to parse date string '{date_str}': {e}")
             return 0
 
 

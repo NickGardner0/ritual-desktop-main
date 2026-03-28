@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
         "Authorization": `Bearer ${token}`,
       },
       body: backendFormData,
+      signal: AbortSignal.timeout(15000),
     });
     
     const result = await response.json();

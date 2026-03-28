@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
         "X-User-ID": userId,
         "X-Internal-Key": process.env.INTERNAL_API_KEY || "",
       },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

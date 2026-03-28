@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/integrations/whoop/status`, {
       method: 'GET',
       headers: buildBackendAuthHeaders({ userId, token }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

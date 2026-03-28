@@ -194,6 +194,7 @@ async function handleWhoopSync(
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(15000),
     }
   );
   

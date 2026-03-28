@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
         Authorization: `Bearer ${token}`,
       },
       body: previewFormData,
+      signal: AbortSignal.timeout(15000),
     });
 
     const previewResult = await previewResponse.json();
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
         conflict_policy: conflictPolicy,
         create_habits: true,
       }),
+      signal: AbortSignal.timeout(15000),
     });
 
     const startResult = await startResponse.json();

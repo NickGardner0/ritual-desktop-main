@@ -11,7 +11,7 @@ enum WearableSource: String, Codable {
 }
 
 /// Type of metric being recorded
-enum MetricType: String, Codable {
+enum MetricType: String, Codable, CaseIterable {
     // Activity
     case steps = "steps"
     case activeEnergy = "active_energy"

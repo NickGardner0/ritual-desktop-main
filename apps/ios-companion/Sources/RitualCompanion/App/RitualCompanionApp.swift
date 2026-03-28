@@ -28,7 +28,13 @@ struct RitualCompanionApp: App {
                 .environmentObject(whoopService)
                 .task {
                     // Load Clerk session
-                    try? await Clerk.shared.load()
+                    do {
+                        try await Clerk.shared.load()
+                    } catch {
+                        #if DEBUG
+                        print("Failed to load Clerk: \(error)")
+                        #endif
+                    }
                     whoopService.handleAppDidBecomeActive()
                 }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -55,13 +61,17 @@ struct RitualCompanionApp: App {
         switch newPhase {
         case .background:
             // App moved to background - schedule background sync
+            #if DEBUG
             print("📱 App moved to background - scheduling background sync V2")
+            #endif
             syncManager.scheduleBackgroundSync()
             whoopService.handleAppDidEnterBackground()
             
         case .active:
             // App became active - sync immediately if connected
+            #if DEBUG
             print("📱 App became active")
+            #endif
             whoopService.handleAppDidBecomeActive()
             
             // Perform a foreground sync if user is connected and has health access
@@ -71,7 +81,9 @@ struct RitualCompanionApp: App {
                 
                 // If connected and has access, do an incremental sync
                 if appState.isConnected && appState.hasHealthAccess {
+                    #if DEBUG
                     print("📱 Triggering foreground sync V2 (incremental)")
+                    #endif
                     await syncManager.performForegroundSync()
                     
                     // Update the UI with the latest sync time
@@ -99,9 +111,13 @@ struct RitualCompanionApp: App {
         // V2 notifications include addedCount and deletedCount
         if let addedCount = notification.userInfo?["addedCount"] as? Int,
            let deletedCount = notification.userInfo?["deletedCount"] as? Int {
+            #if DEBUG
             print("📱 V2 Background sync: \(addedCount) added, \(deletedCount) deleted")
+            #endif
         } else if let count = notification.userInfo?["count"] as? Int {
+            #if DEBUG
             print("📱 Background sync notification received: \(count) metrics synced")
+            #endif
         }
         
         // Update sync status
@@ -112,7 +128,9 @@ struct RitualCompanionApp: App {
     
     private func handleRequiresReauth() {
         // Token refresh failed repeatedly - need user to re-authenticate
+        #if DEBUG
         print("⚠️ Token refresh failed - user needs to re-authenticate")
+        #endif
         
         Task { @MainActor in
             // Disconnect and force sign-in again

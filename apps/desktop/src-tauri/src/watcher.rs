@@ -483,12 +483,16 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
     // Add absolute fallback paths.
     if let Ok(home) = std::env::var("HOME") {
         let home = PathBuf::from(home);
-        candidates.push(home.join("Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
-        candidates.push(home.join(
-            "Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher",
-        ));
-        candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
-        candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
+        // Development-only paths — these are developer-specific and won't exist on user machines.
+        #[cfg(debug_assertions)]
+        {
+            candidates.push(home.join("Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
+            candidates.push(home.join(
+                "Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher",
+            ));
+            candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
+            candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
+        }
         candidates.push(home.join(".ritual/bin/ritual-watcher"));
     }
 
@@ -690,10 +694,10 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
     #[cfg(target_os = "macos")]
     {
         let _ = Command::new("pkill")
-            .args(["-f", "ritual-watcher"])
+            .args(["ritual-watcher"])
             .output();
         // Brief pause to ensure processes are terminated
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         watcher_info!("🧹 Cleaned up any existing watcher processes");
     }
 
@@ -769,9 +773,9 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     #[cfg(target_os = "macos")]
     {
         let _ = Command::new("pkill")
-            .args(["-f", "ritual-watcher"])
+            .args(["ritual-watcher"])
             .output();
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         watcher_info!("🧹 Cleaned up any existing watcher processes");
     }
 
@@ -852,7 +856,7 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
         #[cfg(target_os = "macos")]
         {
             let _ = Command::new("pkill")
-                .args(["-f", "ritual-watcher"])
+                .args(["ritual-watcher"])
                 .output();
         }
     }

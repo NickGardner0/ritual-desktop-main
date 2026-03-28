@@ -122,7 +122,7 @@ struct PermissionsView: View {
                 }
                 
                 Section {
-                    if appState.healthAccessStatus != .authorized {
+                    if appState.healthAccessStatus == .notDetermined {
                         Button(action: requestHealthAccess) {
                             HStack(spacing: 10) {
                                 if isRequestingAccess {
@@ -139,12 +139,24 @@ struct PermissionsView: View {
                         }
                         .disabled(isRequestingAccess)
                     }
-                    
+
+                    if appState.healthAccessStatus == .denied {
+                        Button(action: openHealthApp) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "heart.circle")
+                                    .font(.system(size: 16))
+                                Text("Open Health Settings")
+                                    .font(.system(size: 15))
+                            }
+                            .foregroundColor(.black)
+                        }
+                    }
+
                     Button(action: openHealthSettings) {
                         HStack(spacing: 10) {
                             Image(systemName: "gear")
                                 .font(.system(size: 16))
-                            Text("Open Health Settings")
+                            Text("Open App Settings")
                                 .font(.system(size: 15))
                         }
                         .foregroundColor(.black)
@@ -155,7 +167,7 @@ struct PermissionsView: View {
                         .foregroundColor(.gray)
                 } footer: {
                     if appState.healthAccessStatus == .denied {
-                        Text("If you've already granted access in Health settings but still see 'Denied', try tapping 'Request Health Access' again or restart the app.")
+                        Text("Permission was previously denied. Tap 'Open Health Settings' to enable access in the Health app, or 'Open App Settings' to adjust permissions.")
                             .font(.system(size: 12))
                             .foregroundColor(.gray)
                     }
@@ -191,6 +203,12 @@ struct PermissionsView: View {
         }
     }
     
+    private func openHealthApp() {
+        if let url = URL(string: "x-apple-health://") {
+            UIApplication.shared.open(url)
+        }
+    }
+
     private func openHealthSettings() {
         if let url = URL(string: UIApplication.openSettingsURLString) {
             UIApplication.shared.open(url)

@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/watcher/devices`, {
       method: 'GET',
       headers: buildBackendAuthHeaders({ userId, token }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: buildBackendAuthHeaders({ userId, token }),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

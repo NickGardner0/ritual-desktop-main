@@ -195,6 +195,12 @@ export function OverviewView({
     }
   }, [dateRange?.from, overviewStatsCacheKey]);
 
+  // Clear cached stats when date range changes so stale all-time data
+  // doesn't display while the date-filtered API call is in flight
+  useEffect(() => {
+    setCachedStats({});
+  }, [dateRange?.from, dateRange?.to]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (dateRange?.from) return;

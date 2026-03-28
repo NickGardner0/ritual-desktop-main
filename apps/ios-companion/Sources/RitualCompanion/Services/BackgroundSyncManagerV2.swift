@@ -2,6 +2,7 @@ import Foundation
 import HealthKit
 import BackgroundTasks
 import UIKit
+import UserNotifications
 
 /// V2 Background Sync Manager with incremental sync, offline queue, and better error handling
 final class BackgroundSyncManagerV2: @unchecked Sendable {
@@ -45,6 +46,16 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     private var observerQueries: [HKObserverQuery] = []
     private var isSetup = false
     private var isSyncing = false
+
+    /// Debounce timer for HealthKit observer callbacks
+    private var observerDebounceTimer: Timer?
+    private let observerDebounceDuration: TimeInterval = 30 // seconds
+
+    /// Maximum metric types accepted from server
+    private let maxServerMetricTypes = 30
+
+    /// Known valid metric type raw values (derived from MetricType enum)
+    private static let validMetricTypeValues: Set<String> = Set(MetricType.allCases.map { $0.rawValue })
     
     // MARK: - Published State
     
@@ -111,7 +122,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     }
     
     @objc private func networkBecameAvailable() {
+        #if DEBUG
         print("🌐 Network became available - flushing offline queue")
+        #endif
         Task { [weak self] in
             await self?.flushOfflineQueue()
         }
@@ -133,7 +146,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             }
         }
         
+        #if DEBUG
         print("📱 Background sync V2 manager initialized (total syncs: \(syncCount))")
+        #endif
     }
     
     private func registerBackgroundTask() {
@@ -145,9 +160,13 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         if registered {
+            #if DEBUG
             print("✅ Background task V2 registered")
+            #endif
         } else {
+            #if DEBUG
             print("⚠️ Failed to register background task V2")
+            #endif
         }
     }
     
@@ -157,9 +176,13 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         
         do {
             try BGTaskScheduler.shared.submit(request)
+            #if DEBUG
             print("📅 Background sync scheduled")
+            #endif
         } catch {
+            #if DEBUG
             print("⚠️ Failed to schedule background sync: \(error)")
+            #endif
         }
     }
     
@@ -168,7 +191,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     }
     
     private func handleBackgroundTask(_ task: BGAppRefreshTask) {
+        #if DEBUG
         print("🔄 Background task started")
+        #endif
         
         scheduleBackgroundSync() // Schedule next
         
@@ -178,7 +203,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         
         task.expirationHandler = {
             syncTask.cancel()
+            #if DEBUG
             print("⚠️ Background task expired")
+            #endif
         }
         
         Task {
@@ -205,34 +232,57 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 
                 let query = HKObserverQuery(sampleType: hkType, predicate: nil) { [weak self] _, completionHandler, error in
                     if let error = error {
+                        #if DEBUG
                         print("⚠️ Observer error for \(metricType): \(error)")
+                        #endif
                         completionHandler()
                         return
                     }
-                    
+
+                    #if DEBUG
                     print("📊 New \(metricType) data detected")
-                    
-                    Task { [weak self] in
-                        await self?.performIncrementalSync(isBackground: true, specificMetricType: metricType)
-                        completionHandler()
-                    }
+                    #endif
+
+                    // Debounce: wait for observer callbacks to settle before syncing
+                    self?.scheduleObserverDebouncedSync()
+                    completionHandler()
                 }
                 
                 healthStore.execute(query)
                 observerQueries.append(query)
                 
+                #if DEBUG
                 print("✅ Background delivery enabled for: \(metricType)")
+                #endif
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to enable background delivery for \(metricType): \(error)")
+                #endif
             }
         }
     }
     
+    /// Schedule a debounced background sync after HealthKit observer callbacks.
+    /// Waits for callbacks to settle (30s) before triggering a single sync.
+    private func scheduleObserverDebouncedSync() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.observerDebounceTimer?.invalidate()
+            self.observerDebounceTimer = Timer.scheduledTimer(withTimeInterval: self.observerDebounceDuration, repeats: false) { [weak self] _ in
+                Task { [weak self] in
+                    await self?.performIncrementalSync(isBackground: true)
+                }
+            }
+        }
+    }
+
     func disableAllObservers() {
         for query in observerQueries {
             healthStore.stop(query)
         }
         observerQueries.removeAll()
+        observerDebounceTimer?.invalidate()
+        observerDebounceTimer = nil
     }
     
     // MARK: - Sync Methods
@@ -245,7 +295,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         if Date().timeIntervalSince(lastSync) < minimumForegroundSyncInterval {
+            #if DEBUG
             print("⏱️ Skipping foreground sync - too recent")
+            #endif
             return
         }
         
@@ -256,7 +308,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     /// This sends daily totals instead of raw samples for much better data quality
     func performIncrementalSync(isBackground: Bool, specificMetricType: String? = nil) async {
         guard !isSyncing else {
+            #if DEBUG
             print("⚠️ Sync already in progress")
+            #endif
             return
         }
 
@@ -297,7 +351,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         
         // Check credentials
         guard apiClient.hasStoredCredentials else {
+            #if DEBUG
             print("⚠️ No credentials - skipping sync")
+            #endif
             recordHistory(succeeded: false, errorMessage: "No stored credentials")
             return
         }
@@ -306,7 +362,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         do {
             try await apiClient.ensureValidToken()
         } catch let error as APIError where error.requiresReauth {
+            #if DEBUG
             print("❌ Token refresh failed - requires re-auth")
+            #endif
             lastError = error.localizedDescription
             lastErrorTime = Date()
             postSyncActionRequired(.authExpired, message: "Authentication expired. Open Ritual and sign in again.")
@@ -318,10 +376,13 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     object: nil
                 )
             }
+            await scheduleReauthLocalNotification()
             recordHistory(succeeded: false, errorMessage: error.localizedDescription)
             return
         } catch {
+            #if DEBUG
             print("⚠️ Token refresh error: \(error)")
+            #endif
         }
         
         // Determine which metrics to sync
@@ -332,14 +393,16 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             // Refresh tracked metrics from server
             do {
                 let response = try await apiClient.fetchTrackedMetrics()
-                metricTypes = response.metricTypes
+                metricTypes = validateMetricTypes(response.metricTypes)
                 
                 if cachedMetricTypes != metricTypes {
                     cachedMetricTypes = metricTypes
                     await enableBackgroundDelivery(forMetricTypes: metricTypes)
                 }
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to fetch tracked metrics, using cached: \(error)")
+                #endif
                 metricTypes = cachedMetricTypes
             }
         }
@@ -347,13 +410,17 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         historyMetricTypes = metricTypes
         
         guard !metricTypes.isEmpty else {
+            #if DEBUG
             print("📊 No metrics to sync")
+            #endif
             postSyncActionRequired(.noMetricsConfigured, message: "No tracked metrics configured. Choose metrics in Ritual desktop.")
             recordHistory(succeeded: true, errorMessage: nil)
             return
         }
         
+        #if DEBUG
         print("🔄 Starting DAILY AGGREGATED sync for \(metricTypes.count) metric types...")
+        #endif
         
         // First, flush any pending offline queue items
         await flushOfflineQueue()
@@ -372,14 +439,18 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 )
                 allMetrics.append(contentsOf: metrics)
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to fetch daily aggregates for \(metricType): \(error.localizedDescription)")
+                #endif
                 historyFailedMetricTypes.insert(metricType)
             }
         }
         
         // Skip if no data
         guard !allMetrics.isEmpty else {
+            #if DEBUG
             print("📊 No data to sync")
+            #endif
             lastSyncTime = Date()
             lastError = nil
             let historyError = historyFailedMetricTypes.isEmpty ? nil : "Failed to fetch one or more metric types"
@@ -387,7 +458,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             return
         }
         
+        #if DEBUG
         print("📊 Syncing \(allMetrics.count) daily aggregate values (\(daysBack)-day window)")
+        #endif
         
         // Batch size limit (backend accepts max 500, use 400 for safety)
         let batchSize = 400
@@ -404,7 +477,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             Array(allMetrics[$0..<min($0 + batchSize, allMetrics.count)])
         }
         
+        #if DEBUG
         print("📦 Sending \(batches.count) batch(es)...")
+        #endif
         
         var failedBatches = 0
         let startTime = Date()
@@ -414,7 +489,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             
             // Log progress
             let elapsed = Date().timeIntervalSince(startTime)
+            #if DEBUG
             print("📤 Batch \(i + 1)/\(batches.count): \(batch.count) daily values (elapsed: \(Int(elapsed))s)")
+            #endif
             
             do {
                 let response = try await apiClient.ingestMetricsV2(
@@ -435,10 +512,14 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     historyFailedBatches += 1
                     historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
                     historyFailedDays.formUnion(dayKeys(from: batch))
+                    #if DEBUG
                     print("⚠️ Batch \(i + 1) rejected by server")
+                    #endif
                 }
             } catch let error as APIError where error.shouldQueue {
+                #if DEBUG
                 print("📥 Network error - queuing batch \(i + 1) for retry")
+                #endif
                 allBatchesSucceeded = false
                 historyFailedBatches += 1
                 historyQueuedBatches += 1
@@ -462,10 +543,14 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 historyFailedBatches += 1
                 historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
                 historyFailedDays.formUnion(dayKeys(from: batch))
+                #if DEBUG
                 print("⚠️ Batch \(i + 1) failed: \(error.localizedDescription)")
+                #endif
                 
                 if failedBatches >= 5 {
+                    #if DEBUG
                     print("❌ Too many batch failures (\(failedBatches)), stopping sync")
+                    #endif
                     break
                 }
             }
@@ -477,7 +562,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         let totalElapsed = Date().timeIntervalSince(startTime)
+        #if DEBUG
         print("📊 Sync completed in \(Int(totalElapsed))s: \(totalSuccess) daily values synced, \(failedBatches) failed batches")
+        #endif
         historyAddedCount = totalSuccess
         
         if totalSuccess > 0 {
@@ -492,7 +579,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 )
             }
             
+            #if DEBUG
             print("✅ Daily aggregated sync complete: \(totalSuccess) values (total syncs: \(syncCount))")
+            #endif
             
             let addedCount = totalSuccess
             let completionTime = Date()
@@ -518,7 +607,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 postSyncActionRequired(.networkQueued, message: "Sync queued due to network issues. Retry will happen automatically.")
             }
         } else if !allBatchesSucceeded {
+            #if DEBUG
             print("❌ Sync failed - no data was successfully synced")
+            #endif
             lastError = "Sync failed"
             lastErrorTime = Date()
             recordHistory(succeeded: false, errorMessage: "Sync failed")
@@ -545,7 +636,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         guard !normalizedDayKeys.isEmpty else { return 0 }
 
         guard !isSyncing else {
+            #if DEBUG
             print("⚠️ Sync already in progress")
+            #endif
             return 0
         }
 
@@ -601,19 +694,24 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     object: nil
                 )
             }
+            await scheduleReauthLocalNotification()
 
             recordHistory(succeeded: false, errorMessage: error.localizedDescription)
             return 0
         } catch {
+            #if DEBUG
             print("⚠️ Token refresh error during retry: \(error)")
+            #endif
         }
 
         let metricTypes: [String]
         do {
             let response = try await apiClient.fetchTrackedMetrics()
-            metricTypes = response.metricTypes
+            metricTypes = validateMetricTypes(response.metricTypes)
         } catch {
+            #if DEBUG
             print("⚠️ Failed to fetch tracked metrics for retry, using cached: \(error)")
+            #endif
             metricTypes = cachedMetricTypes
         }
 
@@ -642,7 +740,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 retryMetrics.append(contentsOf: filtered)
             } catch {
                 historyFailedMetricTypes.insert(metricType)
+                #if DEBUG
                 print("⚠️ Failed to fetch retry metrics for \(metricType): \(error.localizedDescription)")
+                #endif
             }
         }
 
@@ -697,7 +797,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 historyFailedBatches += 1
                 historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
                 historyFailedDays.formUnion(dayKeys(from: batch))
+                #if DEBUG
                 print("⚠️ Retry batch \(index + 1) failed: \(error.localizedDescription)")
+                #endif
             }
 
             if index < batches.count - 1 {
@@ -805,6 +907,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     object: nil
                 )
             }
+            await scheduleReauthLocalNotification()
             return RetryDateRangeResult(
                 attemptedDays: attemptedDayKeys.count,
                 syncedMetricCount: 0,
@@ -813,13 +916,15 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 errorMessage: error.localizedDescription
             )
         } catch {
+            #if DEBUG
             print("⚠️ Token refresh error during date-range retry: \(error)")
+            #endif
         }
 
         let metricTypes: [String]
         do {
             let response = try await apiClient.fetchTrackedMetrics()
-            metricTypes = response.metricTypes
+            metricTypes = validateMetricTypes(response.metricTypes)
         } catch {
             metricTypes = cachedMetricTypes
         }
@@ -851,7 +956,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 }
                 retryMetrics.append(contentsOf: filtered)
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to load \(metricType) for date-range retry: \(error.localizedDescription)")
+                #endif
                 dataLoadFailedDays.formUnion(attemptedDayKeys)
             }
         }
@@ -902,7 +1009,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     )
                 }
             } catch {
+                #if DEBUG
                 print("⚠️ Date-range retry batch \(index + 1) failed: \(error.localizedDescription)")
+                #endif
                 failedDays.formUnion(dayKeys(from: batch))
             }
 
@@ -989,14 +1098,18 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 
                 if response.success {
                     offlineQueue.markSuccess(id: payload.id)
+                    #if DEBUG
                     print("✅ Flushed queued payload \(payload.id)")
+                    #endif
                 } else {
                     offlineQueue.markFailed(id: payload.id, error: "Server rejected")
                 }
                 
             } catch {
                 offlineQueue.markFailed(id: payload.id, error: error.localizedDescription)
+                #if DEBUG
                 print("❌ Failed to flush payload \(payload.id): \(error)")
+                #endif
             }
         }
     }
@@ -1008,8 +1121,10 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             throw APIError.notRegistered
         }
         
+        #if DEBUG
         print("📊 Starting DAILY AGGREGATED backfill for \(daysBack) days...")
         print("   (This sends ~\(daysBack) daily values per metric instead of thousands of raw samples)")
+        #endif
         
         // Use the new daily aggregated backfill method
         let metrics = try await healthKitManager.performDailyAggregatedBackfill(
@@ -1019,7 +1134,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         )
         
         guard !metrics.isEmpty else {
+            #if DEBUG
             print("📊 No metrics to backfill")
+            #endif
             return 0
         }
         
@@ -1029,13 +1146,17 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             Array(metrics[$0..<min($0 + batchSize, metrics.count)])
         }
         
+        #if DEBUG
         print("📦 Backfill: \(metrics.count) DAILY metrics in \(batches.count) batch(es)")
+        #endif
         
         var totalSuccess = 0
         let startTime = Date()
         
         for (index, batch) in batches.enumerated() {
+            #if DEBUG
             print("📤 Backfill batch \(index + 1)/\(batches.count): \(batch.count) daily metrics")
+            #endif
             
             do {
                 let response = try await apiClient.ingestMetricsV2(
@@ -1048,7 +1169,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     totalSuccess += batch.count
                 }
             } catch {
+                #if DEBUG
                 print("⚠️ Batch \(index + 1) failed: \(error.localizedDescription)")
+                #endif
                 // Continue with remaining batches
             }
             
@@ -1059,7 +1182,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         let elapsed = Date().timeIntervalSince(startTime)
+        #if DEBUG
         print("✅ Backfill complete in \(Int(elapsed))s: \(totalSuccess) daily aggregates synced")
+        #endif
         
         if totalSuccess > 0 {
             lastSyncTime = Date()
@@ -1069,6 +1194,48 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         return totalSuccess
     }
     
+    // MARK: - Local Notifications
+
+    private func scheduleReauthLocalNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = "Ritual"
+        content.body = "Your session has expired. Please open Ritual to continue syncing."
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: "ritual-reauth", content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - Metric Type Validation
+
+    /// Validate server-returned metric types against known valid values.
+    /// Returns validated list, falling back to cached if validation fails entirely.
+    private func validateMetricTypes(_ serverTypes: [String]) -> [String] {
+        // Cap at maximum allowed count
+        let capped = Array(serverTypes.prefix(maxServerMetricTypes))
+
+        // Filter to known valid metric types
+        let validated = capped.filter { Self.validMetricTypeValues.contains($0) }
+
+        if validated.isEmpty && !serverTypes.isEmpty {
+            // All server types were invalid - fall back to cached
+            #if DEBUG
+            print("⚠️ All server metric types invalid, falling back to cached: \(serverTypes)")
+            #endif
+            return cachedMetricTypes
+        }
+
+        if validated.count < capped.count {
+            #if DEBUG
+            let rejected = Set(capped).subtracting(validated)
+            #if DEBUG
+            print("⚠️ Rejected unknown metric types from server: \(rejected)")
+            #endif
+            #endif
+        }
+
+        return validated
+    }
+
     // MARK: - Helpers
 
     private func appendSyncHistory(_ entry: SyncHistoryEntry) {
@@ -1118,7 +1285,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     anchors[metricType] = anchor
                 }
             } catch {
+                #if DEBUG
                 print("⚠️ Failed to capture anchor baseline for \(metricType): \(error.localizedDescription)")
+                #endif
             }
         }
 

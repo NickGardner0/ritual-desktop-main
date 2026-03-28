@@ -45,9 +45,25 @@ final class RitualAPIClient {
         return expiry.timeIntervalSinceNow < 300 // 5 minutes buffer
     }
     
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
     private var tokenExpiry: Date? {
-        get { UserDefaults.standard.object(forKey: tokenExpiryKey) as? Date }
-        set { UserDefaults.standard.set(newValue, forKey: tokenExpiryKey) }
+        get {
+            guard let str = KeychainHelper.load(key: tokenExpiryKey) else { return nil }
+            return Self.iso8601Formatter.date(from: str)
+        }
+        set {
+            if let date = newValue {
+                let str = Self.iso8601Formatter.string(from: date)
+                KeychainHelper.save(key: tokenExpiryKey, value: str)
+            } else {
+                KeychainHelper.delete(key: tokenExpiryKey)
+            }
+        }
     }
     
     private var deviceId: String? {
@@ -107,12 +123,14 @@ final class RitualAPIClient {
     
     // MARK: - Initialization
     
+    private let pinningDelegate = CertificatePinningDelegate()
+
     init() {
         let config = URLSessionConfiguration.default
         // Increased timeouts for large batch syncs (125+ batches can take several minutes)
         config.timeoutIntervalForRequest = 120  // 2 minutes per request
         config.timeoutIntervalForResource = 600 // 10 minutes total
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: pinningDelegate, delegateQueue: nil)
         
         self.encoder = JSONEncoder()
         // Configure encoder to match Python's json.dumps with sort_keys=True
@@ -143,8 +161,10 @@ final class RitualAPIClient {
         // Store credentials in Keychain
         self.deviceId = response.deviceId
         self.deviceSecret = response.deviceSecret
-        
+
+        #if DEBUG
         print("✅ Device registered: \(response.deviceId)")
+        #endif
     }
     
     /// Ingest metrics to the backend (V1 - legacy)
@@ -239,17 +259,23 @@ final class RitualAPIClient {
             return
         }
         
+        #if DEBUG
         print("🔄 Token expired or expiring, attempting silent refresh...")
+        #endif
 
         let task = Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.refreshToken()
                 self.consecutiveRefreshFailures = 0
+                #if DEBUG
                 print("✅ Token refreshed successfully")
+                #endif
             } catch {
                 self.consecutiveRefreshFailures += 1
+                #if DEBUG
                 print("❌ Token refresh failed (attempt \(self.consecutiveRefreshFailures)): \(error)")
+                #endif
 
                 if self.consecutiveRefreshFailures >= self.maxRefreshFailures {
                     throw APIError.tokenRefreshFailed
@@ -757,7 +783,7 @@ private enum KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
 
         let attributes: [String: Any] = [
@@ -776,7 +802,9 @@ private enum KeychainHelper {
         }
 
         if status != errSecSuccess {
+            #if DEBUG
             print("⚠️ Keychain save failed: \(status)")
+            #endif
         }
     }
     
@@ -807,7 +835,31 @@ private enum KeychainHelper {
             kSecAttrService as String: service,
             kSecAttrAccount as String: key
         ]
-        
+
         SecItemDelete(query as CFDictionary)
+    }
+}
+
+// MARK: - Certificate Pinning
+
+private class CertificatePinningDelegate: NSObject, URLSessionDelegate {
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let serverTrust = challenge.protectionSpace.serverTrust else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+
+        // Validate the server certificate chain using system trust
+        let policy = SecPolicyCreateSSL(true, challenge.protectionSpace.host as CFString)
+        SecTrustSetPolicies(serverTrust, policy)
+
+        var error: CFError?
+        if SecTrustEvaluateWithError(serverTrust, &error) {
+            let credential = URLCredential(trust: serverTrust)
+            completionHandler(.useCredential, credential)
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
     }
 }

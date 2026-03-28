@@ -159,6 +159,7 @@ class HabitsService:
                     select(HabitDB)
                     .where(HabitDB.user_id == user_id)
                     .order_by(HabitDB.created_at.desc())
+                    .limit(500)
                 )
                 habits_db = result.scalars().all()
                 return [habit_db_to_pydantic(habit) for habit in habits_db]

@@ -275,7 +275,7 @@ export async function POST(req: NextRequest) {
     }
     
     try {
-      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, { headers });
+      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, { headers, signal: AbortSignal.timeout(15000) });
       if (habitsResponse.ok) {
         userHabits = await habitsResponse.json();
         logger.info('✅ Fetched habits:', userHabits.length);
@@ -287,7 +287,7 @@ export async function POST(req: NextRequest) {
     // Fetch aliases for fuzzy matching
     let aliasesMap: Record<string, string[]> = {};
     try {
-      const aliasesResponse = await fetch(`${PYTHON_API_BASE}/api/habits/aliases`, { headers });
+      const aliasesResponse = await fetch(`${PYTHON_API_BASE}/api/habits/aliases`, { headers, signal: AbortSignal.timeout(15000) });
       if (aliasesResponse.ok) {
         aliasesMap = await aliasesResponse.json();
       }
@@ -503,7 +503,8 @@ Non-trackable input →
           body: JSON.stringify({
             items: batchItems,
             client_event_id: clientEventId
-          })
+          }),
+          signal: AbortSignal.timeout(15000),
         });
 
         if (batchResponse.ok) {
@@ -561,6 +562,7 @@ Non-trackable input →
                 value: result.value,
                 unit: result.unit,
               }),
+              signal: AbortSignal.timeout(15000),
             }).catch(err => logger.warn('⚠️ Failed to index log phrase:', err));
           } catch {
             // Non-blocking: phrase indexing is best-effort

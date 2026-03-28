@@ -26,6 +26,7 @@ export async function PUT(
       method: 'PUT',
       headers: buildBackendAuthHeaders({ userId, token }),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

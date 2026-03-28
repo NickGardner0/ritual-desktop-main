@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         Authorization: `Bearer ${tinybirdToken}`,
       },
       next: { revalidate: 30 },
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

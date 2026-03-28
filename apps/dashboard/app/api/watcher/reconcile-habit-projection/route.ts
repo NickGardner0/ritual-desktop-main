@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(url, {
       method: "POST",
       headers: buildBackendAuthHeaders({ userId, token }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

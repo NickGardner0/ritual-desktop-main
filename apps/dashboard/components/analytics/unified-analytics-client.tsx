@@ -14,7 +14,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Plus, Download, ChevronDown } from 'lucide-react';
+import { Plus, Download } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -93,9 +93,6 @@ function UnifiedAnalyticsContent() {
   
   // Overflow menu is handled by Radix DropdownMenu (no manual state needed)
   
-  const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
-  const habitDropdownButtonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   
   // Get habits context for refresh after creating/importing
   const { habits, habitLogs, fetchHabits, fetchHabitLogs } = useHabits();
@@ -109,24 +106,23 @@ function UnifiedAnalyticsContent() {
   const { getToken } = useAuth();
 
   // Keep "Computer Use" habit in sync on dashboard load.
-  // Guarded to avoid duplicate calls from StrictMode/remounts.
-  useEffect(() => {
-    let cancelled = false;
+  // Uses an AbortController ref to cancel in-flight requests on unmount/remount
+  // instead of a window global flag (avoids race conditions in StrictMode).
+  const syncAbortRef = useRef<AbortController | null>(null);
 
-    const syncComputerUseHabit = async () => {
+  useEffect(() => {
+    const syncComputerUseHabit = async (signal: AbortSignal) => {
       if (typeof window !== 'undefined') {
-        const inFlight = Boolean((window as any).__ritualComputerSyncInFlight);
         const lastSyncedAt = Number(sessionStorage.getItem(COMPUTER_SYNC_LAST_KEY) || '0');
         const tooSoon = Date.now() - lastSyncedAt < COMPUTER_SYNC_THROTTLE_MS;
-        if (inFlight || tooSoon) {
+        if (tooSoon) {
           return;
         }
-        (window as any).__ritualComputerSyncInFlight = true;
       }
 
       try {
         // Use lightweight single-day sync on page load. Backfills/reconcile should be manual.
-        const response = await fetch('/api/watcher/sync-to-habit', { method: 'POST' });
+        const response = await fetch('/api/watcher/sync-to-habit', { method: 'POST', signal });
         if (!response.ok) {
           return;
         }
@@ -134,42 +130,30 @@ function UnifiedAnalyticsContent() {
         if (typeof window !== 'undefined') {
           sessionStorage.setItem(COMPUTER_SYNC_LAST_KEY, String(Date.now()));
         }
-        if (cancelled) {
+        if (signal.aborted) {
           return;
         }
         if (result?.success && result?.synced) {
           await Promise.all([fetchHabits(), fetchHabitLogs()]);
         }
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
         console.debug('Computer use sync failed:', error);
-      } finally {
-        if (typeof window !== 'undefined') {
-          (window as any).__ritualComputerSyncInFlight = false;
-        }
       }
     };
 
     if (userLoaded && isSignedIn) {
-      syncComputerUseHabit();
+      syncAbortRef.current?.abort();
+      const controller = new AbortController();
+      syncAbortRef.current = controller;
+      syncComputerUseHabit(controller.signal);
     }
 
     return () => {
-      cancelled = true;
+      syncAbortRef.current?.abort();
     };
   }, [userLoaded, isSignedIn]);
 
-  // Update dropdown position when opening
-  useEffect(() => {
-    if (habitDropdownOpen && habitDropdownButtonRef.current) {
-      const rect = habitDropdownButtonRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + 4,
-        left: rect.left
-      });
-    }
-  }, [habitDropdownOpen]);
-  
-  
   // Auto-select all habits when habits load and none selected
   useEffect(() => {
     if (habits.length > 0 && selectedHabits.length === 0) {

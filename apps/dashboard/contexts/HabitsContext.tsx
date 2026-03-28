@@ -153,27 +153,27 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   
   // Backward compatible functions that use React Query mutations
   const fetchHabits = React.useCallback(async () => {
-    console.log('🔄 [Compat] fetchHabits called - using React Query refetch');
+    if (process.env.NODE_ENV !== 'production') { console.log('🔄 [Compat] fetchHabits called - using React Query refetch'); }
     await habitsQuery.refetch();
   }, [habitsQuery]);
   
   const fetchHabitLogs = React.useCallback(async () => {
-    console.log('🔄 [Compat] fetchHabitLogs called - using React Query refetch');
+    if (process.env.NODE_ENV !== 'production') { console.log('🔄 [Compat] fetchHabitLogs called - using React Query refetch'); }
     await logsQuery.refetch();
   }, [logsQuery]);
   
   const logHabit = React.useCallback(async (habitLog: Omit<HabitLog, 'id'>) => {
-    console.log('📝 [Compat] logHabit called - using React Query mutation');
+    if (process.env.NODE_ENV !== 'production') { console.log('📝 [Compat] logHabit called - using React Query mutation'); }
     await logHabitMutation.mutateAsync(habitLog);
   }, [logHabitMutation]);
   
   const createHabit = React.useCallback(async (habitData: any) => {
-    console.log('➕ [Compat] createHabit called - using React Query mutation');
+    if (process.env.NODE_ENV !== 'production') { console.log('➕ [Compat] createHabit called - using React Query mutation'); }
     return await createHabitMutation.mutateAsync(habitData);
   }, [createHabitMutation]);
   
   const deleteHabit = React.useCallback(async (habitId: string) => {
-    console.log('🗑️ [Compat] deleteHabit called - using React Query mutation');
+    if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [Compat] deleteHabit called - using React Query mutation'); }
     // Find the habit to get its name and category for analytics
     const habit = habits.find(h => h.id === habitId);
     await deleteHabitMutation.mutateAsync({ 

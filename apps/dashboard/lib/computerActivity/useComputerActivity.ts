@@ -249,14 +249,14 @@ async function fetchActivityEvents(startTs: number, endTs: number, limit?: numbe
   try {
     // Check if we're in Tauri environment
     if (isTauri()) {
-      console.log('[useComputerActivity] isTauri()=true, attempting Tauri invoke for detailed activity…')
+      if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] isTauri()=true, attempting Tauri invoke for detailed activity…') }
       try {
         const response = await invokeDetailedActivityWithInitRetry({
           startTs,
           endTs,
           limit,
         })
-        console.log(`[useComputerActivity] Tauri invoke succeeded: ${response.events.length} events, active_ms=${response.total_active_ms}`)
+        if (process.env.NODE_ENV !== 'production') { console.log(`[useComputerActivity] Tauri invoke succeeded: ${response.events.length} events, active_ms=${response.total_active_ms}`) }
 
         return response.events.map(e => ({
           id: e.id,
@@ -273,7 +273,7 @@ async function fetchActivityEvents(startTs: number, endTs: number, limit?: numbe
         }))
       } catch (tauriError) {
         console.error('[useComputerActivity] Tauri invoke FAILED — IPC bridge likely unavailable:', tauriError)
-        console.log('[useComputerActivity] Falling through to HTTP fetch…')
+        if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] Falling through to HTTP fetch…') }
       }
     }
 
@@ -402,7 +402,7 @@ export function useComputerActivity(
       const dedupedEvents = cachedEvents === rawEvents ? rawEvents : deduplicateEvents(rawEvents)
 
       if (cachedEvents !== rawEvents && dedupedEvents.length < rawEvents.length) {
-        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
+        if (process.env.NODE_ENV !== 'production') { console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`) }
       }
 
       if (currentRequestId === requestIdRef.current) {

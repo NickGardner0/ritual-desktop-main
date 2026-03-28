@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
         'Authorization': `Bearer ${apiKey}`,
       },
       body: apiFormData,
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

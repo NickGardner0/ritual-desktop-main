@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(url, {
       method: "GET",
       headers: buildBackendAuthHeaders({ userId, token }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

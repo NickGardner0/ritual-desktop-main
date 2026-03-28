@@ -24,6 +24,7 @@ export async function POST(
     const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/watcher/devices/${deviceId}/stop`, {
       method: 'POST',
       headers: buildBackendAuthHeaders({ userId, token }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

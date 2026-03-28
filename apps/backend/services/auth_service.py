@@ -7,7 +7,7 @@ from jwt import PyJWKClient
 import os
 import asyncio
 import httpx
-import requests
+import time
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
@@ -101,6 +101,12 @@ class AuthService:
                 phone = user_info.get("phone") if user_info else None
             else:
                 # Even if we have email, try to get phone from cache or Clerk
+                # Evict expired entries when cache grows too large
+                if len(self._user_cache) > 100:
+                    now = time.time()
+                    expired_keys = [k for k, v in self._user_cache.items() if now - v.get("cached_at", 0) > self._user_cache_ttl]
+                    for k in expired_keys:
+                        del self._user_cache[k]
                 cached = self._user_cache.get(user_id)
                 if cached and (datetime.now(timezone.utc).timestamp() - cached["cached_at"]) < self._user_cache_ttl:
                     phone = cached.get("phone")
@@ -223,6 +229,8 @@ class AuthService:
         """
         Create a custom JWT token (for future use when migrating away from Supabase)
         """
+        if not hasattr(self, 'jwt_secret') or not self.jwt_secret:
+            raise NotImplementedError("JWT secret not configured")
         payload = {
             "sub": user_data["id"],
             "email": user_data["email"],
@@ -230,13 +238,15 @@ class AuthService:
             "iat": datetime.utcnow(),
             "exp": datetime.utcnow() + timedelta(hours=24)
         }
-        
+
         return jwt.encode(payload, self.jwt_secret, algorithm="HS256")
-    
+
     def verify_custom_token(self, token: str) -> Optional[Dict[str, Any]]:
         """
         Verify a custom JWT token (for future use)
         """
+        if not hasattr(self, 'jwt_secret') or not self.jwt_secret:
+            raise NotImplementedError("JWT secret not configured")
         try:
             payload = jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
             return payload

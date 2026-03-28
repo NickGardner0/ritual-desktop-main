@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       method: "GET",
       cache: "no-store",
       headers: buildBackendAuthHeaders({ userId, token }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {

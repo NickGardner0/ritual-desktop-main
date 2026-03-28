@@ -45,9 +45,9 @@ export async function GET(request: NextRequest) {
     const insightsUrl = `${tinybirdUrl}/v0/pipes/habit_insights.json?user_id=${encodeURIComponent(userId)}`;
 
     const [summaryRes, habitsRes, insightsRes] = await Promise.all([
-      fetch(summaryUrl, { headers: { 'Authorization': `Bearer ${tinybirdToken}` } }),
-      fetch(habitsUrl, { headers: { 'Authorization': `Bearer ${tinybirdToken}` } }),
-      fetch(insightsUrl, { headers: { 'Authorization': `Bearer ${tinybirdToken}` } }),
+      fetch(summaryUrl, { headers: { 'Authorization': `Bearer ${tinybirdToken}` }, signal: AbortSignal.timeout(15000) }),
+      fetch(habitsUrl, { headers: { 'Authorization': `Bearer ${tinybirdToken}` }, signal: AbortSignal.timeout(15000) }),
+      fetch(insightsUrl, { headers: { 'Authorization': `Bearer ${tinybirdToken}` }, signal: AbortSignal.timeout(15000) }),
     ]);
 
     const summaryData = summaryRes.ok ? await summaryRes.json() : { data: [] };
