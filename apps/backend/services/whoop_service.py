@@ -237,6 +237,55 @@ class WhoopService:
                     .where(WhoopIntegrationDB.is_active == True)
                 )
                 integration = result.scalar_one_or_none()
+                if integration is None:
+                    canonical = await wearable_connection_service.get_connection(user_id, "whoop")
+                    if (
+                        canonical is None
+                        or canonical.status != "active"
+                        or not canonical.provider_user_id
+                        or not canonical.access_token
+                    ):
+                        return None
+
+                    settings = {}
+                    if canonical.settings_json:
+                        try:
+                            settings = json.loads(canonical.settings_json)
+                        except Exception:
+                            settings = {}
+
+                    scopes = None
+                    if canonical.scopes_json:
+                        try:
+                            parsed_scopes = json.loads(canonical.scopes_json)
+                            if isinstance(parsed_scopes, list):
+                                scopes = " ".join(str(scope) for scope in parsed_scopes if scope)
+                            elif isinstance(parsed_scopes, str):
+                                scopes = parsed_scopes
+                        except Exception:
+                            scopes = canonical.scopes_json
+
+                    integration = WhoopIntegrationDB(
+                        id=str(uuid.uuid4()),
+                        user_id=user_id,
+                        whoop_user_id=canonical.provider_user_id,
+                        access_token=canonical.access_token,
+                        refresh_token=canonical.refresh_token,
+                        token_expires_at=canonical.token_expires_at or datetime.utcnow(),
+                        connected_at=canonical.created_at or datetime.utcnow(),
+                        last_sync_at=canonical.last_sync_at,
+                        is_active=True,
+                        whoop_sync_hour=int(settings.get("sync_hour", settings.get("whoop_sync_hour", 9)) or 9),
+                        scope=scopes,
+                    )
+                    session.add(integration)
+                    await session.commit()
+                    await session.refresh(integration)
+                    logger.info(
+                        "🩹 Rebuilt legacy Whoop integration row from canonical wearable connection for user %s",
+                        user_id,
+                    )
+
                 if integration:
                     integration.access_token = self._decrypt_token(integration.access_token)
                     integration.refresh_token = self._decrypt_token(integration.refresh_token)
