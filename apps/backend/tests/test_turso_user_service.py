@@ -33,6 +33,16 @@ class _SQLiteReplica:
         return None
 
 
+class _FailingCommitReplica(_SQLiteReplica):
+    should_fail_once = True
+
+    def commit(self):
+        if _FailingCommitReplica.should_fail_once:
+            _FailingCommitReplica.should_fail_once = False
+            raise ValueError('SqliteFailure(7, "wal_insert_frame failed")')
+        return super().commit()
+
+
 def _prepare_schema(path: str) -> None:
     conn = sqlite3.connect(path)
     try:
@@ -385,3 +395,59 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Migration gate failed", str(exc.exception))
         update_metadata.assert_not_awaited()
+
+    async def test_migrate_user_rows_replays_batch_after_retryable_commit_failure(self):
+        service = TursoUserService()
+        target_user_id = "current-user"
+        source_user_id = "legacy-user"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = os.path.join(tmp, "activity.db")
+            target_path = os.path.join(tmp, "per-user.db")
+            _prepare_schema(source_path)
+            _prepare_schema(target_path)
+            _seed_rollout_user_source(source_path, source_user_id)
+            _FailingCommitReplica.should_fail_once = True
+
+            user = SimpleNamespace(
+                id=target_user_id,
+                turso_db_name="ritual-user-current",
+                turso_db_url="libsql://ritual-user-current.turso.io",
+            )
+
+            with patch.object(
+                service,
+                "_mint_database_token",
+                AsyncMock(return_value="server-token"),
+            ), patch.object(
+                service,
+                "_update_user_turso_metadata",
+                AsyncMock(),
+            ) as update_metadata, patch.object(
+                service,
+                "is_rollout_gate_user",
+                return_value=False,
+            ), patch.object(
+                service,
+                "_open_remote_replica",
+                side_effect=lambda _replica_path, _sync_url, _token: _FailingCommitReplica(target_path),
+            ):
+                await service._migrate_user_rows(
+                    user,
+                    source_user_id=source_user_id,
+                    source_db_path=source_path,
+                )
+
+            conn = sqlite3.connect(target_path)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM activity_events WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+            finally:
+                conn.close()
+
+        update_metadata.assert_awaited()

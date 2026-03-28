@@ -39,6 +39,7 @@ MIGRATION_TABLES = (
 )
 
 MIGRATION_BATCH_SIZE = 5_000
+MIGRATION_BATCH_RETRY_LIMIT = 5
 
 SCHEMA_STATEMENTS = (
     """
@@ -550,6 +551,16 @@ class TursoUserService:
                     or "invalid jwt token" in message
                 )
 
+            def _is_retryable_replica_error(exc: Exception) -> bool:
+                message = str(exc).lower()
+                return (
+                    "stream not found" in message
+                    or "wal_insert_frame failed" in message
+                    or "sqlitefailure(7" in message
+                    or "sqlitefailure(10" in message
+                    or "sqlitfailure(7" in message
+                )
+
             try:
                 for statement in SCHEMA_STATEMENTS:
                     try:
@@ -608,40 +619,37 @@ class TursoUserService:
                         if not rows:
                             break
 
+                        transformed_rows = []
                         for row in rows:
                             values = list(row)
                             if user_id_index is not None:
                                 values[user_id_index] = user.id
-                            try:
-                                remote.execute(
-                                    f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
-                                    tuple(values),
-                                )
-                            except Exception as exc:
-                                message = str(exc).lower()
-                                if "stream not found" in message:
-                                    remote = _reopen_remote()
-                                elif _should_refresh_token(exc):
-                                    remote = _reopen_remote(refresh_token=True)
-                                else:
-                                    raise
-                                remote.execute(
-                                    f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
-                                    tuple(values),
-                                )
+                            transformed_rows.append(tuple(values))
 
-                        try:
-                            remote.commit()
-                            remote.sync()
-                        except Exception as exc:
-                            if _should_refresh_token(exc):
-                                remote = _reopen_remote(refresh_token=True)
-                            elif "stream not found" in str(exc).lower():
+                        batch_attempt = 0
+                        while True:
+                            try:
+                                for values in transformed_rows:
+                                    remote.execute(
+                                        f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
+                                        values,
+                                    )
+                                remote.commit()
+                                remote.sync()
                                 remote = _reopen_remote()
-                            else:
+                                last_id = int(rows[-1]["id"])
+                                break
+                            except Exception as exc:
+                                batch_attempt += 1
+                                if batch_attempt >= MIGRATION_BATCH_RETRY_LIMIT:
+                                    raise
+                                if _should_refresh_token(exc):
+                                    remote = _reopen_remote(refresh_token=True)
+                                    continue
+                                if _is_retryable_replica_error(exc):
+                                    remote = _reopen_remote()
+                                    continue
                                 raise
-                        remote = _reopen_remote()
-                        last_id = int(rows[-1]["id"])
 
                 counts: Dict[str, Dict[str, int]] = {}
                 for table_name in ("context_snapshots", "session_retrieval_docs", "context_sessions", "activity_events"):
