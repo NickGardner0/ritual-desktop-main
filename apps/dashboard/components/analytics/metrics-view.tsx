@@ -83,10 +83,9 @@ const ComputerActivitySection = dynamic(
   { ssr: false }
 );
 
-import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-list';
-import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
-import { HabitChartCard } from '@/components/analytics/habit-chart-card';
+import type { BarListRange } from '@/components/analytics/vercel-bar-list';
+import { PerplexityMiniSparkChart } from '@/components/charts/PerplexityMiniSparkChart';
 
 const ComputerTimeDetailSection = dynamic(
   () => import('@/components/analytics/computer-time-detail-section').then(m => ({ default: m.ComputerTimeDetailSection })),
@@ -119,25 +118,6 @@ const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 const CARD_ORDER_KEY = 'ritual-metric-card-order';
 const DEFAULT_METRICS_SPARKLINE_DAYS = 180;
 const DEFAULT_METRICS_SUMMARY_DAYS = 1095;
-
-function mapBarListRangeToChartRange(range: BarListRange): RangeKey {
-  switch (range) {
-    case '1W':
-      return '1W';
-    case '1M':
-      return '1M';
-    case '3M':
-      return '3M';
-    case '6M':
-      return '6M';
-    case '1Y':
-      return '1Y';
-    case 'ALL':
-      return 'MAX';
-    default:
-      return '1M';
-  }
-}
 
 // ── Metric Category Tabs ──
 const METRIC_CATEGORY_TABS = [
@@ -1999,18 +1979,39 @@ export function MetricsView({
                 })
               : metricCardIds;
 
-            // Show all visible cards (no pagination) for a cleaner layout
-            const pageIds = visibleIds;
+            const CARDS_PER_PAGE = 4;
+            const totalPages = Math.ceil(visibleIds.length / CARDS_PER_PAGE);
+            const safeCardPage = Math.min(clampedCardPage, Math.max(totalPages - 1, 0));
+            const pageStart = safeCardPage * CARDS_PER_PAGE;
+            const pageIds = visibleIds.slice(pageStart, pageStart + CARDS_PER_PAGE);
 
             return (
                 <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={pageIds} strategy={rectSortingStrategy}>
-                    <div
-                      className={`mx-auto relative w-full max-w-[920px] transition-opacity duration-300 ${
-                        expandedHabit ? 'opacity-40 pointer-events-auto' : 'opacity-100'
-                      }`}
-                    >
-                    <div className="grid w-full grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
+                    <div className="mx-auto relative w-full max-w-[920px]">
+                      {/* Pagination arrows */}
+                      {totalPages > 1 && (
+                        <div className="flex items-center justify-end gap-1 mb-2">
+                          <span className="text-[11px] text-[rgba(39,37,30,0.35)] mr-1.5 tabular-nums">{safeCardPage + 1}/{totalPages}</span>
+                          <button
+                            onClick={() => setCardPage(Math.max(0, safeCardPage - 1))}
+                            disabled={safeCardPage === 0}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-[rgba(39,37,30,0.08)] bg-white text-[rgba(39,37,30,0.4)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] disabled:opacity-30 disabled:cursor-not-allowed"
+                            aria-label="Previous page"
+                          >
+                            <ChevronLeft className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => setCardPage(Math.min(totalPages - 1, safeCardPage + 1))}
+                            disabled={safeCardPage >= totalPages - 1}
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-[rgba(39,37,30,0.08)] bg-white text-[rgba(39,37,30,0.4)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] disabled:opacity-30 disabled:cursor-not-allowed"
+                            aria-label="Next page"
+                          >
+                            <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                    <div className="grid w-full grid-cols-2 gap-[6px] sm:grid-cols-2 lg:grid-cols-4">
                       {pageIds.map((habitId: string) => {
                         const cardData = habitId === COMPUTER_ACTIVITY_CARD_ID
                           ? computerCardData
@@ -2096,470 +2097,289 @@ export function MetricsView({
             );
           })()}
 
-          {/* ── Vercel-style analytics sections ── */}
-          {!expandedHabit && (() => {
-            if (filteredHabits.length === 0) return null;
-
-            // ─── Compute range-filtered habit data for bar list ───
-            const barRangeDates = getRangeDates(barListRange as RangeKey);
-            const rangeFrom = barRangeDates.from;
-            const rangeTo = barRangeDates.to;
-
-            const shortenUnit = (u: string) => {
-              const lower = u.toLowerCase();
-              if (lower === 'milligrams') return 'mg';
-              return u;
-            };
-            const formatBarValue = (v: number, unit: string) => {
-              const formatted = v >= 1000
-                ? Math.round(v).toLocaleString()
-                : v >= 10 ? v.toFixed(1) : v.toFixed(2);
-              return `${formatted} ${shortenUnit(unit)}`.trim();
-            };
-
-            const habitBarData = filteredHabits
+          {/* ── Watchlist Table ── */}
+          {(() => {
+            // Build watchlist rows from all habits (excluding computer time)
+            const watchlistRows = filteredHabits
               .map((h: HabitData) => {
-                const logs = analyticsData[h.habit_id] || [];
-                const unit = summaryMetrics[h.habit_id]?.unit || h.unit_type || 'count';
-                const hib = inferHigherIsBetter(h.habit_name, unit);
+                const cardData = getHabitCardData(h.habit_id);
+                if (!cardData) return null;
+                const sparkValues = (cardData.chartData || [])
+                  .map((d: ChartDataPoint) => Number(d.value ?? 0))
+                  .filter((v: number) => Number.isFinite(v));
+                const numericChange = Number(cardData.change ?? 0);
+                const trend: 'up' | 'down' | 'neutral' = !Number.isFinite(numericChange) || Math.abs(numericChange) < 0.05
+                  ? 'neutral'
+                  : numericChange >= 0 ? 'up' : 'down';
 
-                // Filter logs to selected range
-                const rangeLogs = logs.filter((l: any) => {
-                  if (!l.date) return false;
-                  const d = parseISO(l.date);
-                  return d >= rangeFrom && d <= rangeTo;
-                });
-
-                if (rangeLogs.length === 0) return null;
-
-                const values = rangeLogs.map((l: any) =>
-                  Number(l.daily_value ?? l.value ?? l.total_amount ?? 0)
-                ).filter((v: number) => v > 0);
-
-                if (values.length === 0) return null;
-
-                // Use average for heart rate, total for everything else
-                const useAverage = h.habit_name.toLowerCase().includes('heart rate');
-                const total = values.reduce((s: number, v: number) => s + v, 0);
-                const displayVal = useAverage ? total / values.length : total;
-
-                // Compare: split range in half for change calculation
-                const midPoint = new Date((rangeFrom.getTime() + rangeTo.getTime()) / 2);
-                const firstHalf = rangeLogs.filter((l: any) => parseISO(l.date) < midPoint);
-                const secondHalf = rangeLogs.filter((l: any) => parseISO(l.date) >= midPoint);
-
-                const firstValues = firstHalf.map((l: any) => Number(l.daily_value ?? l.value ?? l.total_amount ?? 0)).filter((v: number) => v > 0);
-                const secondValues = secondHalf.map((l: any) => Number(l.daily_value ?? l.value ?? l.total_amount ?? 0)).filter((v: number) => v > 0);
-
-                const firstSum = firstValues.reduce((s: number, v: number) => s + v, 0);
-                const secondSum = secondValues.reduce((s: number, v: number) => s + v, 0);
-                const firstCompare = useAverage && firstValues.length > 0 ? firstSum / firstValues.length : firstSum;
-                const secondCompare = useAverage && secondValues.length > 0 ? secondSum / secondValues.length : secondSum;
-
-                const change = computeMeaningfulPercentChange(secondCompare, firstCompare, unit);
+                const shortenUnit = (u: string) => {
+                  const lower = u.toLowerCase();
+                  if (lower === 'milligrams') return 'mg';
+                  return u;
+                };
+                const formatWatchlistValue = (v: number) => {
+                  if (!Number.isFinite(v)) return '--';
+                  if (v >= 1000) return Math.round(v).toLocaleString();
+                  if (v >= 100) return v.toFixed(0);
+                  if (v >= 10) return v.toFixed(1);
+                  return v.toFixed(2);
+                };
 
                 return {
                   habitId: h.habit_id,
                   name: h.habit_name,
-                  avg: displayVal,
-                  unit,
-                  change,
-                  changeLabel: change === undefined ? 'New' : undefined,
-                  higherIsBetter: hib,
-                  daysWithData: values.length,
-                  category: getMetricCategoryForHabit(h.habit_name, h.category),
+                  formattedValue: formatWatchlistValue(cardData.currentValue),
+                  unit: shortenUnit(cardData.unit),
+                  sparkValues,
+                  trend,
+                  change: cardData.change,
+                  higherIsBetter: cardData.higherIsBetter,
                 };
               })
-              .filter(Boolean) as any[];
+              .filter(Boolean) as Array<{
+                habitId: string;
+                name: string;
+                formattedValue: string;
+                unit: string;
+                sparkValues: number[];
+                trend: 'up' | 'down' | 'neutral';
+                change: number | undefined;
+                higherIsBetter: boolean | null;
+              }>;
 
-            // ─── Add Computer Activity if available ───
-            if (computerActivityDaily.length > 0) {
-              const compLogs = computerActivityDaily.filter((row) => {
-                const d = parseISO(row.day);
-                return d >= rangeFrom && d <= rangeTo;
+            // Add computer activity row
+            if (computerActivityCard) {
+              const compSparkValues = (computerActivityCard.chartData || [])
+                .map((d: ChartDataPoint) => Number(d.value ?? 0))
+                .filter((v: number) => Number.isFinite(v));
+              const compChange = Number(computerActivityCard.change ?? 0);
+              const compTrend: 'up' | 'down' | 'neutral' = !Number.isFinite(compChange) || Math.abs(compChange) < 0.05
+                ? 'neutral'
+                : compChange >= 0 ? 'up' : 'down';
+              watchlistRows.push({
+                habitId: COMPUTER_ACTIVITY_CARD_ID,
+                name: COMPUTER_HABIT_DISPLAY_NAME,
+                formattedValue: computerActivityCard.currentValue.toFixed(1),
+                unit: 'hours',
+                sparkValues: compSparkValues,
+                trend: compTrend,
+                change: computerActivityCard.change,
+                higherIsBetter: null,
               });
-              const compValues = compLogs.map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
-              if (compValues.length > 0) {
-                const compTotal = compValues.reduce((s, v) => s + v, 0);
-                const midPoint = new Date((rangeFrom.getTime() + rangeTo.getTime()) / 2);
-                const compFirst = compLogs.filter((r) => parseISO(r.day) < midPoint).map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
-                const compSecond = compLogs.filter((r) => parseISO(r.day) >= midPoint).map((r) => Number(r.active_hours || 0)).filter((v) => v > 0);
-                const compFirstTotal = compFirst.reduce((s, v) => s + v, 0);
-                const compSecondTotal = compSecond.reduce((s, v) => s + v, 0);
-                const compChange = computeMeaningfulPercentChange(compSecondTotal, compFirstTotal, 'hours');
-                habitBarData.push({
-                  habitId: COMPUTER_ACTIVITY_CARD_ID,
-                  name: COMPUTER_HABIT_DISPLAY_NAME,
-                  avg: compTotal,
-                  unit: 'Hours',
-                  change: compChange,
-                  changeLabel: compChange === undefined ? 'New' : undefined,
-                  higherIsBetter: null,
-                  daysWithData: compValues.length,
-                  category: 'digital',
-                });
-              }
             }
 
-            if (habitBarData.length === 0) return null;
+            if (watchlistRows.length === 0) return null;
 
-            // ─── Habits bar list ───
-            const maxVal = Math.max(...habitBarData.map((h: any) => Math.abs(h.avg)), 1);
-            const habitBarItems: BarListItem[] = [...habitBarData]
-              .sort((a: any, b: any) => b.avg - a.avg)
-              .map((h: any) => ({
-                name: h.name,
-                value: formatBarValue(h.avg, h.unit),
-                change: h.change,
-                changeLabel: h.changeLabel,
-                higherIsBetter: h.higherIsBetter,
-                barPercent: Math.round((Math.abs(h.avg) / maxVal) * 100),
-              }));
-
-            // ─── Streaks bar list ───
-            const streakItems = habitBarData
-              .map((h: any) => {
-                const logs = analyticsData[h.habitId] || [];
-                let streak = 0;
-                if (logs.length > 0) {
-                  const sortedDates = logs
-                    .map((l: any) => l.date)
-                    .filter(Boolean)
-                    .sort()
-                    .reverse();
-                  if (sortedDates.length > 0) {
-                    streak = 1;
-                    for (let i = 1; i < sortedDates.length; i++) {
-                      const curr = parseISO(sortedDates[i - 1]);
-                      const prev = parseISO(sortedDates[i]);
-                      const diff = differenceInDays(curr, prev);
-                      if (diff <= 1) streak++;
-                      else break;
-                    }
-                  }
-                }
-                return { name: h.name, streak };
-              })
-              .sort((a: any, b: any) => b.streak - a.streak);
-            const maxStreak = Math.max(...streakItems.map((s: any) => s.streak), 1);
-            const streakBarItems: BarListItem[] = streakItems.map((s: any) => ({
-              name: s.name,
-              value: `${s.streak}d`,
-              barPercent: Math.round((s.streak / maxStreak) * 100),
-            }));
+            const formatChangeBadge = (change: number | undefined) => {
+              if (change === undefined || !Number.isFinite(change)) return null;
+              const abs = Math.abs(change);
+              const display = abs >= 100 ? Math.round(abs) : abs >= 10 ? Math.round(abs) : abs.toFixed(1);
+              if (abs < 0.05) return { text: '0.0%', color: 'neutral' as const };
+              return {
+                text: `${display}%`,
+                color: change > 0 ? 'up' as const : 'down' as const,
+              };
+            };
 
             return (
-              <div className="mx-auto mt-8 w-full max-w-[920px]">
-                {/* Section header */}
-                <div className="mb-4 flex items-center gap-3">
-                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Breakdown</h3>
+              <div className="mx-auto mt-6 w-full max-w-[920px]">
+                <div className="mb-3 flex items-center gap-3">
+                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">All Metrics</h3>
                   <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
                 </div>
-                {/* Horizontal bar list cards - 2 col */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-[6px]">
-                  <VercelBarListCard
-                    tabs={[
-                      { id: 'habits', label: 'Habits' },
-                      { id: 'streaks', label: 'Streaks' },
-                    ]}
-                    defaultTab="habits"
-                    data={{
-                      habits: habitBarItems,
-                      streaks: streakBarItems,
-                    }}
-                    showRangeSelector
-                    activeRange={barListRange}
-                    onRangeChange={setBarListRange}
-                  />
-                  <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
-                </div>
+                <div className="overflow-hidden rounded-xl border border-[rgba(39,37,30,0.08)] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                  {watchlistRows.map((row, i) => {
+                    const isExpanded = expandedHabit === row.habitId;
+                    const badge = formatChangeBadge(row.change);
+                    return (
+                      <React.Fragment key={row.habitId}>
+                        <button
+                          onClick={() => {
+                            if (row.habitId === COMPUTER_ACTIVITY_CARD_ID) return;
+                            setExpandedHabit(isExpanded ? null : row.habitId);
+                          }}
+                          className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors duration-150 ${
+                            row.habitId === COMPUTER_ACTIVITY_CARD_ID ? 'cursor-default' : 'cursor-pointer hover:bg-[rgba(39,37,30,0.02)]'
+                          } ${i < watchlistRows.length - 1 || isExpanded ? 'border-b border-[rgba(39,37,30,0.06)]' : ''} ${
+                            isExpanded ? 'bg-[rgba(39,37,30,0.015)]' : ''
+                          }`}
+                        >
+                          <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-[#27251E]">
+                            {row.name}
+                          </span>
+                          <span className="text-[13px] tabular-nums text-[rgba(39,37,30,0.65)] text-right whitespace-nowrap">
+                            {row.formattedValue} <span className="text-[rgba(39,37,30,0.4)]">{row.unit}</span>
+                          </span>
+                          <div className="w-[60px] h-[24px] shrink-0 mx-1">
+                            <PerplexityMiniSparkChart values={row.sparkValues} trend={row.trend} height={24} />
+                          </div>
+                          <span className="w-[62px] shrink-0 text-right">
+                            {badge ? (
+                              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium tabular-nums ${
+                                badge.color === 'up'
+                                  ? 'bg-[rgba(19,106,34,0.08)] text-[#136A22]'
+                                  : badge.color === 'down'
+                                    ? 'bg-[rgba(162,53,68,0.08)] text-[#A23544]'
+                                    : 'bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.45)]'
+                              }`}>
+                                {badge.color === 'up' ? '↗' : badge.color === 'down' ? '↘' : '—'} {badge.text}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.45)] tabular-nums">
+                                —
+                              </span>
+                            )}
+                          </span>
+                          {row.habitId !== COMPUTER_ACTIVITY_CARD_ID && (
+                            <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-[rgba(39,37,30,0.25)] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                          )}
+                        </button>
+                        {/* Inline expanded chart */}
+                        {isExpanded && row.habitId !== COMPUTER_ACTIVITY_CARD_ID && (
+                          <div className={`border-b border-[rgba(39,37,30,0.06)] bg-[rgba(39,37,30,0.01)] px-4 py-4 ${i === watchlistRows.length - 1 ? 'border-b-0' : ''}`}>
+                            {loadingExpandedLogs ? (
+                              <div className="flex h-[300px] items-center justify-center">
+                                <div className="text-center">
+                                  <BrailleSpinner className="mx-auto mb-2 text-2xl text-gray-400" />
+                                  <p className="text-[13px] text-gray-400">Loading chart...</p>
+                                </div>
+                              </div>
+                            ) : expandedHabitUsesGranularHeartRate ? (
+                              (() => {
+                                const expandedData = getHeartRateExpandedData();
+                                if (!expandedData) return null;
+                                const heartRateTitle = expandedHabitData?.habit_name || 'Heart Rate';
+                                const ranges: RangeOption[] = [
+                                  { value: '1D', label: '1D' }, { value: '5D', label: '5D' },
+                                  { value: '1W', label: '1W' }, { value: '1M', label: '1M' },
+                                  { value: '6M', label: '6M' }, { value: 'YTD', label: 'YTD' },
+                                  { value: '1Y', label: '1Y' }, { value: '5Y', label: '5Y' },
+                                  { value: 'MAX', label: 'MAX' },
+                                ];
+                                const points = habitToFinanceSeries(expandedData.chartData);
+                                const lastPoint = points[points.length - 1];
+                                const primaryValue = lastPoint ? Number(lastPoint.close).toFixed(0) : '--';
 
-                {/* Computer Time detail section with app icons and progress bars */}
-                <ComputerTimeDetailSection />
+                                return (
+                                  <div ref={exportCardRef}>
+                                    <ExpandedMetricCard
+                                      title={heartRateTitle}
+                                      primaryValue={primaryValue}
+                                      unit="bpm"
+                                      deltaPercent={expandedData.change === undefined ? undefined : `${expandedData.change >= 0 ? '+' : ''}${expandedData.change.toFixed(2)}%`}
+                                      deltaDirection={expandedData.change === undefined ? 'neutral' : expandedData.change >= 0 ? 'up' : 'down'}
+                                      rangePreset={expandedTimeRange}
+                                      onRangePresetChange={(v) => setExpandedTimeRange(v as RangeKey)}
+                                      rangeOptions={ranges}
+                                      rangeLockedText={hasCustomDateRange ? 'Custom range' : undefined}
+                                      onClose={() => setExpandedHabit(null)}
+                                    >
+                                      <div ref={chartRef}>
+                                        <PerplexityExpandedHabitChart points={points} range={expandedTimeRange} unit="bpm" chartType="bar" showGrid higherIsBetter={false} />
+                                      </div>
+                                    </ExpandedMetricCard>
+                                  </div>
+                                );
+                              })()
+                            ) : (() => {
+                              const expandedData = getExpandedData(expandedHabit!);
+                              if (!expandedData) return null;
+                              const { habit, compHabit, chartData: expChartData, totalValue, avgValue, minValue, maxValue, stdDev } = expandedData;
+                              const expandedCardData = getHabitCardData(expandedHabit!);
+                              const ranges: RangeOption[] = [
+                                { value: '1D', label: '1D' }, { value: '5D', label: '5D' },
+                                { value: '1W', label: '1W' }, { value: '1M', label: '1M' },
+                                { value: '6M', label: '6M' }, { value: 'YTD', label: 'YTD' },
+                                { value: '1Y', label: '1Y' }, { value: '5Y', label: '5Y' },
+                                { value: 'MAX', label: 'MAX' },
+                              ];
+                              const points = habitToFinanceSeries(expChartData);
+                              const lastPoint = points[points.length - 1];
+                              const primaryValue = lastPoint ? Number(lastPoint.close).toFixed(Number(lastPoint.close) < 10 ? 2 : 0) : '--';
+                              const compareOptions = filteredHabits
+                                .filter((h: any) => h.habit_id !== expandedHabit)
+                                .map((h: any) => ({ label: h.habit_name, value: h.habit_id }));
+                              const stats = [
+                                { label: 'Total', value: totalValue.toFixed(1) },
+                                { label: 'Average', value: avgValue.toFixed(1) },
+                                { label: 'Min', value: minValue.toFixed(1) },
+                                { label: 'Max', value: maxValue.toFixed(1) },
+                                { label: 'Std Dev', value: stdDev.toFixed(1) },
+                              ];
+                              if (compHabit) {
+                                stats.push({
+                                  label: 'Correlation',
+                                  value: loadingCorrelation ? '...' : (correlationData?.correlation?.coefficient?.toFixed(2) ?? 'N/A'),
+                                });
+                              }
 
-                {/* Compact habit chart grid */}
-                <div className="mt-8 mb-2 flex items-center gap-3">
-                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Trends</h3>
-                  <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
-                </div>
-                <div className="grid grid-cols-1 gap-[8px] sm:grid-cols-2">
-                  {(() => {
-                    const chartRange = mapBarListRangeToChartRange(barListRange);
-                    const compactCards: React.ReactNode[] = [];
-
-                    if (computerActivityDaily.length > 0) {
-                      const computerLogs = computerActivityDaily.map((row) => ({
-                        date: row.day,
-                        daily_value: Number(row.active_hours || 0),
-                      }));
-                      compactCards.push(
-                        <HabitChartCard
-                          key={COMPUTER_ACTIVITY_CARD_ID}
-                          habitName={COMPUTER_HABIT_DISPLAY_NAME}
-                          unit="Hours"
-                          logs={computerLogs}
-                          compact
-                          fixedRange={chartRange}
-                        />
-                      );
-                    }
-
-                    filteredHabits
-                      .map((habit: HabitData) => ({
-                        habit,
-                        logs: analyticsData[habit.habit_id] || [],
-                      }))
-                      .filter(({ logs }) => logs.length > 0)
-                      .forEach(({ habit, logs }) => {
-                        const cardData = getHabitCardData(habit.habit_id);
-                        compactCards.push(
-                          <HabitChartCard
-                            key={habit.habit_id}
-                            habitName={habit.habit_name}
-                            unit={habit.unit_type || (habit as any).unit || ''}
-                            logs={logs}
-                            higherIsBetter={cardData?.higherIsBetter}
-                            change={cardData?.change}
-                            compact
-                            fixedRange={chartRange}
-                          />
-                        );
-                      });
-
-                    return compactCards;
-                  })()}
+                              return (
+                                <div ref={exportCardRef}>
+                                  <ExpandedMetricCard
+                                    title={habit.habit_name}
+                                    primaryValue={primaryValue}
+                                    unit={habit.unit_type || (habit as any).unit || ''}
+                                    deltaValue={expandedCardData?.absoluteChange === undefined ? undefined : `${expandedCardData.absoluteChange >= 0 ? '+' : ''}${expandedCardData.absoluteChange.toFixed(2)}`}
+                                    deltaPercent={expandedCardData?.change === undefined ? undefined : `${expandedCardData.change >= 0 ? '+' : ''}${expandedCardData.change.toFixed(2)}%`}
+                                    deltaDirection={expandedCardData?.change === undefined ? 'neutral' : expandedCardData.change >= 0 ? 'up' : 'down'}
+                                    higherIsBetter={expandedCardData?.higherIsBetter}
+                                    rangePreset={expandedTimeRange}
+                                    onRangePresetChange={(v) => setExpandedTimeRange(v as RangeKey)}
+                                    rangeOptions={ranges}
+                                    rangeLockedText={hasCustomDateRange ? 'Custom range' : undefined}
+                                    compareControl={<CompareSelect value={compareHabitId} options={compareOptions} onChange={(val) => setCompareHabitId(val)} placeholder="None" />}
+                                    actions={(
+                                      <button type="button" onClick={() => captureExpandedChart(habit.habit_name)} disabled={isCapturing} aria-label="Export chart image" title="Export chart image"
+                                        className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.45)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
+                                      >
+                                        <Camera className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                    onClose={() => setExpandedHabit(null)}
+                                    stats={stats}
+                                    showStats
+                                  >
+                                    <div ref={chartRef}>
+                                      <PerplexityExpandedHabitChart
+                                        points={points}
+                                        range={expandedTimeRange}
+                                        unit={habit.unit_type || (habit as any).unit || ''}
+                                        compareLabel={compHabit?.habit_name}
+                                        compareUnit={compHabit?.unit_type || (compHabit as any)?.unit || ''}
+                                        chartType="bar"
+                                        showGrid
+                                        higherIsBetter={expandedCardData?.higherIsBetter}
+                                      />
+                                    </div>
+                                  </ExpandedMetricCard>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               </div>
             );
           })()}
 
-          {/* Expanded View */}
-          {expandedHabit && (
-            <div className="mx-auto mt-4 w-full max-w-[920px]">
-              {expandedHabit === COMPUTER_ACTIVITY_CARD_ID ? (
-                <ComputerActivitySection onClose={() => setExpandedHabit(null)} />
-              ) : expandedHabitUsesGranularHeartRate ? (
-                (() => {
-                  if (loadingExpandedLogs) {
-                    return (
-                      <div className="flex h-[400px] items-center justify-center rounded-xl border border-gray-100 bg-gray-50/30">
-                        <div className="text-center">
-                          <BrailleSpinner className="mx-auto mb-2 text-2xl text-gray-400" />
-                          <p className="text-[13px] text-gray-400">Loading metrics...</p>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  const expandedData = getHeartRateExpandedData();
-                  if (!expandedData) return null;
-                  const heartRateTitle = expandedHabitData?.habit_name || 'Heart Rate';
-
-                  const ranges: RangeOption[] = [
-                    { value: '1D', label: '1D' },
-                    { value: '5D', label: '5D' },
-                    { value: '1W', label: '1W' },
-                    { value: '1M', label: '1M' },
-                    { value: '6M', label: '6M' },
-                    { value: 'YTD', label: 'YTD' },
-                    { value: '1Y', label: '1Y' },
-                    { value: '5Y', label: '5Y' },
-                    { value: 'MAX', label: 'MAX' },
-                  ];
-                  const points = habitToFinanceSeries(expandedData.chartData);
-                  const firstPoint = points[0];
-                  const lastPoint = points[points.length - 1];
-                  const dateRangeText = hasCustomDateRange
-                    ? `${format(dateRange!.from!, 'MMM d, yyyy')} – ${format(dateRange!.to!, 'MMM d, yyyy')}`
-                    : (firstPoint && lastPoint
-                      ? `${format(new Date(firstPoint.t), 'MMM d, yyyy')} – ${format(new Date(lastPoint.t), 'MMM d, yyyy')}`
-                      : 'No data');
-                  const deltaDirection = expandedData.change === undefined
-                    ? 'neutral'
-                    : expandedData.change >= 0
-                      ? 'up'
-                      : 'down';
-                  const deltaValueText = `${expandedData.absoluteChange >= 0 ? '+' : ''}${expandedData.absoluteChange.toFixed(1)}`;
-                  const deltaPercentText = expandedData.change === undefined
-                    ? undefined
-                    : `${expandedData.change >= 0 ? '+' : ''}${expandedData.change.toFixed(2)}%`;
-                  const primaryValue = lastPoint
-                    ? Number(lastPoint.close).toFixed(0)
-                    : '--';
-
-                  const stats: Array<{ label: string; value: string }> = [
-                    { label: 'Average', value: `${expandedData.average.toFixed(1)} bpm` },
-                    { label: 'Min', value: `${expandedData.min.toFixed(0)} bpm` },
-                    { label: 'Max', value: `${expandedData.max.toFixed(0)} bpm` },
-                    { label: 'Samples', value: expandedData.totalSamples.toLocaleString() },
-                    { label: 'Days', value: String(expandedData.daysWithData || 0) },
-                  ];
-
-                  return (
-                    <div ref={exportCardRef}>
-                      <ExpandedMetricCard
-                        title={heartRateTitle}
-                        primaryValue={primaryValue}
-                        unit="bpm"
-                        deltaValue={deltaValueText}
-                        deltaPercent={deltaPercentText}
-                        deltaDirection={deltaDirection}
-                        dateRangeText={dateRangeText}
-                        rangePreset={expandedTimeRange}
-                        onRangePresetChange={(value) => setExpandedTimeRange(value as RangeKey)}
-                        rangeOptions={ranges}
-                        rangeLockedText={hasCustomDateRange ? 'Custom range' : undefined}
-                        actions={(
-                          <button
-                            type="button"
-                            onClick={() => captureExpandedChart(heartRateTitle)}
-                            disabled={isCapturing}
-                            aria-label="Export chart image"
-                            title="Export chart image"
-                            className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.45)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
-                          >
-                            <Camera className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        onClose={() => setExpandedHabit(null)}
-                      >
-                        <div ref={chartRef}>
-                          <PerplexityExpandedHabitChart
-                            points={points}
-                            range={expandedTimeRange}
-                            unit="bpm"
-                            chartType="bar"
-                            showGrid
-                            higherIsBetter={false}
-                          />
-                        </div>
-                      </ExpandedMetricCard>
-                    </div>
-                  );
-                })()
-              ) : loadingExpandedLogs ? (
-                <div className="flex h-[400px] items-center justify-center">
-                  <div className="text-center">
-                    <BrailleSpinner className="mx-auto mb-2 text-2xl text-gray-600" />
-                    <p className="text-sm text-gray-500">Loading metrics...</p>
-                  </div>
+          {/* ── Computer Activity ── */}
+          {(() => {
+            if (filteredHabits.length === 0 && !computerActivityDaily.length) return null;
+            return (
+              <div className="mx-auto mt-8 w-full max-w-[920px]">
+                <div className="mb-3 flex items-center gap-3">
+                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Computer Activity</h3>
+                  <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
                 </div>
-              ) : (() => {
-                const expandedData = getExpandedData(expandedHabit);
-                if (!expandedData) return null;
+                <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
+                <ComputerTimeDetailSection />
+              </div>
+            );
+          })()}
 
-                const { habit, compHabit, chartData, totalValue, avgValue, minValue, maxValue, stdDev } = expandedData;
-                const expandedCardData = getHabitCardData(expandedHabit);
-                const ranges: RangeOption[] = [
-                  { value: '1D', label: '1D' },
-                  { value: '5D', label: '5D' },
-                  { value: '1W', label: '1W' },
-                  { value: '1M', label: '1M' },
-                  { value: '6M', label: '6M' },
-                  { value: 'YTD', label: 'YTD' },
-                  { value: '1Y', label: '1Y' },
-                  { value: '5Y', label: '5Y' },
-                  { value: 'MAX', label: 'MAX' },
-                ];
-                const points = habitToFinanceSeries(chartData);
-                const firstPoint = points[0];
-                const lastPoint = points[points.length - 1];
-                const dateRangeText = hasCustomDateRange
-                  ? `${format(dateRange!.from!, 'MMM d, yyyy')} – ${format(dateRange!.to!, 'MMM d, yyyy')}`
-                  : (firstPoint && lastPoint
-                    ? `${format(new Date(firstPoint.t), 'MMM d, yyyy')} – ${format(new Date(lastPoint.t), 'MMM d, yyyy')}`
-                    : 'No data');
-                const deltaDirection = expandedCardData?.change === undefined
-                  ? 'neutral'
-                  : expandedCardData.change >= 0
-                    ? 'up'
-                    : 'down';
-                const deltaValueText = expandedCardData?.absoluteChange === undefined
-                  ? undefined
-                  : `${expandedCardData.absoluteChange >= 0 ? '+' : ''}${expandedCardData.absoluteChange.toFixed(2)}`;
-                const deltaPercentText = expandedCardData?.change === undefined
-                  ? undefined
-                  : `${expandedCardData.change >= 0 ? '+' : ''}${expandedCardData.change.toFixed(2)}%`;
-                const primaryValue = lastPoint
-                  ? Number(lastPoint.close).toFixed(Number(lastPoint.close) < 10 ? 2 : 0)
-                  : '--';
-
-                const compareOptions = filteredHabits
-                  .filter((h: any) => h.habit_id !== expandedHabit)
-                  .map((h: any) => ({ label: h.habit_name, value: h.habit_id }));
-
-                const stats: Array<{ label: string; value: string }> = [
-                  { label: 'Total', value: totalValue.toFixed(1) },
-                  { label: 'Average', value: avgValue.toFixed(1) },
-                  { label: 'Min', value: minValue.toFixed(1) },
-                  { label: 'Max', value: maxValue.toFixed(1) },
-                  { label: 'Std Dev', value: stdDev.toFixed(1) },
-                ];
-
-                if (compHabit) {
-                  stats.push({
-                    label: 'Correlation',
-                    value: loadingCorrelation ? '...' : (correlationData?.correlation?.coefficient?.toFixed(2) ?? 'N/A'),
-                  });
-                }
-
-                return (
-                  <div ref={exportCardRef}>
-                    <ExpandedMetricCard
-                      title={habit.habit_name}
-                      primaryValue={primaryValue}
-                      unit={habit.unit_type || (habit as any).unit || ''}
-                      deltaValue={deltaValueText}
-                      deltaPercent={deltaPercentText}
-                      deltaDirection={deltaDirection}
-                      higherIsBetter={expandedCardData?.higherIsBetter}
-                      dateRangeText={dateRangeText}
-                      rangePreset={expandedTimeRange}
-                      onRangePresetChange={(value) => setExpandedTimeRange(value as RangeKey)}
-                      rangeOptions={ranges}
-                      rangeLockedText={hasCustomDateRange ? 'Custom range' : undefined}
-                      compareControl={(
-                        <CompareSelect
-                          value={compareHabitId}
-                          options={compareOptions}
-                          onChange={(val) => setCompareHabitId(val)}
-                          placeholder="None"
-                        />
-                      )}
-                      actions={(
-                        <button
-                          type="button"
-                          onClick={() => captureExpandedChart(habit.habit_name)}
-                          disabled={isCapturing}
-                          aria-label="Export chart image"
-                          title="Export chart image"
-                          className="inline-flex h-[30px] w-[30px] items-center justify-center border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.65)] transition-colors hover:bg-[rgba(39,37,30,0.02)] hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
-                        >
-                          <Camera className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      onClose={() => setExpandedHabit(null)}
-                      stats={stats}
-                      showStats
-                    >
-                      <div ref={chartRef}>
-                        <PerplexityExpandedHabitChart
-                          points={points}
-                          range={expandedTimeRange}
-                          unit={habit.unit_type || (habit as any).unit || ''}
-                          compareLabel={compHabit?.habit_name}
-                          compareUnit={compHabit?.unit_type || (compHabit as any)?.unit || ''}
-                          chartType="bar"
-                          showGrid
-                          higherIsBetter={expandedCardData?.higherIsBetter}
-                        />
-                      </div>
-                    </ExpandedMetricCard>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
         </>
       ) : null}
 
