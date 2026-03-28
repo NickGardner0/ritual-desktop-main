@@ -200,6 +200,7 @@ class TursoUserService:
         self.rollout_gate_user_id = (os.getenv("TURSO_MIGRATION_GATE_USER_ID") or "").strip()
         self.desktop_token_ttl = os.getenv("TURSO_DESKTOP_TOKEN_TTL", "12h").strip() or "12h"
         self.server_token_ttl = os.getenv("TURSO_SERVER_TOKEN_TTL", "1h").strip() or "1h"
+        self.migration_token_ttl = os.getenv("TURSO_MIGRATION_TOKEN_TTL", "24h").strip() or "24h"
         self.migration_source_user_id = (os.getenv("TURSO_MIGRATION_SOURCE_USER_ID") or "").strip()
         self.migration_source_db_path = (os.getenv("TURSO_MIGRATION_SOURCE_DB_PATH") or "").strip()
         self.replica_dir = Path(__file__).parent.parent / ".turso_user_replicas"
@@ -508,13 +509,14 @@ class TursoUserService:
 
         token = await self._mint_database_token(
             user.turso_db_name,
-            expiration=self.server_token_ttl,
+            expiration=self.migration_token_ttl,
             authorization="full-access",
         )
         replica_path = self.replica_path_for_user(user.id)
 
         def _copy_and_verify() -> Dict[str, Dict[str, int]]:
-            remote = self._open_remote_replica(replica_path, user.turso_db_url, token)
+            current_token = token
+            remote = self._open_remote_replica(replica_path, user.turso_db_url, current_token)
             source_path = resolved_source_db_path
             if not source_path.exists():
                 raise TursoProvisioningError(f"Migration source DB is missing at {source_path}")
@@ -522,17 +524,51 @@ class TursoUserService:
             source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=10.0)
             source.row_factory = sqlite3.Row
 
-            def _reopen_remote() -> Any:
+            def _refresh_token() -> str:
+                return asyncio.run(
+                    self._mint_database_token(
+                        user.turso_db_name,
+                        expiration=self.migration_token_ttl,
+                        authorization="full-access",
+                    )
+                )
+
+            def _reopen_remote(*, refresh_token: bool = False) -> Any:
+                nonlocal current_token
                 close = getattr(remote, "close", None)
                 if callable(close):
                     close()
-                return self._open_remote_replica(replica_path, user.turso_db_url, token)
+                if refresh_token:
+                    current_token = _refresh_token()
+                return self._open_remote_replica(replica_path, user.turso_db_url, current_token)
+
+            def _should_refresh_token(exc: Exception) -> bool:
+                message = str(exc).lower()
+                return (
+                    "401 unauthorized" in message
+                    or "token expired" in message
+                    or "invalid jwt token" in message
+                )
 
             try:
                 for statement in SCHEMA_STATEMENTS:
-                    remote.execute(statement)
+                    try:
+                        remote.execute(statement)
+                    except Exception as exc:
+                        if _should_refresh_token(exc):
+                            remote = _reopen_remote(refresh_token=True)
+                            remote.execute(statement)
+                        else:
+                            raise
                 for statement in INDEX_STATEMENTS:
-                    remote.execute(statement)
+                    try:
+                        remote.execute(statement)
+                    except Exception as exc:
+                        if _should_refresh_token(exc):
+                            remote = _reopen_remote(refresh_token=True)
+                            remote.execute(statement)
+                        else:
+                            raise
 
                 for table_name in MIGRATION_TABLES:
                     columns = [
@@ -549,11 +585,13 @@ class TursoUserService:
                         None,
                     )
                     last_id = int(
-                        remote.execute(
-                            f"SELECT COALESCE(MAX(id), 0) FROM {table_name} WHERE user_id = ?",
-                            (user.id,),
-                        ).fetchone()[0]
-                        or 0
+                        (
+                            remote.execute(
+                                f"SELECT COALESCE(MAX(id), 0) FROM {table_name} WHERE user_id = ?",
+                                (user.id,),
+                            ).fetchone()[0]
+                            or 0
+                        )
                     )
 
                     while True:
@@ -580,16 +618,28 @@ class TursoUserService:
                                     tuple(values),
                                 )
                             except Exception as exc:
-                                if "stream not found" not in str(exc).lower():
+                                message = str(exc).lower()
+                                if "stream not found" in message:
+                                    remote = _reopen_remote()
+                                elif _should_refresh_token(exc):
+                                    remote = _reopen_remote(refresh_token=True)
+                                else:
                                     raise
-                                remote = _reopen_remote()
                                 remote.execute(
                                     f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
                                     tuple(values),
                                 )
 
-                        remote.commit()
-                        remote.sync()
+                        try:
+                            remote.commit()
+                            remote.sync()
+                        except Exception as exc:
+                            if _should_refresh_token(exc):
+                                remote = _reopen_remote(refresh_token=True)
+                            elif "stream not found" in str(exc).lower():
+                                remote = _reopen_remote()
+                            else:
+                                raise
                         remote = _reopen_remote()
                         last_id = int(rows[-1]["id"])
 
@@ -601,12 +651,24 @@ class TursoUserService:
                             (source_user_id,),
                         ).fetchone()[0]
                     )
-                    target_count = int(
-                        remote.execute(
-                            f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                            (user.id,),
-                        ).fetchone()[0]
-                    )
+                    try:
+                        target_count = int(
+                            remote.execute(
+                                f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
+                                (user.id,),
+                            ).fetchone()[0]
+                        )
+                    except Exception as exc:
+                        if _should_refresh_token(exc):
+                            remote = _reopen_remote(refresh_token=True)
+                            target_count = int(
+                                remote.execute(
+                                    f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
+                                    (user.id,),
+                                ).fetchone()[0]
+                            )
+                        else:
+                            raise
                     counts[table_name] = {"source": source_count, "target": target_count}
                 return counts
             finally:
