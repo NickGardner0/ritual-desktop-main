@@ -6,11 +6,12 @@ import json
 import logging
 import re
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
 from database.models import UserDB
+from services.linq_service import send_onboarding_welcome
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,8 @@ class UserService:
                 if not user:
                     logger.error(f"❌ User not found: {user_id}")
                     raise Exception(f"User not found with ID: {user_id}")
+
+                normalized_phone_number = _normalize_phone_number(phone_number)
                 
                 # Update user profile
                 values = dict(
@@ -96,8 +99,8 @@ class UserService:
                     wearable_devices=json.dumps(wearable_devices),
                     onboarding_completed=True,
                 )
-                if phone_number:
-                    values["phone_number"] = _normalize_phone_number(phone_number)
+                if normalized_phone_number:
+                    values["phone_number"] = normalized_phone_number
                 await session.execute(
                     update(UserDB)
                     .where(UserDB.id == user_id)
@@ -111,6 +114,31 @@ class UserService:
                     select(UserDB).where(UserDB.id == user_id)
                 )
                 updated_user = result.scalar_one()
+
+                effective_phone_number = normalized_phone_number or updated_user.phone_number
+                should_send_linq_welcome = (
+                    bool(effective_phone_number)
+                    and updated_user.linq_onboarding_welcome_sent_at is None
+                )
+
+                if should_send_linq_welcome:
+                    try:
+                        welcome_sent = await send_onboarding_welcome(
+                            effective_phone_number,
+                            updated_user.full_name,
+                        )
+                        if welcome_sent:
+                            sent_at = datetime.now(timezone.utc)
+                            await session.execute(
+                                update(UserDB)
+                                .where(UserDB.id == user_id)
+                                .values(linq_onboarding_welcome_sent_at=sent_at)
+                            )
+                            await session.commit()
+                            updated_user.linq_onboarding_welcome_sent_at = sent_at
+                            logger.info("✅ Sent Linq onboarding welcome to user: %s", user_id)
+                    except Exception as welcome_error:
+                        logger.warning("⚠️ Failed to send Linq onboarding welcome: %s", welcome_error)
                 
                 logger.info(f"✅ Successfully updated onboarding for user: {user_id}")
                 return updated_user

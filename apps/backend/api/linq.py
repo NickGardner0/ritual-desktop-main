@@ -5,15 +5,14 @@ import hmac
 import logging
 import os
 import re
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from models.habit_models import HabitLogCreate
 from services.habits_service import HabitsService
+from services.linq_service import send_linq_reply
 from services.user_service import UserService
 
 logger = logging.getLogger(__name__)
@@ -21,9 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["linq"])
 
 LINQ_WEBHOOK_SECRET = os.getenv("LINQ_WEBHOOK_SECRET", "")
-LINQ_API_KEY = os.getenv("LINQ_API_KEY", "")
-LINQ_API_BASE = "https://api.linqapp.com/api/partner"
-LINQ_FROM_NUMBER = os.getenv("LINQ_FROM_NUMBER", "")  # Your Linq virtual number
 
 
 def _verify_signature(payload_body: bytes, timestamp: str, signature: str, secret: str) -> bool:
@@ -41,36 +37,6 @@ def _verify_signature(payload_body: bytes, timestamp: str, signature: str, secre
         hashlib.sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
-
-
-async def _send_linq_reply(chat_id: str, text: str) -> bool:
-    """Send a reply message to an existing Linq chat."""
-    if not LINQ_API_KEY:
-        logger.warning("LINQ_API_KEY not set — cannot send reply")
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                f"{LINQ_API_BASE}/v3/chats/{chat_id}/messages",
-                headers={
-                    "Authorization": f"Bearer {LINQ_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "message": {
-                        "parts": [{"type": "text", "value": text}],
-                    }
-                },
-            )
-            if response.status_code in (200, 201):
-                logger.info("Linq reply sent to chat %s", chat_id)
-                return True
-            else:
-                logger.error("Linq reply failed (%s): %s", response.status_code, response.text)
-                return False
-    except Exception as e:
-        logger.error("Error sending Linq reply: %s", e)
-        return False
 
 
 def _parse_habit_log_from_text(text: str, habits: list) -> Optional[dict]:
@@ -193,7 +159,7 @@ async def linq_webhook(request: Request):
 
     if not user:
         logger.warning("No Ritual user found for phone: %s", sender_phone)
-        await _send_linq_reply(
+        await send_linq_reply(
             chat_id,
             "This phone number isn't linked to a Ritual account. "
             "Add your phone number in Ritual to start logging habits via text."
@@ -208,7 +174,7 @@ async def linq_webhook(request: Request):
 
     if not match:
         habit_names = ", ".join(h.name for h in habits[:10])
-        await _send_linq_reply(
+        await send_linq_reply(
             chat_id,
             f"I couldn't match that to a habit. Try something like:\n"
             f"- \"30mg caffeine\"\n"
@@ -257,7 +223,7 @@ async def linq_webhook(request: Request):
             unit = match.get("unit_type") or ""
             amount_str = f" ({match['amount']}{' ' + unit if unit else ''})"
 
-        await _send_linq_reply(
+        await send_linq_reply(
             chat_id,
             f"Logged {match['habit_name']}{amount_str}"
         )
@@ -271,5 +237,5 @@ async def linq_webhook(request: Request):
         }
     except Exception as e:
         logger.error("Failed to log habit via Linq: %s", e)
-        await _send_linq_reply(chat_id, "Something went wrong logging that. Try again?")
+        await send_linq_reply(chat_id, "Something went wrong logging that. Try again?")
         return {"status": "ok", "error": str(e), "logged": False}

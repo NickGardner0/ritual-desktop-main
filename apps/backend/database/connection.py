@@ -339,6 +339,7 @@ async def _run_migrations(session):
         ("wearable_devices", "sdk_version", "ALTER TABLE wearable_devices ADD COLUMN sdk_version TEXT"),
         # Phone number for Linq iMessage integration
         ("users", "phone_number", "ALTER TABLE users ADD COLUMN phone_number TEXT"),
+        ("users", "linq_onboarding_welcome_sent_at", "ALTER TABLE users ADD COLUMN linq_onboarding_welcome_sent_at DATETIME"),
         ("users", "turso_db_name", "ALTER TABLE users ADD COLUMN turso_db_name TEXT"),
         ("users", "turso_db_url", "ALTER TABLE users ADD COLUMN turso_db_url TEXT"),
         ("users", "turso_provisioned_at", "ALTER TABLE users ADD COLUMN turso_provisioned_at DATETIME"),
