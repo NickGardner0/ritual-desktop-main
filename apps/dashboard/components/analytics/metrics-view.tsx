@@ -14,8 +14,6 @@ import {
   Copy,
   Camera,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Download,
   X,
 } from 'lucide-react';
@@ -45,6 +43,7 @@ import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart'
 import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
+import { MultiHabitOverlayChart } from '@/components/charts/MultiHabitOverlayChart';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
 import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
@@ -86,7 +85,6 @@ const ComputerActivitySection = dynamic(
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
-import { HabitChartCard } from '@/components/analytics/habit-chart-card';
 
 const ComputerTimeDetailSection = dynamic(
   () => import('@/components/analytics/computer-time-detail-section').then(m => ({ default: m.ComputerTimeDetailSection })),
@@ -119,25 +117,6 @@ const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 const CARD_ORDER_KEY = 'ritual-metric-card-order';
 const DEFAULT_METRICS_SPARKLINE_DAYS = 180;
 const DEFAULT_METRICS_SUMMARY_DAYS = 1095;
-
-function mapBarListRangeToChartRange(range: BarListRange): RangeKey {
-  switch (range) {
-    case '1W':
-      return '1W';
-    case '1M':
-      return '1M';
-    case '3M':
-      return '3M';
-    case '6M':
-      return '6M';
-    case '1Y':
-      return '1Y';
-    case 'ALL':
-      return 'MAX';
-    default:
-      return '1M';
-  }
-}
 
 // ── Metric Category Tabs ──
 const METRIC_CATEGORY_TABS = [
@@ -1875,7 +1854,7 @@ export function MetricsView({
           ))}
         </div>
         <div className="grid grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+          {[1, 2, 3, 4].map(i => (
             <div key={i} className="h-[100px] rounded-lg border border-gray-100 animate-pulse bg-gray-50/80" />
           ))}
         </div>
@@ -1935,7 +1914,7 @@ export function MetricsView({
       {/* Habit Metrics Grid */}
       {(loading || queryLoading) ? (
         <div className="mx-auto w-full max-w-[920px] grid grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+          {[1, 2, 3, 4].map(i => (
             <div key={i} className="h-[100px] rounded-lg border border-gray-100 animate-pulse bg-gray-50/80">
               <div className="px-3 pt-3">
                 <div className="h-3 w-20 rounded bg-gray-100/80" />
@@ -2094,30 +2073,6 @@ export function MetricsView({
                         );
                       })}
                     </div>
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                      <div className="mt-2 flex items-center justify-end gap-1.5">
-                        <span className="text-[11px] tabular-nums text-[rgba(39,37,30,0.35)]">
-                          {safeCardPage + 1}/{totalPages}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={safeCardPage === 0}
-                          onClick={() => setCardPage(safeCardPage - 1)}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[rgba(39,37,30,0.3)] transition-colors hover:bg-gray-50 hover:text-[#27251E] disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={safeCardPage >= totalPages - 1}
-                          onClick={() => setCardPage(safeCardPage + 1)}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[rgba(39,37,30,0.3)] transition-colors hover:bg-gray-50 hover:text-[#27251E] disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
                     </div>
                   </SortableContext>
                 </DndContext>
@@ -2278,11 +2233,6 @@ export function MetricsView({
 
             return (
               <div className="mx-auto mt-8 w-full max-w-[920px]">
-                {/* Section header */}
-                <div className="mb-4 flex items-center gap-3">
-                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Breakdown</h3>
-                  <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
-                </div>
                 {/* Horizontal bar list cards - 2 col */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-[6px]">
                   <VercelBarListCard
@@ -2305,58 +2255,47 @@ export function MetricsView({
                 {/* Computer Time detail section with app icons and progress bars */}
                 <ComputerTimeDetailSection />
 
-                {/* Compact habit chart grid */}
-                <div className="mt-8 mb-2 flex items-center gap-3">
-                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Trends</h3>
-                  <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
-                </div>
-                <div className="grid grid-cols-1 gap-[8px] sm:grid-cols-2">
-                  {(() => {
-                    const chartRange = mapBarListRangeToChartRange(barListRange);
-                    const compactCards: React.ReactNode[] = [];
+                {/* Multi-habit overlay chart */}
+                {filteredHabits.length > 0 && (
+                  <div className="mt-6">
+                    <MultiHabitOverlayChart
+                      habits={(() => {
+                        const series: { habitId: string; name: string; unit: string; logs: any[]; color: string }[] = [];
 
-                    if (computerActivityDaily.length > 0) {
-                      const computerLogs = computerActivityDaily.map((row) => ({
-                        date: row.day,
-                        daily_value: Number(row.active_hours || 0),
-                      }));
-                      compactCards.push(
-                        <HabitChartCard
-                          key={COMPUTER_ACTIVITY_CARD_ID}
-                          habitName={COMPUTER_HABIT_DISPLAY_NAME}
-                          unit="Hours"
-                          logs={computerLogs}
-                          compact
-                          fixedRange={chartRange}
-                        />
-                      );
-                    }
+                        // Add computer time if available
+                        if (computerActivityDaily.length > 0) {
+                          series.push({
+                            habitId: COMPUTER_ACTIVITY_CARD_ID,
+                            name: COMPUTER_HABIT_DISPLAY_NAME,
+                            unit: 'hours',
+                            logs: computerActivityDaily.map((row) => ({
+                              date: row.day,
+                              daily_value: Number(row.active_hours || 0),
+                            })),
+                            color: '',
+                          });
+                        }
 
-                    filteredHabits
-                      .map((habit: HabitData) => ({
-                        habit,
-                        logs: analyticsData[habit.habit_id] || [],
-                      }))
-                      .filter(({ logs }) => logs.length > 0)
-                      .forEach(({ habit, logs }) => {
-                        const cardData = getHabitCardData(habit.habit_id);
-                        compactCards.push(
-                          <HabitChartCard
-                            key={habit.habit_id}
-                            habitName={habit.habit_name}
-                            unit={habit.unit_type || (habit as any).unit || ''}
-                            logs={logs}
-                            higherIsBetter={cardData?.higherIsBetter}
-                            change={cardData?.change}
-                            compact
-                            fixedRange={chartRange}
-                          />
-                        );
-                      });
+                        // Add all filtered habits
+                        filteredHabits.forEach((habit: HabitData) => {
+                          const logs = analyticsData[habit.habit_id] || [];
+                          if (logs.length > 0) {
+                            series.push({
+                              habitId: habit.habit_id,
+                              name: habit.habit_name,
+                              unit: habit.unit_type || (habit as any).unit || '',
+                              logs,
+                              color: '',
+                            });
+                          }
+                        });
 
-                    return compactCards;
-                  })()}
-                </div>
+                        return series;
+                      })()}
+                    />
+                  </div>
+                )}
+
               </div>
             );
           })()}
