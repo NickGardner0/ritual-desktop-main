@@ -6,9 +6,16 @@ import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+function getOpenAIClient(): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured');
+  }
+  return new OpenAI({ apiKey });
+}
 
 interface HabitMetric {
   name: string;
@@ -165,6 +172,12 @@ export async function POST(req: NextRequest) {
       return new Response('No activity data found for this day.', { status: 200 });
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      return new Response('Calendar summary is not configured on this deployment.', {
+        status: 503,
+      });
+    }
+
     // Single-pass summary with screen evidence
     const prompt = `You are an expert daily activity summarizer. You have access to a user's screen recordings — window titles, app usage times, accessibility-extracted text from their screen, semantic summaries of each capture, and git commit history. Your job is to reconstruct what they actually DID and ACCOMPLISHED, not just list what was open.
 
@@ -228,6 +241,7 @@ CROSS-APP PROJECT THREADING: The evidence is in chronological order. When captur
 
     // Stream response
     const encoder = new TextEncoder();
+    const openai = getOpenAIClient();
     const readable = new ReadableStream({
       async start(controller) {
         try {

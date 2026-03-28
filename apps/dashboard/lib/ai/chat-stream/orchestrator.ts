@@ -3,8 +3,15 @@ import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
 import { buildWeeklyOverviewCanvasPayload, getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+function getOpenAIClient(): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not configured');
+  }
+  return new OpenAI({ apiKey });
+}
 
 // ====================
 // VOICE MODE POST-PROCESSING (Phase 4A)
@@ -1348,7 +1355,7 @@ async function generateWeeklyOverviewNarrative(
       : 'this week';
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.5,
       max_tokens: 350,
@@ -2158,7 +2165,7 @@ Here is the structured outline:
 
 ${outline}`;
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.2,
       max_tokens: 2200,
@@ -5397,7 +5404,7 @@ Keep total response under 500 characters when possible.`;
     ];
 
     // Call OpenAI
-    let response = await openai.chat.completions.create({
+    let response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o-mini',
       messages: apiMessages,
       tools,
@@ -5682,7 +5689,7 @@ Keep total response under 500 characters when possible.`;
         });
       }
 
-      response = await openai.chat.completions.create({
+      response = await getOpenAIClient().chat.completions.create({
         model: 'gpt-4o-mini',
         messages: apiMessages,
         tools,
