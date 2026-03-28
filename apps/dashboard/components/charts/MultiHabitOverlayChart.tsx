@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useId } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 import {
   LineChart,
   Line,
@@ -8,21 +8,22 @@ import {
   YAxis,
   ResponsiveContainer,
   Tooltip,
-  Legend,
 } from 'recharts';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, subDays, subMonths, subYears } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 /**
- * Multi-habit overlay chart — Perplexity Finance "multi-line" style.
- * Normalises each habit to 0–100% scale so they can be compared
- * on the same axes regardless of unit.
+ * Multi-habit overlay chart — Perplexity Finance style.
+ *
+ * Shows top 5 habits by default with smooth monotone curves,
+ * a range selector, and a Perplexity-style legend table below
+ * showing current value + % change for each habit.
  */
 
 interface HabitSeries {
   habitId: string;
   name: string;
   unit: string;
-  /** Daily log rows — each must have `.date` (YYYY-MM-DD) and a numeric value field */
   logs: any[];
   color: string;
 }
@@ -32,30 +33,57 @@ interface MultiHabitOverlayChartProps {
   height?: number;
 }
 
-// Curated palette that looks good on white — inspired by Perplexity Finance
+// Perplexity-inspired palette — distinct, muted, works on white
 const PALETTE = [
-  '#2563EB', // blue
-  '#DC2626', // red
-  '#059669', // emerald
-  '#D97706', // amber
-  '#7C3AED', // violet
-  '#0891B2', // cyan
-  '#DB2777', // pink
-  '#4F46E5', // indigo
-  '#65A30D', // lime
-  '#EA580C', // orange
-  '#6366F1', // periwinkle
-  '#0D9488', // teal
+  '#3B82C4', // steel blue
+  '#C75A3A', // terracotta
+  '#D4A843', // gold
+  '#8B5EA7', // mauve
+  '#C4476C', // rose
+  '#2D8F6F', // sage
+  '#5B7FD6', // cornflower
+  '#E08D3B', // tangerine
 ];
+
+type RangeKey = '1M' | '3M' | '6M' | '1Y' | 'MAX';
+
+const RANGE_OPTIONS: { value: RangeKey; label: string }[] = [
+  { value: '1M', label: '1M' },
+  { value: '3M', label: '3M' },
+  { value: '6M', label: '6M' },
+  { value: '1Y', label: '1Y' },
+  { value: 'MAX', label: 'MAX' },
+];
+
+function getRangeCutoff(range: RangeKey): Date {
+  const now = new Date();
+  switch (range) {
+    case '1M': return subMonths(now, 1);
+    case '3M': return subMonths(now, 3);
+    case '6M': return subMonths(now, 6);
+    case '1Y': return subYears(now, 1);
+    case 'MAX': return new Date(0);
+  }
+}
 
 function extractValue(log: any): number {
   return Number(log.daily_value ?? log.value ?? log.total_amount ?? log.amount ?? 0);
 }
 
-/** Normalise a value to 0-100 % within a min/max range */
 function normalise(value: number, min: number, max: number): number {
   if (max === min) return 50;
   return ((value - min) / (max - min)) * 100;
+}
+
+// Apply a simple 3-point moving average to smooth out noise
+function smooth(values: (number | undefined)[]): (number | undefined)[] {
+  return values.map((v, i) => {
+    if (v === undefined) return undefined;
+    const prev = i > 0 ? values[i - 1] : undefined;
+    const next = i < values.length - 1 ? values[i + 1] : undefined;
+    const nums = [prev, v, next].filter((n): n is number => n !== undefined);
+    return nums.reduce((a, b) => a + b, 0) / nums.length;
+  });
 }
 
 interface ChartRow {
@@ -64,73 +92,118 @@ interface ChartRow {
   [key: string]: number | string | undefined;
 }
 
-// Custom tooltip
+interface HabitInfo {
+  habitId: string;
+  name: string;
+  unit: string;
+  key: string;
+  color: string;
+  byDate: Record<string, number>;
+  min: number;
+  max: number;
+  latestValue: number;
+  change: number | undefined;
+  dataPoints: number;
+}
+
+// Custom tooltip — clean, minimal
 function OverlayTooltip({ active, payload, label, habitMeta }: any) {
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="rounded-lg border border-[rgba(39,37,30,0.08)] bg-white px-3 py-2 shadow-lg">
-      <p className="mb-1 text-[11px] font-medium text-[rgba(39,37,30,0.5)]">{label}</p>
-      {payload.map((entry: any) => {
-        const meta = habitMeta[entry.dataKey];
-        if (!meta) return null;
-        return (
-          <div key={entry.dataKey} className="flex items-center gap-2 text-[12px]">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-[#27251E]">{meta.name}</span>
-            <span className="ml-auto tabular-nums text-[rgba(39,37,30,0.6)]">
-              {meta.rawValues[label] !== undefined
-                ? `${Number(meta.rawValues[label]).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${meta.unit}`
-                : '—'}
-            </span>
-          </div>
-        );
-      })}
+    <div className="rounded-lg border border-[rgba(39,37,30,0.08)] bg-white/95 px-3 py-2 shadow-lg backdrop-blur-sm">
+      <p className="mb-1.5 text-[11px] font-medium text-[rgba(39,37,30,0.45)]">{label}</p>
+      {payload
+        .filter((entry: any) => entry.value !== undefined)
+        .sort((a: any, b: any) => (b.value ?? 0) - (a.value ?? 0))
+        .map((entry: any) => {
+          const meta = habitMeta[entry.dataKey];
+          if (!meta) return null;
+          return (
+            <div key={entry.dataKey} className="flex items-center gap-2 py-[1px] text-[12px]">
+              <span
+                className="inline-block h-[6px] w-[6px] rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-[#27251E]">{meta.name}</span>
+              <span className="ml-auto pl-4 tabular-nums text-[rgba(39,37,30,0.55)]">
+                {meta.rawValues[label] !== undefined
+                  ? `${Number(meta.rawValues[label]).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${meta.unit}`
+                  : '—'}
+              </span>
+            </div>
+          );
+        })}
     </div>
   );
 }
 
-export function MultiHabitOverlayChart({ habits, height = 320 }: MultiHabitOverlayChartProps) {
-  const chartId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+const MAX_VISIBLE = 5;
 
-  const { chartData, habitMeta, visibleHabits } = useMemo(() => {
-    // Build per-habit daily maps and compute min/max for normalisation
-    const habitInfos = habits.map((h, idx) => {
+export function MultiHabitOverlayChart({ habits, height = 300 }: MultiHabitOverlayChartProps) {
+  const [range, setRange] = useState<RangeKey>('1M');
+  const [showAll, setShowAll] = useState(false);
+
+  const { chartData, habitMeta, rankedHabits } = useMemo(() => {
+    const cutoff = getRangeCutoff(range);
+
+    // Build per-habit daily maps filtered to range
+    const habitInfos: HabitInfo[] = habits.map((h, idx) => {
       const byDate: Record<string, number> = {};
       for (const log of h.logs) {
         if (!log.date) continue;
+        const d = parseISO(log.date);
+        if (d < cutoff) continue;
         const dateStr = log.date;
         const val = extractValue(log);
         byDate[dateStr] = (byDate[dateStr] || 0) + val;
       }
+      const sortedDates = Object.keys(byDate).sort();
       const values = Object.values(byDate);
       const min = values.length > 0 ? Math.min(...values) : 0;
       const max = values.length > 0 ? Math.max(...values) : 0;
+
+      // Compute latest value and % change (first half avg → second half avg)
+      const latestValue = sortedDates.length > 0 ? byDate[sortedDates[sortedDates.length - 1]] : 0;
+      let change: number | undefined;
+      if (values.length >= 2) {
+        const mid = Math.floor(values.length / 2);
+        const firstHalf = values.slice(0, mid);
+        const secondHalf = values.slice(mid);
+        const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+        const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+        if (firstAvg > 0) {
+          change = ((secondAvg - firstAvg) / firstAvg) * 100;
+        }
+      }
+
       return {
         ...h,
         byDate,
         min,
         max,
+        latestValue,
+        change,
+        dataPoints: sortedDates.length,
         color: h.color || PALETTE[idx % PALETTE.length],
         key: `h_${idx}`,
       };
     });
 
-    // Only include habits that have data
-    const withData = habitInfos.filter((h) => Object.keys(h.byDate).length > 0);
+    // Filter to habits with data, rank by data points
+    const withData = habitInfos
+      .filter((h) => h.dataPoints > 0)
+      .sort((a, b) => b.dataPoints - a.dataPoints);
 
-    // Collect all unique dates
+    // Collect all dates
     const allDates = new Set<string>();
     for (const h of withData) {
       for (const d of Object.keys(h.byDate)) allDates.add(d);
     }
     const sortedDates = [...allDates].sort();
 
-    // Build chart rows
-    const rows: ChartRow[] = sortedDates.map((date) => {
+    // Build chart rows with smoothed normalised values
+    const rawRows: ChartRow[] = sortedDates.map((date) => {
       const row: ChartRow = {
         date,
         label: format(parseISO(date), 'MMM d'),
@@ -144,7 +217,18 @@ export function MultiHabitOverlayChart({ habits, height = 320 }: MultiHabitOverl
       return row;
     });
 
-    // Build meta for tooltip (raw values lookup)
+    // Smooth each habit's values
+    for (const h of withData) {
+      const vals = rawRows.map((r) => r[h.key] as number | undefined);
+      const smoothed = smooth(vals);
+      for (let i = 0; i < rawRows.length; i++) {
+        if (smoothed[i] !== undefined) {
+          rawRows[i][h.key] = smoothed[i];
+        }
+      }
+    }
+
+    // Build meta for tooltip
     const meta: Record<string, { name: string; unit: string; rawValues: Record<string, number> }> = {};
     for (const h of withData) {
       meta[h.key] = {
@@ -156,26 +240,50 @@ export function MultiHabitOverlayChart({ habits, height = 320 }: MultiHabitOverl
       };
     }
 
-    return { chartData: rows, habitMeta: meta, visibleHabits: withData };
-  }, [habits]);
+    return { chartData: rawRows, habitMeta: meta, rankedHabits: withData };
+  }, [habits, range]);
 
-  if (visibleHabits.length === 0) return null;
+  if (rankedHabits.length === 0) return null;
 
-  // Show ~6 x-axis ticks
+  const displayHabits = showAll ? rankedHabits : rankedHabits.slice(0, MAX_VISIBLE);
+  const hiddenCount = rankedHabits.length - MAX_VISIBLE;
+
+  // ~5-6 x-axis ticks
   const tickInterval = Math.max(1, Math.floor(chartData.length / 6));
 
   return (
     <div className="overflow-hidden rounded-xl border border-[rgba(39,37,30,0.08)] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
-      <div className="px-4 pt-3 pb-1">
-        <h3 className="text-[14px] font-medium tracking-[-0.3px] text-[#27251E]">
-          All Habits
-        </h3>
-        <p className="mt-0.5 text-[11px] tracking-[-0.1px] text-[rgba(39,37,30,0.4)]">
-          Normalised comparison (0–100% of each habit's range)
-        </p>
+      {/* Header with range selector */}
+      <div className="flex items-start justify-between px-4 pt-3 pb-1">
+        <div>
+          <h3 className="text-[14px] font-medium tracking-[-0.3px] text-[#27251E]">
+            Habit Trends
+          </h3>
+          <p className="mt-0.5 text-[11px] tracking-[-0.1px] text-[rgba(39,37,30,0.4)]">
+            Normalised comparison across all habits
+          </p>
+        </div>
+        <div className="inline-flex items-center rounded-lg border border-[rgba(39,37,30,0.07)] bg-white p-[3px]">
+          {RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setRange(opt.value)}
+              className={cn(
+                'h-[25px] min-w-[32px] rounded-md px-2 text-[11.5px] font-medium leading-[16px] tracking-[-0.4px] transition-all duration-150',
+                range === opt.value
+                  ? 'bg-[rgba(39,37,30,0.06)] text-[#27251E]'
+                  : 'text-[rgba(39,37,30,0.5)] hover:text-[#27251E]'
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="px-2 pb-2">
+      {/* Chart */}
+      <div className="px-2 pb-1">
         <ResponsiveContainer width="100%" height={height}>
           <LineChart
             data={chartData}
@@ -185,30 +293,31 @@ export function MultiHabitOverlayChart({ habits, height = 320 }: MultiHabitOverl
               dataKey="label"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.35)' }}
+              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
               interval={tickInterval}
             />
             <YAxis
               domain={[0, 100]}
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.35)' }}
+              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
               tickFormatter={(v: number) => `${v}%`}
               width={36}
+              ticks={[0, 20, 40, 60, 80, 100]}
             />
 
             <Tooltip
               content={<OverlayTooltip habitMeta={habitMeta} />}
-              cursor={{ stroke: 'rgba(39,37,30,0.08)', strokeWidth: 1 }}
+              cursor={{ stroke: 'rgba(39,37,30,0.06)', strokeWidth: 1 }}
             />
 
-            {visibleHabits.map((h) => (
+            {displayHabits.map((h) => (
               <Line
                 key={h.key}
-                type="linear"
+                type="monotone"
                 dataKey={h.key}
                 stroke={h.color}
-                strokeWidth={1.5}
+                strokeWidth={1.8}
                 dot={false}
                 activeDot={{ r: 3, strokeWidth: 0, fill: h.color }}
                 connectNulls
@@ -219,17 +328,52 @@ export function MultiHabitOverlayChart({ habits, height = 320 }: MultiHabitOverl
         </ResponsiveContainer>
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[rgba(39,37,30,0.06)] px-4 py-2.5">
-        {visibleHabits.map((h) => (
-          <div key={h.key} className="flex items-center gap-1.5">
+      {/* Perplexity-style legend table */}
+      <div className="border-t border-[rgba(39,37,30,0.06)]">
+        {displayHabits.map((h, idx) => (
+          <div
+            key={h.key}
+            className={cn(
+              'flex items-center gap-3 px-4 py-2',
+              idx !== displayHabits.length - 1 && 'border-b border-[rgba(39,37,30,0.04)]'
+            )}
+          >
             <span
-              className="inline-block h-2 w-2 rounded-full"
+              className="inline-block h-[7px] w-[7px] shrink-0 rounded-full"
               style={{ backgroundColor: h.color }}
             />
-            <span className="text-[11px] text-[rgba(39,37,30,0.6)]">{h.name}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-[#27251E]">
+              {h.name}
+            </span>
+            <span className="shrink-0 text-[13px] tabular-nums text-[rgba(39,37,30,0.6)]">
+              {h.latestValue.toLocaleString(undefined, { maximumFractionDigits: 1 })}{' '}
+              <span className="text-[11px] text-[rgba(39,37,30,0.4)]">{h.unit}</span>
+            </span>
+            {h.change !== undefined ? (
+              <span
+                className={cn(
+                  'ml-2 shrink-0 rounded-[4px] px-1.5 py-0.5 text-[11px] font-medium tabular-nums',
+                  h.change >= 0
+                    ? 'bg-[rgba(19,106,34,0.08)] text-[#136A22]'
+                    : 'bg-[rgba(162,53,68,0.08)] text-[#A23544]'
+                )}
+              >
+                {h.change >= 0 ? '↗' : '↘'} {Math.abs(h.change).toFixed(1)}%
+              </span>
+            ) : null}
           </div>
         ))}
+
+        {/* "See N more" toggle */}
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAll(!showAll)}
+            className="w-full px-4 py-2 text-left text-[12px] text-[rgba(39,37,30,0.4)] transition-colors hover:text-[rgba(39,37,30,0.6)]"
+          >
+            {showAll ? 'Show fewer' : `See ${hiddenCount} more`}
+          </button>
+        )}
       </div>
     </div>
   );
