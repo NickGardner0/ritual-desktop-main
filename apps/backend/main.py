@@ -48,7 +48,11 @@ from api.search import create_search_router
 from api.screen_time import create_screen_time_router
 from api.screenshot import create_screenshot_router
 from api.wearables import create_wearables_router
-from database.connection import get_db_session, get_database_runtime_health
+from database.connection import (
+    complete_database_startup_maintenance,
+    get_db_session,
+    get_database_runtime_health,
+)
 from sqlalchemy import text
 
 app = FastAPI(title="Ritual Backend API", version="1.0.0")
@@ -437,6 +441,50 @@ async def _semantic_summary_worker_loop() -> None:
         await asyncio.sleep(sleep_seconds)
 
 
+async def _post_startup_initialization() -> None:
+    """Run nonessential startup work after readiness is available."""
+    logger = logging.getLogger("uvicorn")
+
+    try:
+        migration_summary = await complete_database_startup_maintenance()
+        logger.info(
+            "🗃️ Deferred database startup maintenance complete (status=%s, warnings=%s)",
+            migration_summary.get("status"),
+            migration_summary.get("warning_count"),
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.warning("⚠️ Deferred database startup maintenance failed: %s", exc)
+        return
+
+    try:
+        from services.search_service import search_service
+
+        await search_service.ensure_collections()
+        logger.info("🔎 Typesense search collections are ready")
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.warning("⚠️ Typesense search initialization skipped: %s", exc)
+
+    if _memory_cloud_enabled():
+        try:
+            from services.memory_cloud_store import get_memory_db, memory_cloud_db_path
+
+            with get_memory_db() as conn:
+                conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()
+            logger.info("🧠 Cloud memory metadata DB ready: %s", memory_cloud_db_path())
+
+            app.state.memory_worker_task = asyncio.create_task(_memory_embedding_worker_loop())
+            app.state.memory_retention_task = asyncio.create_task(_memory_retention_loop())
+            logger.info("🧠 Cloud memory worker loops started (embedding + retention)")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
+
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
@@ -445,35 +493,14 @@ async def startup_event():
     logger = logging.getLogger("uvicorn")
     
     from database.connection import init_database
-    await init_database()
-    try:
-        from services.search_service import search_service
-
-        await search_service.ensure_collections()
-        logger.info("🔎 Typesense search collections are ready")
-    except Exception as exc:
-        logger.warning("⚠️ Typesense search initialization skipped: %s", exc)
+    await init_database(fast_startup=True)
     logger.info("🚀 Ritual Backend API started successfully!")
     logger.info("📅 Automated Whoop sync is handled by Trigger.dev (runs daily at 9 AM)")
     logger.info("🖥️ Watcher API ready for computer activity tracking")
     app.state.memory_worker_task = None
     app.state.memory_retention_task = None
     app.state.semantic_summary_task = None
-    if _memory_cloud_enabled():
-        try:
-            from services.memory_cloud_store import get_memory_db, memory_cloud_db_path
-
-            # Preflight schema upgrade before worker loops to avoid repeating
-            # startup warnings when an old local metadata DB is present.
-            with get_memory_db() as conn:
-                conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()
-            logger.info("🧠 Cloud memory metadata DB ready: %s", memory_cloud_db_path())
-
-            app.state.memory_worker_task = asyncio.create_task(_memory_embedding_worker_loop())
-            app.state.memory_retention_task = asyncio.create_task(_memory_retention_loop())
-            logger.info("🧠 Cloud memory worker loops started (embedding + retention)")
-        except Exception as exc:
-            logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
+    app.state.startup_maintenance_task = asyncio.create_task(_post_startup_initialization())
 
     # Semantic summaries are now JIT-only: generated when the user requests
     # screen evidence (calendar day click or chat query). This avoids burning
@@ -492,10 +519,11 @@ async def shutdown_event():
     worker_task = getattr(app.state, "memory_worker_task", None)
     retention_task = getattr(app.state, "memory_retention_task", None)
     semantic_task = getattr(app.state, "semantic_summary_task", None)
-    for task in [worker_task, retention_task, semantic_task]:
+    startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
+    for task in [worker_task, retention_task, semantic_task, startup_maintenance_task]:
         if task is not None:
             task.cancel()
-    for task in [worker_task, retention_task, semantic_task]:
+    for task in [worker_task, retention_task, semantic_task, startup_maintenance_task]:
         if task is not None:
             try:
                 await task

@@ -161,7 +161,7 @@ async def get_db_session():
             await session.rollback()
             raise
 
-async def init_database():
+async def init_database(*, fast_startup: bool = False):
     """
     Initialize database - verifies connection and waits for sync.
     Schema is managed by migration scripts, not create_all().
@@ -191,14 +191,26 @@ async def init_database():
                 count = result.scalar()
                 logger.info(f"✅ Database ready: {count} user(s)")
 
-                # Verify replica integrity before running migrations so broken
-                # habit_logs indexes trigger recovery during startup.
-                await _validate_local_replica(session)
-                
-                # Run lightweight migrations for new columns
-                migration_summary = await _run_migrations(session)
                 DATABASE_RUNTIME_STATE["db_ready"] = True
-                DATABASE_RUNTIME_STATE["migration"] = migration_summary
+
+                if fast_startup:
+                    # Railway healthchecks only need the service to become ready;
+                    # defer the expensive integrity scan + schema maintenance.
+                    await _validate_local_replica(session, full_check=False)
+                    DATABASE_RUNTIME_STATE["migration"] = {
+                        "status": "pending",
+                        "warning_count": 0,
+                        "warnings": [],
+                        "applied": [],
+                    }
+                else:
+                    # Verify replica integrity before running migrations so broken
+                    # habit_logs indexes trigger recovery during startup.
+                    await _validate_local_replica(session, full_check=True)
+
+                    # Run lightweight migrations for new columns
+                    migration_summary = await _run_migrations(session)
+                    DATABASE_RUNTIME_STATE["migration"] = migration_summary
                 
                 return  # Success!
                 
@@ -275,11 +287,12 @@ async def _recover_corrupt_local_replica() -> bool:
     return True
 
 
-async def _validate_local_replica(session) -> None:
+async def _validate_local_replica(session, *, full_check: bool = True) -> None:
     """Detect index/table corruption in the embedded replica before serving traffic."""
     from sqlalchemy import text
 
-    result = await session.execute(text("PRAGMA integrity_check"))
+    pragma = "PRAGMA integrity_check" if full_check else "PRAGMA quick_check"
+    result = await session.execute(text(pragma))
     rows = [str(row[0]) for row in result.fetchall()]
     if rows == ["ok"]:
         return
@@ -288,6 +301,19 @@ async def _validate_local_replica(session) -> None:
     if len(rows) > 8:
         summary = f"{summary}; ... ({len(rows)} issues)"
     raise RuntimeError(f"Local replica integrity check failed: {summary}")
+
+
+async def complete_database_startup_maintenance() -> Dict[str, Any]:
+    """Finish expensive replica validation and migrations after the app is already serving."""
+    from sqlalchemy import text
+
+    async with async_session_factory() as session:
+        await session.execute(text("SELECT 1"))
+        await _validate_local_replica(session, full_check=True)
+        migration_summary = await _run_migrations(session)
+        DATABASE_RUNTIME_STATE["migration"] = migration_summary
+        DATABASE_RUNTIME_STATE["last_error"] = None
+        return migration_summary
 
 
 async def _run_migrations(session):
