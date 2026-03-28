@@ -195,8 +195,7 @@ async def init_database(*, fast_startup: bool = False):
 
                 if fast_startup:
                     # Railway healthchecks only need the service to become ready;
-                    # defer the expensive integrity scan + schema maintenance.
-                    await _validate_local_replica(session, full_check=False)
+                    # defer replica validation + schema maintenance entirely.
                     DATABASE_RUNTIME_STATE["migration"] = {
                         "status": "pending",
                         "warning_count": 0,
