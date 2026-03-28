@@ -78,7 +78,7 @@ export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
             key={card.title}
             type="button"
             onClick={() => onCardClick?.({ title: card.title, description: card.description })}
-            className="group flex aspect-square cursor-pointer flex-col items-start justify-between rounded-sm border border-[rgba(39,37,30,0.08)] bg-white p-3.5 text-left transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
+            className="group flex h-[124px] cursor-pointer flex-col items-start justify-between rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 py-3 text-left transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
           >
             <card.Icon className="h-[18px] w-[18px] text-[#27251E]" strokeWidth={1.5} />
             <div>
