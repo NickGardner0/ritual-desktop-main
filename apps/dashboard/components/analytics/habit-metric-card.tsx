@@ -126,8 +126,8 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
 
   return (
     <div
-      className={`group relative flex min-w-0 cursor-pointer flex-col gap-1 overflow-hidden border border-gray-200 bg-white px-0 transition-[background-color,box-shadow] duration-150 hover:bg-[rgba(39,37,30,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] ${
-        isSparkCard ? 'h-[100px] rounded-sm py-[2px]' : 'h-[120px] rounded-sm py-[4px]'
+      className={`group relative flex min-w-0 cursor-pointer flex-col gap-1 overflow-hidden border border-[rgba(39,37,30,0.08)] bg-white px-0 transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
+        isSparkCard ? 'h-[100px] rounded-[10px] py-[2px]' : 'h-[120px] rounded-[10px] py-[4px]'
       }`}
       onClick={onClick}
       style={{
@@ -140,7 +140,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             event.stopPropagation();
             onRemove();
           }}
-          className="absolute right-1.5 top-1.5 z-20 rounded-sm bg-white/80 p-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+          className="absolute right-1.5 top-1.5 z-20 rounded-full bg-white/90 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-all duration-200 group-hover:opacity-100 hover:bg-white hover:shadow-md"
           aria-label="Remove habit"
         >
           <X className="h-2.5 w-2.5 text-gray-400 hover:text-gray-600" />

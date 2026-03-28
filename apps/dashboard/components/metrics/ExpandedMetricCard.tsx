@@ -90,7 +90,7 @@ export function ExpandedMetricCard({
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-sm border border-[rgba(39,37,30,0.07)] bg-white',
+        'overflow-hidden rounded-xl border border-[rgba(39,37,30,0.08)] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.04)]',
         className
       )}
     >
@@ -144,7 +144,7 @@ export function ExpandedMetricCard({
               onClick={onClose}
               aria-label={closeLabel}
               data-export-close
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-[rgba(39,37,30,0.3)] transition-colors hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[rgba(39,37,30,0.3)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
             >
               <X className="h-4 w-4" />
             </button>
@@ -189,7 +189,7 @@ export function ExpandedMetricCard({
           rows.push(stats.slice(i, i + cols));
         }
         return (
-          <div className="border-t border-[rgba(39,37,30,0.07)]">
+          <div className="border-t border-[rgba(39,37,30,0.06)]">
             {rows.map((row, rowIdx) => (
               <div
                 key={rowIdx}

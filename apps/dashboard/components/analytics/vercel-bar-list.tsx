@@ -96,7 +96,7 @@ export function VercelBarListCard({
   const items = data[activeTab] || [];
 
   return (
-    <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-lg overflow-hidden flex flex-col h-full">
+    <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-xl overflow-hidden flex flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
       {/* Header */}
       <div className="px-5 pt-4 pb-2">
         <div className="flex items-center justify-between">

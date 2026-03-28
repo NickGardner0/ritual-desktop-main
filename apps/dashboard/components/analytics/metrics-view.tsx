@@ -1868,13 +1868,15 @@ export function MetricsView({
 
   if (!hasValidHabitData && (loading || queryLoading)) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-end mb-6">
-          <div className="h-10 w-64 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+      <div className="mx-auto w-full max-w-[920px] space-y-5">
+        <div className="flex items-center gap-2 border-b border-[rgba(39,37,30,0.06)] pb-3">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="h-7 w-20 rounded-md animate-pulse bg-gray-100" />
+          ))}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
           {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-            <div key={i} className="border border-gray-200 p-3 h-32 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100" />
+            <div key={i} className="h-[100px] rounded-lg border border-gray-100 animate-pulse bg-gray-50/80" />
           ))}
         </div>
       </div>
@@ -1898,30 +1900,32 @@ export function MetricsView({
 
       {/* Controls are now in parent (unified-analytics-client) when hideControls is true */}
       {analyticsError && (
-        <div className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Analytics metrics unavailable: {analyticsError}
+        <div className="mx-auto mb-4 w-full max-w-[920px] rounded-lg border border-amber-200/80 bg-amber-50/60 px-4 py-3 text-[13px] leading-relaxed text-amber-800">
+          <span className="font-medium">Unable to load metrics</span>
+          <span className="mx-1.5 text-amber-300">·</span>
+          {analyticsError}
         </div>
       )}
 
-      {/* ── Category Tabs + Pagination Arrows ── */}
+      {/* ── Category Tabs ── */}
       <div className="mx-auto w-full max-w-[920px] mb-5">
-        <div className="flex items-center gap-0 border-b border-[rgba(39,37,30,0.08)]">
+        <div className="flex items-center gap-1 border-b border-[rgba(39,37,30,0.06)] pb-px">
             {METRIC_CATEGORY_TABS.map((tab) => {
-              const isActive = activeCategoryTab === tab.id;
+              const isActive = (tab.id === 'all' && activeCategoryTab === null) || activeCategoryTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => { setActiveCategoryTab(tab.id === 'all' ? null : (isActive ? null : tab.id)); setCardPage(0); }}
-                  className={`px-3 py-2 text-[13px] font-medium transition-colors relative ${
-                    (tab.id === 'all' && activeCategoryTab === null) || isActive
+                  className={`relative px-3.5 py-2 text-[13px] font-medium tracking-[-0.1px] transition-all duration-200 ${
+                    isActive
                       ? 'text-[#27251E]'
-                      : 'text-[#1E2725] hover:text-[#000]'
+                      : 'text-[rgba(39,37,30,0.4)] hover:text-[rgba(39,37,30,0.7)]'
                   }`}
                 >
                   {tab.label}
-                  {((tab.id === 'all' && activeCategoryTab === null) || isActive) && (
-                    <span className="absolute bottom-0 left-3 right-3 h-[2px] bg-[#27251E] rounded-full" />
-                  )}
+                  <span className={`absolute bottom-0 left-3 right-3 h-[1.5px] rounded-full transition-all duration-200 ${
+                    isActive ? 'bg-[#27251E] opacity-100' : 'bg-transparent opacity-0'
+                  }`} />
                 </button>
               );
             })}
@@ -1930,17 +1934,27 @@ export function MetricsView({
 
       {/* Habit Metrics Grid */}
       {(loading || queryLoading) ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="mx-auto w-full max-w-[920px] grid grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
           {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-            <div key={i} className="h-32 border border-gray-300 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
+            <div key={i} className="h-[100px] rounded-lg border border-gray-100 animate-pulse bg-gray-50/80">
+              <div className="px-3 pt-3">
+                <div className="h-3 w-20 rounded bg-gray-100/80" />
+                <div className="mt-2 h-3 w-12 rounded bg-gray-100/60" />
+              </div>
+            </div>
           ))}
         </div>
       ) : !hasRenderableMetricCards ? (
-        <div className="bg-white border border-gray-300 p-12 text-center">
-          <div className="max-w-md mx-auto">
-            <p className="text-lg font-medium text-gray-900 mb-2">No habits found</p>
-            <p className="text-sm text-gray-600 mb-4">
-              Start tracking habits to see analytics here.
+        <div className="mx-auto w-full max-w-[920px] rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-6 py-16 text-center">
+          <div className="max-w-sm mx-auto">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+              <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+            </div>
+            <p className="text-[15px] font-medium text-gray-900 mb-1.5">No metrics yet</p>
+            <p className="text-[13px] leading-relaxed text-gray-500">
+              Start tracking habits from the Overview tab to see your analytics and trends here.
             </p>
           </div>
         </div>
@@ -1985,23 +1999,18 @@ export function MetricsView({
                 })
               : metricCardIds;
 
-            const CARDS_PER_PAGE = 4;
-            const computedTotalPages = Math.ceil(visibleIds.length / CARDS_PER_PAGE);
-            if (computedTotalPages !== totalCardPages) {
-              // Schedule state update for next tick to avoid render-during-render
-              Promise.resolve().then(() => setTotalCardPages(computedTotalPages));
-            }
-            const pageIds = visibleIds.slice(clampedCardPage * CARDS_PER_PAGE, (clampedCardPage + 1) * CARDS_PER_PAGE);
+            // Show all visible cards (no pagination) for a cleaner layout
+            const pageIds = visibleIds;
 
             return (
                 <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={pageIds} strategy={rectSortingStrategy}>
                     <div
                       className={`mx-auto relative w-full max-w-[920px] transition-opacity duration-300 ${
-                        expandedHabit ? 'opacity-50 pointer-events-auto' : 'opacity-100'
+                        expandedHabit ? 'opacity-40 pointer-events-auto' : 'opacity-100'
                       }`}
                     >
-                    <div className="grid w-full grid-cols-1 gap-[5px] sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid w-full grid-cols-2 gap-[6px] sm:grid-cols-3 lg:grid-cols-4">
                       {pageIds.map((habitId: string) => {
                         const cardData = habitId === COMPUTER_ACTIVITY_CARD_ID
                           ? computerCardData
@@ -2240,9 +2249,14 @@ export function MetricsView({
             }));
 
             return (
-              <div className="mx-auto mt-6 w-full max-w-[920px]">
+              <div className="mx-auto mt-8 w-full max-w-[920px]">
+                {/* Section header */}
+                <div className="mb-4 flex items-center gap-3">
+                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Breakdown</h3>
+                  <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
+                </div>
                 {/* Horizontal bar list cards - 2 col */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-[5px]">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-[6px]">
                   <VercelBarListCard
                     tabs={[
                       { id: 'habits', label: 'Habits' },
@@ -2264,7 +2278,11 @@ export function MetricsView({
                 <ComputerTimeDetailSection />
 
                 {/* Compact habit chart grid */}
-                <div className="mt-6 grid grid-cols-1 gap-[10px] sm:grid-cols-2">
+                <div className="mt-8 mb-2 flex items-center gap-3">
+                  <h3 className="text-[13px] font-medium tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">Trends</h3>
+                  <div className="h-px flex-1 bg-[rgba(39,37,30,0.06)]" />
+                </div>
+                <div className="grid grid-cols-1 gap-[8px] sm:grid-cols-2">
                   {(() => {
                     const chartRange = mapBarListRangeToChartRange(barListRange);
                     const compactCards: React.ReactNode[] = [];
@@ -2317,17 +2335,17 @@ export function MetricsView({
 
           {/* Expanded View */}
           {expandedHabit && (
-            <div className="mx-auto mt-2 w-full max-w-[920px]">
+            <div className="mx-auto mt-4 w-full max-w-[920px]">
               {expandedHabit === COMPUTER_ACTIVITY_CARD_ID ? (
                 <ComputerActivitySection onClose={() => setExpandedHabit(null)} />
               ) : expandedHabitUsesGranularHeartRate ? (
                 (() => {
                   if (loadingExpandedLogs) {
                     return (
-                      <div className="flex h-[400px] items-center justify-center">
+                      <div className="flex h-[400px] items-center justify-center rounded-xl border border-gray-100 bg-gray-50/30">
                         <div className="text-center">
-                          <BrailleSpinner className="mx-auto mb-2 text-2xl text-gray-600" />
-                          <p className="text-sm text-gray-500">Loading metrics...</p>
+                          <BrailleSpinner className="mx-auto mb-2 text-2xl text-gray-400" />
+                          <p className="text-[13px] text-gray-400">Loading metrics...</p>
                         </div>
                       </div>
                     );
@@ -2398,7 +2416,7 @@ export function MetricsView({
                             disabled={isCapturing}
                             aria-label="Export chart image"
                             title="Export chart image"
-                            className="inline-flex h-[30px] w-[30px] items-center justify-center border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.65)] transition-colors hover:bg-[rgba(39,37,30,0.02)] hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
+                            className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.45)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
                           >
                             <Camera className="h-3.5 w-3.5" />
                           </button>
@@ -2550,18 +2568,18 @@ export function MetricsView({
       {showShareModal ? (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
           <div
-            className="absolute inset-0 bg-transparent"
+            className="absolute inset-0 bg-black/20 backdrop-blur-[2px] transition-opacity duration-200"
             onClick={closeShareModal}
           />
-          <div className="relative z-10 w-[min(92vw,680px)] max-h-[86vh] overflow-hidden rounded-sm border border-[rgba(39,37,30,0.12)] bg-white p-3 sm:p-4 shadow-[0_16px_36px_rgba(15,23,42,0.12)]">
+          <div className="relative z-10 w-[min(92vw,680px)] max-h-[86vh] overflow-hidden rounded-xl border border-[rgba(39,37,30,0.08)] bg-white p-4 sm:p-5 shadow-[0_24px_48px_rgba(0,0,0,0.12),0_8px_16px_rgba(0,0,0,0.06)]">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-[26px] font-medium leading-[1.02] tracking-[-0.7px] text-[#27251E]">
+              <h2 className="text-[20px] font-semibold leading-[1.1] tracking-[-0.4px] text-[#27251E]">
                 Share screenshot
               </h2>
               <button
                 type="button"
                 onClick={closeShareModal}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.12)] bg-white/80 text-[rgba(39,37,30,0.56)] transition-colors hover:text-[#27251E]"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(39,37,30,0.08)] bg-white text-[rgba(39,37,30,0.4)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E]"
                 aria-label="Close share screenshot modal"
               >
                 <X className="h-4 w-4" />
@@ -2591,25 +2609,25 @@ export function MetricsView({
               )}
             </div>
 
-            <div className="mt-2.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={copyShareImage}
                 disabled={!shareImageUrl || isCapturing}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-border bg-[rgba(39,37,30,0.04)] px-2.5 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-colors hover:bg-[rgba(39,37,30,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[rgba(39,37,30,0.08)] bg-white px-3 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-all duration-150 hover:bg-gray-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Copy className="h-3.5 w-3.5" />
-                {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy Failed' : 'Copy Image'}
+                {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy image'}
               </button>
 
               <button
                 type="button"
                 onClick={downloadShareImage}
                 disabled={!shareImageUrl || isCapturing}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-sm border border-border bg-[rgba(39,37,30,0.04)] px-2.5 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-colors hover:bg-[rgba(39,37,30,0.08)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#27251E] px-3 text-[13px] font-medium tracking-[-0.2px] text-white transition-all duration-150 hover:bg-[#3a3830] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" />
-                {downloadState === 'done' ? 'Downloaded' : downloadState === 'failed' ? 'Download Failed' : 'Download Image'}
+                {downloadState === 'done' ? 'Downloaded!' : downloadState === 'failed' ? 'Download failed' : 'Download image'}
               </button>
             </div>
           </div>
