@@ -1999,8 +1999,12 @@ export function MetricsView({
                 })
               : metricCardIds;
 
-            // Show all visible cards (no pagination) for a cleaner layout
-            const pageIds = visibleIds;
+            // Paginate: 1 row of 4 cards
+            const CARDS_PER_PAGE = 4;
+            const totalPages = Math.ceil(visibleIds.length / CARDS_PER_PAGE);
+            const safeCardPage = Math.min(clampedCardPage, Math.max(totalPages - 1, 0));
+            const pageStart = safeCardPage * CARDS_PER_PAGE;
+            const pageIds = visibleIds.slice(pageStart, pageStart + CARDS_PER_PAGE);
 
             return (
                 <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -2090,6 +2094,30 @@ export function MetricsView({
                         );
                       })}
                     </div>
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                      <div className="mt-2 flex items-center justify-end gap-1.5">
+                        <span className="text-[11px] tabular-nums text-[rgba(39,37,30,0.35)]">
+                          {safeCardPage + 1}/{totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={safeCardPage === 0}
+                          onClick={() => setCardPage(safeCardPage - 1)}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[rgba(39,37,30,0.3)] transition-colors hover:bg-gray-50 hover:text-[#27251E] disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={safeCardPage >= totalPages - 1}
+                          onClick={() => setCardPage(safeCardPage + 1)}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[rgba(39,37,30,0.3)] transition-colors hover:bg-gray-50 hover:text-[#27251E] disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                     </div>
                   </SortableContext>
                 </DndContext>

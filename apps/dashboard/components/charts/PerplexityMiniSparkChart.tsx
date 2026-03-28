@@ -15,6 +15,8 @@ interface PerplexityMiniSparkChartProps {
   values: number[];
   trend: MiniSparkTrend;
   height?: number;
+  /** When false, uses linear interpolation with no smoothing for a jagged/detailed look */
+  smooth?: boolean;
 }
 
 interface ChartPoint {
@@ -56,14 +58,16 @@ function resampleValues(values: number[], targetCount: number): number[] {
   });
 }
 
-export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: PerplexityMiniSparkChartProps) {
+export function PerplexityMiniSparkChart({ values, trend, height = 33.33, smooth = true }: PerplexityMiniSparkChartProps) {
   const chartId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
 
   const chart = useMemo(() => {
     const numericValues = values.filter((value) => Number.isFinite(value));
     if (numericValues.length === 0) return null;
 
-    const sparkline = resampleValues(numericValues, Math.max(POINT_COUNT, numericValues.length));
+    const sparkline = smooth
+      ? resampleValues(numericValues, Math.max(POINT_COUNT, numericValues.length))
+      : numericValues;
     const chartData: ChartPoint[] = sparkline.map((value, index) => ({ index, value }));
 
     const referenceValue = sparkline[0];
@@ -88,13 +92,15 @@ export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: Perp
       yMax,
       stroke,
     };
-  }, [values, trend]);
+  }, [values, trend, smooth]);
 
   if (!chart) {
     return <div style={{ width: '100%', height }} aria-hidden="true" />;
   }
 
   const fillGradientId = `spark-fill-${chartId}`;
+  const curveType = smooth ? 'monotone' : 'linear';
+  const strokeW = smooth ? 1.6 : 1.2;
 
   return (
     <div
@@ -112,8 +118,8 @@ export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: Perp
         >
           <defs>
             <linearGradient id={fillGradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={chart.stroke} stopOpacity={0.35} />
-              <stop offset="60%" stopColor={chart.stroke} stopOpacity={0.08} />
+              <stop offset="0%" stopColor={chart.stroke} stopOpacity={smooth ? 0.35 : 0.12} />
+              <stop offset="60%" stopColor={chart.stroke} stopOpacity={smooth ? 0.08 : 0.03} />
               <stop offset="100%" stopColor={chart.stroke} stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -121,7 +127,7 @@ export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: Perp
           <YAxis domain={[chart.yMin, chart.yMax]} hide />
 
           <Area
-            type="monotone"
+            type={curveType}
             dataKey="value"
             baseValue={chart.referenceValue}
             stroke="none"
@@ -140,10 +146,10 @@ export function PerplexityMiniSparkChart({ values, trend, height = 33.33 }: Perp
           />
 
           <Area
-            type="monotone"
+            type={curveType}
             dataKey="value"
             stroke={chart.stroke}
-            strokeWidth={1.6}
+            strokeWidth={strokeW}
             fill="none"
             isAnimationActive={false}
             dot={false}

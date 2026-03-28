@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { parseISO, subDays, subMonths, subYears, startOfYear, format } from 'date-fns';
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import { PerplexityExpandedHabitChart } from '@/components/charts/PerplexityExpandedHabitChart';
+import { PerplexityMiniSparkChart } from '@/components/charts/PerplexityMiniSparkChart';
 import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
 import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
@@ -217,14 +218,11 @@ export function HabitChartCard({
           </div>
         </div>
         <div className="px-3 pb-3">
-          <PerplexityExpandedHabitChart
-            points={points}
-            range={effectiveRange}
-            unit={unit}
-            chartType="spark"
-            showGrid
-            higherIsBetter={higherIsBetter}
-            height={170}
+          <PerplexityMiniSparkChart
+            values={chartData.map((d) => d.value)}
+            trend={deltaDirection === 'up' ? 'up' : deltaDirection === 'down' ? 'down' : 'neutral'}
+            height={120}
+            smooth={false}
           />
         </div>
       </div>
