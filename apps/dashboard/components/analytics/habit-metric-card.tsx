@@ -127,7 +127,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   return (
     <div
       className={`group relative flex min-w-0 cursor-pointer flex-col gap-1 overflow-hidden border border-[rgba(39,37,30,0.08)] bg-white px-0 transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
-        isSparkCard ? 'h-[100px] rounded-[10px] py-[2px]' : 'h-[120px] rounded-[10px] py-[4px]'
+        isSparkCard ? 'h-[100px] rounded-sm py-[2px]' : 'h-[120px] rounded-sm py-[4px]'
       }`}
       onClick={onClick}
       style={{

@@ -43,7 +43,6 @@ import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart'
 import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
-import { MultiHabitOverlayChart } from '@/components/charts/MultiHabitOverlayChart';
 import { InsightCardsGrid } from '@/components/analytics/insight-cards';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
@@ -2241,70 +2240,29 @@ export function MetricsView({
 
             return (
               <div className="mx-auto mt-8 w-full max-w-[920px]">
-                {/* Horizontal bar list cards - narrow 2 col */}
-                <div className="mx-auto max-w-[680px]">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-[6px]">
-                    <VercelBarListCard
-                      tabs={[
-                        { id: 'habits', label: 'Habits' },
-                        { id: 'streaks', label: 'Streaks' },
-                      ]}
-                      defaultTab="habits"
-                      data={{
-                        habits: habitBarItems,
-                        streaks: streakBarItems,
-                      }}
-                      showRangeSelector
-                      activeRange={barListRange}
-                      onRangeChange={setBarListRange}
-                    />
-                    <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
-                  </div>
+                {/* Horizontal bar list cards — stacked vertically, compact width */}
+                <div className="mx-auto flex max-w-[440px] flex-col gap-[6px]">
+                  <VercelBarListCard
+                    tabs={[
+                      { id: 'habits', label: 'Habits' },
+                      { id: 'streaks', label: 'Streaks' },
+                    ]}
+                    defaultTab="habits"
+                    data={{
+                      habits: habitBarItems,
+                      streaks: streakBarItems,
+                    }}
+                    showRangeSelector
+                    activeRange={barListRange}
+                    onRangeChange={setBarListRange}
+                  />
+                  <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
                 </div>
 
                 {/* Computer Time detail section with app icons and progress bars */}
                 <ComputerTimeDetailSection />
 
-                {/* Multi-habit overlay chart */}
-                {filteredHabits.length > 0 && (
-                  <div className="mt-6">
-                    <MultiHabitOverlayChart
-                      habits={(() => {
-                        const series: { habitId: string; name: string; unit: string; logs: any[]; color: string }[] = [];
 
-                        // Add computer time if available
-                        if (computerActivityDaily.length > 0) {
-                          series.push({
-                            habitId: COMPUTER_ACTIVITY_CARD_ID,
-                            name: COMPUTER_HABIT_DISPLAY_NAME,
-                            unit: 'hours',
-                            logs: computerActivityDaily.map((row) => ({
-                              date: row.day,
-                              daily_value: Number(row.active_hours || 0),
-                            })),
-                            color: '',
-                          });
-                        }
-
-                        // Add all filtered habits
-                        filteredHabits.forEach((habit: HabitData) => {
-                          const logs = analyticsData[habit.habit_id] || [];
-                          if (logs.length > 0) {
-                            series.push({
-                              habitId: habit.habit_id,
-                              name: habit.habit_name,
-                              unit: habit.unit_type || (habit as any).unit || '',
-                              logs,
-                              color: '',
-                            });
-                          }
-                        });
-
-                        return series;
-                      })()}
-                    />
-                  </div>
-                )}
 
               </div>
             );
