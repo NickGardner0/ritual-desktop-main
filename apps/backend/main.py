@@ -56,6 +56,9 @@ from database.connection import (
 from sqlalchemy import text
 
 app = FastAPI(title="Ritual Backend API", version="1.0.0")
+STARTUP_MAINTENANCE_DELAY_SECONDS = float(
+    os.getenv("STARTUP_MAINTENANCE_DELAY_SECONDS", "15")
+)
 
 # Rate limiting setup
 limiter = Limiter(key_func=get_remote_address)
@@ -485,6 +488,13 @@ async def _post_startup_initialization() -> None:
             logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
 
 
+async def _delayed_post_startup_initialization() -> None:
+    """Wait briefly so platform readiness checks can succeed before heavy startup work."""
+    if STARTUP_MAINTENANCE_DELAY_SECONDS > 0:
+        await asyncio.sleep(STARTUP_MAINTENANCE_DELAY_SECONDS)
+    await _post_startup_initialization()
+
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
@@ -500,7 +510,9 @@ async def startup_event():
     app.state.memory_worker_task = None
     app.state.memory_retention_task = None
     app.state.semantic_summary_task = None
-    app.state.startup_maintenance_task = asyncio.create_task(_post_startup_initialization())
+    app.state.startup_maintenance_task = asyncio.create_task(
+        _delayed_post_startup_initialization()
+    )
 
     # Semantic summaries are now JIT-only: generated when the user requests
     # screen evidence (calendar day click or chat query). This avoids burning
@@ -520,15 +532,17 @@ async def shutdown_event():
     retention_task = getattr(app.state, "memory_retention_task", None)
     semantic_task = getattr(app.state, "semantic_summary_task", None)
     startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
-    for task in [worker_task, retention_task, semantic_task, startup_maintenance_task]:
-        if task is not None:
-            task.cancel()
-    for task in [worker_task, retention_task, semantic_task, startup_maintenance_task]:
-        if task is not None:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task] if t is not None]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timed out waiting for background tasks to cancel")
 
     from database.connection import close_database
     await close_database()
