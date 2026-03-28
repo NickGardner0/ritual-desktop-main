@@ -72,7 +72,7 @@ export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-[6px] sm:grid-cols-4 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-[6px] sm:grid-cols-3">
         {INSIGHT_CARDS.map((card) => (
           <button
             key={card.title}
