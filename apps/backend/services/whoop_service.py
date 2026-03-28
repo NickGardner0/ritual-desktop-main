@@ -328,30 +328,50 @@ class WhoopService:
         
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
-                refresh_payload = {
+                base_payload = {
                     'grant_type': 'refresh_token',
                     'refresh_token': integration.refresh_token,
                     'client_id': self.client_id,
                     'client_secret': self.client_secret,
                 }
-                # Whoop's refresh-token flow is sensitive to malformed payloads.
-                # Re-sending redirect_uri here can cause a 400 if the value no longer
-                # matches the exact URI whitelisted on the Whoop app.
-                scope = getattr(integration, 'scope', None)
-                if scope:
-                    refresh_payload['scope'] = scope
 
-                response = await self._request_with_retry(
-                    client=client,
-                    method="POST",
-                    url=self.WHOOP_TOKEN_URL,
-                    headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                    data=refresh_payload,
-                )
-                
-                if not response.is_success:
-                    logger.error(f"❌ Token refresh failed: {response.status_code}")
-                    logger.error(f"❌ Response body: {response.text}")
+                scope = getattr(integration, 'scope', None)
+                payload_attempts = []
+                if scope:
+                    payload_attempts.append(("stored-scope", {**base_payload, 'scope': scope}))
+                payload_attempts.append(("no-scope", dict(base_payload)))
+                if self.redirect_uri:
+                    payload_attempts.append(
+                        ("redirect-uri", {**base_payload, 'redirect_uri': self.redirect_uri})
+                    )
+
+                response = None
+                for attempt_name, refresh_payload in payload_attempts:
+                    response = await self._request_with_retry(
+                        client=client,
+                        method="POST",
+                        url=self.WHOOP_TOKEN_URL,
+                        headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                        data=refresh_payload,
+                    )
+                    if response.is_success:
+                        if attempt_name != "stored-scope":
+                            logger.info(
+                                "✅ Whoop token refresh succeeded using fallback payload: %s",
+                                attempt_name,
+                            )
+                        break
+
+                    logger.warning(
+                        "⚠️ Whoop token refresh attempt '%s' failed: %s %s",
+                        attempt_name,
+                        response.status_code,
+                        response.text,
+                    )
+
+                if response is None or not response.is_success:
+                    logger.error(f"❌ Token refresh failed: {response.status_code if response else 'no response'}")
+                    logger.error(f"❌ Response body: {response.text if response else 'n/a'}")
                     return None
                 
                 token_data = response.json()
