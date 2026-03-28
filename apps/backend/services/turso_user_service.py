@@ -38,6 +38,8 @@ MIGRATION_TABLES = (
     "afk_events",
 )
 
+MIGRATION_BATCH_SIZE = 5_000
+
 SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS context_sessions (
@@ -199,6 +201,7 @@ class TursoUserService:
         self.desktop_token_ttl = os.getenv("TURSO_DESKTOP_TOKEN_TTL", "12h").strip() or "12h"
         self.server_token_ttl = os.getenv("TURSO_SERVER_TOKEN_TTL", "1h").strip() or "1h"
         self.migration_source_user_id = (os.getenv("TURSO_MIGRATION_SOURCE_USER_ID") or "").strip()
+        self.migration_source_db_path = (os.getenv("TURSO_MIGRATION_SOURCE_DB_PATH") or "").strip()
         self.replica_dir = Path(__file__).parent.parent / ".turso_user_replicas"
         self.replica_dir.mkdir(parents=True, exist_ok=True)
 
@@ -225,6 +228,15 @@ class TursoUserService:
     def replica_path_for_user(self, user_id: str) -> Path:
         hashed = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:24]
         return self.replica_dir / f"{hashed}.db"
+
+    def resolve_migration_source_db_path(
+        self,
+        source_db_path: Optional[str | Path] = None,
+    ) -> Path:
+        candidate = source_db_path or self.migration_source_db_path
+        if candidate:
+            return Path(candidate).expanduser().resolve()
+        return self._legacy_activity_db_path()
 
     def resolve_migration_source_user_id(
         self,
@@ -448,6 +460,7 @@ class TursoUserService:
         user_id: str,
         *,
         source_user_id: Optional[str] = None,
+        source_db_path: Optional[str | Path] = None,
     ) -> UserDB:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
@@ -459,10 +472,17 @@ class TursoUserService:
         await self._migrate_user_rows(
             user,
             source_user_id=self.resolve_migration_source_user_id(user_id, source_user_id),
+            source_db_path=source_db_path,
         )
         return await self._load_user(user_id) or user
 
-    async def migrate_user(self, user_id: str, *, source_user_id: Optional[str] = None) -> UserDB:
+    async def migrate_user(
+        self,
+        user_id: str,
+        *,
+        source_user_id: Optional[str] = None,
+        source_db_path: Optional[str | Path] = None,
+    ) -> UserDB:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
             raise TursoProvisioningError(f"User {user_id} does not exist")
@@ -470,6 +490,7 @@ class TursoUserService:
             await self._migrate_user_rows(
                 user,
                 source_user_id=self.resolve_migration_source_user_id(user_id, source_user_id),
+                source_db_path=source_db_path,
             )
         return await self._load_user(user_id) or user
 
@@ -478,10 +499,12 @@ class TursoUserService:
         user: UserDB,
         *,
         source_user_id: Optional[str] = None,
+        source_db_path: Optional[str | Path] = None,
     ) -> None:
         if not user.turso_db_name or not user.turso_db_url:
             raise TursoProvisioningError("Cannot migrate user without Turso database metadata")
         source_user_id = self.resolve_migration_source_user_id(user.id, source_user_id)
+        resolved_source_db_path = self.resolve_migration_source_db_path(source_db_path)
 
         token = await self._mint_database_token(
             user.turso_db_name,
@@ -492,12 +515,19 @@ class TursoUserService:
 
         def _copy_and_verify() -> Dict[str, Dict[str, int]]:
             remote = self._open_remote_replica(replica_path, user.turso_db_url, token)
-            source_path = self._legacy_activity_db_path()
+            source_path = resolved_source_db_path
             if not source_path.exists():
-                raise TursoProvisioningError(f"Shared activity replica is missing at {source_path}")
+                raise TursoProvisioningError(f"Migration source DB is missing at {source_path}")
 
             source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=10.0)
             source.row_factory = sqlite3.Row
+
+            def _reopen_remote() -> Any:
+                close = getattr(remote, "close", None)
+                if callable(close):
+                    close()
+                return self._open_remote_replica(replica_path, user.turso_db_url, token)
+
             try:
                 for statement in SCHEMA_STATEMENTS:
                     remote.execute(statement)
@@ -511,27 +541,57 @@ class TursoUserService:
                     ]
                     if not columns:
                         continue
+
                     column_list = ", ".join(columns)
                     placeholders = ", ".join(["?"] * len(columns))
-                    rows = source.execute(
-                        f"SELECT {column_list} FROM {table_name} WHERE user_id = ? ORDER BY id ASC",
-                        (source_user_id,),
-                    ).fetchall()
                     user_id_index = next(
                         (index for index, column in enumerate(columns) if column == "user_id"),
                         None,
                     )
-                    for row in rows:
-                        values = list(row)
-                        if user_id_index is not None:
-                            values[user_id_index] = user.id
+                    last_id = int(
                         remote.execute(
-                            f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
-                            tuple(values),
-                        )
+                            f"SELECT COALESCE(MAX(id), 0) FROM {table_name} WHERE user_id = ?",
+                            (user.id,),
+                        ).fetchone()[0]
+                        or 0
+                    )
 
-                remote.commit()
-                remote.sync()
+                    while True:
+                        rows = source.execute(
+                            f"""
+                            SELECT {column_list}
+                            FROM {table_name}
+                            WHERE user_id = ? AND id > ?
+                            ORDER BY id ASC
+                            LIMIT ?
+                            """,
+                            (source_user_id, last_id, MIGRATION_BATCH_SIZE),
+                        ).fetchall()
+                        if not rows:
+                            break
+
+                        for row in rows:
+                            values = list(row)
+                            if user_id_index is not None:
+                                values[user_id_index] = user.id
+                            try:
+                                remote.execute(
+                                    f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
+                                    tuple(values),
+                                )
+                            except Exception as exc:
+                                if "stream not found" not in str(exc).lower():
+                                    raise
+                                remote = _reopen_remote()
+                                remote.execute(
+                                    f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
+                                    tuple(values),
+                                )
+
+                        remote.commit()
+                        remote.sync()
+                        remote = _reopen_remote()
+                        last_id = int(rows[-1]["id"])
 
                 counts: Dict[str, Dict[str, int]] = {}
                 for table_name in ("context_snapshots", "session_retrieval_docs", "context_sessions", "activity_events"):
@@ -585,6 +645,7 @@ class TursoUserService:
         user_id: str,
         *,
         source_user_id: Optional[str] = None,
+        source_db_path: Optional[str | Path] = None,
     ) -> Dict[str, Dict[str, int]]:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
@@ -592,6 +653,7 @@ class TursoUserService:
         if not user.turso_db_name or not user.turso_db_url:
             raise TursoProvisioningError("Per-user Turso database metadata is missing")
         source_user_id = self.resolve_migration_source_user_id(user.id, source_user_id)
+        resolved_source_db_path = self.resolve_migration_source_db_path(source_db_path)
 
         token = await self._mint_database_token(
             user.turso_db_name,
@@ -602,9 +664,9 @@ class TursoUserService:
 
         def _counts() -> Dict[str, Dict[str, int]]:
             remote = self._open_remote_replica(replica_path, user.turso_db_url, token)
-            source_path = self._legacy_activity_db_path()
+            source_path = resolved_source_db_path
             if not source_path.exists():
-                raise TursoProvisioningError(f"Shared activity replica is missing at {source_path}")
+                raise TursoProvisioningError(f"Migration source DB is missing at {source_path}")
 
             source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=10.0)
             try:
@@ -640,13 +702,19 @@ class TursoUserService:
         user_id: str,
         *,
         source_user_id: Optional[str] = None,
+        source_db_path: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
         user = await self.ensure_user_activity_database(user_id)
         if user is None:
             raise TursoProvisioningError(f"User {user_id} does not exist")
 
         source_user_id = self.resolve_migration_source_user_id(user_id, source_user_id)
-        counts = await self.get_user_migration_counts(user_id, source_user_id=source_user_id)
+        resolved_source_db_path = self.resolve_migration_source_db_path(source_db_path)
+        counts = await self.get_user_migration_counts(
+            user_id,
+            source_user_id=source_user_id,
+            source_db_path=resolved_source_db_path,
+        )
         exact_match = {
             table_name: (pair["source"] == pair["target"])
             for table_name, pair in counts.items()
@@ -661,6 +729,7 @@ class TursoUserService:
         return {
             "user_id": user.id,
             "source_user_id": source_user_id,
+            "source_db_path": str(resolved_source_db_path),
             "database_name": user.turso_db_name,
             "sync_url": user.turso_db_url,
             "provisioned_at": user.turso_provisioned_at.isoformat() if user.turso_provisioned_at else None,

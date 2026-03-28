@@ -22,6 +22,7 @@ from services.turso_user_service import TursoProvisioningError, turso_user_servi
 async def _run(args: argparse.Namespace) -> int:
     try:
         source_user_id = (args.source_user_id or "").strip() or None
+        source_db_path = Path(args.source_db_path).expanduser().resolve() if args.source_db_path else None
         if args.ensure_provisioned:
             user = await turso_user_service.ensure_user_activity_database(args.user_id)
             print(
@@ -45,6 +46,7 @@ async def _run(args: argparse.Namespace) -> int:
             user = await turso_user_service.migrate_user(
                 args.user_id,
                 source_user_id=source_user_id,
+                source_db_path=source_db_path,
             )
             print(
                 json.dumps(
@@ -52,6 +54,7 @@ async def _run(args: argparse.Namespace) -> int:
                         "action": "migrate",
                         "user_id": args.user_id,
                         "source_user_id": source_user_id or args.user_id,
+                        "source_db_path": str(source_db_path) if source_db_path else None,
                         "database_name": getattr(user, "turso_db_name", None),
                         "migrated_at": (
                             user.turso_migrated_at.isoformat()
@@ -66,6 +69,7 @@ async def _run(args: argparse.Namespace) -> int:
         status = await turso_user_service.get_user_migration_status(
             args.user_id,
             source_user_id=source_user_id,
+            source_db_path=source_db_path,
         )
         print(json.dumps({"action": "status", **status}, indent=2))
         return 0
@@ -80,6 +84,10 @@ def main() -> int:
     parser.add_argument(
         "--source-user-id",
         help="Optional historical source user id to copy from while writing rows to --user-id",
+    )
+    parser.add_argument(
+        "--source-db-path",
+        help="Optional SQLite source DB path for one-time backfill (for example ~/.ritual/activity.db)",
     )
     parser.add_argument(
         "--ensure-provisioned",

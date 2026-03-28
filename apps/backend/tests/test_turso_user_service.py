@@ -262,6 +262,86 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("migration has not completed", str(exc.exception).lower())
 
+    async def test_migrate_user_rows_can_use_explicit_source_db_path(self):
+        service = TursoUserService()
+        target_user_id = "current-user"
+        source_user_id = "legacy-user"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = os.path.join(tmp, "activity.db")
+            target_path = os.path.join(tmp, "per-user.db")
+            _prepare_schema(source_path)
+            _prepare_schema(target_path)
+            _seed_rollout_user_source(source_path, source_user_id)
+
+            user = SimpleNamespace(
+                id=target_user_id,
+                turso_db_name="ritual-user-current",
+                turso_db_url="libsql://ritual-user-current.turso.io",
+            )
+
+            with patch.object(
+                service,
+                "_mint_database_token",
+                AsyncMock(return_value="server-token"),
+            ), patch.object(
+                service,
+                "_legacy_activity_db_path",
+                side_effect=AssertionError("should not use legacy replica"),
+            ), patch.object(
+                service,
+                "_update_user_turso_metadata",
+                AsyncMock(),
+            ) as update_metadata, patch.object(
+                service,
+                "is_rollout_gate_user",
+                return_value=False,
+            ), patch.object(
+                service,
+                "_open_remote_replica",
+                side_effect=lambda _replica_path, _sync_url, _token: _SQLiteReplica(target_path),
+            ):
+                await service._migrate_user_rows(
+                    user,
+                    source_user_id=source_user_id,
+                    source_db_path=source_path,
+                )
+
+            conn = sqlite3.connect(target_path)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM context_snapshots WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM session_retrieval_docs WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM context_sessions WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM activity_events WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+            finally:
+                conn.close()
+
+        update_metadata.assert_awaited()
+
     async def test_rollout_user_does_not_cut_over_before_minimum_counts(self):
         service = TursoUserService()
         user_id = "rollout-user"
