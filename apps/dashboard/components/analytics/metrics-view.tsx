@@ -2081,7 +2081,7 @@ export function MetricsView({
 
           {/* ── Insight agent cards ── */}
           {!expandedHabit && (
-            <div className="mx-auto mt-4 w-full max-w-[920px]">
+            <div className="mx-auto mt-8 w-full max-w-[920px]">
               <InsightCardsGrid />
             </div>
           )}
@@ -2240,8 +2240,9 @@ export function MetricsView({
 
             return (
               <div className="mx-auto mt-8 w-full max-w-[920px]">
-                {/* Horizontal bar list cards — stacked vertically, compact width */}
-                <div className="mx-auto flex max-w-[440px] flex-col gap-[6px]">
+                {/* Horizontal bar list cards — side by side, right-aligned */}
+                <div className="ml-auto flex max-w-[720px] gap-[6px]">
+                  <div className="min-w-0 flex-1">
                   <VercelBarListCard
                     tabs={[
                       { id: 'habits', label: 'Habits' },
@@ -2256,7 +2257,10 @@ export function MetricsView({
                     activeRange={barListRange}
                     onRangeChange={setBarListRange}
                   />
-                  <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <ComputerTimeBarList activeRange={barListRange} onRangeChange={setBarListRange} />
+                  </div>
                 </div>
 
                 {/* Computer Time detail section with app icons and progress bars */}
