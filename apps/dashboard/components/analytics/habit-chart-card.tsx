@@ -221,7 +221,7 @@ export function HabitChartCard({
             points={points}
             range={effectiveRange}
             unit={unit}
-            chartType="bar"
+            chartType="spark"
             showGrid
             higherIsBetter={higherIsBetter}
             height={170}
