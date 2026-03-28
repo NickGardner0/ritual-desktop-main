@@ -59,6 +59,9 @@ app = FastAPI(title="Ritual Backend API", version="1.0.0")
 STARTUP_MAINTENANCE_DELAY_SECONDS = float(
     os.getenv("STARTUP_MAINTENANCE_DELAY_SECONDS", "15")
 )
+ENABLE_STARTUP_MAINTENANCE_TASK = os.getenv(
+    "ENABLE_STARTUP_MAINTENANCE_TASK", "0"
+).lower() in {"1", "true", "yes", "on"}
 
 # Rate limiting setup
 limiter = Limiter(key_func=get_remote_address)
@@ -510,9 +513,13 @@ async def startup_event():
     app.state.memory_worker_task = None
     app.state.memory_retention_task = None
     app.state.semantic_summary_task = None
-    app.state.startup_maintenance_task = asyncio.create_task(
-        _delayed_post_startup_initialization()
-    )
+    app.state.startup_maintenance_task = None
+    if ENABLE_STARTUP_MAINTENANCE_TASK:
+        app.state.startup_maintenance_task = asyncio.create_task(
+            _delayed_post_startup_initialization()
+        )
+    else:
+        logger.info("⏭️ Deferred startup maintenance disabled for fast platform readiness")
 
     # Semantic summaries are now JIT-only: generated when the user requests
     # screen evidence (calendar day click or chat query). This avoids burning
