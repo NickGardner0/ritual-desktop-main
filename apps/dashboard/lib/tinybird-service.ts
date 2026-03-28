@@ -42,7 +42,7 @@ interface WhoopSleepData {
 
 interface TinybirdConfig {
   baseUrl: string;
-  token: string;
+  token: string | null;
 }
 
 class TinybirdService {
@@ -56,20 +56,22 @@ class TinybirdService {
     const cloudToken = process.env.TINYBIRD_TOKEN;
     const localToken = process.env.TINYBIRD_LOCAL_TOKEN;
     
-    // Validate that required token is present
-    if (useCloud && !cloudToken) {
-      throw new Error('TINYBIRD_TOKEN environment variable is required for cloud mode. Please add it to your .env file.');
-    }
-    if (!useCloud && !localToken) {
-      throw new Error('TINYBIRD_LOCAL_TOKEN environment variable is required for local mode.');
-    }
-    
     this.config = {
       baseUrl: useCloud 
         ? (process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co')
         : (process.env.TINYBIRD_LOCAL_URL || 'http://localhost:7181'),
-      token: useCloud ? cloudToken! : localToken!
+      token: useCloud ? (cloudToken || null) : (localToken || null)
     };
+  }
+
+  private requireToken(): string {
+    if (this.config.token) {
+      return this.config.token;
+    }
+
+    const mode = process.env.TINYBIRD_ENV !== 'local' ? 'cloud' : 'local';
+    const envName = mode === 'cloud' ? 'TINYBIRD_TOKEN' : 'TINYBIRD_LOCAL_TOKEN';
+    throw new Error(`${envName} environment variable is required for Tinybird ${mode} mode.`);
   }
   
   /**
@@ -92,7 +94,7 @@ class TinybirdService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.config.token}`,
+          'Authorization': `Bearer ${this.requireToken()}`,
           'Content-Type': 'application/json',
         },
         body: ndjson,
@@ -199,7 +201,7 @@ class TinybirdService {
       
       const response = await fetch(url, {
         headers: {
-          'Authorization': `Bearer ${this.config.token}`,
+          'Authorization': `Bearer ${this.requireToken()}`,
         },
       });
       
@@ -290,7 +292,7 @@ class TinybirdService {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.config.token}`,
+          'Authorization': `Bearer ${this.requireToken()}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ q: query }),
