@@ -251,6 +251,18 @@ xcrun stapler staple "${DMG_PATH}"
 echo "Validating updater artifacts..."
 node scripts/validate-updater-artifacts.mjs --latest "${LATEST_JSON}"
 
+echo "Checking packaged app for accidental dashboard build artifacts..."
+ARTIFACT_CHECK_OUTPUT="$(mktemp)"
+if strings "${APP_PATH}/Contents/MacOS/${PRODUCT_NAME}" | rg -n \
+  '\.next/cache|/dev/cache/turbopack|/server/app/api/|/dev/server/app/api/|route\.js\.map' \
+  >"${ARTIFACT_CHECK_OUTPUT}"; then
+  echo "Packaged app still embeds dashboard/Next build artifacts:" >&2
+  cat "${ARTIFACT_CHECK_OUTPUT}" >&2
+  rm -f "${ARTIFACT_CHECK_OUTPUT}"
+  exit 1
+fi
+rm -f "${ARTIFACT_CHECK_OUTPUT}"
+
 cat <<EOF
 
 Desktop release artifacts are ready:

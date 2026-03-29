@@ -5,9 +5,15 @@
 mod desktop_runtime;
 mod local_search_bridge;
 mod native_widget;
+#[cfg(feature = "native-recorder")]
 mod recorder;
+#[cfg(not(feature = "native-recorder"))]
+mod recorder_disabled;
 mod ritual_database;
 mod watcher;
+
+#[cfg(not(feature = "native-recorder"))]
+use crate::recorder_disabled as recorder;
 
 use std::env;
 use std::fs;
@@ -36,6 +42,7 @@ use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, Syst
 const DEV_APP_URL: &str = "http://localhost:3000";
 const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
+const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
 
 fn read_nonempty_env(name: &str) -> Option<String> {
@@ -114,6 +121,72 @@ fn get_app_url() -> String {
             println!("🌍 Using fallback URL: {}", url);
             url
         }
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopShellBootstrapConfig {
+    environment: String,
+    app_origin: String,
+    bootstrap_url: String,
+    callback_url: String,
+}
+
+fn build_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
+    let ritual_env = configured_ritual_env();
+    let app_origin = get_app_url();
+    let bootstrap_url = with_query_param(
+        &join_url_path(&app_origin, "/desktop/bootstrap"),
+        &format!("ritual_desktop_env={}", ritual_env),
+    );
+    let callback_url = join_url_path(&app_origin, "/auth/callback");
+
+    DesktopShellBootstrapConfig {
+        environment: ritual_env,
+        app_origin,
+        bootstrap_url,
+        callback_url,
+    }
+}
+
+#[tauri::command]
+fn get_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
+    build_desktop_shell_bootstrap_config()
+}
+
+#[tauri::command]
+async fn check_desktop_hosted_app_reachable(url: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .timeout(std::time::Duration::from_secs(6))
+            .build()
+            .map_err(|error| format!("Failed to create hosted app probe client: {error}"))?;
+
+        let response = client
+            .get(&url)
+            .send()
+            .map_err(|error| format!("Failed to reach hosted desktop app: {error}"))?;
+
+        Ok(response.status().is_success() || response.status().is_redirection())
+    })
+    .await
+    .map_err(|error| format!("Hosted desktop reachability task failed: {error}"))?
+}
+
+fn should_use_local_shell_window() -> bool {
+    !matches!(configured_ritual_env().as_str(), "development" | "dev")
+}
+
+fn desktop_shell_window_url() -> Result<tauri::WindowUrl, std::io::Error> {
+    if should_use_local_shell_window() {
+        Ok(tauri::WindowUrl::App("index.html".into()))
+    } else {
+        let shell_external_url = DESKTOP_SHELL_DEV_URL
+            .parse()
+            .map_err(|error| std::io::Error::other(format!("Invalid desktop shell dev URL: {error}")))?;
+        Ok(tauri::WindowUrl::External(shell_external_url))
     }
 }
 
@@ -708,6 +781,45 @@ fn clear_watcher_config_cmd() -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
+    let trimmed_user_id = user_id.trim();
+    if trimmed_user_id.is_empty() {
+        return Err("User ID is required".to_string());
+    }
+
+    let Some(mut config) = read_watcher_config() else {
+        return Ok(false);
+    };
+
+    if config.user_id == trimmed_user_id {
+        return Ok(false);
+    }
+
+    println!(
+        "🔁 Reconciling watcher config user from {} to {}",
+        config.user_id, trimmed_user_id
+    );
+    config.user_id = trimmed_user_id.to_string();
+    save_watcher_config_cmd(config.clone())?;
+
+    if watcher::check_accessibility_permission() {
+        match watcher::start_watcher_sync(config) {
+            Ok(status) => {
+                println!(
+                    "✅ Watcher restarted after config reconciliation (PID: {:?})",
+                    status.pid
+                );
+            }
+            Err(error) => {
+                println!("⚠️ Failed restarting watcher after config reconciliation: {}", error);
+            }
+        }
+    }
+
+    Ok(true)
+}
+
 fn get_voice_settings_path() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
@@ -774,6 +886,8 @@ fn main() {
       native_widget::check_token_refresh_request,
       native_widget::show_native_microphone_permission_dialog,
       native_widget::check_native_microphone_permission,
+      native_widget::show_native_speech_recognition_permission_dialog,
+      native_widget::check_native_speech_recognition_permission,
       native_widget::start_native_speech_recognition,
       native_widget::stop_native_speech_recognition,
       native_widget::get_native_speech_state,
@@ -813,10 +927,11 @@ fn main() {
       // Watcher config persistence for auto-start
       save_watcher_config_cmd,
       clear_watcher_config_cmd,
+      reconcile_watcher_config_user_cmd,
       // Voice hotkey settings
       get_voice_hotkey,
       set_voice_hotkey,
-      // Ritual Recorder commands for screen recording and OCR
+      // Ritual Recorder commands for legacy OCR surfaces (disabled by default)
       recorder::check_screen_recording_permission,
       recorder::request_screen_recording_permission,
       recorder::check_ffmpeg_status,
@@ -835,6 +950,9 @@ fn main() {
       recorder::extract_frame_image,
       recorder::clear_frame_cache,
       recorder::get_frame_cache_stats,
+      // Desktop shell bootstrap commands
+      get_desktop_shell_bootstrap_config,
+      check_desktop_hosted_app_reachable,
       // Desktop runtime / updater commands
       desktop_runtime::get_desktop_runtime_info,
       desktop_runtime::desktop_frontend_ready,
@@ -911,35 +1029,24 @@ fn main() {
       let ritual_env = configured_ritual_env();
       let app_origin = get_app_url();
       let mut app_url = with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
-      let mut main_url = with_query_param(
-        &join_url_path(&app_origin, "/desktop/bootstrap"),
-        &format!("ritual_desktop_env={}", ritual_env),
-      );
       let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
       let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
       if main_glass_enabled {
         app_url = with_query_param(&app_url, "ritual_main_glass=1");
-        main_url = with_query_param(&main_url, "ritual_main_glass=1");
       }
       if transparency_probe {
         println!("🧪 Transparency probe mode enabled (RITUAL_TRANSPARENCY_PROBE=1)");
         println!("🧪 Probe checklist: transparent window + clear NSWindow + guarded WKWebView clear pass + vibrancy material");
         app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
-        main_url = with_query_param(&main_url, "ritual_transparency_probe=1");
       }
       
       let window = if let Some(window) = app.get_window("main") {
         window
       } else {
-        println!("🪟 Creating hosted main window at: {}", main_url);
-        let main_external_url = main_url
-          .parse()
-          .map_err(|e| std::io::Error::other(format!("Invalid main URL: {e}")))?;
-
         let mut builder = tauri::WindowBuilder::new(
           app,
           "main",
-          tauri::WindowUrl::External(main_external_url),
+          desktop_shell_window_url()?,
         )
         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
         .title("")
@@ -990,7 +1097,6 @@ fn main() {
 
           if detached_sidebar_enabled {
             println!("✅ Detached sidebar mode enabled (two-window)");
-            main_url = with_query_param(&main_url, "ritual_detached_sidebar=1");
             let _ = ensure_detached_sidebar_window(&app.handle(), &app_url, sidebar_state.get_width());
             let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
@@ -1060,16 +1166,21 @@ fn main() {
           if let Err(e) = ritual_database::log_startup_pipeline_snapshot() {
             eprintln!("⚠️ Failed to log startup pipeline snapshot: {}", e);
           }
-          if let Err(e) = local_search_bridge::start_local_search_bridge() {
-            eprintln!("⚠️ Failed to start local search bridge: {}", e);
+          if env_flag_enabled("RITUAL_ENABLE_LOCAL_SEMANTIC_SEARCH") {
+            if let Err(e) = local_search_bridge::start_local_search_bridge() {
+              eprintln!("⚠️ Failed to start local search bridge: {}", e);
+            }
+            ritual_database::auto_start_embedding_worker();
+          } else {
+            println!("⏭️ Local semantic search bridge disabled (cloud-only chat mode)");
           }
-          // Auto-start embedding worker if there are frames without embeddings
-          ritual_database::auto_start_embedding_worker();
 
-          if env_flag_enabled("RITUAL_ENABLE_STARTUP_BACKFILL") {
-            std::thread::spawn(|| {
-              match ritual_database::ensure_embedding_pipeline_ready() {
-                Ok(status) => {
+          if env_flag_enabled("RITUAL_ENABLE_LOCAL_SEMANTIC_SEARCH")
+            && env_flag_enabled("RITUAL_ENABLE_STARTUP_BACKFILL")
+          {
+              std::thread::spawn(|| {
+                match ritual_database::ensure_embedding_pipeline_ready() {
+                  Ok(status) => {
                   println!(
                     "[Ritual][startup] ensure_embedding_pipeline_ready initialized={} frame_pending={} chunk_pending={} worker_running={} worker_started={}",
                     status.initialized,
@@ -1086,10 +1197,10 @@ fn main() {
                   eprintln!("[Ritual][startup] ensure_embedding_pipeline_ready failed: {}", e);
                 }
               }
-            });
+              });
           } else {
             println!(
-              "[Ritual][startup] startup backfill disabled (set RITUAL_ENABLE_STARTUP_BACKFILL=1 to enable); worker will keep draining incrementally"
+              "[Ritual][startup] local semantic startup backfill disabled; cloud-only chat stays on backend memory retrieval"
             );
           }
         },
@@ -1169,14 +1280,19 @@ fn main() {
           if let Some(payload) = event.payload() {
             println!("🔗 Deep link received: {}", payload);
             
-            // Forward the deep link to the frontend
-            // In production, the app loads from tauri://localhost, so we use relative navigation
+            // Forward the deep link to the hosted frontend.
             if let Some(window) = handle.get_window("main") {
               let _ = window.show();
               let _ = window.set_focus();
+              let callback_url = with_query_param(
+                &build_desktop_shell_bootstrap_config().callback_url,
+                &format!("deepLink={}", urlencoding::encode(payload)),
+              );
+              let callback_url_json = serde_json::to_string(&callback_url)
+                .unwrap_or_else(|_| format!("\"{}\"", callback_url));
               let _ = window.eval(&format!(
-                "window.location.href = '/auth/callback?deepLink={}';",
-                urlencoding::encode(payload)
+                "window.location.href = {};",
+                callback_url_json
               ));
             }
           }

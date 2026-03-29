@@ -17,6 +17,52 @@ export async function startNativeDesktopSpeechRecognition(): Promise<void> {
   await invoke("start_native_speech_recognition");
 }
 
+export async function checkNativeDesktopMicrophonePermission(): Promise<boolean> {
+  if (!isTauri()) return true;
+
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  return invoke<boolean>("check_native_microphone_permission");
+}
+
+export async function showNativeDesktopMicrophonePermissionDialog(): Promise<boolean> {
+  if (!isTauri()) return true;
+
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  return invoke<boolean>("show_native_microphone_permission_dialog");
+}
+
+export async function checkNativeDesktopSpeechRecognitionPermission(): Promise<boolean> {
+  if (!isTauri()) return true;
+
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  return invoke<boolean>("check_native_speech_recognition_permission");
+}
+
+export async function showNativeDesktopSpeechRecognitionPermissionDialog(): Promise<boolean> {
+  if (!isTauri()) return true;
+
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  return invoke<boolean>("show_native_speech_recognition_permission_dialog");
+}
+
+export async function ensureNativeDesktopVoicePermissions(): Promise<void> {
+  const hasSpeech = await checkNativeDesktopSpeechRecognitionPermission().catch(() => false);
+  if (!hasSpeech) {
+    const granted = await showNativeDesktopSpeechRecognitionPermissionDialog().catch(() => false);
+    if (!granted) {
+      throw new Error("speech-permission-denied");
+    }
+  }
+
+  const hasMicrophone = await checkNativeDesktopMicrophonePermission().catch(() => false);
+  if (!hasMicrophone) {
+    const granted = await showNativeDesktopMicrophonePermissionDialog().catch(() => false);
+    if (!granted) {
+      throw new Error("microphone-permission-denied");
+    }
+  }
+}
+
 export async function stopNativeDesktopSpeechRecognition(): Promise<void> {
   if (!isTauri()) return;
 
@@ -80,6 +126,8 @@ export function formatNativeSpeechError(message: string): string {
       return "The microphone could not be started. Try closing other apps using the microphone.";
     case "request-failed":
       return "Speech recognition could not be initialized. Please try again.";
+    case "voice-permissions-required":
+      return "Microphone and Speech Recognition access are required. Enable them in System Settings > Privacy & Security.";
     default:
       return message ? `Voice error: ${message}` : "Voice logging failed. Please try again.";
   }

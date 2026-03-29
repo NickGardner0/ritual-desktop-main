@@ -16,7 +16,10 @@ from database.models import (
     WatcherDeviceDB,
     WatcherStateDB,
 )
-from services.watcher_service_local_db import get_local_watcher_db_path_impl
+from services.watcher_service_local_db import (
+    get_local_watcher_db_path_impl,
+    open_activity_connection_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +378,52 @@ async def get_top_apps_impl(
     device_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get top apps by active time for a date range."""
+    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+    start_ms = int(start_date_obj.timestamp() * 1000)
+    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+
+    async with open_activity_connection_for_user(user_id) as conn:
+        if conn is not None:
+            params: list[Any] = [start_ms, end_ms, user_id]
+            device_clause = ""
+            if device_id:
+                device_clause = " AND device_id = ?"
+                params.append(device_id)
+            params.append(limit)
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                    app_bundle_id,
+                    app_name,
+                    COALESCE(SUM(CASE WHEN ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
+                    COUNT(*) as total_events
+                FROM activity_events
+                WHERE ts_start >= ? AND ts_start < ?
+                  AND user_id = ?
+                  AND COALESCE(is_afk, 0) = 0
+                  {device_clause}
+                GROUP BY app_bundle_id, app_name
+                ORDER BY total_active_ms DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+
+            if rows:
+                return [
+                    {
+                        "app_bundle_id": row[0],
+                        "app_name": row[1],
+                        "total_active_ms": int(row[2] or 0),
+                        "total_events": int(row[3] or 0),
+                        "hours": round((int(row[2] or 0)) / (1000 * 60 * 60), 2),
+                        "source": "activity_db",
+                    }
+                    for row in rows
+                ]
+
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,
@@ -514,6 +563,53 @@ async def get_top_domains_impl(
     device_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get top domains by active time for a date range."""
+    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+    start_ms = int(start_date_obj.timestamp() * 1000)
+    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+
+    async with open_activity_connection_for_user(user_id) as conn:
+        if conn is not None:
+            params: list[Any] = [start_ms, end_ms, user_id]
+            device_clause = ""
+            if device_id:
+                device_clause = " AND device_id = ?"
+                params.append(device_id)
+            params.append(limit)
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                    browser_domain,
+                    COALESCE(SUM(CASE WHEN ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
+                    COUNT(*) as total_events
+                FROM activity_events
+                WHERE ts_start >= ? AND ts_start < ?
+                  AND user_id = ?
+                  AND COALESCE(is_afk, 0) = 0
+                  AND browser_domain IS NOT NULL
+                  AND browser_domain != ''
+                  {device_clause}
+                GROUP BY browser_domain
+                ORDER BY total_active_ms DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+
+            if rows:
+                return [
+                    {
+                        "domain": row[0],
+                        "total_active_ms": int(row[1] or 0),
+                        "total_events": int(row[2] or 0),
+                        "hours": round((int(row[1] or 0)) / (1000 * 60 * 60), 2),
+                        "minutes": round((int(row[1] or 0)) / (1000 * 60), 1),
+                        "source": "activity_db",
+                    }
+                    for row in rows
+                ]
+
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,

@@ -1,7 +1,10 @@
 {
   "name": "@ritual/desktop",
   "private": true,
+  "type": "module",
   "scripts": {
+    "shell:dev": "node ../../node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420",
+    "shell:build": "node ../../node_modules/vite/bin/vite.js build",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build"

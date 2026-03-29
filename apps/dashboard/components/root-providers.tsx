@@ -1,9 +1,9 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ThemeProvider } from '@/components/theme-provider';
-import { ClerkProvider } from '@clerk/nextjs';
+import { ClerkProvider, useUser } from '@clerk/nextjs';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
@@ -12,10 +12,33 @@ import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
 import { DesktopUpdater } from '@/components/desktop-updater';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
-import {
-  ensureAutoSemanticBackfillOnLaunch,
-  ensureEmbeddingPipelineReadyOnLaunch,
-} from '@/lib/screen-search';
+
+function WatcherConfigReconciler() {
+  const { isLoaded, user } = useUser();
+  const lastUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri() || !isLoaded || !user?.id) return;
+    if (lastUserIdRef.current === user.id) return;
+    lastUserIdRef.current = user.id;
+
+    void (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        const updated = await invoke<boolean>('reconcile_watcher_config_user_cmd', {
+          userId: user.id,
+        });
+        if (updated) {
+          console.log(`✅ Reconciled watcher config to current user ${user.id}`);
+        }
+      } catch (error) {
+        console.error('Failed to reconcile watcher config user:', error);
+      }
+    })();
+  }, [isLoaded, user?.id]);
+
+  return null;
+}
 
 /**
  * Root Providers Wrapper
@@ -87,22 +110,13 @@ export function RootProviders({ children }: { children: ReactNode }) {
     }
   }, [isMainGlassEnabled]);
 
-  useEffect(() => {
-    ensureEmbeddingPipelineReadyOnLaunch().catch((error) => {
-      console.warn('Embedding pipeline bootstrap failed:', error);
-    });
-
-    ensureAutoSemanticBackfillOnLaunch().catch((error) => {
-      console.warn('Automatic semantic backfill bootstrap failed:', error);
-    });
-  }, []);
-
   const content = (
     <OpenPanelProvider>
       <QueryProvider>
         <HabitsProvider>
           <DesktopUpdater />
           <MemoryCloudUploader />
+          <WatcherConfigReconciler />
           {children}
         </HabitsProvider>
       </QueryProvider>

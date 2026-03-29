@@ -12,6 +12,7 @@ import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { isTauri } from '@/lib/tauri-utils';
 import {
+  ensureNativeDesktopVoicePermissions,
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
   getNativeSpeechErrorMessage,
@@ -705,6 +706,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const startNativeVoiceRecognition = useCallback(async () => {
     setError(null);
     setIsProcessingVoice(false);
+    await ensureNativeDesktopVoicePermissions();
     await resetNativeVoiceSession();
     await startNativeDesktopSpeechRecognition();
     setIsListening(true);

@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from services.watcher_service_local_db import (
     get_local_watcher_db_path_impl,
     merge_time_intervals_impl,
+    open_activity_connection_for_user,
 )
 
 logger = logging.getLogger(__name__)
@@ -512,6 +513,58 @@ async def get_computer_time_summary_impl(
     device_id: Optional[str] = None,
 ) -> Dict:
     """Get total computer time summary for a date range."""
+    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+    start_ms = int(start_date_obj.timestamp() * 1000)
+    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+
+    async with open_activity_connection_for_user(user_id) as conn:
+        if conn is not None:
+            params: list[Any] = [start_ms, end_ms, user_id]
+            device_clause = ""
+            if device_id:
+                device_clause = " AND device_id = ?"
+                params.append(device_id)
+
+            row = conn.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
+                    COUNT(*) as total_events,
+                    COUNT(DISTINCT date(ts_start/1000, 'unixepoch', 'localtime')) as days_tracked,
+                    COUNT(DISTINCT app_bundle_id) as unique_apps,
+                    COUNT(DISTINCT CASE WHEN browser_domain IS NOT NULL AND browser_domain != '' THEN browser_domain END) as unique_domains,
+                    COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 1 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_afk_ms
+                FROM activity_events
+                WHERE ts_start >= ? AND ts_start < ?
+                  AND user_id = ?
+                  {device_clause}
+                """,
+                params,
+            ).fetchone()
+
+            if row and int(row[0] or 0) > 0:
+                total_active_ms = int(row[0] or 0)
+                total_events = int(row[1] or 0)
+                days_tracked = int(row[2] or 0)
+                unique_apps = int(row[3] or 0)
+                unique_domains = int(row[4] or 0)
+                total_afk_ms = int(row[5] or 0)
+                total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
+                avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
+
+                return {
+                    "total_active_ms": total_active_ms,
+                    "total_hours": total_hours,
+                    "total_events": total_events,
+                    "days_tracked": days_tracked,
+                    "unique_apps": unique_apps,
+                    "unique_domains": unique_domains,
+                    "total_afk_ms": total_afk_ms,
+                    "avg_daily_hours": avg_daily_hours,
+                    "source": "activity_db",
+                }
+
     local_daily_rows = _get_computer_activity_daily_totals_from_local_db_impl(
         start_date=start_date,
         end_date=end_date,
@@ -667,6 +720,52 @@ async def get_daily_computer_time_impl(
     The SQL path is ~100x faster than the Python dedup path and accurate
     enough for daily charting (minor overlap in events is negligible).
     """
+    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+    start_ms = int(start_date_obj.timestamp() * 1000)
+    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+
+    async with open_activity_connection_for_user(user_id) as conn:
+        if conn is not None:
+            params: list[Any] = [start_ms, end_ms, user_id]
+            device_clause = ""
+            if device_id:
+                device_clause = " AND device_id = ?"
+                params.append(device_id)
+
+            rows = conn.execute(
+                f"""
+                SELECT
+                    date(ts_start/1000, 'unixepoch', 'localtime') as day,
+                    COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start
+                        THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
+                    COUNT(*) as total_events,
+                    COUNT(DISTINCT app_bundle_id) as unique_apps,
+                    COUNT(DISTINCT CASE WHEN browser_domain IS NOT NULL AND browser_domain != '' THEN browser_domain END) as unique_domains
+                FROM activity_events
+                WHERE ts_start >= ? AND ts_start < ?
+                  AND user_id = ?
+                  {device_clause}
+                GROUP BY day
+                ORDER BY day ASC
+                """,
+                params,
+            ).fetchall()
+
+            if rows:
+                return [
+                    {
+                        "day": row[0],
+                        "active_hours": round((int(row[1] or 0)) / (1000 * 60 * 60), 2),
+                        "active_ms": int(row[1] or 0),
+                        "events_count": int(row[2] or 0),
+                        "apps_count": int(row[3] or 0),
+                        "domains_count": int(row[4] or 0),
+                        "source": "activity_db",
+                    }
+                    for row in rows
+                ]
+
     import sqlite3 as _sqlite3
 
     _db_path = get_local_watcher_db_path_impl()

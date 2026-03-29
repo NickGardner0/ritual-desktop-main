@@ -422,14 +422,26 @@ async def sync_to_computer_use_habit_impl(
 
             habit_id, habit_name, unit_type = resolved_habit
 
-            local_data = service._get_computer_time_from_local_db(day)
-            if not local_data.get("ok", True):
-                return {
-                    "success": False,
-                    "error": f"Failed to read local activity DB: {local_data.get('error', 'unknown error')}",
-                    "synced": False,
-                    "day": day,
-                }
+            summary = await service.get_computer_time_summary(
+                user_id=user_id,
+                start_date=day,
+                end_date=day,
+            )
+            top_domains = await service.get_top_domains(
+                user_id=user_id,
+                start_date=day,
+                end_date=day,
+                limit=5,
+            )
+            local_data = {
+                "ok": True,
+                "total_ms": int(summary.get("total_active_ms", 0) or 0),
+                "total_hours": float(summary.get("total_hours", 0) or 0),
+                "events_count": int(summary.get("total_events", 0) or 0),
+                "active_ms": int(summary.get("total_active_ms", 0) or 0),
+                "afk_ms": int(summary.get("total_afk_ms", 0) or 0),
+                "top_domains": top_domains[:5] if isinstance(top_domains, list) else [],
+            }
 
             computer_sync = await service._sync_computer_activity_range_to_tinybird(
                 user_id=user_id,
@@ -590,16 +602,19 @@ async def reconcile_computer_use_projection_impl(
 
         for offset in range(checked_days):
             day = (start_dt + timedelta(days=offset)).strftime("%Y-%m-%d")
-            local_data = service._get_computer_time_from_local_db(day)
-            if not local_data.get("ok", True):
-                mismatches.append(
-                    {
-                        "day": day,
-                        "reason": "local_read_failed",
-                        "error": local_data.get("error", "unknown error"),
-                    }
-                )
-                continue
+            summary = await service.get_computer_time_summary(
+                user_id=user_id,
+                start_date=day,
+                end_date=day,
+            )
+            local_data = {
+                "ok": True,
+                "total_ms": int(summary.get("total_active_ms", 0) or 0),
+                "total_hours": float(summary.get("total_hours", 0) or 0),
+                "events_count": int(summary.get("total_events", 0) or 0),
+                "active_ms": int(summary.get("total_active_ms", 0) or 0),
+                "afk_ms": int(summary.get("total_afk_ms", 0) or 0),
+            }
 
             expected_amount, expected_duration = service._convert_active_ms_to_habit_unit(
                 unit_type,

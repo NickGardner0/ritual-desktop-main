@@ -2,15 +2,14 @@
 
 import React, { startTransition, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch, Video, Mic, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch, Mic, Check } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleHealthSyncStatus } from './apple-health-sync-status';
-import { RecorderSettings } from './screen-recorder';
 
-type SettingsView = 'account' | 'computer-tracking' | 'apple-health' | 'screen-recording' | 'voice-logging';
+type SettingsView = 'account' | 'computer-tracking' | 'apple-health' | 'voice-logging';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -93,44 +92,6 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
           <div className="flex-1 overflow-y-auto px-3 py-1.5">
             <ComputerTrackingSettings 
               userId={user?.id || ''} 
-              onClose={() => setCurrentView('account')}
-            />
-          </div>
-        </div>
-      </div>
-    );
-    return createPortal(modalContent, document.body);
-  }
-
-  // Screen Recording View
-  if (currentView === 'screen-recording') {
-    const modalContent = (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-        {/* Backdrop - beige overlay */}
-        <div 
-          className="absolute inset-0 bg-[#e8e5df]/70" 
-          onClick={handleClose}
-        />
-        
-        {/* Modal */}
-        <div className={SETTINGS_PANEL_CLASS}>
-          {/* Header */}
-          <div className={SETTINGS_HEADER_CLASS}>
-            <button
-              onClick={() => setCurrentView('account')}
-              className={SETTINGS_HEADER_BUTTON_CLASS}
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
-            </button>
-            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Screen Recording</h2>
-            <div className="w-6" />
-          </div>
-
-          {/* Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto px-3 py-1.5">
-            <RecorderSettings 
-              userId={user?.id || ''} 
-              deviceId={typeof window !== 'undefined' ? `${navigator.userAgent.slice(0, 20)}-${user?.id?.slice(0, 8)}` : ''} 
               onClose={() => setCurrentView('account')}
             />
           </div>
@@ -345,18 +306,6 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
               <div className="flex items-center gap-2">
                 <Monitor className="w-4 h-4 text-gray-500" />
                 <span className="text-[13px] font-medium text-gray-900 tracking-tight">Computer Use</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </button>
-
-            {/* Screen Recording */}
-            <button 
-              onClick={() => setCurrentView('screen-recording')}
-              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Video className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Screen Recording</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>

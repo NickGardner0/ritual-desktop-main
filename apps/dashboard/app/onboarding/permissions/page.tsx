@@ -7,7 +7,6 @@ import { invoke } from '@tauri-apps/api/tauri';
 import {
   ArrowLeft,
   Check,
-  Monitor,
   Hand,
   Mic,
   AudioLines,
@@ -19,12 +18,11 @@ import {
 } from '@/lib/onboarding-flow';
 import { isTauri, setOnboardingWindowSize } from '@/lib/tauri-utils';
 
-type PermissionKey = 'screenRecording' | 'watcherAccessibility' | 'microphone' | 'speechRecognition';
+type PermissionKey = 'watcherAccessibility' | 'microphone' | 'speechRecognition';
 
 type PermissionState = Record<PermissionKey, boolean>;
 
 const DEFAULT_PERMISSION_STATE: PermissionState = {
-  screenRecording: false,
   watcherAccessibility: false,
   microphone: false,
   speechRecognition: false,
@@ -35,7 +33,6 @@ const permissionCards: Array<{
   title: string;
   Icon: LucideIcon;
 }> = [
-  { key: 'screenRecording', title: 'Screen Recording', Icon: Monitor },
   { key: 'watcherAccessibility', title: 'Accessibility', Icon: Hand },
   { key: 'microphone', title: 'Microphone', Icon: Mic },
   { key: 'speechRecognition', title: 'Speech Recognition', Icon: AudioLines },
@@ -53,7 +50,6 @@ export default function PermissionsOnboardingPage() {
   const checkPermissions = useCallback(async () => {
     if (!desktopMode) {
       setPermissionState({
-        screenRecording: true,
         watcherAccessibility: true,
         microphone: true,
         speechRecognition: true,
@@ -64,17 +60,16 @@ export default function PermissionsOnboardingPage() {
 
     setIsChecking(true);
     try {
-      const [screenRecording, watcherAccessibility, microphone] = await Promise.all([
-        invoke<boolean>('check_screen_recording_permission').catch(() => false),
+      const [watcherAccessibility, microphone, speechRecognition] = await Promise.all([
         invoke<boolean>('check_accessibility_permission').catch(() => false),
         invoke<boolean>('check_native_microphone_permission').catch(() => false),
+        invoke<boolean>('check_native_speech_recognition_permission').catch(() => false),
       ]);
 
       setPermissionState({
-        screenRecording,
         watcherAccessibility,
         microphone,
-        speechRecognition: microphone,
+        speechRecognition,
       });
     } catch (checkError) {
       console.error('Failed to check permissions:', checkError);
@@ -123,9 +118,7 @@ export default function PermissionsOnboardingPage() {
       setError(null);
 
       try {
-        if (permissionKey === 'screenRecording') {
-          await invoke('request_screen_recording_permission');
-        } else if (permissionKey === 'watcherAccessibility') {
+        if (permissionKey === 'watcherAccessibility') {
           const granted = await invoke<boolean>('request_accessibility_permission');
           if (!granted) {
             await invoke('open_accessibility_settings');
@@ -133,8 +126,7 @@ export default function PermissionsOnboardingPage() {
         } else if (permissionKey === 'microphone') {
           await invoke<boolean>('show_native_microphone_permission_dialog');
         } else {
-          await invoke('start_native_speech_recognition');
-          await invoke('stop_native_speech_recognition');
+          await invoke<boolean>('show_native_speech_recognition_permission_dialog');
         }
       } catch (requestError) {
         console.error(`Failed requesting ${permissionKey}:`, requestError);
@@ -173,7 +165,7 @@ export default function PermissionsOnboardingPage() {
           Grant permissions
         </h1>
         <p className="mt-1.5 text-center text-sm leading-relaxed text-gray-500">
-          These macOS permissions let Ritual capture context<br />and automate tracking on this Mac.
+          These macOS permissions let Ritual capture context<br />and power watcher and voice logging on this Mac.
         </p>
 
         {/* Permission list */}

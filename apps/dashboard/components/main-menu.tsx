@@ -315,7 +315,7 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   const router = useRouter();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | 'screen-recording' | 'voice-logging' | undefined>(undefined);
+  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | 'voice-logging' | undefined>(undefined);
   const { getToken } = useAuth();
 
   // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
@@ -325,7 +325,6 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
       view === 'account' ||
       view === 'computer-tracking' ||
       view === 'apple-health' ||
-      view === 'screen-recording' ||
       view === 'voice-logging'
     ) {
       setSettingsInitialView(view);

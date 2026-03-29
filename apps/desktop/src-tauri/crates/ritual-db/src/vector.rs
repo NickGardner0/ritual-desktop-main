@@ -490,6 +490,7 @@ fn assign_session_metadata(drafts: &mut [ChunkDraft]) {
 
 /// Service for generating text embeddings
 pub struct EmbeddingService {
+    #[cfg(feature = "local-embeddings")]
     model: fastembed::TextEmbedding,
 }
 
@@ -498,6 +499,16 @@ impl EmbeddingService {
     /// 
     /// This will download the model on first use (~30MB)
     pub fn new() -> Result<Self> {
+        #[cfg(not(feature = "local-embeddings"))]
+        {
+            return Err(DatabaseError::Embedding(
+                "Local embeddings are disabled in this build. Use cloud memory search instead."
+                    .to_string(),
+            ));
+        }
+
+        #[cfg(feature = "local-embeddings")]
+        {
         info!("Initializing embedding model: {}", MODEL_VERSION);
         
         let model = fastembed::TextEmbedding::try_new(
@@ -508,10 +519,22 @@ impl EmbeddingService {
         info!("Embedding model initialized successfully");
         
         Ok(Self { model })
+        }
     }
     
     /// Generate an embedding for a single text
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        #[cfg(not(feature = "local-embeddings"))]
+        {
+            let _ = text;
+            return Err(DatabaseError::Embedding(
+                "Local embeddings are disabled in this build. Use cloud memory search instead."
+                    .to_string(),
+            ));
+        }
+
+        #[cfg(feature = "local-embeddings")]
+        {
         if text.trim().is_empty() {
             return Err(DatabaseError::Embedding("Cannot embed empty text".to_string()));
         }
@@ -524,10 +547,22 @@ impl EmbeddingService {
             .into_iter()
             .next()
             .ok_or_else(|| DatabaseError::Embedding("No embedding returned".to_string()))
+        }
     }
     
     /// Generate embeddings for multiple texts (batched for efficiency)
     pub fn embed_batch(&self, texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+        #[cfg(not(feature = "local-embeddings"))]
+        {
+            let _ = texts;
+            return Err(DatabaseError::Embedding(
+                "Local embeddings are disabled in this build. Use cloud memory search instead."
+                    .to_string(),
+            ));
+        }
+
+        #[cfg(feature = "local-embeddings")]
+        {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
@@ -555,6 +590,7 @@ impl EmbeddingService {
         }
         
         Ok(result)
+        }
     }
     
     /// Prepare text from an OCR frame for embedding

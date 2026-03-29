@@ -1,5 +1,30 @@
 import Cocoa
 import AVFoundation
+import Speech
+
+private func presentVoicePermissionAlert(
+    title: String,
+    body: String,
+    settingsURL: String
+) {
+    DispatchQueue.main.async {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "OK")
+
+        if let appIcon = NSApp.applicationIconImage {
+            alert.icon = appIcon
+        }
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn,
+           let url = URL(string: settingsURL) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
 
 @_cdecl("show_microphone_permission_dialog")
 func show_microphone_permission_dialog() -> Bool {
@@ -216,4 +241,63 @@ func check_microphone_permission() -> Bool {
 
     semaphore.wait()
     return hasPermission
+}
+
+@_cdecl("show_speech_recognition_permission_dialog")
+func show_speech_recognition_permission_dialog() -> Bool {
+    print("🎤 [Swift] show_speech_recognition_permission_dialog called")
+
+    var granted = false
+    let semaphore = DispatchSemaphore(value: 0)
+
+    DispatchQueue.main.async {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            granted = true
+            semaphore.signal()
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { status in
+                let allowed = status == .authorized
+                print("🎤 [Swift] Speech recognition auth result: \(status.rawValue)")
+                if allowed {
+                    granted = true
+                    semaphore.signal()
+                } else {
+                    presentVoicePermissionAlert(
+                        title: "Speech recognition access required",
+                        body: "You must enable Speech Recognition access in System Settings for voice logging features.",
+                        settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
+                    )
+                    granted = false
+                    semaphore.signal()
+                }
+            }
+        case .denied, .restricted:
+            presentVoicePermissionAlert(
+                title: "Speech recognition access required",
+                body: "You must enable Speech Recognition access in System Settings for voice logging features.",
+                settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition"
+            )
+            granted = false
+            semaphore.signal()
+        @unknown default:
+            granted = false
+            semaphore.signal()
+        }
+    }
+
+    semaphore.wait()
+    return granted
+}
+
+@_cdecl("check_speech_recognition_permission")
+func check_speech_recognition_permission() -> Bool {
+    switch SFSpeechRecognizer.authorizationStatus() {
+    case .authorized:
+        return true
+    case .denied, .restricted, .notDetermined:
+        return false
+    @unknown default:
+        return false
+    }
 }

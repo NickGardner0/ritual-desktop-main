@@ -98,15 +98,15 @@ private func startSpeechRecognitionInternal() -> Bool {
         _ = stop_speech_recognition()
         resetSpeechState()
 
-        guard requestMicrophonePermissionIfNeeded() else {
-            print("❌ [Swift] Microphone permission unavailable")
-            emitTauriEvent(event: "ritual:speech:error", payload: "microphone-permission-denied")
-            return false
-        }
-
         guard requestSpeechPermissionIfNeeded() else {
             print("❌ [Swift] Speech recognition permission unavailable")
             emitTauriEvent(event: "ritual:speech:error", payload: "speech-permission-denied")
+            return false
+        }
+
+        guard requestMicrophonePermissionIfNeeded() else {
+            print("❌ [Swift] Microphone permission unavailable")
+            emitTauriEvent(event: "ritual:speech:error", payload: "microphone-permission-denied")
             return false
         }
         

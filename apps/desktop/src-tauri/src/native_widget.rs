@@ -4,6 +4,8 @@ extern "C" {
     fn clear_speech_state();
     fn show_microphone_permission_dialog() -> bool;
     fn check_microphone_permission() -> bool;
+    fn show_speech_recognition_permission_dialog() -> bool;
+    fn check_speech_recognition_permission() -> bool;
     fn get_speech_state_json() -> *mut std::os::raw::c_char;
     fn free_swift_c_string(ptr: *mut std::os::raw::c_char);
     fn start_speech_recognition() -> bool;
@@ -687,6 +689,46 @@ pub async fn check_native_microphone_permission() -> Result<bool, String> {
     #[cfg(not(target_os = "macos"))]
     {
         nw_info!("🎤 Native microphone permission check not available on this platform");
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn show_native_speech_recognition_permission_dialog() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        nw_info!("🎤 Showing native macOS speech recognition permission dialog...");
+
+        unsafe {
+            let granted = show_speech_recognition_permission_dialog();
+            nw_info!("🎤 Speech recognition permission result: {}", granted);
+            Ok(granted)
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        nw_info!("🎤 Native speech recognition permission dialog not available on this platform");
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn check_native_speech_recognition_permission() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        nw_info!("🎤 Checking native speech recognition permission...");
+
+        unsafe {
+            let has_permission = check_speech_recognition_permission();
+            nw_info!("🎤 Current speech recognition permission: {}", has_permission);
+            Ok(has_permission)
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        nw_info!("🎤 Native speech recognition permission check not available on this platform");
         Ok(false)
     }
 }

@@ -6,6 +6,10 @@ description = "Unified libSQL database layer for Ritual with vector search suppo
 authors = ["Ritual"]
 license = "MIT"
 
+[features]
+default = []
+local-embeddings = ["dep:fastembed"]
+
 [dependencies]
 # LibSQL - SQLite fork with vector search and Turso cloud sync
 # v0.9+ required for the "sync" feature (embedded replicas)
@@ -35,7 +39,7 @@ tokio = { version = "1.35", features = ["sync", "fs", "time"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Vector embeddings (local model - no API needed)
-fastembed = "4"
+fastembed = { version = "4", optional = true }
 
 # Async trait support
 async-trait = "0.1"

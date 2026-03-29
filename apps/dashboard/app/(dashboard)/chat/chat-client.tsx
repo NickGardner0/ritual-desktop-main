@@ -13,7 +13,6 @@ import { Streamdown } from 'streamdown';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ViewModeToggle, type ViewMode } from '@/components/analytics/view-mode-toggle';
-import { isScreenRecordingQuery, prefetchScreenResults, type ScreenSearchPrefetchResult } from '@/lib/screen-search';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { isTauri } from '@/lib/tauri-utils';
@@ -1121,26 +1120,6 @@ export function ChatClient() {
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     
-    // Check if query is about screen recordings and pre-fetch results
-    let screenSearchResults: ScreenSearchPrefetchResult | null = null;
-    if (isScreenRecordingQuery(text)) {
-      console.log('🖥️ Detected screen recording query, running hybrid/text prefetch...');
-      try {
-        screenSearchResults = await prefetchScreenResults(text, {
-          limit: 20,
-          minRelevance: 0.3,
-        });
-        console.log(
-          '🖥️ Screen prefetch complete:',
-          screenSearchResults.status,
-          'results=',
-          screenSearchResults.results.length,
-        );
-      } catch (error) {
-        console.warn('Screen recording prefetch failed:', error);
-      }
-    }
-
     let localOverviewActivity: LocalOverviewActivityBundle[] | null = null;
     try {
       localOverviewActivity = await maybeBuildLocalOverviewActivity(
@@ -1165,7 +1144,7 @@ export function ChatClient() {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           conversationId: conversationId, // Include conversation ID for persistence
           responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
-          screenSearchResults,
+          screenSearchResults: null,
           localOverviewActivity,
         }),
       });
@@ -1255,7 +1234,7 @@ export function ChatClient() {
         }
       }
       
-      const isScreenQuery = isScreenRecordingQuery(text);
+      const isScreenQuery = false;
 
       // Build canvas data - prefer tool data, then optional text extraction fallback.
       // For screen/vector queries, avoid text-based fallback so we keep a clean prose-only answer.

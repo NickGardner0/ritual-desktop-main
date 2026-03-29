@@ -3578,75 +3578,9 @@ async function fetchLocalScreenSearchContext(
   token: string,
   params: { query: string; daysBack?: number; limit?: number },
 ): Promise<ScreenSearchContext | null> {
-  try {
-    const response = await fetchPythonApi('/api/watcher/search-screen', token, {
-      query: params.query,
-      days_back: clampDaysBack(params.daysBack),
-      limit: clampSearchLimit(params.limit ?? 20),
-    }) as {
-      success?: boolean;
-      results?: Array<Record<string, unknown>>;
-      mode_used?: string;
-      status?: string;
-      warning?: string;
-      retrieval_tier?: string;
-      days_back?: number;
-      start_date?: string;
-      end_date?: string;
-    };
-
-    if (!response?.success) {
-      return null;
-    }
-
-    const mappedResults: ScreenRecordingResult[] = (Array.isArray(response.results) ? response.results : [])
-      .map((item) => {
-        const timestamp = Number(item.timestamp || 0);
-        if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
-        return {
-          frame_id: Number(item.frame_id || 0),
-          timestamp,
-          app_bundle_id: String(item.app_bundle_id || ''),
-          app_name: String(item.app_name || 'Unknown'),
-          window_title: item.window_title ? String(item.window_title) : null,
-          ocr_text: String(item.ocr_text || ''),
-          relevance_score: Math.max(0, Math.min(1, Number(item.relevance_score || 0))),
-          source: item.source === 'activity' ? 'activity' : 'text',
-          fts_matched: Boolean(item.fts_matched),
-        } as ScreenRecordingResult;
-      })
-      .filter((item): item is ScreenRecordingResult => Boolean(item));
-
-    const modeRaw = String(response.mode_used || '').toLowerCase();
-    const statusRaw = String(response.status || '').toLowerCase();
-    const modeUsed: ScreenSearchContext['modeUsed'] = modeRaw.includes('activity')
-      ? 'activity'
-      : modeRaw.includes('none')
-        ? 'none'
-        : modeRaw.includes('unavailable')
-          ? 'unavailable'
-          : 'text';
-    const status: ScreenSearchContext['status'] = statusRaw.includes('activity')
-      ? 'activity-only'
-      : statusRaw.includes('hybrid')
-        ? 'hybrid'
-        : statusRaw.includes('unavailable')
-          ? 'unavailable'
-          : 'text-only';
-
-    return {
-      modeUsed,
-      status,
-      retrievalTier: (response.retrieval_tier as ScreenSearchContext['retrievalTier']) || undefined,
-      results: mappedResults,
-      resolvedDaysBack: Number(response.days_back || 0) || undefined,
-      startDate: response.start_date || undefined,
-      endDate: response.end_date || undefined,
-      warning: compactScreenWarning(response.warning),
-    };
-  } catch {
-    return null;
-  }
+  const _token = token;
+  const _params = params;
+  return null;
 }
 
 async function resolveScreenSearchContext(
