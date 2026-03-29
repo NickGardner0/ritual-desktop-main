@@ -131,6 +131,7 @@ interface RankedBarsProps {
   onSelect?: (item: RankedBar) => void
   selectedKey?: string | null
   showTooltip?: boolean
+  showIcons?: boolean
 }
 
 export function RankedBars({
@@ -141,6 +142,7 @@ export function RankedBars({
   onSelect,
   selectedKey = null,
   showTooltip = true,
+  showIcons = true,
 }: RankedBarsProps) {
   const [expanded, setExpanded] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<RankedBar | null>(null)
@@ -201,7 +203,9 @@ export function RankedBars({
               </span>
 
               {/* App/Domain icon */}
-              {type === 'domains' ? (
+              {!showIcons ? (
+                <div className="h-5 w-5 flex-shrink-0 rounded-sm bg-[rgba(39,37,30,0.06)]" />
+              ) : type === 'domains' ? (
                 <img
                   src={`https://www.google.com/s2/favicons?domain=${item.label}&sz=64`}
                   alt=""

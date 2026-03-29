@@ -61,7 +61,7 @@ interface InsightCardsGridProps {
 
 export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
   return (
-    <div className="mx-auto w-full max-w-[888px]">
+    <div className="mx-auto w-full max-w-[708px]">
       {/* Section header */}
       <div className="mb-3">
         <h3 className="text-[15px] font-medium tracking-[-0.3px] text-[#27251E]">
@@ -78,14 +78,14 @@ export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
             key={card.title}
             type="button"
             onClick={() => onCardClick?.({ title: card.title, description: card.description })}
-            className="group flex h-[100px] cursor-pointer flex-col justify-between overflow-hidden rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-3 py-[6px] text-left transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
+            className="group flex h-[124px] cursor-pointer flex-col justify-between overflow-hidden rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 py-4 text-left transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
           >
             <card.Icon className="h-[18px] w-[18px] text-[#27251E]" strokeWidth={1.5} />
             <div className="min-w-0">
               <span className="block truncate text-[12.75px] font-medium leading-[17px] tracking-[-0.24px] text-[#27251E]">
                 {card.title}
               </span>
-              <span className="mt-[1px] block text-[11px] leading-[14px] tracking-[-0.18px] text-[rgba(39,37,30,0.62)]">
+              <span className="mt-1 block text-[11px] leading-[14px] tracking-[-0.18px] text-[rgba(39,37,30,0.62)]">
                 {card.description}
               </span>
             </div>

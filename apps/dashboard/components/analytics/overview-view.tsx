@@ -169,6 +169,7 @@ export function OverviewView({
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
   const [computerActivityResolved, setComputerActivityResolved] = useState(false);
+  const lastGoodComputerActivityRef = useRef<ComputerDailyRow[]>([]);
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
 
   const overviewStatsCacheKey = useMemo(() => {
@@ -264,6 +265,7 @@ export function OverviewView({
     const restored = readOverviewComputerCache(overviewComputerCacheKey);
     if (restored.length > 0) {
       setComputerActivityDaily(restored);
+      lastGoodComputerActivityRef.current = restored;
     }
   }, [dateRange?.from, overviewComputerCacheKey]);
 
@@ -347,22 +349,33 @@ export function OverviewView({
           endDate,
         });
         if (controller.signal.aborted) return;
+        const normalizedRows = Array.isArray(rows) ? rows : [];
+        const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0);
 
-        setComputerActivityDaily(rows);
+        const rowsToPersist = hasMeaningfulRows
+          ? normalizedRows
+          : (lastGoodComputerActivityRef.current.length > 0 ? lastGoodComputerActivityRef.current : normalizedRows);
+
+        if (hasMeaningfulRows || computerActivityDaily.length === 0) {
+          setComputerActivityDaily(normalizedRows);
+        }
+
+        if (hasMeaningfulRows) {
+          lastGoodComputerActivityRef.current = normalizedRows;
+        }
 
         if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
           window.localStorage.setItem(
             overviewComputerCacheKey,
             JSON.stringify({
               timestamp: Date.now(),
-              rows,
+              rows: rowsToPersist,
             }),
           );
         }
       } catch (error) {
         if (controller.signal.aborted) return;
         console.error('❌ Failed loading overview computer activity:', error);
-        setComputerActivityDaily([]);
       } finally {
         if (!controller.signal.aborted) {
           setComputerActivityResolved(true);
@@ -378,7 +391,7 @@ export function OverviewView({
         clearInterval(refreshTimer);
       }
     };
-  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
+  }, [computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   // Initialize ordered habits
   useEffect(() => {

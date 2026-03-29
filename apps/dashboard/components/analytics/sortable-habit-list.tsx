@@ -105,18 +105,21 @@ function SortableHabitItem({
     transition,
     zIndex: isDragging ? 50 : undefined,
   };
+  const dragHandleListeners = listeners;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${
+      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white ${
         isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing opacity-90' : ''
       }`}
     >
-      <div className="flex items-center min-w-0 gap-1.5">
+      <div
+        className="flex items-center min-w-0 gap-1.5 cursor-grab active:cursor-grabbing"
+        {...attributes}
+        {...dragHandleListeners}
+      >
         <span className="flex items-center justify-center w-5 h-5 flex-shrink-0 self-center -translate-y-px">
           {habit.icon ? (
             /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
