@@ -3,7 +3,12 @@ import { auth } from '@clerk/nextjs/server';
 
 /**
  * GET /api/analytics/habits/summary
- * Fetch per-habit summary metrics from Tinybird with period-over-period comparisons
+ * Fetch per-habit summary metrics from Tinybird with period-over-period comparisons.
+ *
+ * Architecture note:
+ * - Habit summary/trend analytics are still Tinybird-backed on purpose.
+ * - Watcher/computer activity analytics are handled separately via `/api/watcher/stats/*`
+ *   and should not be redirected through these Tinybird habit pipes.
  * 
  * Supports TWO modes:
  * 1. Default (no dates): Uses user_habits_summary pipe (last 7 days vs previous 7 days)

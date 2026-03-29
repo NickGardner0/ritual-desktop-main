@@ -1,7 +1,10 @@
 /**
  * useComputerActivity Hook
  * 
- * Fetches and derives computer activity data from local Tauri commands.
+ * Fetches and derives computer activity data with backend/Turso-first
+ * aggregated reads and local Tauri raw-event reads as desktop fallback.
+ * iPhone Screen Time remains a separate aggregate source and should not be
+ * merged with watcher desktop activity implicitly.
  * Implements caching and optimized loading for different time ranges.
  */
 
@@ -30,9 +33,8 @@ import {
 } from './derive'
 import {
   invokeDetailedActivityWithInitRetry,
-  invokeDailySummariesWithInitRetry,
 } from './tauri-activity'
-import { normalizeComputerDailySummaryRow } from './normalize'
+import { getAggregatedComputerStats } from './client'
 
 // ============================================================
 // Time range helpers
@@ -119,71 +121,7 @@ async function fetchAggregatedStats(startTs: number, endTs: number): Promise<Agg
   try {
     const startDate = toLocalDateString(startTs)
     const endDate = toLocalDateString(endTs)
-
-    if (isTauri()) {
-      const [detailed, daily] = await Promise.all([
-        invokeDetailedActivityWithInitRetry({
-          startTs,
-          endTs,
-          limit: 1,
-        }),
-        invokeDailySummariesWithInitRetry(startDate, endDate),
-      ])
-
-      return {
-        summary: {
-          total_active_ms: Math.max(0, Number(detailed.total_active_ms || 0)),
-          total_afk_ms: Math.max(0, Number(detailed.total_afk_ms || 0)),
-        },
-        daily: daily
-          .map(normalizeComputerDailySummaryRow)
-          .filter((row): row is NonNullable<ReturnType<typeof normalizeComputerDailySummaryRow>> => Boolean(row))
-          .map((row) => ({
-            day: row.day,
-            active_ms: row.active_ms,
-            active_hours: row.active_hours,
-            event_count: row.events_count,
-            app_count: row.apps_count ?? 0,
-            domain_count: row.domain_count ?? 0,
-          })),
-        apps: detailed.apps.map((row) => ({
-          app_bundle_id: row.app_bundle_id,
-          app_name: row.app_name,
-          total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
-          total_events: Math.max(0, Number(row.event_count || 0)),
-        })),
-        domains: detailed.domains.map((row) => ({
-          domain: row.domain,
-          total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
-          total_events: Math.max(0, Number(row.event_count || 0)),
-        })),
-      }
-    }
-
-    const [summaryRes, dailyRes, appsRes, domainsRes] = await Promise.all([
-      fetch(`/api/watcher/stats/summary?start_date=${startDate}&end_date=${endDate}`),
-      fetch(`/api/watcher/stats/daily?start_date=${startDate}&end_date=${endDate}`),
-      fetch(`/api/watcher/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`),
-      fetch(`/api/watcher/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`),
-    ])
-
-    if (!summaryRes.ok || !dailyRes.ok || !appsRes.ok || !domainsRes.ok) {
-      return null
-    }
-
-    const [summaryPayload, dailyPayload, appsPayload, domainsPayload] = await Promise.all([
-      summaryRes.json(),
-      dailyRes.json(),
-      appsRes.json(),
-      domainsRes.json(),
-    ])
-
-    return {
-      summary: summaryPayload?.data || {},
-      daily: dailyPayload?.data || [],
-      apps: appsPayload?.data || [],
-      domains: domainsPayload?.data || [],
-    }
+    return await getAggregatedComputerStats({ startDate, endDate }, 10)
   } catch (error) {
     console.error('Failed to fetch aggregated computer stats:', error)
     return null

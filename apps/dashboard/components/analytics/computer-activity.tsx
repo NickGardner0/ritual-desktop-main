@@ -5,8 +5,8 @@
  * This is a wrapper that uses the new ComputerActivityPanel.
  * 
  * DATA SOURCES:
- * - Local-first via Tauri: get_detailed_activity(), get_activity_timeline()
- * - Fallback to backend API for web version
+ * - Backend/Turso-first aggregated analytics for desktop and web
+ * - Local Tauri event timeline for desktop drill-down/offline fallback
  * 
  * FEATURES:
  * - Attention Index header with sparkline

@@ -21,9 +21,8 @@ import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
-import { isTauri } from '@/lib/tauri-utils';
-import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
 import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
+import { getComputerTimeDaily } from '@/lib/computerActivity/client';
 
 const DateRangePicker = dynamic(
   () => import("@/components/date-range-picker").then(m => ({ default: m.DateRangePicker })),
@@ -105,17 +104,6 @@ function readOverviewComputerCache(cacheKey: string | null): ComputerDailyRow[] 
     console.warn('Failed to restore overview computer cache:', cacheError);
     return [];
   }
-}
-
-function getTauriBridgeState() {
-  if (typeof window === 'undefined') {
-    return { tauriGlobal: false, tauriIpc: false };
-  }
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
-  return {
-    tauriGlobal: Boolean(w.__TAURI__),
-    tauriIpc: typeof w.__TAURI_IPC__ === 'function',
-  };
 }
 
 interface OverviewViewProps {
@@ -354,55 +342,12 @@ export function OverviewView({
           endDate = format(now, 'yyyy-MM-dd');
         }
 
-        if (isTauri()) {
-          console.log('[Overview] isTauri()=true, attempting Tauri invoke for daily summaries…');
-          const bridgeState = getTauriBridgeState();
-          console.log(`[Overview] Bridge state: __TAURI__=${bridgeState.tauriGlobal}, __TAURI_IPC__=${bridgeState.tauriIpc}`);
-          try {
-            const summaries = await invokeDailySummariesWithInitRetry(startDate, endDate);
-            console.log(`[Overview] Tauri invoke succeeded: ${summaries.length} summaries returned`);
-
-            if (controller.signal.aborted) return;
-
-            const rows = summaries
-              .map(normalizeComputerDailySummaryRow)
-              .filter((row): row is ComputerDailyRow => Boolean(row));
-
-            setComputerActivityDaily(rows);
-
-            if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
-              window.localStorage.setItem(
-                overviewComputerCacheKey,
-                JSON.stringify({
-                  timestamp: Date.now(),
-                  rows,
-                }),
-              );
-            }
-            return;
-          } catch (tauriError) {
-            console.error('[Overview] Tauri invoke FAILED — IPC bridge likely unavailable on remote URL:', tauriError);
-            console.log('[Overview] Falling through to HTTP fetch…');
-          }
-        }
-
-        const query = `start_date=${startDate}&end_date=${endDate}`;
-        const res = await fetch(`/api/watcher/stats/daily?${query}`, {
-          signal: controller.signal,
-          cache: 'no-store',
+        const rows = await getComputerTimeDaily({
+          startDate,
+          endDate,
         });
-        if (!res.ok) {
-          // Gracefully degrade: show empty data instead of throwing. Common after app
-          // restart when backend may not be ready yet or auth is still settling.
-          console.warn('Computer activity API returned', res.status, await res.text().catch(() => ''));
-          setComputerActivityDaily([]);
-          return;
-        }
-        const payload = await res.json();
         if (controller.signal.aborted) return;
-        const rows = (payload?.data || [])
-          .map(normalizeComputerDailySummaryRow)
-          .filter((row: ComputerDailyRow) => row.day);
+
         setComputerActivityDaily(rows);
 
         if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {

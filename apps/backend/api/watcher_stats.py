@@ -1,4 +1,10 @@
-"""Watcher analytics and breakdown endpoints."""
+"""Watcher analytics and breakdown endpoints.
+
+These routes are the product-facing computer activity read surface for both
+desktop and web. They should remain the canonical UI API for watcher/computer
+activity, with the service layer deciding whether the read is satisfied from
+the per-user activity DB/Turso path, Tinybird fallback, or legacy local data.
+"""
 
 from __future__ import annotations
 

@@ -46,8 +46,7 @@ import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import { InsightCardsGrid } from '@/components/analytics/insight-cards';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
-import { invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
-import { normalizeComputerDailySummaryRow, type NormalizedComputerDailyRow } from '@/lib/computerActivity/normalize';
+import { getComputerTimeDaily } from '@/lib/computerActivity/client';
 import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import {
   COMPUTER_HABIT_DISPLAY_NAME,
@@ -984,40 +983,23 @@ export function MetricsView({
     // Cap default computer activity to 180 days to avoid slow queries on large DBs
     const startDate = format(hasExplicitRange ? dateRange!.from! : subDays(now, 180), 'yyyy-MM-dd');
     const endDate = format(hasExplicitRange ? dateRange!.to! : now, 'yyyy-MM-dd');
-    const query = `start_date=${startDate}&end_date=${endDate}`;
     const controller = new AbortController();
 
     const fetchComputerActivity = async () => {
       try {
-        let dailyRows: ComputerDailyRow[] = [];
+        const dailyRows: ComputerDailyRow[] = (await getComputerTimeDaily({ startDate, endDate }))
+          .map((row) => ({
+            day: row.day,
+            active_hours: row.active_hours,
+            active_ms: row.active_ms,
+            events_count: row.events_count,
+            apps_count: row.apps_count ?? 0,
+            domains_count: row.domains_count ?? 0,
+          }))
+          .filter((row) => Boolean(row && row.day && row.active_hours >= 0))
+          .sort((a, b) => a.day.localeCompare(b.day));
 
-        if (isTauri()) {
-          const summaries = await invokeDailySummariesWithInitRetry(startDate, endDate);
-          if (controller.signal.aborted) return;
-
-          dailyRows = summaries
-            .map(normalizeComputerDailySummaryRow)
-            .filter((row): row is NormalizedComputerDailyRow => Boolean(row && row.day && row.active_hours >= 0))
-            .sort((a, b) => a.day.localeCompare(b.day));
-        } else {
-          const dailyRes = await fetch(`/api/watcher/stats/daily?${query}`, { signal: controller.signal });
-
-          if (!dailyRes.ok) {
-            console.warn('Computer activity API returned', dailyRes.status, await dailyRes.text().catch(() => ''));
-            setComputerActivityDaily([]);
-            return;
-          }
-
-          const dailyPayload = await dailyRes.json();
-
-          if (controller.signal.aborted) return;
-
-          const fallbackRows: any[] = Array.isArray(dailyPayload?.data) ? dailyPayload.data : [];
-          dailyRows = fallbackRows
-            .map(normalizeComputerDailySummaryRow)
-            .filter((row): row is NormalizedComputerDailyRow => Boolean(row && row.day && row.active_hours >= 0))
-            .sort((a, b) => a.day.localeCompare(b.day));
-        }
+        if (controller.signal.aborted) return;
 
         setComputerActivityDaily(dailyRows);
       } catch (error) {

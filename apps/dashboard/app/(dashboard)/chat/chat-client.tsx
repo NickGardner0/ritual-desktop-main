@@ -16,7 +16,7 @@ import { ViewModeToggle, type ViewMode } from '@/components/analytics/view-mode-
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { isTauri } from '@/lib/tauri-utils';
-import { invokeDetailedActivityWithInitRetry, invokeDailySummariesWithInitRetry } from '@/lib/computerActivity/tauri-activity';
+import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
 import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 import {
   clearNativeDesktopSpeechState,
@@ -177,7 +177,7 @@ type LocalOverviewActivityBundle = {
     hours: number;
     total_events: number;
   }>;
-  source: 'desktop_local';
+  source: 'cloud_first' | 'tauri_fallback';
 };
 
 function getTimezoneYmd(date: Date, timezone?: string): string {
@@ -222,46 +222,44 @@ function isOverviewActivityQuery(text: string): boolean {
   return patterns.some((pattern) => normalized.includes(pattern));
 }
 
-function ymdRangeToLocalTs(startDate: string, endDate: string): { startTs: number; endTs: number } {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T23:59:59.999`);
-  return {
-    startTs: start.getTime(),
-    endTs: end.getTime(),
-  };
-}
-
 async function buildLocalOverviewActivityBundle(
   startDate: string,
   endDate: string,
 ): Promise<LocalOverviewActivityBundle> {
-  const { startTs, endTs } = ymdRangeToLocalTs(startDate, endDate);
   const [detailed, daily] = await Promise.all([
-    invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 25 }),
-    invokeDailySummariesWithInitRetry(startDate, endDate),
+    Promise.all([
+      getTopApps({ startDate, endDate }, 25),
+      getTopDomains({ startDate, endDate }, 25),
+    ]),
+    getComputerTimeDaily({ startDate, endDate }),
   ]);
+  const [apps, domains] = detailed;
+  const source: LocalOverviewActivityBundle['source'] =
+    [...daily, ...apps, ...domains].some((row) => row?.source === 'tauri_fallback')
+      ? 'tauri_fallback'
+      : 'cloud_first';
 
   return {
     startDate,
     endDate,
     daily: daily.map((row) => ({
-      day: row.date,
-      active_hours: Number(row.total_hours || 0),
-      events_count: Number(row.event_count || 0),
-      apps_count: Number(row.app_count || 0),
+      day: row.day,
+      active_hours: Number(row.active_hours || 0),
+      events_count: Number(row.events_count || 0),
+      apps_count: Number(row.apps_count || 0),
     })),
-    apps: detailed.apps.map((row) => ({
+    apps: apps.map((row) => ({
       app_bundle_id: row.app_bundle_id,
       app_name: row.app_name,
-      hours: Number(row.total_duration_ms || 0) / 3_600_000,
-      total_events: Number(row.event_count || 0),
+      hours: Number(row.hours || 0),
+      total_events: Number(row.total_events || 0),
     })),
-    domains: detailed.domains.map((row) => ({
+    domains: domains.map((row) => ({
       domain: row.domain,
-      hours: Number(row.total_duration_ms || 0) / 3_600_000,
-      total_events: Number(row.event_count || 0),
+      hours: Number(row.hours || 0),
+      total_events: Number(row.total_events || 0),
     })),
-    source: 'desktop_local',
+    source,
   };
 }
 

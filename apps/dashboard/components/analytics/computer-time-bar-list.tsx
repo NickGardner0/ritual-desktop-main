@@ -1,13 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@clerk/nextjs';
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { format, subDays, startOfDay } from 'date-fns';
-import { isTauri } from '@/lib/tauri-utils';
-import { invokeDetailedActivityWithInitRetry } from '@/lib/computerActivity/tauri-activity';
 import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
+import { getTopApps, getTopDomains } from '@/lib/computerActivity/client';
 
 interface ComputerTimeBarListProps {
   activeRange: BarListRange;
@@ -38,29 +36,7 @@ function formatHours(hours: number): string {
   return `${mins}m`;
 }
 
-async function fetchTopItems(
-  endpoint: string,
-  startDate: string,
-  endDate: string,
-  limit: number,
-  token: string | null,
-): Promise<any[]> {
-  try {
-    const res = await fetch(
-      `${endpoint}?start_date=${startDate}&end_date=${endDate}&limit=${limit}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-    );
-    if (!res.ok) return [];
-    const json = await res.json();
-    const items = json.data || json.apps || json.domains || [];
-    return Array.isArray(items) ? items : [];
-  } catch {
-    return [];
-  }
-}
-
 export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTimeBarListProps) {
-  const { getToken } = useAuth();
   const [appsData, setAppsData] = useState<BarListItem[]>([]);
   const [domainsData, setDomainsData] = useState<BarListItem[]>([]);
   const fetchIdRef = useRef(0);
@@ -72,153 +48,9 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       const { from, to } = getRangeDatesLocal(activeRange);
       const startDate = format(from, 'yyyy-MM-dd');
       const endDate = format(to, 'yyyy-MM-dd');
-      const token = await getToken();
-
-      const applyBackendFallback = async (missingApps: boolean, missingDomains: boolean) => {
-        if (!missingApps && !missingDomains) return;
-
-        const [appsFallback, domainsFallback] = await Promise.all([
-          missingApps
-            ? fetchTopItems('/api/watcher/stats/top-apps', startDate, endDate, BAR_LIST_ROW_LIMIT, token)
-            : Promise.resolve([]),
-          missingDomains
-            ? fetchTopItems('/api/watcher/stats/top-domains', startDate, endDate, BAR_LIST_ROW_LIMIT, token)
-            : Promise.resolve([]),
-        ]);
-
-        if (id !== fetchIdRef.current) return;
-
-        if (missingApps) {
-          if (appsFallback.length > 0) {
-            const maxHours = Math.max(...appsFallback.map((a: any) => a.hours || 0), 0.01);
-            setAppsData(
-              appsFallback.map((app: any) => ({
-                name: app.app_name || app.app_bundle_id || 'Unknown',
-                value: formatHours(app.hours || 0),
-                barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
-              })),
-            );
-          } else {
-            setAppsData([]);
-          }
-        }
-
-        if (missingDomains) {
-          if (domainsFallback.length > 0) {
-            const maxHours = Math.max(...domainsFallback.map((d: any) => d.hours || 0), 0.01);
-            setDomainsData(
-              domainsFallback.map((domain: any) => ({
-                name: domain.domain || 'Unknown',
-                value: formatHours(domain.hours || 0),
-                barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
-              })),
-            );
-          } else {
-            setDomainsData([]);
-          }
-        }
-      };
-
-      if (isTauri()) {
-        try {
-          const fullStart = from.getTime();
-          const fullEnd = to.getTime();
-          const midPoint = new Date((fullStart + fullEnd) / 2);
-          const firstEnd = midPoint.getTime();
-          const secondStart = midPoint.getTime() + 86400000;
-
-          const [full, firstHalf, secondHalf] = await Promise.all([
-            invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: fullEnd, limit: 1 }),
-            invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: firstEnd, limit: 1 }),
-            invokeDetailedActivityWithInitRetry({ startTs: secondStart, endTs: fullEnd, limit: 1 }),
-          ]);
-
-          if (id !== fetchIdRef.current) return;
-
-          const firstAppMap = new Map<string, number>();
-          firstHalf.apps.forEach((app) => {
-            const key = app.app_name || app.app_bundle_id || 'Unknown';
-            firstAppMap.set(key, Number(app.total_duration_ms || 0));
-          });
-          const secondAppMap = new Map<string, number>();
-          secondHalf.apps.forEach((app) => {
-            const key = app.app_name || app.app_bundle_id || 'Unknown';
-            secondAppMap.set(key, Number(app.total_duration_ms || 0));
-          });
-          const firstDomainMap = new Map<string, number>();
-          firstHalf.domains.forEach((domain) => {
-            const key = domain.domain || 'Unknown';
-            firstDomainMap.set(key, Number(domain.total_duration_ms || 0));
-          });
-          const secondDomainMap = new Map<string, number>();
-          secondHalf.domains.forEach((domain) => {
-            const key = domain.domain || 'Unknown';
-            secondDomainMap.set(key, Number(domain.total_duration_ms || 0));
-          });
-
-          const fullApps = full.apps.slice(0, BAR_LIST_ROW_LIMIT);
-          const fullDomains = full.domains.slice(0, BAR_LIST_ROW_LIMIT);
-
-          if (fullApps.length > 0) {
-            const maxHours = Math.max(...fullApps.map((app) => (app.total_duration_ms || 0) / 3600000), 0.01);
-            setAppsData(
-              fullApps.map((app) => {
-                const name = app.app_name || app.app_bundle_id || 'Unknown';
-                const hours = (app.total_duration_ms || 0) / 3600000;
-                const change = computeMeaningfulPercentChange(
-                  (secondAppMap.get(name) || 0) / 3600000,
-                  (firstAppMap.get(name) || 0) / 3600000,
-                  'hours',
-                );
-                return {
-                  name,
-                  value: formatHours(hours),
-                  change,
-                  changeLabel: change === undefined ? 'New' : undefined,
-                  barPercent: Math.round((hours / maxHours) * 100),
-                };
-              }),
-            );
-          } else {
-            setAppsData([]);
-          }
-
-          if (fullDomains.length > 0) {
-            const maxHours = Math.max(...fullDomains.map((domain) => (domain.total_duration_ms || 0) / 3600000), 0.01);
-            setDomainsData(
-              fullDomains.map((domain) => {
-                const name = domain.domain || 'Unknown';
-                const hours = (domain.total_duration_ms || 0) / 3600000;
-                const change = computeMeaningfulPercentChange(
-                  (secondDomainMap.get(name) || 0) / 3600000,
-                  (firstDomainMap.get(name) || 0) / 3600000,
-                  'hours',
-                );
-                return {
-                  name,
-                  value: formatHours(hours),
-                  change,
-                  changeLabel: change === undefined ? 'New' : undefined,
-                  barPercent: Math.round((hours / maxHours) * 100),
-                };
-              }),
-            );
-          } else {
-            setDomainsData([]);
-          }
-
-          await applyBackendFallback(fullApps.length === 0, fullDomains.length === 0);
-          return;
-        } catch (tauriError) {
-          console.warn('[computer-time-bar-list] Native detailed activity failed, falling back to backend', tauriError);
-          await applyBackendFallback(true, true);
-          return;
-        }
-      }
-
       const [appsFull, domainsFull] = await Promise.all([
-        fetchTopItems('/api/watcher/stats/top-apps', startDate, endDate, BAR_LIST_ROW_LIMIT, token),
-        fetchTopItems('/api/watcher/stats/top-domains', startDate, endDate, BAR_LIST_ROW_LIMIT, token),
+        getTopApps({ startDate, endDate }, BAR_LIST_ROW_LIMIT),
+        getTopDomains({ startDate, endDate }, BAR_LIST_ROW_LIMIT),
       ]);
 
       if (id !== fetchIdRef.current) return; // stale
@@ -227,23 +59,27 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       if (appsFull.length > 0) {
         const maxHours = Math.max(...appsFull.map((a: any) => a.hours || 0), 0.01);
         setAppsData(
-          appsFull.map((app: any) => ({
+          appsFull.map((app) => ({
             name: app.app_name || app.app_bundle_id || 'Unknown',
             value: formatHours(app.hours || 0),
             barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
           })),
         );
+      } else {
+        setAppsData([]);
       }
 
       if (domainsFull.length > 0) {
-        const maxHours = Math.max(...domainsFull.map((d: any) => d.hours || 0), 0.01);
+        const maxHours = Math.max(...domainsFull.map((d) => d.hours || 0), 0.01);
         setDomainsData(
-          domainsFull.map((domain: any) => ({
+          domainsFull.map((domain) => ({
             name: domain.domain || 'Unknown',
             value: formatHours(domain.hours || 0),
             barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
           })),
         );
+      } else {
+        setDomainsData([]);
       }
 
       // Phase 2: Fetch half-range data in background for % changes (staggered to avoid rate limits)
@@ -255,12 +91,12 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       const secondStart = format(new Date(midPoint.getTime() + 86400000), 'yyyy-MM-dd');
 
       const [appsFirst, appsSecond] = await Promise.all([
-        fetchTopItems('/api/watcher/stats/top-apps', startDate, firstEnd, 20, token),
-        fetchTopItems('/api/watcher/stats/top-apps', secondStart, endDate, 20, token),
+        getTopApps({ startDate, endDate: firstEnd }, 20),
+        getTopApps({ startDate: secondStart, endDate }, 20),
       ]);
       const [domainsFirst, domainsSecond] = await Promise.all([
-        fetchTopItems('/api/watcher/stats/top-domains', startDate, firstEnd, 20, token),
-        fetchTopItems('/api/watcher/stats/top-domains', secondStart, endDate, 20, token),
+        getTopDomains({ startDate, endDate: firstEnd }, 20),
+        getTopDomains({ startDate: secondStart, endDate }, 20),
       ]);
 
       if (id !== fetchIdRef.current) return; // stale
@@ -277,9 +113,9 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
           const key = a.app_name || a.app_bundle_id || '';
           secondMap.set(key, (secondMap.get(key) || 0) + (a.hours || 0));
         }
-        const maxHours = Math.max(...appsFull.map((a: any) => a.hours || 0), 0.01);
+        const maxHours = Math.max(...appsFull.map((a) => a.hours || 0), 0.01);
         setAppsData(
-          appsFull.map((app: any) => {
+          appsFull.map((app) => {
             const name = app.app_name || app.app_bundle_id || 'Unknown';
             const change = computeMeaningfulPercentChange(secondMap.get(name) || 0, firstMap.get(name) || 0, 'hours');
             return {
@@ -305,9 +141,9 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
           const key = d.domain || '';
           secondMap.set(key, (secondMap.get(key) || 0) + (d.hours || 0));
         }
-        const maxHours = Math.max(...domainsFull.map((d: any) => d.hours || 0), 0.01);
+        const maxHours = Math.max(...domainsFull.map((d) => d.hours || 0), 0.01);
         setDomainsData(
-          domainsFull.map((domain: any) => {
+          domainsFull.map((domain) => {
             const name = domain.domain || 'Unknown';
             const change = computeMeaningfulPercentChange(secondMap.get(name) || 0, firstMap.get(name) || 0, 'hours');
             return {
@@ -327,7 +163,7 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
         setDomainsData([]);
       }
     }
-  }, [activeRange, getToken]);
+  }, [activeRange]);
 
   useEffect(() => {
     // Delay initial fetch to avoid competing with primary analytics API calls
