@@ -65,7 +65,7 @@ interface SortableHabitItemProps {
   scrubberHoveredDate: string | null;
   scrubberHoveredValues: Record<string, number> | null;
   activeTooltip: string | null;
-  setActiveTooltip: (id: string | null) => void;
+  setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
   getHabitMetricStats: (habit: Habit) => {
     sumFormatted: string;
     avgFormatted: string;
@@ -133,10 +133,8 @@ function SortableHabitItem({
       <div
         ref={metricTriggerRef}
         className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
-        onClick={(e) => {
-          e.stopPropagation();
-          setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '');
-        }}
+        onMouseEnter={() => setActiveTooltip(habit.id || '')}
+        onMouseLeave={() => setActiveTooltip((current) => (current === habit.id ? null : current))}
       >
         <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">
           <span className={getHabitMetricClassName(habit)}>
@@ -202,7 +200,7 @@ export interface SortableHabitListProps {
   scrubberHoveredDate: string | null;
   scrubberHoveredValues: Record<string, number> | null;
   activeTooltip: string | null;
-  setActiveTooltip: (id: string | null) => void;
+  setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
   getHabitMetricStats: (habit: Habit) => {
     sumFormatted: string;
     avgFormatted: string;

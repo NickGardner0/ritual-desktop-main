@@ -530,8 +530,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Main Content Area */}
       <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-white">
-        {/* Top Header - Midday Style - Hidden in Full-Screen Chat */}
-        {!isFullScreenChat && !isChatRoute && (
+        {/* Top Header - available on normal dashboard routes and chat route */}
+        {!isFullScreenChat && (
         <header className="content-opaque px-5 h-[56px] flex items-center bg-white">
           <div className="relative flex items-center w-full translate-y-[6px]">
             {/* Left zone — Search + page-specific left actions */}

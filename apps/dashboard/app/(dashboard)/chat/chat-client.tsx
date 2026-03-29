@@ -1856,12 +1856,12 @@ export function ChatClient() {
       {!isSidebarCollapsed && (
         <motion.aside
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 304, opacity: 1 }}
+          animate={{ width: 272, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
           className="h-full shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)]"
         >
-          <div className="px-4 pt-5 pb-3">
+          <div className="px-3 pt-3 pb-2">
             <div className="flex items-center justify-between">
               <button
                 onClick={() => router.push('/dashboard')}
@@ -1872,31 +1872,31 @@ export function ChatClient() {
               </button>
               <button
                 onClick={() => setIsSidebarCollapsed(true)}
-                className="flex h-9 w-9 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
+                className="flex h-8 w-8 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
                 title="Collapse sidebar"
               >
-                <PanelRight className="h-[18px] w-[18px]" />
+                <PanelRight className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-4">
+            <div className="mt-3">
               <button
                 onClick={startNewConversation}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-4 py-2.5 text-[14px] font-medium text-[#3d392f] transition-colors hover:border-gray-300"
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-[13px] font-medium text-[#3d392f] transition-colors hover:border-gray-300"
                 title="New Chat"
                 aria-label="New Chat"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
                 <span>New chat</span>
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 pb-4">
-            <div className="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.14em] text-gray-400">
+          <div className="flex-1 overflow-y-auto px-2.5 pb-3">
+            <div className="mb-1.5 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-gray-400">
               Recent chats
             </div>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-0.5">
               {isLoadingConversations ? (
                 <div className="flex items-center justify-center py-6">
                   <BrailleSpinner className="text-sm text-gray-400" />
@@ -1920,7 +1920,7 @@ export function ChatClient() {
                       <button
                         onClick={() => switchConversation(conv.id)}
                         className={cn(
-                          "flex-1 min-w-0 rounded-md px-3 py-2.5 text-left text-[14px] leading-5 transition-colors",
+                          "flex-1 min-w-0 rounded-md px-2.5 py-2 text-left text-[13px] leading-5 transition-colors",
                           conv.id === conversationId
                             ? "bg-white text-[#232119]"
                             : "text-[#605b51] hover:text-[#2f2c25]"
@@ -1934,11 +1934,11 @@ export function ChatClient() {
                           e.stopPropagation();
                           deleteConversation(conv.id);
                         }}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:text-gray-600"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:text-gray-600"
                         title="Delete conversation"
                         aria-label="Delete conversation"
                       >
-                        <X className="h-3.5 w-3.5" />
+                        <X className="h-3 w-3" />
                       </button>
                     </div>
                   );
