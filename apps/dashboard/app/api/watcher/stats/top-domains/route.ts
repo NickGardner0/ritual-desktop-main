@@ -3,6 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,7 +24,8 @@ export async function GET(request: NextRequest) {
     const response = await fetch(url, {
       method: "GET",
       headers: buildBackendAuthHeaders({ userId, token }),
-      signal: AbortSignal.timeout(15000),
+      cache: "no-store",
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {
@@ -34,7 +37,11 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
   } catch (error) {
     console.error("Error fetching top domains:", error);
     return NextResponse.json(

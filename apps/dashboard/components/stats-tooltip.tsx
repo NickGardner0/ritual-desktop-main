@@ -18,7 +18,11 @@ interface StatsTooltipProps {
  * Stats tooltip rendered via portal. Positions below trigger by default,
  * flips above when there's insufficient space (e.g. near AI chat at bottom).
  */
-export function StatsTooltip({ open, triggerRef, children }: StatsTooltipProps) {
+export function StatsTooltip({
+  open,
+  triggerRef,
+  children,
+}: StatsTooltipProps) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -78,7 +82,7 @@ export function StatsTooltip({ open, triggerRef, children }: StatsTooltipProps) 
   const tooltip = (
     <div
       ref={contentRef}
-      className="tooltip-container pointer-events-auto fixed p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]"
+      className="fixed p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]"
       style={{
         top: position.top,
         left: position.left,

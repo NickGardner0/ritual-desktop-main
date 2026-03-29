@@ -33,6 +33,7 @@ import { useUser } from '@clerk/nextjs';
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
 const COMPUTER_SYNC_STARTUP_DELAY_MS = 4_000;
+const ENABLE_STARTUP_COMPUTER_SYNC = false;
 
 // Dynamic imports with ssr:false — Turbopack skips these modules during
 // server-side compilation, cutting the initial /dashboard compile from ~70s.
@@ -110,6 +111,10 @@ function UnifiedAnalyticsContent() {
   const syncTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!ENABLE_STARTUP_COMPUTER_SYNC) {
+      return;
+    }
+
     const syncComputerUseHabit = async (signal: AbortSignal) => {
       if (typeof window !== 'undefined') {
         const lastSyncedAt = Number(sessionStorage.getItem(COMPUTER_SYNC_LAST_KEY) || '0');

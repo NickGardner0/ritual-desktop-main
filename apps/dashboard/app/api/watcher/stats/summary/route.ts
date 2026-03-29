@@ -4,6 +4,7 @@ import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
       method: "GET",
       cache: "no-store",
       headers: buildBackendAuthHeaders({ userId, token }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!response.ok) {

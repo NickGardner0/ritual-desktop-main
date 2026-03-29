@@ -443,6 +443,36 @@ async def sync_to_computer_use_habit_impl(
                 "top_domains": top_domains[:5] if isinstance(top_domains, list) else [],
             }
 
+            # Do not write a zero-value Computer Time projection when there is no
+            # meaningful activity evidence. In cloud/backend environments the
+            # local watcher DB is often unavailable, and a temporary empty
+            # summary should not overwrite a previously correct projected value.
+            if (
+                int(local_data.get("total_ms", 0) or 0) <= 0
+                and int(local_data.get("events_count", 0) or 0) <= 0
+            ):
+                logger.info(
+                    "Skipping computer-use projection for %s because no activity evidence was available",
+                    day,
+                )
+                return {
+                    "success": True,
+                    "synced": False,
+                    "skipped": True,
+                    "reason": "no_activity_evidence",
+                    "habit_id": habit_id,
+                    "habit_name": habit_name,
+                    "day": day,
+                    "amount": 0,
+                    "unit": unit_type,
+                    "total_ms": 0,
+                    "projection": {
+                        "enabled": False,
+                        "source": service.COMPUTER_USE_PROJECTION_SOURCE,
+                        "pipeline_version": service.COMPUTER_USE_PIPELINE_VERSION,
+                    },
+                }
+
             computer_sync = await service._sync_computer_activity_range_to_tinybird(
                 user_id=user_id,
                 start_date=day,

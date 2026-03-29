@@ -1405,16 +1405,6 @@ export function IntegrationsClient() {
 
   const renderPanelAction = () => {
     if (selectedIntegration === 'plaid') {
-      if (plaidMfaRequired) {
-        return (
-          <button
-            onClick={handlePlaidMfaSetup}
-            className="px-4 py-2 text-sm border border-[#1f1e1a] rounded-sm hover:bg-[#f3f1ea] disabled:opacity-50"
-          >
-            Connect
-          </button>
-        );
-      }
       if (!plaidConnected) {
         return (
           <button
@@ -1532,33 +1522,15 @@ export function IntegrationsClient() {
     if (selectedIntegration === 'plaid') {
       return (
         <div className="flex h-full flex-col bg-white">
-          {renderPanelHeader('plaid', 'Plaid', `Bank sync • ${plaidMfaRequired ? 'MFA required' : plaidNeedsReconnect ? 'Reconnect required' : plaidConnected ? 'By Plaid' : 'Ready to connect'}`)}
+          {renderPanelHeader('plaid', 'Plaid', `Bank sync • ${plaidNeedsReconnect ? 'Reconnect required' : plaidConnected ? 'By Plaid' : 'Ready to connect'}`)}
           <div className="min-h-0 flex-1 px-5">
             <ScrollArea className="h-full">
               <Accordion type="multiple" defaultValue={['how-it-works', 'settings']} className="pt-4">
                 <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
                   <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
                   <AccordionContent className="text-sm text-[#69665c]">
-                    {plaidMfaRequired ? (
-                      <div className="space-y-3">
-                        <p>
-                          Ritual requires multi-factor authentication on the account before bank connections are available. Enable MFA in your account security settings, then return here to connect Plaid.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={handlePlaidMfaSetup}
-                            className="px-3 py-2 text-sm border border-gray-300 rounded-sm hover:bg-[#f3f3f3]"
-                          >
-                            Open account security
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        Connect Plaid to import full available spending history from posted depository transactions. Ritual converts that into one daily Spending value instead of exposing a transaction ledger.
-                      </>
-                    )}
-                    {plaidConnected && !plaidMfaRequired ? (
+                    Connect Plaid to import full available spending history from posted depository transactions. Ritual converts that into one daily Spending value instead of exposing a transaction ledger.
+                    {plaidConnected ? (
                       <div className="mt-4 flex gap-2">
                         <button
                           onClick={handlePlaidBackfill}
@@ -1574,13 +1546,7 @@ export function IntegrationsClient() {
                 <AccordionItem value="settings" className="border-[#e7e5dd]">
                   <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
                   <AccordionContent>
-                    {plaidMfaRequired ? (
-                      <div className="rounded-sm border border-gray-200 bg-white p-4 text-sm text-gray-700">
-                        Enable MFA on your Ritual account to unlock bank connections and Plaid sync settings.
-                      </div>
-                    ) : (
-                      renderPlaidDetails()
-                    )}
+                    {renderPlaidDetails()}
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
@@ -2424,7 +2390,7 @@ export function IntegrationsClient() {
           isConnecting={plaidConnecting}
           isSyncing={!plaidNeedsReconnect && plaidSyncing}
           connectLabel="Connect"
-          onConnect={plaidMfaRequired ? handlePlaidMfaSetup : handlePlaidConnect}
+          onConnect={handlePlaidConnect}
           onSync={plaidNeedsReconnect ? undefined : handlePlaidSync}
           onDisconnect={handlePlaidDisconnect}
           onDetails={() => openIntegrationDetails('plaid')}

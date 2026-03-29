@@ -2,7 +2,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { X, LayoutDashboard } from 'lucide-react';
+import { X, LayoutDashboard, GripVertical } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -116,9 +116,14 @@ function SortableHabitItem({
       }`}
     >
       <div
-        className="flex items-center min-w-0 gap-1.5 cursor-grab active:cursor-grabbing"
+        className="flex items-center justify-center w-4 h-6 flex-shrink-0 cursor-grab active:cursor-grabbing text-gray-300 group-hover:text-gray-500 transition-colors"
         {...attributes}
         {...dragHandleListeners}
+      >
+        <GripVertical className="w-3 h-3" />
+      </div>
+      <div
+        className="flex items-center min-w-0 gap-1.5 flex-1"
       >
         <span className="flex items-center justify-center w-5 h-5 flex-shrink-0 self-center -translate-y-px">
           {habit.icon ? (
@@ -138,7 +143,7 @@ function SortableHabitItem({
         className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
         onClick={(e) => {
           e.stopPropagation();
-          setActiveTooltip((current) => (current === habit.id ? null : habit.id || ''));
+          setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '');
         }}
       >
         <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">

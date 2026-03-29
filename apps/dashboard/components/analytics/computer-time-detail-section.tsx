@@ -142,7 +142,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
         const startDate = toLocalDateString(rangeWindow.start)
         const endDate = toLocalDateString(rangeWindow.end)
 
-        const [summary, topApps, topDomains] = await Promise.all([
+        const [summaryResult, topAppsResult, topDomainsResult] = await Promise.allSettled([
           getComputerTimeSummary({ startDate, endDate }),
           getTopApps({ startDate, endDate }, 12),
           getTopDomains({ startDate, endDate }, 12),
@@ -150,27 +150,42 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
 
         if (cancelled || fetchId !== fetchIdRef.current) return
 
-        setSummaryActiveMs(Math.max(0, Number(summary.total_active_ms || 0)))
-        setApps(
-          topApps
-            .filter((row) => Number(row.total_active_ms || 0) > 0)
-            .map((row) => ({
-              key: row.app_bundle_id || row.app_name || 'unknown-app',
-              label: row.app_name || row.app_bundle_id || 'Unknown App',
-              valueMs: Math.max(0, Number(row.total_active_ms || 0)),
-              eventCount: Math.max(0, Number(row.total_events || 0)),
-            })),
-        )
-        setDomains(
-          topDomains
-            .filter((row) => Number(row.total_active_ms || 0) > 0)
-            .map((row) => ({
-              key: row.domain || 'unknown-domain',
-              label: row.domain || 'Unknown',
-              valueMs: Math.max(0, Number(row.total_active_ms || 0)),
-              eventCount: Math.max(0, Number(row.total_events || 0)),
-            })),
-        )
+        const summary =
+          summaryResult.status === 'fulfilled'
+            ? Math.max(0, Number(summaryResult.value.total_active_ms || 0))
+            : 0
+        const topApps =
+          topAppsResult.status === 'fulfilled'
+            ? topAppsResult.value
+                .filter((row) => Number(row.total_active_ms || 0) > 0)
+                .map((row) => ({
+                  key: row.app_bundle_id || row.app_name || 'unknown-app',
+                  label: row.app_name || row.app_bundle_id || 'Unknown App',
+                  valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+                  eventCount: Math.max(0, Number(row.total_events || 0)),
+                }))
+            : []
+        const topDomains =
+          topDomainsResult.status === 'fulfilled'
+            ? topDomainsResult.value
+                .filter((row) => Number(row.total_active_ms || 0) > 0)
+                .map((row) => ({
+                  key: row.domain || 'unknown-domain',
+                  label: row.domain || 'Unknown',
+                  valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+                  eventCount: Math.max(0, Number(row.total_events || 0)),
+                }))
+            : []
+
+        setSummaryActiveMs(summary)
+        setApps(topApps)
+        setDomains(topDomains)
+
+        const failedCount = [summaryResult, topAppsResult, topDomainsResult].filter(
+          (result) => result.status === 'rejected',
+        ).length
+        const hasAnyData = summary > 0 || topApps.length > 0 || topDomains.length > 0
+        setError(failedCount > 0 && !hasAnyData ? 'Failed to load computer activity' : null)
       } catch (err) {
         if (cancelled || fetchId !== fetchIdRef.current) return
         setError(err instanceof Error ? err.message : 'Failed to load computer activity')

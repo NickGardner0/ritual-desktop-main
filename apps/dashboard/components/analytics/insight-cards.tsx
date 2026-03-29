@@ -61,7 +61,7 @@ interface InsightCardsGridProps {
 
 export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
   return (
-    <div className="mx-auto w-full max-w-[708px]">
+    <div className="w-full max-w-[708px]">
       {/* Section header */}
       <div className="mb-3">
         <h3 className="text-[15px] font-medium tracking-[-0.3px] text-[#27251E]">
