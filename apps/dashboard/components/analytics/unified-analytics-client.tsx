@@ -27,12 +27,12 @@ import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { habitLogKeys } from '@/hooks/use-habits-query';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { habitKeys, habitLogKeys } from '@/hooks/use-habits-query';
+import { useUser } from '@clerk/nextjs';
 // Import from separate file to avoid pulling in recharts (~500KB)
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const COMPUTER_SYNC_STARTUP_DELAY_MS = 4_000;
 
 // Dynamic imports with ssr:false — Turbopack skips these modules during
 // server-side compilation, cutting the initial /dashboard compile from ~70s.
@@ -103,12 +103,11 @@ function UnifiedAnalyticsContent() {
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
-  const { getToken } = useAuth();
 
-  // Keep "Computer Use" habit in sync on dashboard load.
-  // Uses an AbortController ref to cancel in-flight requests on unmount/remount
-  // instead of a window global flag (avoids race conditions in StrictMode).
+  // Keep "Computer Use" habit in sync after initial paint so startup is not
+  // blocked by a write + read-after-write cycle.
   const syncAbortRef = useRef<AbortController | null>(null);
+  const syncTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const syncComputerUseHabit = async (signal: AbortSignal) => {
@@ -134,7 +133,10 @@ function UnifiedAnalyticsContent() {
           return;
         }
         if (result?.success && result?.synced) {
-          await Promise.all([fetchHabits(), fetchHabitLogs()]);
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: habitKeys.list(user?.id || 'anonymous') }),
+            queryClient.invalidateQueries({ queryKey: habitLogKeys.list(user?.id || 'anonymous') }),
+          ]);
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -144,15 +146,26 @@ function UnifiedAnalyticsContent() {
 
     if (userLoaded && isSignedIn) {
       syncAbortRef.current?.abort();
-      const controller = new AbortController();
-      syncAbortRef.current = controller;
-      syncComputerUseHabit(controller.signal);
+      if (syncTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(syncTimerRef.current);
+      }
+      if (typeof window !== 'undefined') {
+        syncTimerRef.current = window.setTimeout(() => {
+          const controller = new AbortController();
+          syncAbortRef.current = controller;
+          void syncComputerUseHabit(controller.signal);
+        }, COMPUTER_SYNC_STARTUP_DELAY_MS);
+      }
     }
 
     return () => {
       syncAbortRef.current?.abort();
+      if (syncTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
     };
-  }, [userLoaded, isSignedIn]);
+  }, [queryClient, user?.id, userLoaded, isSignedIn]);
 
   // Auto-select all habits when habits load and none selected
   useEffect(() => {

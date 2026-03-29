@@ -143,10 +143,13 @@ export function useHabitLogsQuery() {
       return processedLogs as HabitLog[];
     },
     enabled: isLoaded && !!user?.id,
-    staleTime: 1000 * 10, // 10 seconds; logs can change out-of-band via text logging/imports
-    refetchOnWindowFocus: 'always',
-    refetchOnReconnect: 'always',
-    refetchInterval: 1000 * 10,
+    // Habit logs can grow very large, so keep them warm for longer and rely on
+    // explicit invalidation after mutations instead of constant background
+    // polling/refetch-on-focus.
+    staleTime: 1000 * 60 * 5,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
     refetchIntervalInBackground: false,
   });
 }
