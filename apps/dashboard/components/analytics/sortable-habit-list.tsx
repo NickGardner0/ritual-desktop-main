@@ -133,8 +133,10 @@ function SortableHabitItem({
       <div
         ref={metricTriggerRef}
         className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
-        onMouseEnter={() => setActiveTooltip(habit.id || '')}
-        onMouseLeave={() => setActiveTooltip((current) => (current === habit.id ? null : current))}
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveTooltip((current) => (current === habit.id ? null : habit.id || ''));
+        }}
       >
         <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">
           <span className={getHabitMetricClassName(habit)}>

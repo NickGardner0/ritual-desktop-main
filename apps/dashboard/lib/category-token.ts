@@ -22,6 +22,10 @@ export function normalizeCategoryLabel(value: string | null | undefined): string
   const normalizedValue = (value || 'custom').trim();
   if (!normalizedValue) return 'Custom';
 
+  if (normalizedValue.toLowerCase() === 'fitness & health') {
+    return 'Health';
+  }
+
   return normalizedValue
     .replace(/[_-]+/g, ' ')
     .split(' ')

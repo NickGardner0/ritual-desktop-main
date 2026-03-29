@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import './globals.css'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
 import { RootProviders } from '@/components/root-providers'
@@ -46,6 +47,7 @@ export default function RootLayout({
             {children}
           </RootProviders>
         </ChunkErrorBoundary>
+        <SpeedInsights />
       </body>
     </html>
   )

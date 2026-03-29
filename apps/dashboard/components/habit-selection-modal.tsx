@@ -99,7 +99,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
 // Map frontend categories to backend categories
 const categoryMap: Record<string, string> = {
   'productivity': 'Productivity',
-  'fitness': 'Fitness & Health', 
+  'fitness': 'Health',
   'education': 'Education',
   'experiments': 'Experiments',
   'custom': 'Custom'
@@ -418,6 +418,9 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   // State for Apple Watch connection
   const [appleWatchConnected, setAppleWatchConnected] = useState(false);
   const [appleWatchDeviceName, setAppleWatchDeviceName] = useState<string | null>(null);
+  const [ouraConnected, setOuraConnected] = useState(false);
+  const [garminConnected, setGarminConnected] = useState(false);
+  const [plaidConnected, setPlaidConnected] = useState(false);
 
   const checkComputerTrackingConnection = useCallback(async () => {
     try {
@@ -450,14 +453,62 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     }
   }, []);
 
-  // Check if Whoop, Apple Watch, and Computer Use are connected on mount and when modal opens
+  const refreshProviderConnectionStatuses = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const authHeaders: HeadersInit = token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
+
+      const fetchJson = async (path: string, fallback: any) => {
+        try {
+          const response = await fetchWithTimeout(path, { headers: authHeaders }, 5000);
+          if (!response.ok) return fallback;
+          return await response.json();
+        } catch {
+          return fallback;
+        }
+      };
+
+      const [
+        whoopData,
+        appleDevicesData,
+        wearablesData,
+        financialData,
+      ] = await Promise.all([
+        fetchJson('/api/integrations/whoop/status', { connected: false }),
+        fetchJson('/api/wearables/apple/devices', { devices: [] }),
+        fetchJson('/api/wearables/connections', { connections: [] }),
+        fetchJson('/api/financial/connections', { connections: [] }),
+      ]);
+
+      setWhoopConnected(Boolean(whoopData?.connected));
+
+      const activeAppleDevices = (appleDevicesData?.devices || []).filter((device: any) => device.is_active && device.platform === 'ios');
+      setAppleWatchConnected(activeAppleDevices.length > 0);
+      setAppleWatchDeviceName(activeAppleDevices[0]?.device_name || null);
+
+      const wearableConnections = wearablesData?.connections || [];
+      const ouraConnection = wearableConnections.find((item: any) => item.provider === 'oura');
+      const garminConnection = wearableConnections.find((item: any) => item.provider === 'garmin');
+      setOuraConnected(Boolean(ouraConnection && ouraConnection.status === 'active'));
+      setGarminConnected(Boolean(garminConnection && garminConnection.status === 'active'));
+
+      const financialConnections = financialData?.connections || [];
+      const plaidConnection = financialConnections.find((item: any) => item.provider === 'plaid');
+      setPlaidConnected(Boolean(plaidConnection && plaidConnection.status === 'active'));
+    } finally {
+      await checkComputerTrackingConnection();
+    }
+  }, [checkComputerTrackingConnection, getToken]);
+
+  // Check provider connection state when the modal opens so already-connected
+  // integrations render as Connected immediately instead of defaulting to Connect.
   useEffect(() => {
     if (isOpen) {
-      checkWhoopConnection();
-      checkAppleWatchConnection();
-      checkComputerTrackingConnection();
+      void refreshProviderConnectionStatuses();
     }
-  }, [isOpen, checkComputerTrackingConnection]);
+  }, [isOpen, refreshProviderConnectionStatuses]);
 
   /** Add Computer Time habit and stay on the list (no settings sheet). */
   const handleComputerUseConnect = useCallback(async () => {
@@ -1094,13 +1145,23 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     </div>
                     <p className="text-sm font-normal text-gray-900">Oura Ring</p>
                   </div>
-                  <button 
-                    type="button"
-                    onClick={() => handleCategorySelect('oura')}
-                    className={connectRowActionClass}
-                  >
-                    Connect
-                  </button>
+                  {ouraConnected ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect('oura')}
+                      className={connectRowActionConnectedClass}
+                    >
+                      Connected
+                    </button>
+                  ) : (
+                    <button 
+                      type="button"
+                      onClick={() => handleCategorySelect('oura')}
+                      className={connectRowActionClass}
+                    >
+                      Connect
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3 py-1.5">
@@ -1153,13 +1214,23 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     </div>
                     <p className="text-sm font-normal text-gray-900">Garmin</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCategorySelect('garmin')}
-                    className={connectRowActionClass}
-                  >
-                    Connect
-                  </button>
+                  {garminConnected ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect('garmin')}
+                      className={connectRowActionConnectedClass}
+                    >
+                      Connected
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect('garmin')}
+                      className={connectRowActionClass}
+                    >
+                      Connect
+                    </button>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3 py-1.5">
@@ -1169,13 +1240,23 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                     </div>
                     <p className="text-sm font-normal text-gray-900">Plaid</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCategorySelect('plaid')}
-                    className={connectRowActionClass}
-                  >
-                    Connect
-                  </button>
+                  {plaidConnected ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect('plaid')}
+                      className={connectRowActionConnectedClass}
+                    >
+                      Connected
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect('plaid')}
+                      className={connectRowActionClass}
+                    >
+                      Connect
+                    </button>
+                  )}
                 </div>
 
                 {/* Manual Tracking Categories */}

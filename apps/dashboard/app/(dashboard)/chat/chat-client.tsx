@@ -23,6 +23,8 @@ import {
   formatNativeSpeechError,
   getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
+  showNativeDesktopMicrophonePermissionDialog,
+  showNativeDesktopSpeechRecognitionPermissionDialog,
   startNativeDesktopSpeechRecognition,
   stopNativeDesktopSpeechRecognition,
 } from '@/lib/native-voice';
@@ -81,15 +83,22 @@ const Response = memo(function Response({
   className?: string;
 }) {
   return (
-    <Streamdown
-      className={cn(
-        "w-full min-w-0 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 break-words",
-        "[&>p]:my-0 [&>p+p]:mt-3",
-        "[&>h2]:mt-5 [&>h3]:mt-4 [&>h4]:mt-4 [&>h2]:mb-2 [&>h3]:mb-2 [&>h4]:mb-2",
-        "[&>ul]:my-3 [&>ol]:my-3 [&>ul+*]:mt-3 [&>ol+*]:mt-3",
-        className,
-      )}
-      components={{
+    <div
+      className="select-text cursor-text [&_*]:select-text"
+      style={{
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
+      }}
+    >
+      <Streamdown
+        className={cn(
+          "w-full min-w-0 break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          "[&>p]:my-0 [&>p+p]:mt-3",
+          "[&>h2]:mt-5 [&>h3]:mt-4 [&>h4]:mt-4 [&>h2]:mb-2 [&>h3]:mb-2 [&>h4]:mb-2",
+          "[&>ul]:my-3 [&>ol]:my-3 [&>ul+*]:mt-3 [&>ol+*]:mt-3",
+          className,
+        )}
+        components={{
         ul: ({ children, ...props }) => (
           <ul className="list-disc pl-5 m-0 leading-[1.6] text-[#535353]" {...props}>
             {children}
@@ -142,10 +151,11 @@ const Response = memo(function Response({
         tr: () => null,
         th: () => null,
         td: () => null,
-      }}
-    >
-      {children}
-    </Streamdown>
+        }}
+      >
+        {children}
+      </Streamdown>
+    </div>
   );
 });
 
@@ -1682,6 +1692,13 @@ export function ChatClient() {
 
     } catch (err: any) {
       const nativeMessage = getNativeSpeechErrorMessage(err);
+      if (isTauri()) {
+        if (nativeMessage === 'microphone-permission-denied') {
+          await showNativeDesktopMicrophonePermissionDialog().catch(() => undefined);
+        } else if (nativeMessage === 'speech-permission-denied') {
+          await showNativeDesktopSpeechRecognitionPermissionDialog().catch(() => undefined);
+        }
+      }
       setVoiceError(
         err?.name === 'NotAllowedError'
           ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
@@ -1750,7 +1767,7 @@ export function ChatClient() {
     return (
       <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
         {isSidebarCollapsed && (
-          <div className="absolute top-6 left-4 z-10 flex items-center gap-1">
+          <div className="absolute top-2 left-3 z-10 flex items-center gap-1">
             <button
               onClick={() => setIsSidebarCollapsed(false)}
               className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
@@ -1953,7 +1970,7 @@ export function ChatClient() {
 
   const renderCollapsedSidebarToggle = () =>
     isSidebarCollapsed ? (
-      <div className="absolute left-3 top-3 z-10">
+      <div className="absolute left-3 top-1.5 z-10">
         <button
           onClick={() => setIsSidebarCollapsed(false)}
           className="flex h-11 w-11 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"

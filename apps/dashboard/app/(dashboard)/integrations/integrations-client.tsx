@@ -608,8 +608,7 @@ export function IntegrationsClient() {
   const { user } = useUser();
   const { openUserProfile } = useClerk();
   const { fetchHabits, fetchHabitLogs } = useHabits();
-  const { data: integrationsOverview, isLoading: isLoadingOverview, refetch: refetchOverview } = useIntegrationsOverview();
-  const statusCardsLoading = isLoadingOverview && integrationsOverview === undefined;
+  const { data: integrationsOverview, refetch: refetchOverview } = useIntegrationsOverview();
   const whoopStatusData = integrationsOverview?.whoopStatus;
   const appleWatchStatusData = integrationsOverview?.appleWatchStatus;
   const wearableConnectionsData = integrationsOverview?.wearableConnections;
@@ -2332,9 +2331,6 @@ export function IntegrationsClient() {
     <>
       <div className="mb-6 flex items-center gap-3">
         <h1 className="text-lg font-medium">Integrations</h1>
-        {isLoadingOverview && integrationsOverview === undefined ? (
-          <span className="text-sm text-neutral-500">Loading statuses...</span>
-        ) : null}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2344,7 +2340,6 @@ export function IntegrationsClient() {
             logo={<Monitor className="h-7 w-7 text-gray-900" />}
             title="Computer Use"
             description="Track your computer usage including apps, websites, and active time automatically."
-            isStatusLoading={statusCardsLoading}
             isConnected={computerTrackingEnabled}
             onConnect={() => router.replace('/integrations?openSettings=computer-tracking')}
             onDisconnect={() => router.replace('/integrations?openSettings=computer-tracking')}
@@ -2361,7 +2356,6 @@ export function IntegrationsClient() {
           }
           title="Apple Watch"
           description="Sync your Apple Watch data including workouts, steps, heart rate, and sleep metrics."
-          isStatusLoading={statusCardsLoading}
           isConnected={appleWatchConnected}
           onConnect={handleAppleWatchConnect}
           onDisconnect={handleAppleWatchDisconnect}
@@ -2381,7 +2375,6 @@ export function IntegrationsClient() {
           }
           title="Whoop"
           description="Track your recovery, sleep, and strain data from your Whoop device."
-          isStatusLoading={statusCardsLoading}
           isConnected={whoopConnected}
           isConnecting={whoopConnecting}
           isSyncing={syncing}

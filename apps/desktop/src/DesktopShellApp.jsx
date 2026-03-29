@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/tauri';
 import { shell } from '@tauri-apps/api';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const RETRY_COPY = {
   idle: 'Preparing Ritual…',
@@ -8,6 +8,8 @@ const RETRY_COPY = {
   offline: 'Ritual needs an internet connection to load the hosted app.',
   failed: 'The hosted Ritual app did not respond. You can retry or open it in your browser.',
 };
+
+const FALLBACK_REVEAL_DELAY_MS = 6500;
 
 function formatError(error) {
   if (error instanceof Error) return error.message;
@@ -18,6 +20,19 @@ export function DesktopShellApp() {
   const [bootstrapConfig, setBootstrapConfig] = useState(null);
   const [state, setState] = useState('idle');
   const [error, setError] = useState('');
+  const [showFallbackUi, setShowFallbackUi] = useState(false);
+  const hasRequestedRevealRef = useRef(false);
+
+  const revealFallbackUi = useCallback(async () => {
+    setShowFallbackUi(true);
+    if (hasRequestedRevealRef.current) return;
+    hasRequestedRevealRef.current = true;
+    try {
+      await invoke('show_main_window');
+    } catch (error) {
+      console.error('Failed to show Ritual desktop shell fallback UI:', error);
+    }
+  }, []);
 
   const loadHostedApp = useCallback(async () => {
     setState('checking');
@@ -34,6 +49,7 @@ export function DesktopShellApp() {
 
       if (navigator.onLine === false) {
         setState('offline');
+        void revealFallbackUi();
         return;
       }
 
@@ -43,6 +59,7 @@ export function DesktopShellApp() {
 
       if (!reachable) {
         setState('failed');
+        void revealFallbackUi();
         return;
       }
 
@@ -51,8 +68,9 @@ export function DesktopShellApp() {
       console.error('Failed to bootstrap Ritual desktop shell:', loadError);
       setError(formatError(loadError));
       setState('failed');
+      void revealFallbackUi();
     }
-  }, [bootstrapConfig]);
+  }, [bootstrapConfig, revealFallbackUi]);
 
   useEffect(() => {
     let mounted = true;
@@ -67,6 +85,7 @@ export function DesktopShellApp() {
         if (!mounted) return;
         setError(formatError(configError));
         setState('failed');
+        void revealFallbackUi();
       });
 
     return () => {
@@ -78,6 +97,20 @@ export function DesktopShellApp() {
     if (!bootstrapConfig) return;
     void loadHostedApp();
   }, [bootstrapConfig, loadHostedApp]);
+
+  useEffect(() => {
+    if (state !== 'idle' && state !== 'checking') {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void revealFallbackUi();
+    }, FALLBACK_REVEAL_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [revealFallbackUi, state]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -108,6 +141,10 @@ export function DesktopShellApp() {
       window.open(bootstrapConfig.bootstrapUrl, '_blank', 'noopener,noreferrer');
     }
   }, [bootstrapConfig]);
+
+  if (!showFallbackUi) {
+    return <main className="shell shell--hidden" aria-hidden="true" />;
+  }
 
   return (
     <main className="shell">

@@ -12,11 +12,12 @@ import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { isTauri } from '@/lib/tauri-utils';
 import {
-  ensureNativeDesktopVoicePermissions,
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
   getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
+  showNativeDesktopMicrophonePermissionDialog,
+  showNativeDesktopSpeechRecognitionPermissionDialog,
   startNativeDesktopSpeechRecognition,
   stopNativeDesktopSpeechRecognition,
 } from '@/lib/native-voice';
@@ -706,7 +707,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const startNativeVoiceRecognition = useCallback(async () => {
     setError(null);
     setIsProcessingVoice(false);
-    await ensureNativeDesktopVoicePermissions();
     await resetNativeVoiceSession();
     await startNativeDesktopSpeechRecognition();
     setIsListening(true);
@@ -846,6 +846,13 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     } catch (err: any) {
       const nativeMessage = getNativeSpeechErrorMessage(err);
+      if (isTauri()) {
+        if (nativeMessage === 'microphone-permission-denied') {
+          await showNativeDesktopMicrophonePermissionDialog().catch(() => undefined);
+        } else if (nativeMessage === 'speech-permission-denied') {
+          await showNativeDesktopSpeechRecognitionPermissionDialog().catch(() => undefined);
+        }
+      }
       setError(
         err?.name === 'NotAllowedError'
           ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'

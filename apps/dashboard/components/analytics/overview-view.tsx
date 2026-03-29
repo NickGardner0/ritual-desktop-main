@@ -438,22 +438,6 @@ export function OverviewView({
     };
   }, [activeTooltip]);
 
-  // Load habit logs on mount
-  const hasLoadedLogs = useRef(false);
-  useEffect(() => {
-    if (user && !isLoading && habitLogs.length === 0 && !hasLoadedLogs.current) {
-      hasLoadedLogs.current = true;
-      fetchHabitLogs();
-    }
-  }, [user, isLoading, fetchHabitLogs]);
-
-  // Force fetch logs when habits are loaded
-  useEffect(() => {
-    if (habits.length > 0 && habitLogs.length === 0 && user) {
-      fetchHabitLogs();
-    }
-  }, [habits.length, habitLogs.length, user, fetchHabitLogs]);
-
   useEffect(() => {
     if (!user || !isBackendUnavailable) return;
 

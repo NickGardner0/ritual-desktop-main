@@ -116,6 +116,7 @@ const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 const CARD_ORDER_KEY = 'ritual-metric-card-order';
 const DEFAULT_METRICS_SPARKLINE_DAYS = 180;
 const DEFAULT_METRICS_SUMMARY_DAYS = 1095;
+const CARDS_PER_PAGE = 4;
 
 // ── Metric Category Tabs ──
 const METRIC_CATEGORY_TABS = [
@@ -512,6 +513,35 @@ export function MetricsView({
     () => availableHabits.filter((habit) => !isComputerHabitName(habit.habit_name)),
     [availableHabits],
   );
+  const filteredHabitIds = React.useMemo(
+    () => filteredHabits.map((habit: HabitData) => habit.habit_id).filter((id: string): id is string => !!id),
+    [filteredHabits],
+  );
+  const visibleMetricHabitIds = React.useMemo(() => {
+    const validSelected = selectedHabits.filter((id: string): id is string => !!id);
+    const selectedFilteredHabitIds = validSelected.length > 0
+      ? validSelected.filter((id) => filteredHabitIds.includes(id))
+      : filteredHabitIds;
+
+    const orderedIds = appliedCardOrder.length > 0
+      ? [
+          ...appliedCardOrder.filter((id: string) => selectedFilteredHabitIds.includes(id)),
+          ...selectedFilteredHabitIds.filter((id: string) => !appliedCardOrder.includes(id)),
+        ]
+      : selectedFilteredHabitIds;
+
+    const categoryFilteredIds = activeCategoryTab
+      ? orderedIds.filter((id) => {
+          const habit = filteredHabits.find((candidate: HabitData) => candidate.habit_id === id);
+          return habit ? getMetricCategoryForHabit(habit.habit_name, habit.category) === activeCategoryTab : false;
+        })
+      : orderedIds;
+
+    const totalPages = Math.max(1, Math.ceil(categoryFilteredIds.length / CARDS_PER_PAGE));
+    const safePage = Math.min(cardPage, totalPages - 1);
+    const pageStart = safePage * CARDS_PER_PAGE;
+    return categoryFilteredIds.slice(pageStart, pageStart + CARDS_PER_PAGE);
+  }, [activeCategoryTab, appliedCardOrder, cardPage, filteredHabitIds, filteredHabits, selectedHabits]);
   const hasCustomDateRange = !!(dateRange?.from && dateRange?.to);
   const expandedHabitData = React.useMemo(
     () => availableHabits.find((h: HabitData) => h.habit_id === expandedHabit) || null,
@@ -732,11 +762,7 @@ export function MetricsView({
   useEffect(() => {
     if (!isUserLoaded || !user?.id) return;
 
-    const validSelected = selectedHabits.filter((id: string) => !!id);
-    const filteredHabitIds = filteredHabits.map((h: HabitData) => h.habit_id).filter((id: string) => !!id);
-    const habitsToFetch = validSelected.length > 0
-      ? validSelected.filter((id: string) => filteredHabitIds.includes(id))
-      : filteredHabitIds;
+    const habitsToFetch = visibleMetricHabitIds;
 
     if (habitsToFetch.length === 0) {
       setAnalyticsData({});
@@ -965,8 +991,7 @@ export function MetricsView({
 
     fetchCanonicalAnalytics();
   }, [
-    selectedHabits.join(','),
-    filteredHabits.length,
+    visibleMetricHabitIds.join(','),
     dateRange?.from?.toISOString(),
     dateRange?.to?.toISOString(),
     isUserLoaded,
@@ -1923,7 +1948,6 @@ export function MetricsView({
         <>
           {(() => {
             const validSelectedHabits = selectedHabits.filter((id: string): id is string => !!id);
-            const filteredHabitIds = filteredHabits.map((h: HabitData) => h.habit_id).filter((id: string): id is string => !!id);
             const selectedFilteredHabitIds = validSelectedHabits.filter((id: string) => filteredHabitIds.includes(id));
             const computerCardData = computerActivityCard;
             const isComputerSelected = detectedComputerHabitId ? validSelectedHabits.includes(detectedComputerHabitId) : true;
@@ -1961,7 +1985,6 @@ export function MetricsView({
               : metricCardIds;
 
             // Paginate: 1 row of 4 cards
-            const CARDS_PER_PAGE = 4;
             const totalPages = Math.ceil(visibleIds.length / CARDS_PER_PAGE);
             const safeCardPage = Math.min(clampedCardPage, Math.max(totalPages - 1, 0));
             const pageStart = safeCardPage * CARDS_PER_PAGE;

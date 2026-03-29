@@ -60,7 +60,7 @@ const formSchema = z.object({
 
 const ageBrackets = ['12-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+']
 const genderOptions = ['Male', 'Female']
-const trackingInterests = ['Productivity', 'Education', 'Fitness & Health', 'Experiments', 'Other']
+const trackingInterests = ['Productivity', 'Education', 'Health', 'Experiments', 'Other']
 const wearableDevices = ['Screen Time (phone/computer)', 'Apple Watch', 'Oura Ring', 'Whoop', 'Garmin', 'Fitbit', 'None']
 const devLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV !== 'production') {

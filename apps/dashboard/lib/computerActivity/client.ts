@@ -113,6 +113,46 @@ function getRangeTimestamps(params: ComputerActivityRangeParams) {
   return { startTs, endTs }
 }
 
+function getLocalTodayDateString() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function rangeIncludesLocalToday(params: ComputerActivityRangeParams) {
+  const today = getLocalTodayDateString()
+  return params.startDate <= today && params.endDate >= today
+}
+
+function shouldSupplementTodayFromLocal(
+  params: ComputerActivityRangeParams,
+  backendRows: ComputerDailyResponseRow[],
+) {
+  if (!isTauri()) return false
+  if (!rangeIncludesLocalToday(params)) return false
+
+  const today = getLocalTodayDateString()
+  const todayRow = backendRows.find((row) => row.day === today)
+  return !todayRow || Number(todayRow.active_ms || 0) <= 0
+}
+
+function mergeTodayRow(
+  backendRows: ComputerDailyResponseRow[],
+  localRows: ComputerDailyResponseRow[],
+): ComputerDailyResponseRow[] {
+  const today = getLocalTodayDateString()
+  const localToday = localRows.find((row) => row.day === today && Number(row.active_ms || 0) > 0)
+  if (!localToday) {
+    return backendRows
+  }
+
+  const rowsWithoutToday = backendRows.filter((row) => row.day !== today)
+  return [...rowsWithoutToday, { ...localToday, source: localToday.source || 'tauri_fallback' }]
+    .sort((a, b) => a.day.localeCompare(b.day))
+}
+
 export async function getComputerTimeDaily(
   params: ComputerActivityRangeParams,
 ): Promise<ComputerDailyResponseRow[]> {
@@ -125,7 +165,17 @@ export async function getComputerTimeDaily(
       },
     )
     const normalized = normalizeDailyRows(Array.isArray(payload?.data) ? payload.data : [])
-    return normalized.map((row) => ({ ...row, source: row.source || 'backend' }))
+    const backendRows = normalized.map((row) => ({ ...row, source: row.source || 'backend' }))
+
+    if (!shouldSupplementTodayFromLocal(params, backendRows)) {
+      return backendRows
+    }
+
+    const localRows = normalizeDailyRows(
+      await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
+    ).map((row) => ({ ...row, source: row.source || 'tauri_fallback' }))
+
+    return mergeTodayRow(backendRows, localRows)
   } catch (error) {
     if (!isTauri()) {
       throw error
@@ -150,7 +200,7 @@ export async function getTopApps(
       },
     )
     const rows = Array.isArray(payload?.data) ? payload.data : []
-    return rows.map((row) => ({
+    const normalizedRows = rows.map((row) => ({
       app_bundle_id: String(row.app_bundle_id || ''),
       app_name: String(row.app_name || row.app_bundle_id || 'Unknown'),
       total_active_ms: Math.max(0, Number(row.total_active_ms || 0)),
@@ -158,6 +208,10 @@ export async function getTopApps(
       hours: Math.max(0, Number(row.hours || 0)),
       source: row.source || 'backend',
     }))
+
+    if (normalizedRows.length > 0 || !isTauri() || !rangeIncludesLocalToday(params)) {
+      return normalizedRows
+    }
   } catch (error) {
     if (!isTauri()) {
       throw error
@@ -190,7 +244,7 @@ export async function getTopDomains(
       },
     )
     const rows = Array.isArray(payload?.data) ? payload.data : []
-    return rows.map((row) => ({
+    const normalizedRows = rows.map((row) => ({
       domain: String(row.domain || 'Unknown'),
       total_active_ms: Math.max(0, Number(row.total_active_ms || 0)),
       total_events: Math.max(0, Number(row.total_events || 0)),
@@ -198,6 +252,10 @@ export async function getTopDomains(
       minutes: row.minutes == null ? undefined : Math.max(0, Number(row.minutes || 0)),
       source: row.source || 'backend',
     }))
+
+    if (normalizedRows.length > 0 || !isTauri() || !rangeIncludesLocalToday(params)) {
+      return normalizedRows
+    }
   } catch (error) {
     if (!isTauri()) {
       throw error
@@ -229,7 +287,7 @@ export async function getComputerTimeSummary(
     )
     const data = payload?.data || {}
     const totalActiveMs = Math.max(0, Number(data.total_active_ms || 0))
-    return {
+    const summary: ComputerSummaryResponse = {
       total_active_ms: totalActiveMs,
       total_afk_ms: Math.max(0, Number(data.total_afk_ms || 0)),
       total_hours: Math.max(0, Number(data.total_hours || totalActiveMs / (1000 * 60 * 60))),
@@ -239,6 +297,29 @@ export async function getComputerTimeSummary(
       unique_domains: Math.max(0, Number(data.unique_domains || 0)),
       avg_daily_hours: Math.max(0, Number(data.avg_daily_hours || 0)),
       source: data.source || 'backend',
+    }
+
+    if (!isTauri() || !rangeIncludesLocalToday(params)) {
+      return summary
+    }
+
+    const mergedDaily = await getComputerTimeDaily(params)
+    const mergedTotalActiveMs = mergedDaily.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0)
+    if (mergedTotalActiveMs <= totalActiveMs) {
+      return summary
+    }
+
+    const mergedTotalEvents = mergedDaily.reduce((sum, row) => sum + Math.max(0, Number(row.events_count || 0)), 0)
+    const mergedDaysTracked = mergedDaily.filter((row) => Math.max(0, Number(row.active_ms || 0)) > 0).length
+
+    return {
+      ...summary,
+      total_active_ms: mergedTotalActiveMs,
+      total_hours: mergedTotalActiveMs / (1000 * 60 * 60),
+      total_events: Math.max(summary.total_events || 0, mergedTotalEvents),
+      days_tracked: Math.max(summary.days_tracked || 0, mergedDaysTracked),
+      avg_daily_hours: mergedDaysTracked > 0 ? mergedTotalActiveMs / (1000 * 60 * 60) / mergedDaysTracked : 0,
+      source: 'backend_plus_live_today',
     }
   } catch (error) {
     if (!isTauri()) {

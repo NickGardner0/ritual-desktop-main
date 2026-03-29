@@ -2183,6 +2183,71 @@ ${outline}`;
   }
 }
 
+async function buildRichActivitySummaryFromStoryPlan(
+  payload: any,
+  query: string,
+  timezone?: string,
+  calendarStyleSummary?: string | null,
+): Promise<string | null> {
+  try {
+    if (!payload?.success || !payload?.story_plan) {
+      return calendarStyleSummary?.trim() || null;
+    }
+
+    const evidenceScaffold = buildContextMemoryNarrative(payload, query, timezone);
+    if (!evidenceScaffold || evidenceScaffold.trim().length < 80) {
+      return calendarStyleSummary?.trim() || null;
+    }
+
+    const prompt = `You are turning a rich evidence scaffold into a concrete, Littlebird-quality activity recap.
+
+Your job:
+- Write a comprehensive, chronologically ordered summary of what the user actually got done.
+- Prefer 4-8 substantive workstreams.
+- Cover more of the evidenced day instead of stopping after the first few items.
+- Use concrete verbs and concrete nouns from the evidence: repos, files, products, domains, APIs, commits, settings pages, documents, commands.
+- Preserve chronology from earliest to latest workstream.
+- Merge tiny fragments into a short "Other things" section instead of dropping them.
+
+Output format:
+- Start directly with the work summary. No greeting or preamble.
+- For each main workstream:
+  **Specific title**
+  *7:12 AM – 7:57 AM*
+  2-4 sentences
+- End with **Other things:** bullet points if there are smaller evidenced items left over.
+
+Quality bar:
+- Be more comprehensive than a shallow screen-only summary.
+- Do not invent details or outcomes.
+- Do not write generic filler like "you worked on", "you explored", "this involved", "focused on", "various".
+- If the evidence shows concrete implementation/debugging/configuration work, say that plainly.
+- If a lower-quality draft summary is provided, use it only as supporting context. Prefer the evidence scaffold when there is any conflict or missing detail.
+
+Evidence scaffold:
+${evidenceScaffold}
+
+Supporting draft summary:
+${calendarStyleSummary?.trim() || '(none)'}`;
+
+    const response = await getOpenAIClient().chat.completions.create({
+      model: 'gpt-4o',
+      temperature: 0.2,
+      max_tokens: 2200,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `Write the final recap for: ${query}` },
+      ],
+    });
+
+    const content = response.choices[0]?.message?.content?.trim();
+    return content ? sanitizeCalendarStyleActivitySummary(content) : (calendarStyleSummary?.trim() || null);
+  } catch (error) {
+    console.error('❌ buildRichActivitySummaryFromStoryPlan error:', error);
+    return calendarStyleSummary?.trim() || null;
+  }
+}
+
 // ====================
 // CONVERSATION PERSISTENCE HELPERS
 // ====================
@@ -4652,27 +4717,6 @@ async function executeGetActivitySummary(
   };
 
   try {
-    if (recapAnchorDate) {
-      const calendarStyleSummary = await calendarStyleSummaryPromise;
-      if (calendarStyleSummary) {
-        return JSON.stringify({
-          success: true,
-          query,
-          intent_resolved: 'broad_overview',
-          retrieval_tier: 'calendar_screen_evidence',
-          story_plan: null,
-          citations: [],
-          citations_count: 0,
-          time_truth: null,
-          confidence: 'high',
-          freshness: null,
-          calendar_style_summary: calendarStyleSummary,
-          calendar_style_date: recapAnchorDate,
-          source: 'calendar_screen_evidence',
-        });
-      }
-    }
-
     const [response, calendarStyleSummary] = await Promise.all([
       fetchPythonApiPost('/api/memory/query', token, {
         query,
@@ -4680,7 +4724,7 @@ async function executeGetActivitySummary(
         days_back: safeDaysBack,
         timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
         group_by: 'app',
-        limit: 20,
+        limit: 32,
       }),
       calendarStyleSummaryPromise,
     ]);
@@ -4718,6 +4762,18 @@ async function executeGetActivitySummary(
     // evidence_count, score_main_event, confidence etc. leak into output otherwise
     const rawPlan = response.semantic_truth?.story_plan || null;
     const cleanPlan = rawPlan ? stripStoryPlanMeta(rawPlan) : rawPlan;
+    const richActivitySummary = await buildRichActivitySummaryFromStoryPlan(
+      {
+        success: true,
+        story_plan: cleanPlan,
+        renderer: response.semantic_truth?.renderer || cleanPlan?.renderer || null,
+        results: Array.isArray(response.results) ? response.results : [],
+        citations,
+      },
+      query,
+      timezone,
+      calendarStyleSummary,
+    );
 
     return JSON.stringify({
       success: true,
@@ -4730,6 +4786,7 @@ async function executeGetActivitySummary(
       time_truth: response.time_truth || null,
       confidence: response.confidence || null,
       freshness: response.freshness || null,
+      rich_activity_summary: richActivitySummary || null,
       calendar_style_summary: calendarStyleSummary || null,
       calendar_style_date: recapAnchorDate,
     });
@@ -5276,11 +5333,16 @@ Keep total response under 500 characters when possible.`;
       const finalText = overviewPayload?.success
         ? forcedToolName === 'getActivitySummary'
           ? (
-              typeof toolResults.activitySummary?.calendar_style_summary === 'string'
-              && toolResults.activitySummary.calendar_style_summary.trim().length > 0
+              typeof toolResults.activitySummary?.rich_activity_summary === 'string'
+              && toolResults.activitySummary.rich_activity_summary.trim().length > 0
             )
-              ? toolResults.activitySummary.calendar_style_summary.trim()
-              : buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone)
+              ? toolResults.activitySummary.rich_activity_summary.trim()
+              : (
+                  typeof toolResults.activitySummary?.calendar_style_summary === 'string'
+                  && toolResults.activitySummary.calendar_style_summary.trim().length > 0
+                )
+                  ? toolResults.activitySummary.calendar_style_summary.trim()
+                  : buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone)
             : await generateWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title)
         : 'I was unable to retrieve your data. Please try again.';
 
@@ -5526,32 +5588,44 @@ Keep total response under 500 characters when possible.`;
               break;
             case 'searchContextMemory':
               {
-                const normalizedArgs = {
+                const normalizedSearchContextArgs = {
                   ...args,
                   query: chooseScreenSearchQuery(args?.query, latestUserContent),
                   // Override limit for richer results — GPT defaults to 10 which is too low
                   limit: Math.max(args?.limit || 0, 30),
                   daysBack: Math.max(args?.daysBack || 0, 1),
                 };
-                result = await executeSearchContextMemory(token, normalizedArgs);
+                result = await executeSearchContextMemory(token, normalizedSearchContextArgs);
+                try {
+                  const parsed = JSON.parse(result);
+                  if (parsed.success && parsed.results) {
+                    toolResults.contextMemoryRecap = parsed;
+                  }
+                  // Trim the result for the LLM: keep story_plan but drop raw results
+                  // to avoid flooding GPT-4o-mini's context with screen dumps
+                  if (parsed.success && parsed.story_plan) {
+                    const richContextNarrative = buildContextMemoryNarrative(
+                      {
+                        success: parsed.success,
+                        story_plan: parsed.story_plan,
+                        renderer: parsed.renderer || null,
+                        results: Array.isArray(parsed.results) ? parsed.results : [],
+                      },
+                      normalizedSearchContextArgs.query,
+                      timezone,
+                    );
+                    const trimmed = {
+                      success: parsed.success,
+                      story_plan: parsed.story_plan,
+                      renderer: parsed.renderer || null,
+                      rich_context_narrative: richContextNarrative,
+                      result_count: Array.isArray(parsed.results) ? parsed.results.length : 0,
+                      message: parsed.message,
+                    };
+                    result = JSON.stringify(trimmed);
+                  }
+                } catch {}
               }
-              try {
-                const parsed = JSON.parse(result);
-                if (parsed.success && parsed.results) {
-                  toolResults.contextMemoryRecap = parsed;
-                }
-                // Trim the result for the LLM: keep story_plan but drop raw results
-                // to avoid flooding GPT-4o-mini's context with screen dumps
-                if (parsed.success && parsed.story_plan) {
-                  const trimmed = {
-                    success: parsed.success,
-                    story_plan: parsed.story_plan,
-                    result_count: Array.isArray(parsed.results) ? parsed.results.length : 0,
-                    message: parsed.message,
-                  };
-                  result = JSON.stringify(trimmed);
-                }
-              } catch {}
               break;
             case 'getComputerTimeSpentBreakdown':
               result = await executeGetComputerTimeSpentBreakdown(
@@ -5664,6 +5738,12 @@ Keep total response under 500 characters when possible.`;
         toolResults.weeklyOverview as WeeklyOverviewPayload,
         'Weekly Activity Overview',
       );
+    } else if (
+      !isVoiceMode
+      && typeof toolResults.activitySummary?.rich_activity_summary === 'string'
+      && toolResults.activitySummary.rich_activity_summary.trim().length > 0
+    ) {
+      finalText = toolResults.activitySummary.rich_activity_summary.trim();
     } else if (
       !isVoiceMode
       && typeof toolResults.activitySummary?.calendar_style_summary === 'string'

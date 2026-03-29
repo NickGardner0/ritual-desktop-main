@@ -532,7 +532,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-white">
         {/* Top Header - available on normal dashboard routes and chat route */}
         {!isFullScreenChat && (
-        <header className="content-opaque px-5 h-[56px] flex items-center bg-white">
+        <header className="content-opaque relative px-5 h-[56px] flex items-center bg-white overflow-hidden">
+          {isChatRoute && (
+            <div className="absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
+          )}
           <div className="relative flex items-center w-full translate-y-[6px]">
             {/* Left zone — Search + page-specific left actions */}
             <div className="flex items-center space-x-2.5 min-w-0">

@@ -133,13 +133,29 @@ struct DesktopShellBootstrapConfig {
     callback_url: String,
 }
 
+fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
+    let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
+    let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+    let mut bootstrap_url = with_query_param(
+        &join_url_path(app_origin, "/desktop/bootstrap"),
+        &format!("ritual_desktop_env={}", ritual_env),
+    );
+
+    if main_glass_enabled {
+        bootstrap_url = with_query_param(&bootstrap_url, "ritual_main_glass=1");
+    }
+
+    if transparency_probe {
+        bootstrap_url = with_query_param(&bootstrap_url, "ritual_transparency_probe=1");
+    }
+
+    bootstrap_url
+}
+
 fn build_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
     let ritual_env = configured_ritual_env();
     let app_origin = get_app_url();
-    let bootstrap_url = with_query_param(
-        &join_url_path(&app_origin, "/desktop/bootstrap"),
-        &format!("ritual_desktop_env={}", ritual_env),
-    );
+    let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
     let callback_url = join_url_path(&app_origin, "/auth/callback");
 
     DesktopShellBootstrapConfig {
@@ -1029,6 +1045,7 @@ fn main() {
       let ritual_env = configured_ritual_env();
       let app_origin = get_app_url();
       let mut app_url = with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
+      let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
       let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
       let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
       if main_glass_enabled {
@@ -1043,6 +1060,7 @@ fn main() {
       let window = if let Some(window) = app.get_window("main") {
         window
       } else {
+        let use_local_shell_window = should_use_local_shell_window();
         let mut builder = tauri::WindowBuilder::new(
           app,
           "main",
@@ -1055,7 +1073,7 @@ fn main() {
         .resizable(true)
         .decorations(true)
         .transparent(main_glass_enabled)
-        .visible(true);
+        .visible(!use_local_shell_window);
 
         #[cfg(target_os = "macos")]
         {
@@ -1072,8 +1090,6 @@ fn main() {
       {
         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1150.0, height: 800.0 }));
         let _ = window.center();
-        let _ = window.show();
-        let _ = window.set_focus();
         #[cfg(target_os = "macos")]
         {
           if main_glass_enabled {
@@ -1127,6 +1143,15 @@ fn main() {
               let _ = sidebar_window.close();
             }
           }
+        }
+
+        if should_use_local_shell_window() {
+          let bootstrap_url_json = serde_json::to_string(&bootstrap_url)
+            .unwrap_or_else(|_| "\"https://desktop.ritualdb.com/desktop/bootstrap\"".to_string());
+          let _ = window.eval(&format!("window.__RITUAL_BOOTSTRAP_URL__ = {};", bootstrap_url_json));
+        } else {
+          let _ = window.show();
+          let _ = window.set_focus();
         }
 
         // Fallback timer: only show the window if desktop bootstrap never does.
