@@ -338,7 +338,7 @@ export function OverviewView({
           startDate = format(dateRange.from, 'yyyy-MM-dd');
           endDate = format(dateRange.to ?? dateRange.from, 'yyyy-MM-dd');
         } else {
-          startDate = format(subDays(now, 180), 'yyyy-MM-dd');
+          startDate = format(subDays(now, 1095), 'yyyy-MM-dd');
           endDate = format(now, 'yyyy-MM-dd');
         }
 

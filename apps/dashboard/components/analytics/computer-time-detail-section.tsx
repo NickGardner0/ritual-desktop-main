@@ -76,7 +76,11 @@ function RangePills({ range, setRange }: { range: TimeRangePreset; setRange: (r:
   )
 }
 
-export function ComputerTimeDetailSection() {
+interface ComputerTimeDetailSectionProps {
+  externalRange?: TimeRangePreset
+}
+
+export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailSectionProps) {
   const [usageSelection, setUsageSelection] = useState<UsageBreakdownSelection>(null)
   const [isUsageExpanded, setIsUsageExpanded] = useState(false)
   const appCardRef = useRef<HTMLDivElement | null>(null)
@@ -88,11 +92,18 @@ export function ComputerTimeDetailSection() {
     setRange,
     refresh,
   } = useComputerActivity({
-    initialRange: '1D',
+    initialRange: externalRange ?? '1D',
     source: 'desktop',
     autoRefresh: true,
     refreshIntervalMs: 60000,
+    skipEventFetch: true,
   })
+
+  useEffect(() => {
+    if (externalRange && externalRange !== range) {
+      setRange(externalRange)
+    }
+  }, [externalRange, range, setRange])
 
   const { header, apps, domains, isLoading, error } = viewModel
 

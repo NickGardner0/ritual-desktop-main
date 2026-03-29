@@ -78,7 +78,7 @@ export function StatsTooltip({ open, triggerRef, children }: StatsTooltipProps) 
   const tooltip = (
     <div
       ref={contentRef}
-      className="pointer-events-none fixed p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]"
+      className="tooltip-container pointer-events-auto fixed p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]"
       style={{
         top: position.top,
         left: position.left,

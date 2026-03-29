@@ -166,23 +166,23 @@ function SortableHabitItem({
             return (
               <div className="space-y-1.5 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Sum</span>
+                  <span className="text-gray-900 transition-colors hover:text-black">Sum</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Average</span>
+                  <span className="text-gray-900 transition-colors hover:text-black">Average</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Min</span>
+                  <span className="text-gray-900 transition-colors hover:text-black">Min</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Max</span>
+                  <span className="text-gray-900 transition-colors hover:text-black">Max</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Std Dev</span>
+                  <span className="text-gray-900 transition-colors hover:text-black">Std Dev</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
                 </div>
               </div>

@@ -167,6 +167,16 @@ export async function getComputerTimeDaily(
     const normalized = normalizeDailyRows(Array.isArray(payload?.data) ? payload.data : [])
     const backendRows = normalized.map((row) => ({ ...row, source: row.source || 'backend' }))
 
+    if (backendRows.length === 0 && isTauri()) {
+      const localRows = normalizeDailyRows(
+        await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
+      ).map((row) => ({ ...row, source: row.source || 'tauri_fallback' }))
+
+      if (localRows.length > 0) {
+        return localRows
+      }
+    }
+
     if (!shouldSupplementTodayFromLocal(params, backendRows)) {
       return backendRows
     }
@@ -209,7 +219,11 @@ export async function getTopApps(
       source: row.source || 'backend',
     }))
 
-    if (normalizedRows.length > 0 || !isTauri() || !rangeIncludesLocalToday(params)) {
+    if (normalizedRows.length > 0 || !isTauri()) {
+      return normalizedRows
+    }
+
+    if (!rangeIncludesLocalToday(params) && normalizedRows.length > 0) {
       return normalizedRows
     }
   } catch (error) {
@@ -253,7 +267,11 @@ export async function getTopDomains(
       source: row.source || 'backend',
     }))
 
-    if (normalizedRows.length > 0 || !isTauri() || !rangeIncludesLocalToday(params)) {
+    if (normalizedRows.length > 0 || !isTauri()) {
+      return normalizedRows
+    }
+
+    if (!rangeIncludesLocalToday(params) && normalizedRows.length > 0) {
       return normalizedRows
     }
   } catch (error) {
@@ -299,7 +317,7 @@ export async function getComputerTimeSummary(
       source: data.source || 'backend',
     }
 
-    if (!isTauri() || !rangeIncludesLocalToday(params)) {
+    if (!isTauri()) {
       return summary
     }
 

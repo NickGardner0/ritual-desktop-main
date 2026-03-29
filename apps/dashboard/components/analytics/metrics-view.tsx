@@ -53,6 +53,7 @@ import {
   getHabitDisplayName,
   isComputerHabitName,
 } from '@/lib/computer-time-habit';
+import type { TimeRangePreset } from '@/lib/computerActivity/contracts';
 import {
   Select,
   SelectContent,
@@ -163,6 +164,23 @@ function getMetricCategoryForHabit(habitName: string, dbCategory?: string): stri
   if (cat.includes('experiment')) return 'experiments';
 
   return 'experiments'; // default bucket
+}
+
+function barListRangeToTimePreset(range: BarListRange): TimeRangePreset {
+  switch (range) {
+    case '1W':
+      return '7D';
+    case '1M':
+      return '30D';
+    case '3M':
+      return '90D';
+    case '6M':
+    case '1Y':
+    case 'ALL':
+      return 'ALL';
+    default:
+      return '30D';
+  }
 }
 
 function SortableMetricCard({ id, children }: { id: string; children: React.ReactNode }) {
@@ -437,6 +455,8 @@ export function MetricsView({
   const [loadingExpandedLogs, setLoadingExpandedLogs] = useState(false);
 
   const [summaryMetrics, setSummaryMetrics] = useState<Record<string, any>>({});
+  const [barListAnalyticsData, setBarListAnalyticsData] = useState<Record<string, any[]>>({});
+  const [barListSummaryMetrics, setBarListSummaryMetrics] = useState<Record<string, any>>({});
 
   const [expandedTimeRange, setExpandedTimeRange] = useState<RangeKey>('1M');
   const [barListRange, setBarListRange] = useState<BarListRange>('1M');
@@ -998,6 +1018,100 @@ export function MetricsView({
     realtimeRefreshTick,
     user?.id,
     getToken,
+  ]);
+
+  useEffect(() => {
+    if (!isUserLoaded || !user?.id) return;
+
+    const validSelected = selectedHabits.filter((id: string): id is string => !!id);
+    const habitsToFetch = validSelected.length > 0
+      ? validSelected.filter((id: string) => filteredHabitIds.includes(id))
+      : filteredHabitIds;
+
+    if (habitsToFetch.length === 0) {
+      setBarListAnalyticsData({});
+      setBarListSummaryMetrics({});
+      return;
+    }
+
+    const { from, to } = getRangeDates(barListRange as RangeKey);
+    const startDate = format(from, 'yyyy-MM-dd');
+    const endDate = format(to, 'yyyy-MM-dd');
+    const controller = new AbortController();
+
+    const fetchBarListAnalytics = async () => {
+      try {
+        const dailyParams = new URLSearchParams({
+          output: 'daily',
+          habit_ids: habitsToFetch.join(','),
+          start_date: startDate,
+          end_date: endDate,
+        });
+
+        const summaryParams = new URLSearchParams({
+          start_date: startDate,
+          end_date: endDate,
+        });
+
+        const [dailyRes, summaryRes] = await Promise.all([
+          fetch(`/api/analytics/habits/daily-values?${dailyParams.toString()}`, {
+            signal: controller.signal,
+          }),
+          fetch(`/api/analytics/habits/summary?${summaryParams.toString()}`, {
+            signal: controller.signal,
+          }),
+        ]);
+
+        if (!dailyRes.ok || !summaryRes.ok) {
+          throw new Error(`Bar list analytics failed (daily=${dailyRes.status}, summary=${summaryRes.status})`);
+        }
+
+        const [dailyPayload, summaryPayload] = await Promise.all([
+          dailyRes.json(),
+          summaryRes.json(),
+        ]);
+
+        if (controller.signal.aborted) return;
+
+        const nextDailyByHabit: Record<string, any[]> = {};
+        habitsToFetch.forEach((habitId) => {
+          nextDailyByHabit[habitId] = [];
+        });
+
+        for (const row of Array.isArray(dailyPayload?.data) ? dailyPayload.data : []) {
+          if (row?.habit_id && nextDailyByHabit[row.habit_id]) {
+            nextDailyByHabit[row.habit_id].push(row);
+          }
+        }
+
+        const nextSummaryByHabit: Record<string, any> = {};
+        for (const row of Array.isArray(summaryPayload?.data) ? summaryPayload.data : []) {
+          if (row?.habit_id && habitsToFetch.includes(row.habit_id)) {
+            nextSummaryByHabit[row.habit_id] = row;
+          }
+        }
+
+        setBarListAnalyticsData(nextDailyByHabit);
+        setBarListSummaryMetrics(nextSummaryByHabit);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error('❌ Failed to load metrics bar-list analytics:', error);
+        setBarListAnalyticsData({});
+        setBarListSummaryMetrics({});
+      }
+    };
+
+    fetchBarListAnalytics();
+
+    return () => controller.abort();
+  }, [
+    barListRange,
+    filteredHabitIds.join(','),
+    getToken,
+    isUserLoaded,
+    realtimeRefreshTick,
+    selectedHabits.join(','),
+    user?.id,
   ]);
 
   useEffect(() => {
@@ -2114,8 +2228,8 @@ export function MetricsView({
 
             const habitBarData = filteredHabits
               .map((h: HabitData) => {
-                const logs = analyticsData[h.habit_id] || [];
-                const unit = summaryMetrics[h.habit_id]?.unit || h.unit_type || 'count';
+                const logs = barListAnalyticsData[h.habit_id] || [];
+                const unit = barListSummaryMetrics[h.habit_id]?.unit || h.unit_type || 'count';
                 const hib = inferHigherIsBetter(h.habit_name, unit);
 
                 // Filter logs to selected range
@@ -2214,7 +2328,7 @@ export function MetricsView({
             // ─── Streaks bar list ───
             const streakItems = habitBarData
               .map((h: any) => {
-                const logs = analyticsData[h.habitId] || [];
+                const logs = barListAnalyticsData[h.habitId] || [];
                 let streak = 0;
                 if (logs.length > 0) {
                   const sortedDates = logs
@@ -2265,7 +2379,7 @@ export function MetricsView({
                 </div>
 
                 {/* Computer Time detail section — full width */}
-                <ComputerTimeDetailSection />
+                <ComputerTimeDetailSection externalRange={barListRangeToTimePreset(barListRange)} />
               </div>
             );
           })()}

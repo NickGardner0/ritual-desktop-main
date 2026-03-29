@@ -243,6 +243,7 @@ export interface UseComputerActivityOptions {
   source?: ActivityBreakdownSource
   autoRefresh?: boolean
   refreshIntervalMs?: number
+  skipEventFetch?: boolean
 }
 
 export interface UseComputerActivityReturn {
@@ -265,6 +266,7 @@ export function useComputerActivity(
     source = 'desktop',
     autoRefresh = false,
     refreshIntervalMs = 60000,
+    skipEventFetch = false,
   } = options
   
   const [range, setRange] = useState<TimeRangePreset>(initialRange)
@@ -313,9 +315,11 @@ export function useComputerActivity(
 
     try {
       const eventsPromise = source === 'desktop'
-        ? (cachedEvents
-            ? Promise.resolve(cachedEvents)
-            : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit))
+        ? (skipEventFetch
+            ? Promise.resolve<ActivityEvent[]>(cachedEvents || [])
+            : (cachedEvents
+                ? Promise.resolve(cachedEvents)
+                : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)))
         : Promise.resolve<ActivityEvent[]>([])
       const aggregatedPromise = source === 'desktop'
         ? fetchAggregatedStats(timeRange.start, timeRange.end)
@@ -359,7 +363,7 @@ export function useComputerActivity(
         setIsLoading(false)
       }
     }
-  }, [range, source, timeRange.start, timeRange.end])
+  }, [range, source, timeRange.start, timeRange.end, skipEventFetch])
   
   // Initial fetch and range changes
   useEffect(() => {

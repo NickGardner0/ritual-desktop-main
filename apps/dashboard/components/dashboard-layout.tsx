@@ -534,7 +534,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
         <header className="content-opaque relative px-5 h-[56px] flex items-center bg-white overflow-hidden">
           {isChatRoute && (
-            <div className="absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
+            <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
           )}
           <div className="relative flex items-center w-full translate-y-[6px]">
             {/* Left zone — Search + page-specific left actions */}

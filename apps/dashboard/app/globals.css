@@ -334,6 +334,10 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  body[data-chat-sidebar-collapsed="true"] .chat-header-sidebar-strip {
+    opacity: 0;
+  }
+
   /* Scoped command palette override: force square items */
   .rtlp-cmd [cmdk-item],
   .rtlp-cmd [cmdk-item][data-selected="true"],

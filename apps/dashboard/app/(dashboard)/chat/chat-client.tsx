@@ -976,6 +976,14 @@ export function ChatClient() {
     loadConversationsList();
   }, [loadConversationsList]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.chatSidebarCollapsed = String(isSidebarCollapsed);
+    return () => {
+      delete document.body.dataset.chatSidebarCollapsed;
+    };
+  }, [isSidebarCollapsed]);
+
   // Switch to a different conversation
   const switchConversation = useCallback(async (targetConversationId: string) => {
     if (targetConversationId === conversationId) return;
@@ -1913,7 +1921,7 @@ export function ChatClient() {
             <div className="mb-1.5 px-2 text-[10px] font-medium uppercase tracking-[0.12em] text-gray-400">
               Recent chats
             </div>
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col gap-px">
               {isLoadingConversations ? (
                 <div className="flex items-center justify-center py-6">
                   <BrailleSpinner className="text-sm text-gray-400" />
@@ -1931,16 +1939,16 @@ export function ChatClient() {
                   return (
                     <div
                       key={conv.id}
-                      className="group flex items-center gap-1"
+                      className="group flex items-center gap-1 rounded-md"
                       onContextMenu={(e) => showConversationContextMenu(conv.id, e)}
                     >
                       <button
                         onClick={() => switchConversation(conv.id)}
                         className={cn(
-                          "flex-1 min-w-0 rounded-md px-2.5 py-2 text-left text-[13px] leading-5 transition-colors",
+                          "flex-1 min-w-0 rounded-md px-2.5 py-1.5 text-left text-[13px] leading-[1.25rem] transition-colors",
                           conv.id === conversationId
-                            ? "bg-white text-[#232119]"
-                            : "text-[#605b51] hover:text-[#2f2c25]"
+                            ? "bg-white text-[#232119] shadow-[0_0_0_1px_rgba(15,23,42,0.03)]"
+                            : "text-[#605b51] hover:bg-[#ecebe7] hover:text-[#2f2c25]"
                         )}
                         title={displayTitle}
                       >
@@ -1951,7 +1959,7 @@ export function ChatClient() {
                           e.stopPropagation();
                           deleteConversation(conv.id);
                         }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:text-gray-600"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-[#ecebe7] hover:text-gray-600"
                         title="Delete conversation"
                         aria-label="Delete conversation"
                       >
