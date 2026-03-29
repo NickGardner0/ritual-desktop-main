@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -27,6 +26,7 @@ function buildDesktopTarget(searchParams: SearchParamsInput): string {
   const params = new URLSearchParams();
   const ritualEnv = readSingleParam(searchParams, 'ritual_desktop_env');
   const detachedSidebar = readSingleParam(searchParams, 'ritual_detached_sidebar');
+  const mainGlass = readSingleParam(searchParams, 'ritual_main_glass');
   const transparencyProbe = readSingleParam(searchParams, 'ritual_transparency_probe');
 
   if (ritualEnv) {
@@ -34,6 +34,9 @@ function buildDesktopTarget(searchParams: SearchParamsInput): string {
   }
   if (detachedSidebar === '1') {
     params.set('ritual_detached_sidebar', '1');
+  }
+  if (mainGlass === '1') {
+    params.set('ritual_main_glass', '1');
   }
   if (transparencyProbe === '1') {
     params.set('ritual_transparency_probe', '1');
@@ -61,14 +64,7 @@ export function DesktopBootstrapClient({
   useEffect(() => {
     if (!isTauri()) {
       window.location.replace('/desktop-only');
-      return;
     }
-
-    const timer = window.setTimeout(() => {
-      void showMainWindow();
-    }, 300);
-
-    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -138,19 +134,7 @@ export function DesktopBootstrapClient({
   }, [backendStatus, isNavigating]);
 
   if (!showDiagnostics) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-white px-6">
-        <div className="text-center text-[#1d1a16]">
-          <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
-          <p className="mt-5 text-sm font-medium">
-            Launching Ritual desktop…
-          </p>
-          <p className="mt-2 text-sm text-gray-500">
-            Preparing auth and desktop services before opening the app.
-          </p>
-        </div>
-      </main>
-    );
+    return <main className="min-h-screen bg-transparent" aria-hidden="true" />;
   }
 
   return (

@@ -69,101 +69,152 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
   const fetchData = useCallback(async () => {
     const id = ++fetchIdRef.current;
     try {
-      if (isTauri()) {
-        const { from, to } = getRangeDatesLocal(activeRange);
-        const fullStart = from.getTime();
-        const fullEnd = to.getTime();
-        const midPoint = new Date((fullStart + fullEnd) / 2);
-        const firstEnd = midPoint.getTime();
-        const secondStart = midPoint.getTime() + 86400000;
+      const { from, to } = getRangeDatesLocal(activeRange);
+      const startDate = format(from, 'yyyy-MM-dd');
+      const endDate = format(to, 'yyyy-MM-dd');
+      const token = await getToken();
 
-        const [full, firstHalf, secondHalf] = await Promise.all([
-          invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: fullEnd, limit: 1 }),
-          invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: firstEnd, limit: 1 }),
-          invokeDetailedActivityWithInitRetry({ startTs: secondStart, endTs: fullEnd, limit: 1 }),
+      const applyBackendFallback = async (missingApps: boolean, missingDomains: boolean) => {
+        if (!missingApps && !missingDomains) return;
+
+        const [appsFallback, domainsFallback] = await Promise.all([
+          missingApps
+            ? fetchTopItems('/api/watcher/stats/top-apps', startDate, endDate, BAR_LIST_ROW_LIMIT, token)
+            : Promise.resolve([]),
+          missingDomains
+            ? fetchTopItems('/api/watcher/stats/top-domains', startDate, endDate, BAR_LIST_ROW_LIMIT, token)
+            : Promise.resolve([]),
         ]);
 
         if (id !== fetchIdRef.current) return;
 
-        const firstAppMap = new Map<string, number>();
-        firstHalf.apps.forEach((app) => {
-          const key = app.app_name || app.app_bundle_id || 'Unknown';
-          firstAppMap.set(key, Number(app.total_duration_ms || 0));
-        });
-        const secondAppMap = new Map<string, number>();
-        secondHalf.apps.forEach((app) => {
-          const key = app.app_name || app.app_bundle_id || 'Unknown';
-          secondAppMap.set(key, Number(app.total_duration_ms || 0));
-        });
-        const firstDomainMap = new Map<string, number>();
-        firstHalf.domains.forEach((domain) => {
-          const key = domain.domain || 'Unknown';
-          firstDomainMap.set(key, Number(domain.total_duration_ms || 0));
-        });
-        const secondDomainMap = new Map<string, number>();
-        secondHalf.domains.forEach((domain) => {
-          const key = domain.domain || 'Unknown';
-          secondDomainMap.set(key, Number(domain.total_duration_ms || 0));
-        });
-
-        const fullApps = full.apps.slice(0, BAR_LIST_ROW_LIMIT);
-        const fullDomains = full.domains.slice(0, BAR_LIST_ROW_LIMIT);
-
-        if (fullApps.length > 0) {
-          const maxHours = Math.max(...fullApps.map((app) => (app.total_duration_ms || 0) / 3600000), 0.01);
-          setAppsData(
-            fullApps.map((app) => {
-              const name = app.app_name || app.app_bundle_id || 'Unknown';
-              const hours = (app.total_duration_ms || 0) / 3600000;
-              const change = computeMeaningfulPercentChange(
-                (secondAppMap.get(name) || 0) / 3600000,
-                (firstAppMap.get(name) || 0) / 3600000,
-                'hours',
-              );
-              return {
-                name,
-                value: formatHours(hours),
-                change,
-                changeLabel: change === undefined ? 'New' : undefined,
-                barPercent: Math.round((hours / maxHours) * 100),
-              };
-            }),
-          );
-        } else {
-          setAppsData([]);
+        if (missingApps) {
+          if (appsFallback.length > 0) {
+            const maxHours = Math.max(...appsFallback.map((a: any) => a.hours || 0), 0.01);
+            setAppsData(
+              appsFallback.map((app: any) => ({
+                name: app.app_name || app.app_bundle_id || 'Unknown',
+                value: formatHours(app.hours || 0),
+                barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
+              })),
+            );
+          } else {
+            setAppsData([]);
+          }
         }
 
-        if (fullDomains.length > 0) {
-          const maxHours = Math.max(...fullDomains.map((domain) => (domain.total_duration_ms || 0) / 3600000), 0.01);
-          setDomainsData(
-            fullDomains.map((domain) => {
-              const name = domain.domain || 'Unknown';
-              const hours = (domain.total_duration_ms || 0) / 3600000;
-              const change = computeMeaningfulPercentChange(
-                (secondDomainMap.get(name) || 0) / 3600000,
-                (firstDomainMap.get(name) || 0) / 3600000,
-                'hours',
-              );
-              return {
-                name,
-                value: formatHours(hours),
-                change,
-                changeLabel: change === undefined ? 'New' : undefined,
-                barPercent: Math.round((hours / maxHours) * 100),
-              };
-            }),
-          );
-        } else {
-          setDomainsData([]);
+        if (missingDomains) {
+          if (domainsFallback.length > 0) {
+            const maxHours = Math.max(...domainsFallback.map((d: any) => d.hours || 0), 0.01);
+            setDomainsData(
+              domainsFallback.map((domain: any) => ({
+                name: domain.domain || 'Unknown',
+                value: formatHours(domain.hours || 0),
+                barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
+              })),
+            );
+          } else {
+            setDomainsData([]);
+          }
         }
+      };
 
-        return;
+      if (isTauri()) {
+        try {
+          const fullStart = from.getTime();
+          const fullEnd = to.getTime();
+          const midPoint = new Date((fullStart + fullEnd) / 2);
+          const firstEnd = midPoint.getTime();
+          const secondStart = midPoint.getTime() + 86400000;
+
+          const [full, firstHalf, secondHalf] = await Promise.all([
+            invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: fullEnd, limit: 1 }),
+            invokeDetailedActivityWithInitRetry({ startTs: fullStart, endTs: firstEnd, limit: 1 }),
+            invokeDetailedActivityWithInitRetry({ startTs: secondStart, endTs: fullEnd, limit: 1 }),
+          ]);
+
+          if (id !== fetchIdRef.current) return;
+
+          const firstAppMap = new Map<string, number>();
+          firstHalf.apps.forEach((app) => {
+            const key = app.app_name || app.app_bundle_id || 'Unknown';
+            firstAppMap.set(key, Number(app.total_duration_ms || 0));
+          });
+          const secondAppMap = new Map<string, number>();
+          secondHalf.apps.forEach((app) => {
+            const key = app.app_name || app.app_bundle_id || 'Unknown';
+            secondAppMap.set(key, Number(app.total_duration_ms || 0));
+          });
+          const firstDomainMap = new Map<string, number>();
+          firstHalf.domains.forEach((domain) => {
+            const key = domain.domain || 'Unknown';
+            firstDomainMap.set(key, Number(domain.total_duration_ms || 0));
+          });
+          const secondDomainMap = new Map<string, number>();
+          secondHalf.domains.forEach((domain) => {
+            const key = domain.domain || 'Unknown';
+            secondDomainMap.set(key, Number(domain.total_duration_ms || 0));
+          });
+
+          const fullApps = full.apps.slice(0, BAR_LIST_ROW_LIMIT);
+          const fullDomains = full.domains.slice(0, BAR_LIST_ROW_LIMIT);
+
+          if (fullApps.length > 0) {
+            const maxHours = Math.max(...fullApps.map((app) => (app.total_duration_ms || 0) / 3600000), 0.01);
+            setAppsData(
+              fullApps.map((app) => {
+                const name = app.app_name || app.app_bundle_id || 'Unknown';
+                const hours = (app.total_duration_ms || 0) / 3600000;
+                const change = computeMeaningfulPercentChange(
+                  (secondAppMap.get(name) || 0) / 3600000,
+                  (firstAppMap.get(name) || 0) / 3600000,
+                  'hours',
+                );
+                return {
+                  name,
+                  value: formatHours(hours),
+                  change,
+                  changeLabel: change === undefined ? 'New' : undefined,
+                  barPercent: Math.round((hours / maxHours) * 100),
+                };
+              }),
+            );
+          } else {
+            setAppsData([]);
+          }
+
+          if (fullDomains.length > 0) {
+            const maxHours = Math.max(...fullDomains.map((domain) => (domain.total_duration_ms || 0) / 3600000), 0.01);
+            setDomainsData(
+              fullDomains.map((domain) => {
+                const name = domain.domain || 'Unknown';
+                const hours = (domain.total_duration_ms || 0) / 3600000;
+                const change = computeMeaningfulPercentChange(
+                  (secondDomainMap.get(name) || 0) / 3600000,
+                  (firstDomainMap.get(name) || 0) / 3600000,
+                  'hours',
+                );
+                return {
+                  name,
+                  value: formatHours(hours),
+                  change,
+                  changeLabel: change === undefined ? 'New' : undefined,
+                  barPercent: Math.round((hours / maxHours) * 100),
+                };
+              }),
+            );
+          } else {
+            setDomainsData([]);
+          }
+
+          await applyBackendFallback(fullApps.length === 0, fullDomains.length === 0);
+          return;
+        } catch (tauriError) {
+          console.warn('[computer-time-bar-list] Native detailed activity failed, falling back to backend', tauriError);
+          await applyBackendFallback(true, true);
+          return;
+        }
       }
-
-      const token = await getToken();
-      const { from, to } = getRangeDatesLocal(activeRange);
-      const startDate = format(from, 'yyyy-MM-dd');
-      const endDate = format(to, 'yyyy-MM-dd');
 
       const [appsFull, domainsFull] = await Promise.all([
         fetchTopItems('/api/watcher/stats/top-apps', startDate, endDate, BAR_LIST_ROW_LIMIT, token),
@@ -269,8 +320,12 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
           }),
         );
       }
-    } catch {
-      // Silently fail
+    } catch (error) {
+      console.warn('[computer-time-bar-list] Failed to load app/domain metrics', error);
+      if (id === fetchIdRef.current) {
+        setAppsData([]);
+        setDomainsData([]);
+      }
     }
   }, [activeRange, getToken]);
 

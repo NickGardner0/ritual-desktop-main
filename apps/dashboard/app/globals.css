@@ -422,17 +422,17 @@
     background:
       linear-gradient(
         180deg,
-        rgba(255, 255, 255, 0.94) 0%,
-        rgba(252, 252, 250, 0.88) 42%,
-        rgba(249, 249, 247, 0.84) 100%
+        rgba(255, 255, 255, 0.78) 0%,
+        rgba(252, 252, 250, 0.64) 42%,
+        rgba(249, 249, 247, 0.56) 100%
       );
-    background-color: rgba(252, 252, 250, 0.88);
+    background-color: rgba(252, 252, 250, 0.58);
     border-right: 0 solid transparent;
     backdrop-filter: saturate(120%) blur(14px);
     -webkit-backdrop-filter: saturate(120%) blur(14px);
     box-shadow:
-      inset -1px 0 0 rgba(39, 37, 30, 0.055),
-      inset 0 1px 0 rgba(255, 255, 255, 0.72);
+      inset -1px 0 0 rgba(39, 37, 30, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.54);
   }
 
   html.desktop .sidebar-vibrancy .sidebar-header {
@@ -450,8 +450,8 @@
     background: linear-gradient(
       90deg,
       rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.36) 58%,
-      rgba(255, 255, 255, 0.68) 100%
+      rgba(255, 255, 255, 0.18) 58%,
+      rgba(255, 255, 255, 0.36) 100%
     );
     opacity: 1;
   }
@@ -497,15 +497,15 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.94) 0%,
-      rgba(252, 252, 250, 0.86) 46%,
-      rgba(249, 249, 247, 0.82) 100%
+      rgba(255, 255, 255, 0.72) 0%,
+      rgba(252, 252, 250, 0.52) 46%,
+      rgba(249, 249, 247, 0.42) 100%
     ) !important;
-    background-color: rgba(252, 252, 250, 0.86) !important;
+    background-color: rgba(252, 252, 250, 0.44) !important;
     border-right: 0 solid transparent !important;
     box-shadow:
-      inset -1px 0 0 rgba(39, 37, 30, 0.05),
-      inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
+      inset -1px 0 0 rgba(39, 37, 30, 0.032),
+      inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -529,9 +529,9 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.02) 38%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.9;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.015) 38%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.0) 40%);
+    opacity: 0.72;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
@@ -546,8 +546,8 @@
     background: linear-gradient(
       90deg,
       rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.34) 52%,
-      rgba(255, 255, 255, 0.64) 100%
+      rgba(255, 255, 255, 0.14) 52%,
+      rgba(255, 255, 255, 0.28) 100%
     );
     opacity: 1;
   }

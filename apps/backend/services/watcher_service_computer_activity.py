@@ -65,6 +65,172 @@ def _clamp_single_event_span_impl(start_ms: int, end_ms: int) -> tuple[int, int]
     return start_i, end_i
 
 
+def _aggregate_computer_activity_daily_rows_from_events_impl(
+    rows: List[tuple[Any, Any, Any, Any, Any, Any]],
+    start_ms: int,
+    end_ms: int,
+) -> List[Dict[str, Any]]:
+    """Aggregate raw activity rows into day/app/domain rows with day clipping + de-overlap."""
+    deduped_by_interval: Dict[
+        tuple[int, int, str, str, int],
+        tuple[int, int, str, str, str, int],
+    ] = {}
+
+    for ts_start, ts_end, app_bundle_id, app_name, browser_domain, is_afk in rows:
+        start_i, end_i = _clamp_single_event_span_impl(int(ts_start or 0), int(ts_end or 0))
+        if end_i <= start_i:
+            continue
+
+        app_bundle = str(app_bundle_id or "unknown")
+        app = str(app_name or "Unknown")
+        domain = str(browser_domain or "")
+        afk_flag = int(is_afk or 0)
+
+        dedup_key = (start_i, end_i, app_bundle, app, afk_flag)
+        existing = deduped_by_interval.get(dedup_key)
+        if not existing:
+            deduped_by_interval[dedup_key] = (start_i, end_i, app_bundle, app, domain, afk_flag)
+            continue
+
+        existing_domain = existing[4]
+        if not existing_domain and domain:
+            deduped_by_interval[dedup_key] = (start_i, end_i, app_bundle, app, domain, afk_flag)
+
+    deduped_rows = list(deduped_by_interval.values())
+    deduped_rows.sort(key=lambda row: row[0])
+
+    grouped: Dict[tuple[str, str, str, str], Dict[str, Any]] = defaultdict(
+        lambda: {
+            "active_intervals": [],
+            "afk_intervals": [],
+            "events_count": 0,
+            "first_start_ms": None,
+            "last_end_ms": None,
+        }
+    )
+
+    for ts_start, ts_end, app_bundle_id, app_name, browser_domain, is_afk in deduped_rows:
+        clipped_start = max(int(ts_start), start_ms)
+        clipped_end = min(int(ts_end), end_ms)
+        if clipped_end <= clipped_start:
+            continue
+
+        for day, seg_start, seg_end in _split_interval_by_local_day(clipped_start, clipped_end):
+            key = (
+                day,
+                str(app_bundle_id or "unknown"),
+                str(app_name or "Unknown"),
+                str(browser_domain or ""),
+            )
+            bucket = grouped[key]
+            if int(is_afk or 0) == 1:
+                bucket["afk_intervals"].append((seg_start, seg_end))
+            else:
+                bucket["active_intervals"].append((seg_start, seg_end))
+                bucket["events_count"] += 1
+            bucket["first_start_ms"] = (
+                seg_start
+                if bucket["first_start_ms"] is None
+                else min(bucket["first_start_ms"], seg_start)
+            )
+            bucket["last_end_ms"] = (
+                seg_end
+                if bucket["last_end_ms"] is None
+                else max(bucket["last_end_ms"], seg_end)
+            )
+
+    output: List[Dict[str, Any]] = []
+    for (day, app_bundle_id, app_name, browser_domain), bucket in grouped.items():
+        merged_active = merge_time_intervals_impl(bucket["active_intervals"])
+        merged_afk = merge_time_intervals_impl(bucket["afk_intervals"])
+        active_ms = sum(seg_end - seg_start for seg_start, seg_end in merged_active)
+        afk_ms = sum(seg_end - seg_start for seg_start, seg_end in merged_afk)
+
+        if active_ms <= 0 and afk_ms <= 0:
+            continue
+
+        output.append(
+            {
+                "day": day,
+                "app_bundle_id": app_bundle_id,
+                "app_name": app_name,
+                "browser_domain": browser_domain,
+                "active_ms": int(active_ms),
+                "afk_ms": int(afk_ms),
+                "events_count": int(bucket["events_count"]),
+                "first_start_ms": int(bucket["first_start_ms"]) if bucket["first_start_ms"] is not None else None,
+                "last_end_ms": int(bucket["last_end_ms"]) if bucket["last_end_ms"] is not None else None,
+            }
+        )
+
+    output.sort(key=lambda row: (row["day"], row["app_name"], row["browser_domain"]))
+    return output
+
+
+def _aggregate_computer_activity_daily_totals_from_events_impl(
+    rows: List[tuple[Any, Any, Any, Any, Any]],
+    start_ms: int,
+    end_ms: int,
+) -> List[Dict[str, Any]]:
+    """Compute per-day de-overlapped totals across all apps/domains from raw activity rows."""
+    grouped: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "active_intervals": [],
+            "afk_intervals": [],
+            "events_count": 0,
+            "apps_seen": set(),
+            "domains_seen": set(),
+        }
+    )
+
+    for ts_start, ts_end, is_afk, app_bundle_id, browser_domain in rows:
+        bounded_start, bounded_end = _clamp_single_event_span_impl(int(ts_start or 0), int(ts_end or 0))
+        clipped_start = max(bounded_start, start_ms)
+        clipped_end = min(bounded_end, end_ms)
+        if clipped_end <= clipped_start:
+            continue
+
+        for day, seg_start, seg_end in _split_interval_by_local_day(clipped_start, clipped_end):
+            bucket = grouped[day]
+            if int(is_afk or 0) == 1:
+                bucket["afk_intervals"].append((seg_start, seg_end))
+            else:
+                bucket["active_intervals"].append((seg_start, seg_end))
+                bucket["events_count"] += 1
+
+                app_key = str(app_bundle_id or "").strip()
+                if app_key:
+                    bucket["apps_seen"].add(app_key)
+
+                domain_key = str(browser_domain or "").strip()
+                if domain_key:
+                    bucket["domains_seen"].add(domain_key)
+
+    output: List[Dict[str, Any]] = []
+    for day in sorted(grouped.keys()):
+        bucket = grouped[day]
+        merged_active = merge_time_intervals_impl(bucket["active_intervals"])
+        merged_afk = merge_time_intervals_impl(bucket["afk_intervals"])
+        active_ms = int(sum(seg_end - seg_start for seg_start, seg_end in merged_active))
+        afk_ms = int(sum(seg_end - seg_start for seg_start, seg_end in merged_afk))
+
+        if active_ms <= 0 and afk_ms <= 0:
+            continue
+
+        output.append(
+            {
+                "day": day,
+                "active_ms": active_ms,
+                "afk_ms": afk_ms,
+                "events_count": int(bucket["events_count"]),
+                "apps_count": len(bucket["apps_seen"]),
+                "domains_count": len(bucket["domains_seen"]),
+            }
+        )
+
+    return output
+
+
 def _get_computer_activity_daily_rows_from_local_db_impl(
     service,
     start_date: str,
@@ -105,97 +271,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
         rows = cursor.fetchall()
         conn.close()
 
-        # Deduplicate exact duplicate intervals that only differ by ancillary fields.
-        # Prefer a non-empty domain when duplicates share the same core interval/app key.
-        deduped_by_interval: Dict[tuple[int, int, str, str, int], tuple[int, int, str, str, str, int]] = {}
-        for ts_start, ts_end, app_bundle_id, app_name, browser_domain, is_afk in rows:
-            start_i, end_i = _clamp_single_event_span_impl(int(ts_start or 0), int(ts_end or 0))
-            if end_i <= start_i:
-                continue
-            app_bundle = str(app_bundle_id or "unknown")
-            app = str(app_name or "Unknown")
-            domain = str(browser_domain or "")
-            afk_flag = int(is_afk or 0)
-
-            dedup_key = (start_i, end_i, app_bundle, app, afk_flag)
-            existing = deduped_by_interval.get(dedup_key)
-            if not existing:
-                deduped_by_interval[dedup_key] = (start_i, end_i, app_bundle, app, domain, afk_flag)
-                continue
-
-            existing_domain = existing[4]
-            if not existing_domain and domain:
-                deduped_by_interval[dedup_key] = (start_i, end_i, app_bundle, app, domain, afk_flag)
-
-        deduped_rows = list(deduped_by_interval.values())
-        deduped_rows.sort(key=lambda row: row[0])
-
-        grouped: Dict[tuple[str, str, str, str], Dict[str, Any]] = defaultdict(
-            lambda: {
-                "active_intervals": [],
-                "afk_intervals": [],
-                "events_count": 0,
-                "first_start_ms": None,
-                "last_end_ms": None,
-            }
-        )
-
-        for ts_start, ts_end, app_bundle_id, app_name, browser_domain, is_afk in deduped_rows:
-            clipped_start = max(int(ts_start), start_ms)
-            clipped_end = min(int(ts_end), end_ms)
-            if clipped_end <= clipped_start:
-                continue
-
-            for day, seg_start, seg_end in _split_interval_by_local_day(clipped_start, clipped_end):
-                key = (
-                    day,
-                    str(app_bundle_id or "unknown"),
-                    str(app_name or "Unknown"),
-                    str(browser_domain or ""),
-                )
-                bucket = grouped[key]
-                if int(is_afk or 0) == 1:
-                    bucket["afk_intervals"].append((seg_start, seg_end))
-                else:
-                    bucket["active_intervals"].append((seg_start, seg_end))
-                bucket["events_count"] += 1
-                bucket["first_start_ms"] = (
-                    seg_start
-                    if bucket["first_start_ms"] is None
-                    else min(bucket["first_start_ms"], seg_start)
-                )
-                bucket["last_end_ms"] = (
-                    seg_end
-                    if bucket["last_end_ms"] is None
-                    else max(bucket["last_end_ms"], seg_end)
-                )
-
-        output: List[Dict[str, Any]] = []
-        for (day, app_bundle_id, app_name, browser_domain), bucket in grouped.items():
-            merged_active = merge_time_intervals_impl(bucket["active_intervals"])
-            merged_afk = merge_time_intervals_impl(bucket["afk_intervals"])
-            active_ms = sum(end - start for start, end in merged_active)
-            afk_ms = sum(end - start for start, end in merged_afk)
-
-            if active_ms <= 0 and afk_ms <= 0:
-                continue
-
-            output.append(
-                {
-                    "day": day,
-                    "app_bundle_id": app_bundle_id,
-                    "app_name": app_name,
-                    "browser_domain": browser_domain,
-                    "active_ms": int(active_ms),
-                    "afk_ms": int(afk_ms),
-                    "events_count": int(bucket["events_count"]),
-                    "first_start_ms": int(bucket["first_start_ms"]) if bucket["first_start_ms"] is not None else None,
-                    "last_end_ms": int(bucket["last_end_ms"]) if bucket["last_end_ms"] is not None else None,
-                }
-            )
-
-        output.sort(key=lambda row: (row["day"], row["app_name"], row["browser_domain"]))
-        return output
+        return _aggregate_computer_activity_daily_rows_from_events_impl(rows, start_ms, end_ms)
     except Exception as e:
         logger.warning("Failed local computer_activity_daily aggregation: %s", e)
         return []
@@ -238,62 +314,7 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
         rows = cursor.fetchall()
         conn.close()
 
-        grouped: Dict[str, Dict[str, Any]] = defaultdict(
-            lambda: {
-                "active_intervals": [],
-                "afk_intervals": [],
-                "events_count": 0,
-                "apps_seen": set(),
-                "domains_seen": set(),
-            }
-        )
-
-        for ts_start, ts_end, is_afk, app_bundle_id, browser_domain in rows:
-            bounded_start, bounded_end = _clamp_single_event_span_impl(int(ts_start), int(ts_end))
-            clipped_start = max(bounded_start, start_ms)
-            clipped_end = min(bounded_end, end_ms)
-            if clipped_end <= clipped_start:
-                continue
-
-            for day, seg_start, seg_end in _split_interval_by_local_day(clipped_start, clipped_end):
-                bucket = grouped[day]
-                if int(is_afk or 0) == 1:
-                    bucket["afk_intervals"].append((seg_start, seg_end))
-                else:
-                    bucket["active_intervals"].append((seg_start, seg_end))
-                    bucket["events_count"] += 1
-
-                    app_key = str(app_bundle_id or "").strip()
-                    if app_key:
-                        bucket["apps_seen"].add(app_key)
-
-                    domain_key = str(browser_domain or "").strip()
-                    if domain_key:
-                        bucket["domains_seen"].add(domain_key)
-
-        output: List[Dict[str, Any]] = []
-        for day in sorted(grouped.keys()):
-            bucket = grouped[day]
-            merged_active = merge_time_intervals_impl(bucket["active_intervals"])
-            merged_afk = merge_time_intervals_impl(bucket["afk_intervals"])
-            active_ms = int(sum(end - start for start, end in merged_active))
-            afk_ms = int(sum(end - start for start, end in merged_afk))
-
-            if active_ms <= 0 and afk_ms <= 0:
-                continue
-
-            output.append(
-                {
-                    "day": day,
-                    "active_ms": active_ms,
-                    "afk_ms": afk_ms,
-                    "events_count": int(bucket["events_count"]),
-                    "apps_count": len(bucket["apps_seen"]),
-                    "domains_count": len(bucket["domains_seen"]),
-                }
-            )
-
-        return output
+        return _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
     except Exception as e:
         logger.warning("Failed local computer-activity daily totals aggregation: %s", e)
         return []
@@ -520,36 +541,46 @@ async def get_computer_time_summary_impl(
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
-            params: list[Any] = [start_ms, end_ms, user_id]
+            params: list[Any] = [end_ms, start_ms, user_id]
             device_clause = ""
             if device_id:
                 device_clause = " AND device_id = ?"
                 params.append(device_id)
 
-            row = conn.execute(
+            rows = conn.execute(
                 f"""
                 SELECT
-                    COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT date(ts_start/1000, 'unixepoch', 'localtime')) as days_tracked,
-                    COUNT(DISTINCT app_bundle_id) as unique_apps,
-                    COUNT(DISTINCT CASE WHEN browser_domain IS NOT NULL AND browser_domain != '' THEN browser_domain END) as unique_domains,
-                    COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 1 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_afk_ms
+                    ts_start,
+                    ts_end,
+                    COALESCE(is_afk, 0) AS is_afk,
+                    COALESCE(app_bundle_id, '') AS app_bundle_id,
+                    COALESCE(browser_domain, '') AS browser_domain
                 FROM activity_events
-                WHERE ts_start >= ? AND ts_start < ?
+                WHERE ts_start < ? AND ts_end > ?
                   AND user_id = ?
+                  AND ts_end > ts_start
                   {device_clause}
+                ORDER BY ts_start ASC
                 """,
                 params,
-            ).fetchone()
+            ).fetchall()
 
-            if row and int(row[0] or 0) > 0:
-                total_active_ms = int(row[0] or 0)
-                total_events = int(row[1] or 0)
-                days_tracked = int(row[2] or 0)
-                unique_apps = int(row[3] or 0)
-                unique_domains = int(row[4] or 0)
-                total_afk_ms = int(row[5] or 0)
+            if rows:
+                local_daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
+                total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in local_daily_rows)
+                total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in local_daily_rows)
+                total_events = sum(int(row.get("events_count", 0) or 0) for row in local_daily_rows)
+                days_tracked = sum(1 for row in local_daily_rows if int(row.get("active_ms", 0) or 0) > 0)
+                unique_apps = len({
+                    str(row[3] or "").strip()
+                    for row in rows
+                    if str(row[3] or "").strip()
+                })
+                unique_domains = len({
+                    str(row[4] or "").strip()
+                    for row in rows
+                    if str(row[4] or "").strip()
+                })
                 total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
                 avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
 
@@ -727,7 +758,7 @@ async def get_daily_computer_time_impl(
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
-            params: list[Any] = [start_ms, end_ms, user_id]
+            params: list[Any] = [end_ms, start_ms, user_id]
             device_clause = ""
             if device_id:
                 device_clause = " AND device_id = ?"
@@ -736,34 +767,34 @@ async def get_daily_computer_time_impl(
             rows = conn.execute(
                 f"""
                 SELECT
-                    date(ts_start/1000, 'unixepoch', 'localtime') as day,
-                    COALESCE(SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start
-                        THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT app_bundle_id) as unique_apps,
-                    COUNT(DISTINCT CASE WHEN browser_domain IS NOT NULL AND browser_domain != '' THEN browser_domain END) as unique_domains
+                    ts_start,
+                    ts_end,
+                    COALESCE(is_afk, 0) AS is_afk,
+                    COALESCE(app_bundle_id, '') AS app_bundle_id,
+                    COALESCE(browser_domain, '') AS browser_domain
                 FROM activity_events
-                WHERE ts_start >= ? AND ts_start < ?
+                WHERE ts_start < ? AND ts_end > ?
                   AND user_id = ?
+                  AND ts_end > ts_start
                   {device_clause}
-                GROUP BY day
-                ORDER BY day ASC
+                ORDER BY ts_start ASC
                 """,
                 params,
             ).fetchall()
 
             if rows:
+                daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
                 return [
                     {
-                        "day": row[0],
-                        "active_hours": round((int(row[1] or 0)) / (1000 * 60 * 60), 2),
-                        "active_ms": int(row[1] or 0),
-                        "events_count": int(row[2] or 0),
-                        "apps_count": int(row[3] or 0),
-                        "domains_count": int(row[4] or 0),
+                        "day": row["day"],
+                        "active_hours": round((int(row["active_ms"] or 0)) / (1000 * 60 * 60), 2),
+                        "active_ms": int(row["active_ms"] or 0),
+                        "events_count": int(row["events_count"] or 0),
+                        "apps_count": int(row["apps_count"] or 0),
+                        "domains_count": int(row["domains_count"] or 0),
                         "source": "activity_db",
                     }
-                    for row in rows
+                    for row in daily_rows
                 ]
 
     import sqlite3 as _sqlite3

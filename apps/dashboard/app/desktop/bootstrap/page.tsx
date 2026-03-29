@@ -26,6 +26,7 @@ export default async function DesktopBootstrapPage({
   const targetParams = new URLSearchParams();
   const ritualEnv = readSingleParam(resolvedSearchParams, 'ritual_desktop_env');
   const detachedSidebar = readSingleParam(resolvedSearchParams, 'ritual_detached_sidebar');
+  const mainGlass = readSingleParam(resolvedSearchParams, 'ritual_main_glass');
   const transparencyProbe = readSingleParam(resolvedSearchParams, 'ritual_transparency_probe');
 
   if (ritualEnv) {
@@ -33,6 +34,9 @@ export default async function DesktopBootstrapPage({
   }
   if (detachedSidebar === '1') {
     targetParams.set('ritual_detached_sidebar', '1');
+  }
+  if (mainGlass === '1') {
+    targetParams.set('ritual_main_glass', '1');
   }
   if (transparencyProbe === '1') {
     targetParams.set('ritual_transparency_probe', '1');

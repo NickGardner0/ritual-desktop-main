@@ -52,8 +52,60 @@ interface ComputerDailyRow {
   events_count: number;
 }
 
-const OVERVIEW_STATS_CACHE_VERSION = 'v1';
+const OVERVIEW_STATS_CACHE_VERSION = 'v2';
 const OVERVIEW_STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+
+function readOverviewStatsCache(cacheKey: string | null): Record<string, HabitStats> {
+  if (typeof window === 'undefined' || !cacheKey) return {};
+
+  try {
+    const raw = window.localStorage.getItem(cacheKey);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw) as {
+      timestamp?: number;
+      stats?: Record<string, HabitStats>;
+    };
+
+    if (!parsed?.stats) return {};
+    if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
+      window.localStorage.removeItem(cacheKey);
+      return {};
+    }
+
+    return parsed.stats;
+  } catch (cacheError) {
+    console.warn('Failed to restore overview stats cache:', cacheError);
+    return {};
+  }
+}
+
+function readOverviewComputerCache(cacheKey: string | null): ComputerDailyRow[] {
+  if (typeof window === 'undefined' || !cacheKey) return [];
+
+  try {
+    const raw = window.localStorage.getItem(cacheKey);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as {
+      timestamp?: number;
+      rows?: ComputerDailyRow[];
+    };
+
+    if (!parsed?.rows) return [];
+    if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
+      window.localStorage.removeItem(cacheKey);
+      return [];
+    }
+
+    return parsed.rows
+      .map(normalizeComputerDailySummaryRow)
+      .filter((row): row is ComputerDailyRow => Boolean(row));
+  } catch (cacheError) {
+    console.warn('Failed to restore overview computer cache:', cacheError);
+    return [];
+  }
+}
 
 function getTauriBridgeState() {
   if (typeof window === 'undefined') {
@@ -121,12 +173,14 @@ export function OverviewView({
   // Cached stats from Python analytics API
   const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>({});
   const [statsLoading, setStatsLoading] = useState(false);
+  const [statsResolved, setStatsResolved] = useState(false);
 
   // History scrubber state
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
   const [scrubberHoveredValues, setScrubberHoveredValues] = useState<Record<string, number> | null>(null);
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
+  const [computerActivityResolved, setComputerActivityResolved] = useState(false);
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
 
   const overviewStatsCacheKey = useMemo(() => {
@@ -138,6 +192,34 @@ export function OverviewView({
     if (!user?.id) return null;
     return `ritual:overview-computer:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
   }, [user?.id]);
+
+  const bootstrappedCachedStats = useMemo(
+    () => (dateRange?.from ? {} : readOverviewStatsCache(overviewStatsCacheKey)),
+    [dateRange?.from, overviewStatsCacheKey],
+  );
+
+  const bootstrappedComputerActivityDaily = useMemo(
+    () => (dateRange?.from ? [] : readOverviewComputerCache(overviewComputerCacheKey)),
+    [dateRange?.from, overviewComputerCacheKey],
+  );
+
+  const effectiveCachedStats = useMemo(() => {
+    if (statsResolved || Object.keys(cachedStats).length > 0) {
+      return cachedStats;
+    }
+    return bootstrappedCachedStats;
+  }, [bootstrappedCachedStats, cachedStats, statsResolved]);
+
+  const effectiveComputerActivityDaily = useMemo(() => {
+    if (computerActivityResolved || computerActivityDaily.length > 0) {
+      return computerActivityDaily;
+    }
+    return bootstrappedComputerActivityDaily;
+  }, [
+    bootstrappedComputerActivityDaily,
+    computerActivityDaily,
+    computerActivityResolved,
+  ]);
 
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
     setScrubberHoveredDate(date);
@@ -170,60 +252,30 @@ export function OverviewView({
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     if (dateRange?.from) return;
     if (!overviewStatsCacheKey) return;
 
-    try {
-      const raw = window.localStorage.getItem(overviewStatsCacheKey);
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw) as {
-        timestamp?: number;
-        stats?: Record<string, HabitStats>;
-      };
-
-      if (!parsed?.stats) return;
-      if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
-        window.localStorage.removeItem(overviewStatsCacheKey);
-        return;
-      }
-
-      setCachedStats(parsed.stats);
-    } catch (cacheError) {
-      console.warn('Failed to restore overview stats cache:', cacheError);
+    const restored = readOverviewStatsCache(overviewStatsCacheKey);
+    if (Object.keys(restored).length > 0) {
+      setCachedStats(restored);
     }
   }, [dateRange?.from, overviewStatsCacheKey]);
 
   // Clear cached stats when date range changes so stale all-time data
   // doesn't display while the date-filtered API call is in flight
   useEffect(() => {
+    if (!dateRange?.from) return;
     setCachedStats({});
-  }, [dateRange?.from, dateRange?.to]);
+    setStatsResolved(false);
+  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     if (dateRange?.from) return;
     if (!overviewComputerCacheKey) return;
 
-    try {
-      const raw = window.localStorage.getItem(overviewComputerCacheKey);
-      if (!raw) return;
-
-      const parsed = JSON.parse(raw) as {
-        timestamp?: number;
-        rows?: ComputerDailyRow[];
-      };
-
-      if (!parsed?.rows) return;
-      if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
-        window.localStorage.removeItem(overviewComputerCacheKey);
-        return;
-      }
-
-      setComputerActivityDaily(parsed.rows);
-    } catch (cacheError) {
-      console.warn('Failed to restore overview computer cache:', cacheError);
+    const restored = readOverviewComputerCache(overviewComputerCacheKey);
+    if (restored.length > 0) {
+      setComputerActivityDaily(restored);
     }
   }, [dateRange?.from, overviewComputerCacheKey]);
 
@@ -233,6 +285,7 @@ export function OverviewView({
       if (!habits.length) return;
 
       try {
+        setStatsResolved(false);
         setStatsLoading(true);
         const token = await getToken();
         if (!token) return;
@@ -273,6 +326,7 @@ export function OverviewView({
         console.error('❌ Failed to fetch stats from Python API:', error);
       } finally {
         setStatsLoading(false);
+        setStatsResolved(true);
       }
     };
 
@@ -287,6 +341,7 @@ export function OverviewView({
 
     const fetchComputerActivity = async () => {
       try {
+        setComputerActivityResolved(false);
         const now = new Date();
         // When "All time" (dateRange undefined), use 3-year range like habit stats
         let startDate: string;
@@ -363,6 +418,10 @@ export function OverviewView({
         if (controller.signal.aborted) return;
         console.error('❌ Failed loading overview computer activity:', error);
         setComputerActivityDaily([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setComputerActivityResolved(true);
+        }
       }
     };
 
@@ -465,11 +524,11 @@ export function OverviewView({
   const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
     const unitType = habit.unit_type || 'sessions';
     const isComputerHabit = isComputerHabitName(habit.name);
-    const cachedHabitStats = cachedStats[habit.id || ''];
+    const cachedHabitStats = effectiveCachedStats[habit.id || ''];
 
     if (isComputerHabit) {
       const totalHours = Math.round(
-        computerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0) * 100
+        effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0) * 100
       ) / 100;
 
       // The history scrubber is derived from habit logs and does not include
@@ -478,7 +537,7 @@ export function OverviewView({
       // back to the real desktop total instead of showing an unrelated 0-hour
       // habit-log preview.
       if (scrubberHoveredDate) {
-        const hoveredRow = computerActivityDaily.find((row) => row.day === scrubberHoveredDate);
+        const hoveredRow = effectiveComputerActivityDaily.find((row) => row.day === scrubberHoveredDate);
         if (hoveredRow) {
           const hoveredHours = Math.round(Number(hoveredRow.active_hours || 0) * 100) / 100;
           return `${hoveredHours} Hours`;
@@ -606,7 +665,14 @@ export function OverviewView({
     }
     
     return `${formattedAmount} ${unitType}`;
-  }, [cachedStats, displayLogs, dateRange, computerActivityDaily, getLogLocalDate, scrubberHoveredDate]);
+  }, [
+    effectiveCachedStats,
+    displayLogs,
+    dateRange,
+    effectiveComputerActivityDaily,
+    getLogLocalDate,
+    scrubberHoveredDate,
+  ]);
 
   const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
 
@@ -715,7 +781,7 @@ export function OverviewView({
   // Detailed stats for tooltip
   const getHabitMetricStats = useCallback((habit: Habit) => {
     if (isComputerHabitName(habit.name)) {
-      const rows = computerActivityDaily;
+      const rows = effectiveComputerActivityDaily;
       const values = rows.map(row => Number(row.active_hours || 0)).filter(value => Number.isFinite(value) && value >= 0);
       const total = values.reduce((sum, value) => sum + value, 0);
       const average = values.length ? total / values.length : 0;
@@ -735,7 +801,7 @@ export function OverviewView({
       };
     }
 
-    const stats = cachedStats[habit.id || ''];
+    const stats = effectiveCachedStats[habit.id || ''];
 
     if (stats) {
       const unitLabel = stats.unit || habit.unit_type || 'sessions';
@@ -751,7 +817,7 @@ export function OverviewView({
     }
 
     return getLocalHabitStats(habit);
-  }, [cachedStats, computerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
+  }, [effectiveCachedStats, effectiveComputerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {
