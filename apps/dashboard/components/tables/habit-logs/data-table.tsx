@@ -779,7 +779,7 @@ export function HabitLogsDataTable({
                           sortDirection={sortDirection}
                           align={column.align}
                           onSort={onSort}
-                          hideIndicator={column.id === 'date'}
+                          hideIndicator={column.id === 'date' || column.id === 'time'}
                         >
                           {column.label}
                         </SortButton>

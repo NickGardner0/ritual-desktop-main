@@ -233,7 +233,7 @@ export async function getTopApps(
   }
 
   const { startTs, endTs } = getRangeTimestamps(params)
-  const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 1 })
+  const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit })
   return detailed.apps.slice(0, limit).map((row) => ({
     app_bundle_id: row.app_bundle_id,
     app_name: row.app_name || row.app_bundle_id || 'Unknown',
@@ -281,7 +281,7 @@ export async function getTopDomains(
   }
 
   const { startTs, endTs } = getRangeTimestamps(params)
-  const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 1 })
+  const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit })
   return detailed.domains.slice(0, limit).map((row) => ({
     domain: row.domain || 'Unknown',
     total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
@@ -346,7 +346,7 @@ export async function getComputerTimeSummary(
   }
 
   const { startTs, endTs } = getRangeTimestamps(params)
-  const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 1 })
+  const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 10 })
   const totalActiveMs = Math.max(0, Number(detailed.total_active_ms || 0))
   const totalAfkMs = Math.max(0, Number(detailed.total_afk_ms || 0))
   const daily = await getComputerTimeDaily(params)

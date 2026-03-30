@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     tinybirdParams.set('limit', String(Math.min((offset + limit) * 2, 5000))); // Fetch extra for filtering + pagination
     
     const habitsMapPromise = (async () => {
-      const habitsMap: Record<string, { category: string; icon?: string; unit_type?: string }> = {};
+      const habitsMap: Record<string, { name?: string; category: string; icon?: string; unit_type?: string }> = {};
       try {
         const habitsRes = await fetch(`${backendUrl}/api/habits`, {
           headers: { 'Authorization': `Bearer ${token}` },
@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
           const habitsData = await habitsRes.json();
           habitsData.forEach((h: any) => {
             habitsMap[h.id] = {
+              name: h.name,
               category: h.category || 'uncategorized',
               icon: h.icon,
               unit_type: h.unit_type,
@@ -84,13 +85,45 @@ export async function GET(request: NextRequest) {
       return habitsMap;
     })();
 
+    const normalizeWatcherHabitName = (
+      log: any,
+      habitsMap: Record<string, { name?: string; category: string; icon?: string; unit_type?: string }>,
+    ): string => {
+      const explicitName = typeof log.habit_name === 'string' ? log.habit_name.trim() : '';
+      if (explicitName) {
+        return explicitName;
+      }
+
+      const mappedName = typeof habitsMap[log.habit_id]?.name === 'string'
+        ? habitsMap[log.habit_id]?.name?.trim()
+        : '';
+      if (mappedName) {
+        return mappedName;
+      }
+
+      const source = String(log.source || log.integration_source || '').toLowerCase();
+      const notes = String(log.notes || '').toLowerCase();
+      const sourceId = String(log.source_id || '').toLowerCase();
+
+      if (
+        source === 'ritual_watcher_projection_v1' ||
+        source === 'watcher' ||
+        sourceId.startsWith('computer_use:') ||
+        notes.includes('projected from ritual watcher')
+      ) {
+        return 'Computer Time';
+      }
+
+      return '';
+    };
+
     const normalizeLog = (
       log: any,
-      habitsMap: Record<string, { category: string; icon?: string; unit_type?: string }>,
+      habitsMap: Record<string, { name?: string; category: string; icon?: string; unit_type?: string }>,
     ) => ({
       id: log.id,
       habit_id: log.habit_id,
-      habit_name: log.habit_name,
+      habit_name: normalizeWatcherHabitName(log, habitsMap),
       category: habitsMap[log.habit_id]?.category || log.category || 'uncategorized',
       icon: habitsMap[log.habit_id]?.icon || log.icon,
       date: log.date,

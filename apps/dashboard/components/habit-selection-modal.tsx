@@ -374,7 +374,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     metricBtnRef,
     cardRef,
     384,
-    200,
+    160,
     280
   );
 
@@ -807,12 +807,12 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       
       <div 
         ref={cardRef}
-        className="relative bg-white w-[90vw] max-w-lg flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-sm"
+        className={`relative bg-white w-[90vw] max-w-lg flex flex-col shadow-xl border border-gray-300 z-10 transition-all duration-300 rounded-sm ${showCustomization ? 'min-h-[480px]' : ''}`}
       >
         {/* floating layer that confines dropdowns to the card */}
         <div
           ref={floatingLayerRef}
-          className="pointer-events-none absolute inset-0 z-50 overflow-hidden"
+          className="pointer-events-none absolute inset-0 z-50 overflow-visible"
         />
         
         {/* Header */}
@@ -893,7 +893,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         )}
 
         {/* Content Area - Scrollable */}
-        <div className="overflow-y-auto px-5 pb-5 min-h-0 max-h-[380px]">
+        <div className={`overflow-y-auto px-5 pb-5 min-h-0 ${showCustomization ? 'max-h-[440px]' : 'max-h-[380px]'}`}>
           {showComputerTracking ? (
             // Computer Use Settings View
             <div className="py-2">

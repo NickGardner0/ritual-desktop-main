@@ -24,10 +24,10 @@ const fontOptions: { value: FontOption; label: string }[] = [
 ];
 
 const SETTINGS_PANEL_CLASS =
-  'relative bg-[#FCFCFB] w-full max-w-[460px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-sm z-10 overflow-hidden max-h-[480px] flex flex-col';
+  'relative bg-[#FCFCFB] w-full max-w-[520px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-xl z-10 overflow-hidden max-h-[560px] flex flex-col';
 const SETTINGS_HEADER_CLASS =
-  'flex items-center justify-between pl-2.5 pr-4 py-1.5 border-b border-gray-200/70 bg-[#FCFCFB]';
-const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-none transition-colors';
+  'flex items-center justify-between pl-2.5 pr-4 py-2.5 border-b border-gray-200/70 bg-[#FCFCFB]';
+const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-sm transition-colors';
 
 export function SettingsModal({ isOpen, onClose, onOpen, initialView }: SettingsModalProps) {
   const { user } = useUser();
@@ -84,7 +84,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
             >
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Computer Use</h2>
+            <h2 className="text-[15px] font-semibold text-gray-900">Computer Use</h2>
             <div className="w-6" />
           </div>
 
@@ -126,7 +126,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
             >
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Apple Health Sync</h2>
+            <h2 className="text-[15px] font-semibold text-gray-900">Apple Health Sync</h2>
             <div className="w-6" />
           </div>
 
@@ -208,19 +208,19 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
           >
             <X className="w-4 h-4 text-gray-600" />
           </button>
-          <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Settings</h2>
+          <h2 className="text-[15px] font-semibold text-gray-900">Settings</h2>
           <div className="w-6" />
         </div>
 
         {/* Content - Scrollable */}
         <div className="flex-1 overflow-y-auto">
           {/* Profile Section */}
-          <div className="px-4 py-2 flex items-center gap-2.5 border-b border-gray-200/60">
+          <div className="px-4 py-3 flex items-center gap-2.5 border-b border-gray-200/60">
             <div className="w-10 h-10 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-sm font-medium flex-shrink-0">
               {userInitial}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-medium text-gray-900 truncate tracking-tight">{userName}</div>
+              <div className="text-sm font-medium text-gray-900 truncate">{userName}</div>
               <button 
                 onClick={handleManageAccount}
                 className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
@@ -233,35 +233,35 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
           {/* Settings Items */}
           <div className="px-4">
             {/* AI Data Retention */}
-            <div className="py-2 flex items-center justify-between border-b border-gray-200/60">
-              <div className="flex items-center gap-2">
+            <div className="py-3 flex items-center justify-between border-b border-gray-200/60">
+              <div className="flex items-center gap-2.5">
                 <Database className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">AI Data Retention</span>
+                <span className="text-sm font-normal text-gray-900">AI Data Retention</span>
               </div>
-              <button 
+              <button
                 onClick={() => setAiDataRetention(!aiDataRetention)}
                 className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
                   aiDataRetention ? 'bg-black' : 'bg-gray-300'
                 }`}
               >
-                <span 
+                <span
                   className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
                     aiDataRetention ? 'translate-x-[18px]' : 'translate-x-1'
-                  }`} 
+                  }`}
                 />
               </button>
             </div>
 
             {/* App Font */}
-            <div className="py-2 flex items-center justify-between border-b border-gray-200/60">
-              <div className="flex items-center gap-2">
+            <div className="py-3 flex items-center justify-between border-b border-gray-200/60">
+              <div className="flex items-center gap-2.5">
                 <Type className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">App Font</span>
+                <span className="text-sm font-normal text-gray-900">App Font</span>
               </div>
               <div className="relative">
                 <button
                   onClick={() => setShowFontDropdown(!showFontDropdown)}
-                  className="flex items-center gap-1 text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
+                  className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
                 >
                   <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
                     {fontOptions.find(f => f.value === font)?.label}
@@ -270,11 +270,11 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                 </button>
                 {showFontDropdown && (
                   <>
-                    <div 
-                      className="fixed inset-0 z-10" 
-                      onClick={() => setShowFontDropdown(false)} 
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowFontDropdown(false)}
                     />
-                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg z-20 min-w-[170px] py-1">
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg rounded-lg z-20 min-w-[170px] py-1">
                       {fontOptions.map((option) => (
                         <button
                           key={option.value}
@@ -282,7 +282,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                             setFont(option.value);
                             setShowFontDropdown(false);
                           }}
-                          className={`w-full px-3 py-1.5 text-[13px] text-left hover:bg-gray-50 flex items-center justify-between ${
+                          className={`w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center justify-between ${
                             font === option.value ? 'text-gray-900' : 'text-gray-600'
                           } ${option.value === 'system-ui' ? 'font-system-ui' : ''}`}
                         >
@@ -299,37 +299,37 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
             </div>
 
             {/* Computer Use */}
-            <button 
+            <button
               onClick={() => setCurrentView('computer-tracking')}
-              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-3 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <Monitor className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Computer Use</span>
+                <span className="text-sm font-normal text-gray-900">Computer Use</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
 
             {/* Voice Logging */}
-            <button 
+            <button
               onClick={() => setCurrentView('voice-logging')}
-              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-3 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <Mic className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Voice Logging</span>
+                <span className="text-sm font-normal text-gray-900">Voice Logging</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
 
             {/* Apple Health Sync */}
-            <button 
+            <button
               onClick={() => setCurrentView('apple-health')}
-              className="w-full py-2 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-3 flex items-center justify-between border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <Watch className="w-4 h-4 text-gray-500" />
-                <span className="text-[13px] font-medium text-gray-900 tracking-tight">Apple Health Sync</span>
+                <span className="text-sm font-normal text-gray-900">Apple Health Sync</span>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </button>
@@ -337,28 +337,28 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
             {/* Clear History */}
             <button
               onClick={handleClearHistory}
-              className="w-full py-2 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-3 flex items-center gap-2.5 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <Trash2 className="w-4 h-4 text-gray-500" />
-              <span className="text-[13px] font-medium text-gray-900 tracking-tight">Clear History</span>
+              <span className="text-sm font-normal text-gray-900">Clear History</span>
             </button>
 
             {/* Delete Account */}
             <button
               onClick={handleDeleteAccount}
-              className="w-full py-2 flex items-center gap-2 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-3 flex items-center gap-2.5 border-b border-gray-200/60 hover:bg-gray-50/40 transition-colors"
             >
               <AlertTriangle className="w-4 h-4 text-red-500" />
-              <span className="text-[13px] font-medium text-red-500 tracking-tight">Delete Account</span>
+              <span className="text-sm font-normal text-red-500">Delete Account</span>
             </button>
 
             {/* Sign Out */}
             <button
               onClick={handleSignOut}
-              className="w-full py-2 flex items-center gap-2 hover:bg-gray-50/40 transition-colors"
+              className="w-full py-3 flex items-center gap-2.5 hover:bg-gray-50/40 transition-colors"
             >
               <LogOut className="w-4 h-4 text-gray-500" />
-              <span className="text-[13px] font-medium text-gray-900 tracking-tight">Sign Out</span>
+              <span className="text-sm font-normal text-gray-900">Sign Out</span>
             </button>
           </div>
         </div>
@@ -447,7 +447,7 @@ function VoiceLoggingSettings({ onBack, onClose }: { onBack: () => void; onClose
           <button onClick={onBack} className={SETTINGS_HEADER_BUTTON_CLASS}>
             <ChevronLeft className="w-5 h-5 text-gray-600" />
           </button>
-          <h2 className="text-[15px] font-medium text-gray-900 tracking-tight">Voice Logging</h2>
+          <h2 className="text-[15px] font-semibold text-gray-900">Voice Logging</h2>
           <div className="w-6" />
         </div>
 

@@ -123,10 +123,10 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
   const fetchIdRef = useRef(0)
 
   useEffect(() => {
-    if (externalRange && externalRange !== range) {
+    if (externalRange) {
       setRange(externalRange)
     }
-  }, [externalRange, range, setRange])
+  }, [externalRange])
 
   const rangeWindow = useMemo(() => getTimeRangeMs(range), [range])
 
@@ -311,7 +311,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
                 maxVisible={Infinity}
                 type="apps"
                 showTooltip={false}
-                showIcons={false}
+                showIcons
                 selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
                 onSelect={(item) => handleUsageSelect('app', item.key, item.label)}
               />
@@ -361,7 +361,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
                 maxVisible={Infinity}
                 type="domains"
                 showTooltip={false}
-                showIcons={false}
+                showIcons
                 selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}
                 onSelect={(item) => handleUsageSelect('website', item.key, item.label)}
               />

@@ -23,7 +23,7 @@ interface TeamDropdownProps {
 
 export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdownProps) {
   const { user } = useUser();
-  const { signOut } = useClerk();
+  const { signOut, openUserProfile } = useClerk();
   const [isActive, setActive] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -48,8 +48,8 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
   };
 
   const handleAccount = () => {
-    console.log('Account clicked');
     setActive(false);
+    openUserProfile();
   };
 
   const handleSupport = () => {

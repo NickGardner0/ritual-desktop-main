@@ -142,6 +142,18 @@ export function RootProviders({ children }: { children: ReactNode }) {
           signInForceRedirectUrl="/auth/sso-callback"
           signUpForceRedirectUrl="/auth/sso-callback"
           afterSignOutUrl="/"
+          appearance={{
+            userProfile: {
+              elements: {
+                modalBackdrop: 'bg-transparent',
+                modalContent: 'shadow-lg border border-gray-200 rounded-sm',
+                rootBox: 'max-w-[420px]',
+                card: 'shadow-none rounded-sm',
+                navbar: 'hidden',
+                pageScrollBox: 'max-h-[400px]',
+              },
+            },
+          }}
         >
           {content}
         </ClerkProvider>

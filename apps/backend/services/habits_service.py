@@ -597,7 +597,11 @@ class HabitsService:
         """
         async with get_db_session() as session:
             try:
-                query = select(HabitLogDB).join(HabitDB).where(HabitDB.user_id == user_id)
+                query = (
+                    select(HabitLogDB, HabitDB.name)
+                    .join(HabitDB)
+                    .where(HabitDB.user_id == user_id)
+                )
                 
                 if habit_id:
                     query = query.where(HabitLogDB.habit_id == habit_id)
@@ -605,8 +609,17 @@ class HabitsService:
                 query = query.order_by(HabitLogDB.date.desc())
                 
                 result = await session.execute(query)
-                logs_db = result.scalars().all()
-                return [habit_log_db_to_pydantic(log) for log in logs_db]
+                rows = result.all()
+
+                logs: List[HabitLog] = []
+                for log_db, habit_name in rows:
+                    log = habit_log_db_to_pydantic(log_db)
+                    normalized_habit_name = (log.habit_name or "").strip() or (habit_name or "").strip()
+                    if normalized_habit_name:
+                        log.habit_name = normalized_habit_name
+                    logs.append(log)
+
+                return logs
                 
             except SQLAlchemyError as e:
                 raise Exception(f"Failed to fetch habit logs: {str(e)}")
