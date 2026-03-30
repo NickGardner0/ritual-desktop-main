@@ -117,28 +117,94 @@ export async function GET(request: NextRequest) {
       return '';
     };
 
+    const parseMetadataObject = (value: any) => {
+      if (!value) return null;
+      try {
+        return typeof value === 'string' ? JSON.parse(value) : value;
+      } catch {
+        return null;
+      }
+    };
+
+    const deriveComputerTimeValue = (
+      log: any,
+      metadata: Record<string, any> | null,
+      unitType: string | undefined,
+      habitName: string,
+    ) => {
+      const rawDuration = Number(log.duration || 0);
+      const rawAmount = Number(log.amount || 0);
+      if (rawDuration > 0 || rawAmount > 0) {
+        return {
+          duration: rawDuration > 0 ? rawDuration : undefined,
+          amount: rawAmount > 0 ? rawAmount : undefined,
+        };
+      }
+
+      if (habitName !== 'Computer Time' || !metadata) {
+        return { duration: undefined, amount: undefined };
+      }
+
+      const activeMs = Math.max(
+        0,
+        Number(
+          metadata.active_ms ??
+          metadata.total_ms ??
+          metadata.total_active_ms ??
+          0,
+        ),
+      );
+      const activeHours = Math.max(
+        0,
+        Number(
+          metadata.active_hours ??
+          metadata.total_hours ??
+          (activeMs > 0 ? activeMs / (1000 * 60 * 60) : 0),
+        ),
+      );
+
+      if (activeMs <= 0 && activeHours <= 0) {
+        return { duration: undefined, amount: undefined };
+      }
+
+      const normalizedUnit = (unitType || '').toLowerCase();
+      const derivedDuration = activeMs > 0 ? Math.round(activeMs / 1000) : undefined;
+      const derivedAmount = normalizedUnit.includes('minute')
+        ? Math.round((activeMs / (1000 * 60)) * 100) / 100
+        : Math.round(activeHours * 100) / 100;
+
+      return {
+        duration: derivedDuration && derivedDuration > 0 ? derivedDuration : undefined,
+        amount: derivedAmount > 0 ? derivedAmount : undefined,
+      };
+    };
+
     const normalizeLog = (
       log: any,
       habitsMap: Record<string, { name?: string; category: string; icon?: string; unit_type?: string }>,
-    ) => ({
-      id: log.id,
-      habit_id: log.habit_id,
-      habit_name: normalizeWatcherHabitName(log, habitsMap),
-      category: habitsMap[log.habit_id]?.category || log.category || 'uncategorized',
-      icon: habitsMap[log.habit_id]?.icon || log.icon,
-      date: log.date,
-      completed_at: log.timestamp || log.completed_at,
-      duration: log.duration,
-      amount: log.amount,
-      unit_type: habitsMap[log.habit_id]?.unit_type || log.unit_type || log.unit,
-      status: log.status || 'completed',
-      notes: log.notes,
-      integration_source: log.integration_source || log.source || 'manual',
-      metadata:
-        log.metadata
-          ? (typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata)
-          : null,
-    });
+    ) => {
+      const habitName = normalizeWatcherHabitName(log, habitsMap);
+      const unitType = habitsMap[log.habit_id]?.unit_type || log.unit_type || log.unit;
+      const metadata = parseMetadataObject(log.metadata ?? log.log_metadata);
+      const derivedValue = deriveComputerTimeValue(log, metadata, unitType, habitName);
+
+      return {
+        id: log.id,
+        habit_id: log.habit_id,
+        habit_name: habitName,
+        category: habitsMap[log.habit_id]?.category || log.category || 'uncategorized',
+        icon: habitsMap[log.habit_id]?.icon || log.icon,
+        date: log.date,
+        completed_at: log.timestamp || log.completed_at,
+        duration: derivedValue.duration,
+        amount: derivedValue.amount,
+        unit_type: unitType,
+        status: log.status || 'completed',
+        notes: log.notes,
+        integration_source: log.integration_source || log.source || 'manual',
+        metadata,
+      };
+    };
 
     const backendLogsPromise = (async () => {
       const response = await fetch(`${backendUrl}/api/habit-logs`, {

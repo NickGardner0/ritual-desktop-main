@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { format, subDays, startOfDay } from 'date-fns';
-import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import { getTopApps, getTopDomains } from '@/lib/computerActivity/client';
 
 interface ComputerTimeBarListProps {
@@ -13,6 +12,7 @@ interface ComputerTimeBarListProps {
 }
 
 const BAR_LIST_ROW_LIMIT = 12;
+const BAR_LIST_COMPARE_FETCH_LIMIT = 100;
 
 function getRangeDatesLocal(range: BarListRange) {
   const now = new Date();
@@ -34,6 +34,31 @@ function formatHours(hours: number): string {
   if (hours >= 1) return `${hours.toFixed(1)}h`;
   const mins = Math.round(hours * 60);
   return `${mins}m`;
+}
+
+function computeAppOrDomainChange(currentHours: number, previousHours: number): number | undefined {
+  const current = Number(currentHours) || 0;
+  const previous = Number(previousHours) || 0;
+
+  if (previous > 0) {
+    const rawChange = ((current - previous) / previous) * 100;
+    if (!Number.isFinite(rawChange)) return undefined;
+    return Math.max(-100, Math.min(999, rawChange));
+  }
+
+  if (current <= 0) {
+    return 0;
+  }
+
+  return undefined;
+}
+
+function getAppComparisonKey(app: { app_bundle_id?: string | null; app_name?: string | null }): string {
+  return String(app.app_bundle_id || app.app_name || 'Unknown').trim();
+}
+
+function getDomainComparisonKey(domain: { domain?: string | null }): string {
+  return String(domain.domain || 'Unknown').trim().toLowerCase();
 }
 
 export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTimeBarListProps) {
@@ -91,12 +116,12 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       const secondStart = format(new Date(midPoint.getTime() + 86400000), 'yyyy-MM-dd');
 
       const [appsFirst, appsSecond] = await Promise.all([
-        getTopApps({ startDate, endDate: firstEnd }, 20),
-        getTopApps({ startDate: secondStart, endDate }, 20),
+        getTopApps({ startDate, endDate: firstEnd }, BAR_LIST_COMPARE_FETCH_LIMIT),
+        getTopApps({ startDate: secondStart, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
       ]);
       const [domainsFirst, domainsSecond] = await Promise.all([
-        getTopDomains({ startDate, endDate: firstEnd }, 20),
-        getTopDomains({ startDate: secondStart, endDate }, 20),
+        getTopDomains({ startDate, endDate: firstEnd }, BAR_LIST_COMPARE_FETCH_LIMIT),
+        getTopDomains({ startDate: secondStart, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
       ]);
 
       if (id !== fetchIdRef.current) return; // stale
@@ -105,24 +130,27 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       if (appsFull.length > 0) {
         const firstMap = new Map<string, number>();
         for (const a of appsFirst) {
-          const key = a.app_name || a.app_bundle_id || '';
+          const key = getAppComparisonKey(a);
           firstMap.set(key, (firstMap.get(key) || 0) + (a.hours || 0));
         }
         const secondMap = new Map<string, number>();
         for (const a of appsSecond) {
-          const key = a.app_name || a.app_bundle_id || '';
+          const key = getAppComparisonKey(a);
           secondMap.set(key, (secondMap.get(key) || 0) + (a.hours || 0));
         }
         const maxHours = Math.max(...appsFull.map((a) => a.hours || 0), 0.01);
         setAppsData(
           appsFull.map((app) => {
             const name = app.app_name || app.app_bundle_id || 'Unknown';
-            const change = computeMeaningfulPercentChange(secondMap.get(name) || 0, firstMap.get(name) || 0, 'hours');
+            const key = getAppComparisonKey(app);
+            const previousHours = firstMap.get(key) || 0;
+            const currentHours = secondMap.get(key) || 0;
+            const change = computeAppOrDomainChange(currentHours, previousHours);
             return {
               name,
               value: formatHours(app.hours || 0),
               change,
-              changeLabel: change === undefined ? 'New' : undefined,
+              changeLabel: change === undefined && currentHours > 0 && previousHours <= 0 ? 'New' : undefined,
               barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
             };
           }),
@@ -133,24 +161,27 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       if (domainsFull.length > 0) {
         const firstMap = new Map<string, number>();
         for (const d of domainsFirst) {
-          const key = d.domain || '';
+          const key = getDomainComparisonKey(d);
           firstMap.set(key, (firstMap.get(key) || 0) + (d.hours || 0));
         }
         const secondMap = new Map<string, number>();
         for (const d of domainsSecond) {
-          const key = d.domain || '';
+          const key = getDomainComparisonKey(d);
           secondMap.set(key, (secondMap.get(key) || 0) + (d.hours || 0));
         }
         const maxHours = Math.max(...domainsFull.map((d) => d.hours || 0), 0.01);
         setDomainsData(
           domainsFull.map((domain) => {
             const name = domain.domain || 'Unknown';
-            const change = computeMeaningfulPercentChange(secondMap.get(name) || 0, firstMap.get(name) || 0, 'hours');
+            const key = getDomainComparisonKey(domain);
+            const previousHours = firstMap.get(key) || 0;
+            const currentHours = secondMap.get(key) || 0;
+            const change = computeAppOrDomainChange(currentHours, previousHours);
             return {
               name,
               value: formatHours(domain.hours || 0),
               change,
-              changeLabel: change === undefined ? 'New' : undefined,
+              changeLabel: change === undefined && currentHours > 0 && previousHours <= 0 ? 'New' : undefined,
               barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
             };
           }),

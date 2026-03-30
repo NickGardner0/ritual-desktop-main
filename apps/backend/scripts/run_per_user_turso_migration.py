@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -16,11 +17,39 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 load_dotenv(BACKEND_DIR / ".env")
 
+from database.connection import init_database
 from services.turso_user_service import TursoProvisioningError, turso_user_service
+
+
+def _ensure_local_operator_schema() -> None:
+    replica_path = BACKEND_DIR / ".turso_replica.db"
+    if not replica_path.exists():
+        return
+
+    required_user_columns = {
+        "phone_number": "ALTER TABLE users ADD COLUMN phone_number TEXT",
+        "linq_onboarding_welcome_sent_at": "ALTER TABLE users ADD COLUMN linq_onboarding_welcome_sent_at DATETIME",
+        "turso_db_name": "ALTER TABLE users ADD COLUMN turso_db_name TEXT",
+        "turso_db_url": "ALTER TABLE users ADD COLUMN turso_db_url TEXT",
+        "turso_provisioned_at": "ALTER TABLE users ADD COLUMN turso_provisioned_at DATETIME",
+        "turso_migrated_at": "ALTER TABLE users ADD COLUMN turso_migrated_at DATETIME",
+    }
+
+    conn = sqlite3.connect(replica_path)
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        for column, sql in required_user_columns.items():
+            if column not in columns:
+                conn.execute(sql)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 async def _run(args: argparse.Namespace) -> int:
     try:
+        _ensure_local_operator_schema()
+        await init_database(fast_startup=False)
         source_user_id = (args.source_user_id or "").strip() or None
         source_db_path = Path(args.source_db_path).expanduser().resolve() if args.source_db_path else None
         if args.ensure_provisioned:
@@ -47,11 +76,13 @@ async def _run(args: argparse.Namespace) -> int:
                 args.user_id,
                 source_user_id=source_user_id,
                 source_db_path=source_db_path,
+                strategy=args.strategy,
             )
             print(
                 json.dumps(
                     {
                         "action": "migrate",
+                        "strategy": args.strategy,
                         "user_id": args.user_id,
                         "source_user_id": source_user_id or args.user_id,
                         "source_db_path": str(source_db_path) if source_db_path else None,
@@ -98,6 +129,12 @@ def main() -> int:
         "--migrate",
         action="store_true",
         help="Copy this user's rows into the per-user Turso DB and apply migration gate checks",
+    )
+    parser.add_argument(
+        "--strategy",
+        choices=("replica", "import"),
+        default="replica",
+        help="Migration strategy: replica row-copy or import whole filtered SQLite DB into a fresh Turso DB",
     )
     args = parser.parse_args()
 

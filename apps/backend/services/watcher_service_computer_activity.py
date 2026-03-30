@@ -881,7 +881,7 @@ async def get_daily_computer_time_impl(
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
-            params: list[Any] = [end_ms, start_ms, user_id]
+            params: list[Any] = [start_ms, end_ms, user_id]
             device_clause = ""
             if device_id:
                 device_clause = " AND device_id = ?"
@@ -890,34 +890,48 @@ async def get_daily_computer_time_impl(
             rows = conn.execute(
                 f"""
                 SELECT
-                    ts_start,
-                    ts_end,
-                    COALESCE(is_afk, 0) AS is_afk,
-                    COALESCE(app_bundle_id, '') AS app_bundle_id,
-                    COALESCE(browser_domain, '') AS browser_domain
+                    date(ts_start/1000, 'unixepoch', 'localtime') AS day,
+                    SUM(
+                        CASE
+                            WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start
+                            THEN MIN(ts_end, ?) - ts_start
+                            ELSE 0
+                        END
+                    ) AS total_active_ms,
+                    COUNT(*) AS total_events,
+                    COUNT(DISTINCT CASE
+                        WHEN COALESCE(is_afk, 0) = 0 AND app_bundle_id IS NOT NULL AND app_bundle_id != ''
+                        THEN app_bundle_id
+                        ELSE NULL
+                    END) AS unique_apps,
+                    COUNT(DISTINCT CASE
+                        WHEN COALESCE(is_afk, 0) = 0 AND browser_domain IS NOT NULL AND browser_domain != ''
+                        THEN browser_domain
+                        ELSE NULL
+                    END) AS unique_domains
                 FROM activity_events
-                WHERE ts_start < ? AND ts_end > ?
+                WHERE ts_start >= ? AND ts_start < ?
                   AND user_id = ?
                   AND ts_end > ts_start
                   {device_clause}
-                ORDER BY ts_start ASC
+                GROUP BY day
+                ORDER BY day ASC
                 """,
-                params,
+                [end_ms, *params],
             ).fetchall()
 
             if rows:
-                daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
                 result = [
                     {
-                        "day": row["day"],
-                        "active_hours": round((int(row["active_ms"] or 0)) / (1000 * 60 * 60), 2),
-                        "active_ms": int(row["active_ms"] or 0),
-                        "events_count": int(row["events_count"] or 0),
-                        "apps_count": int(row["apps_count"] or 0),
-                        "domains_count": int(row["domains_count"] or 0),
+                        "day": row[0],
+                        "active_hours": round((int(row[1] or 0)) / (1000 * 60 * 60), 2),
+                        "active_ms": int(row[1] or 0),
+                        "events_count": int(row[2] or 0),
+                        "apps_count": int(row[3] or 0),
+                        "domains_count": int(row[4] or 0),
                         "source": "activity_db",
                     }
-                    for row in daily_rows
+                    for row in rows
                 ]
                 _log_activity_perf(
                     "daily",
@@ -927,6 +941,7 @@ async def get_daily_computer_time_impl(
                     start_date=start_date,
                     end_date=end_date,
                     row_count=len(result),
+                    extra={"query_mode": "sql_grouped"},
                 )
                 return result
 

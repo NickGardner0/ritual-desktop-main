@@ -23,9 +23,20 @@ const isTauri = typeof window !== 'undefined' && '__TAURI__' in window
 /**
  * AppIcon component - fetches real macOS app icons via Tauri
  */
-export function AppIcon({ appName, bundleId, className = '' }: { appName: string; bundleId?: string; className?: string }) {
+export function AppIcon({
+  appName,
+  bundleId,
+  className = '',
+  eagerFetch = true,
+}: {
+  appName: string
+  bundleId?: string
+  className?: string
+  eagerFetch?: boolean
+}) {
+  const hasPreloadedIcon = bundleId ? iconCache.has(bundleId) : false
   const [iconSrc, setIconSrc] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(hasPreloadedIcon ? false : Boolean(bundleId))
   const [error, setError] = useState(false)
   
   // Fetch icon from Tauri
@@ -66,12 +77,17 @@ export function AppIcon({ appName, bundleId, className = '' }: { appName: string
   }, [])
   
   useEffect(() => {
+    if (!eagerFetch && (!bundleId || !iconCache.has(bundleId))) {
+      setLoading(false)
+      return
+    }
+
     if (bundleId) {
       fetchIcon(bundleId)
     } else {
       setError(true)
     }
-  }, [bundleId, fetchIcon])
+  }, [bundleId, eagerFetch, fetchIcon])
   
   // Generate initials from app name (fallback)
   const initials = appName
@@ -147,10 +163,56 @@ export function RankedBars({
   const [expanded, setExpanded] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<RankedBar | null>(null)
   const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null)
+  const [, forceIconRefresh] = useState(0)
   
   const visibleItems = expanded ? items : items.slice(0, maxVisible)
   const hasMore = items.length > maxVisible
   const maxValue = items[0]?.valueMs || 1
+
+  useEffect(() => {
+    if (!showIcons || type !== 'apps' || !isTauri) return
+
+    const bundleIds = visibleItems
+      .map((item) => item.key)
+      .filter((key) => key && !iconCache.has(key))
+
+    if (bundleIds.length === 0) return
+
+    let cancelled = false
+
+    const loadIcons = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri')
+        const responses = await invoke<Array<{
+          bundle_id: string
+          icon_path: string | null
+          icon_base64: string | null
+        }>>('get_app_icons_batch', { bundleIds })
+
+        if (cancelled) return
+
+        let stored = 0
+        for (const response of responses || []) {
+          if (response?.bundle_id && response.icon_base64) {
+            iconCache.set(response.bundle_id, `data:image/png;base64,${response.icon_base64}`)
+            stored += 1
+          }
+        }
+
+        if (stored > 0) {
+          forceIconRefresh((tick) => tick + 1)
+        }
+      } catch (err) {
+        console.debug('Failed to batch fetch app icons:', bundleIds, err)
+      }
+    }
+
+    const timer = window.setTimeout(loadIcons, 150)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [showIcons, type, visibleItems])
   
   const handleMouseEnter = (item: RankedBar, e: React.MouseEvent) => {
     setHoveredItem(item)
@@ -219,6 +281,7 @@ export function RankedBars({
                   appName={item.label} 
                   bundleId={item.key}
                   className="h-5 w-5 flex-shrink-0 rounded-sm"
+                  eagerFetch={false}
                 />
               )}
               

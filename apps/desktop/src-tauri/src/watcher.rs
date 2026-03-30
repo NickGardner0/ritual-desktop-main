@@ -2048,10 +2048,7 @@ pub struct AppIconResponse {
     pub icon_base64: Option<String>,
 }
 
-/// Get app icon for a bundle ID
-/// Extracts the icon from the app bundle and caches it
-#[tauri::command]
-pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
+fn get_app_icon_impl(bundle_id: String) -> Result<AppIconResponse, String> {
     let started_at = Instant::now();
     #[cfg(target_os = "macos")]
     {
@@ -2126,32 +2123,45 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
     }
 }
 
+/// Get app icon for a bundle ID
+/// Extracts the icon from the app bundle and caches it
+#[tauri::command]
+pub async fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || get_app_icon_impl(bundle_id))
+        .await
+        .map_err(|e| format!("Failed to join get_app_icon task: {}", e))?
+}
+
 /// Get icons for multiple bundle IDs at once (batch operation)
 #[tauri::command]
-pub fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconResponse>, String> {
-    let started_at = Instant::now();
-    let mut results = Vec::new();
-    let requested = bundle_ids.len();
+pub async fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconResponse>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let started_at = Instant::now();
+        let mut results = Vec::new();
+        let requested = bundle_ids.len();
 
-    for bundle_id in bundle_ids {
-        match get_app_icon(bundle_id.clone()) {
-            Ok(response) => results.push(response),
-            Err(_) => results.push(AppIconResponse {
-                bundle_id,
-                icon_path: None,
-                icon_base64: None,
-            }),
+        for bundle_id in bundle_ids {
+            match get_app_icon_impl(bundle_id.clone()) {
+                Ok(response) => results.push(response),
+                Err(_) => results.push(AppIconResponse {
+                    bundle_id,
+                    icon_path: None,
+                    icon_base64: None,
+                }),
+            }
         }
-    }
 
-    watcher_info!(
-        "get_app_icons_batch requested={} returned={} duration_ms={}",
-        requested,
-        results.len(),
-        started_at.elapsed().as_millis()
-    );
+        watcher_info!(
+            "get_app_icons_batch requested={} returned={} duration_ms={}",
+            requested,
+            results.len(),
+            started_at.elapsed().as_millis()
+        );
 
-    Ok(results)
+        Ok(results)
+    })
+    .await
+    .map_err(|e| format!("Failed to join get_app_icons_batch task: {}", e))?
 }
 
 /// Extract app icon on macOS using system tools

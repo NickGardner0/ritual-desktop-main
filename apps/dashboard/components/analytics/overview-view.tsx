@@ -22,7 +22,7 @@ import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
 import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
-import { getComputerTimeDaily } from '@/lib/computerActivity/client';
+import { getComputerTimeDaily, getComputerTimeSummary } from '@/lib/computerActivity/client';
 import { auditLocalStorage, perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
 
@@ -51,6 +51,14 @@ interface ComputerDailyRow {
   active_hours: number;
   active_ms: number;
   events_count: number;
+}
+
+interface ComputerSummaryState {
+  total_active_ms: number;
+  total_hours: number;
+  total_events?: number;
+  days_tracked?: number;
+  avg_daily_hours?: number;
 }
 
 const OVERVIEW_STATS_CACHE_VERSION = 'v2';
@@ -171,6 +179,7 @@ export function OverviewView({
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
   const [computerActivityResolved, setComputerActivityResolved] = useState(false);
+  const [computerActivitySummary, setComputerActivitySummary] = useState<ComputerSummaryState | null>(null);
   const lastGoodComputerActivityRef = useRef<ComputerDailyRow[]>([]);
   const firstUsablePaintLoggedRef = useRef(false);
   const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -377,6 +386,7 @@ export function OverviewView({
 
     const controller = new AbortController();
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let deferredDailyTimer: number | null = null;
 
     const fetchComputerActivity = async () => {
       const stopTimer = startPerfTimer('overview-view', 'fetch-computer-activity', {
@@ -391,45 +401,111 @@ export function OverviewView({
         if (dateRange?.from) {
           startDate = format(dateRange.from, 'yyyy-MM-dd');
           endDate = format(dateRange.to ?? dateRange.from, 'yyyy-MM-dd');
+          const rows = await getComputerTimeDaily({
+            startDate,
+            endDate,
+          });
+          if (controller.signal.aborted) return;
+          const normalizedRows = Array.isArray(rows) ? rows : [];
+          const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0);
+
+          const rowsToPersist = hasMeaningfulRows
+            ? normalizedRows
+            : (lastGoodComputerActivityRef.current.length > 0 ? lastGoodComputerActivityRef.current : normalizedRows);
+
+          if (hasMeaningfulRows || computerActivityDaily.length === 0) {
+            setComputerActivityDaily(normalizedRows);
+          }
+
+          if (hasMeaningfulRows) {
+            lastGoodComputerActivityRef.current = normalizedRows;
+          }
+
+          setComputerActivitySummary({
+            total_active_ms: normalizedRows.reduce((sum, row) => sum + Number(row.active_ms || 0), 0),
+            total_hours: normalizedRows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0),
+            total_events: normalizedRows.reduce((sum, row) => sum + Number(row.events_count || 0), 0),
+            days_tracked: normalizedRows.filter((row) => Number(row.active_ms || 0) > 0).length,
+          })
+
+          if (typeof window !== 'undefined' && overviewComputerCacheKey) {
+            window.localStorage.setItem(
+              overviewComputerCacheKey,
+              JSON.stringify({
+                timestamp: Date.now(),
+                rows: rowsToPersist,
+              }),
+            );
+          }
+          stopTimer({
+            success: true,
+            mode: 'daily-range',
+            row_count: normalizedRows.length,
+            meaningful_rows: hasMeaningfulRows,
+            used_last_good_rows: !hasMeaningfulRows && rowsToPersist.length > 0,
+          });
+          return;
         } else {
           startDate = format(subDays(now, 1095), 'yyyy-MM-dd');
           endDate = format(now, 'yyyy-MM-dd');
         }
 
-        const rows = await getComputerTimeDaily({
+        const summary = await getComputerTimeSummary({
           startDate,
           endDate,
         });
         if (controller.signal.aborted) return;
-        const normalizedRows = Array.isArray(rows) ? rows : [];
-        const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0);
+        setComputerActivitySummary({
+          total_active_ms: Number(summary.total_active_ms || 0),
+          total_hours: Number(summary.total_hours || 0),
+          total_events: Number(summary.total_events || 0),
+          days_tracked: Number(summary.days_tracked || 0),
+          avg_daily_hours: Number(summary.avg_daily_hours || 0),
+        })
 
-        const rowsToPersist = hasMeaningfulRows
-          ? normalizedRows
-          : (lastGoodComputerActivityRef.current.length > 0 ? lastGoodComputerActivityRef.current : normalizedRows);
-
-        if (hasMeaningfulRows || computerActivityDaily.length === 0) {
-          setComputerActivityDaily(normalizedRows);
+        const existingRows =
+          lastGoodComputerActivityRef.current.length > 0
+            ? lastGoodComputerActivityRef.current
+            : bootstrappedComputerActivityDaily
+        if (existingRows.length > 0) {
+          setComputerActivityDaily(existingRows)
         }
 
-        if (hasMeaningfulRows) {
-          lastGoodComputerActivityRef.current = normalizedRows;
-        }
+        deferredDailyTimer = window.setTimeout(async () => {
+          if (controller.signal.aborted) return
+          try {
+            const rows = await getComputerTimeDaily({ startDate, endDate })
+            if (controller.signal.aborted) return
+            const normalizedRows = Array.isArray(rows) ? rows : []
+            const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0)
+            if (!hasMeaningfulRows) return
+            lastGoodComputerActivityRef.current = normalizedRows
+            setComputerActivityDaily(normalizedRows)
+            if (typeof window !== 'undefined' && overviewComputerCacheKey) {
+              window.localStorage.setItem(
+                overviewComputerCacheKey,
+                JSON.stringify({
+                  timestamp: Date.now(),
+                  rows: normalizedRows,
+                }),
+              )
+            }
+            perfInfo('overview-view', 'deferred-computer-daily-loaded', {
+              row_count: normalizedRows.length,
+            })
+          } catch (dailyError) {
+            if (!controller.signal.aborted) {
+              perfError('overview-view', 'deferred-computer-daily-failed', {
+                error: dailyError instanceof Error ? dailyError.message : String(dailyError),
+              })
+            }
+          }
+        }, 800)
 
-        if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
-          window.localStorage.setItem(
-            overviewComputerCacheKey,
-            JSON.stringify({
-              timestamp: Date.now(),
-              rows: rowsToPersist,
-            }),
-          );
-        }
         stopTimer({
           success: true,
-          row_count: normalizedRows.length,
-          meaningful_rows: hasMeaningfulRows,
-          used_last_good_rows: !hasMeaningfulRows && rowsToPersist.length > 0,
+          mode: 'summary-first',
+          total_active_ms: Number(summary.total_active_ms || 0),
         });
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -451,11 +527,14 @@ export function OverviewView({
     refreshTimer = setInterval(fetchComputerActivity, 60_000);
     return () => {
       controller.abort();
+      if (deferredDailyTimer) {
+        clearTimeout(deferredDailyTimer);
+      }
       if (refreshTimer) {
         clearInterval(refreshTimer);
       }
     };
-  }, [computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
+  }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   useEffect(() => {
     if (firstUsablePaintLoggedRef.current) return;
@@ -556,7 +635,15 @@ export function OverviewView({
 
     if (isComputerHabit) {
       const totalHours = Math.round(
-        effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0) * 100
+        (
+          scrubberHoveredDate
+            ? effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0)
+            : (
+                !dateRange?.from && computerActivitySummary
+                  ? Number(computerActivitySummary.total_hours || 0)
+                  : effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0)
+              )
+        ) * 100
       ) / 100;
 
       // The history scrubber is derived from habit logs and does not include
@@ -694,6 +781,7 @@ export function OverviewView({
     
     return `${formattedAmount} ${unitType}`;
   }, [
+    computerActivitySummary,
     effectiveCachedStats,
     displayLogs,
     dateRange,
@@ -810,6 +898,17 @@ export function OverviewView({
   const getHabitMetricStats = useCallback((habit: Habit) => {
     if (isComputerHabitName(habit.name)) {
       const rows = effectiveComputerActivityDaily;
+      if (rows.length === 0 && computerActivitySummary) {
+        return {
+          unitLabel: 'Hours',
+          sumFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.total_hours || 0))} Hours`,
+          avgFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.avg_daily_hours || 0))} Hours`,
+          minFormatted: '—',
+          maxFormatted: '—',
+          stdDevFormatted: '—',
+          daysWithData: Number(computerActivitySummary.days_tracked || 0),
+        };
+      }
       const values = rows.map(row => Number(row.active_hours || 0)).filter(value => Number.isFinite(value) && value >= 0);
       const total = values.reduce((sum, value) => sum + value, 0);
       const average = values.length ? total / values.length : 0;
@@ -845,7 +944,7 @@ export function OverviewView({
     }
 
     return getLocalHabitStats(habit);
-  }, [effectiveCachedStats, effectiveComputerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
+  }, [computerActivitySummary, effectiveCachedStats, effectiveComputerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {

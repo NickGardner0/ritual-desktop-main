@@ -67,11 +67,14 @@ export interface AggregatedComputerStatsResponse {
   domains: TopDomainResponseRow[]
 }
 
-const DESKTOP_STATS_TIMEOUT_MS = 3500
+const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 6000
+const DESKTOP_DAILY_TIMEOUT_MS = 8000
+const SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS = 2
 const summaryCache = new Map<string, ComputerSummaryResponse>()
 const dailyCache = new Map<string, ComputerDailyResponseRow[]>()
 const appsCache = new Map<string, TopAppResponseRow[]>()
 const domainsCache = new Map<string, TopDomainResponseRow[]>()
+const inflightWatcherRequests = new Map<string, Promise<any>>()
 
 function buildQueryString(params: Record<string, string | number | undefined>) {
   const search = new URLSearchParams()
@@ -87,48 +90,70 @@ async function fetchWatcherStatsJson<T>(
   params: Record<string, string | number | undefined>,
 ): Promise<T> {
   const queryString = buildQueryString(params)
+  const requestKey = `${path}?${queryString}`
+  const existing = inflightWatcherRequests.get(requestKey)
+  if (existing) {
+    perfInfo('computer-activity-client', 'watcher-stats-fetch-dedupe-hit', {
+      path,
+      params,
+    })
+    return existing as Promise<T>
+  }
+
   const controller = new AbortController()
-  const timeoutMs = isTauri() ? DESKTOP_STATS_TIMEOUT_MS : 30000
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
-  const stopTimer = startPerfTimer('computer-activity-client', 'watcher-stats-fetch', {
-    path,
-    params,
-    timeout_ms: timeoutMs,
-  })
-  let response: Response
+  const timeoutMs = isTauri()
+    ? (path.includes('/daily') ? DESKTOP_DAILY_TIMEOUT_MS : DESKTOP_STATS_DEFAULT_TIMEOUT_MS)
+    : 30000
 
-  try {
-    response = await fetch(`${path}${queryString ? `?${queryString}` : ''}`, {
-      cache: 'no-store',
-      credentials: 'include',
-      signal: controller.signal,
+  const requestPromise = (async () => {
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+    const stopTimer = startPerfTimer('computer-activity-client', 'watcher-stats-fetch', {
+      path,
+      params,
+      timeout_ms: timeoutMs,
     })
-  } catch (error) {
-    stopTimer({
-      success: false,
-      aborted: controller.signal.aborted,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    throw error
-  } finally {
-    window.clearTimeout(timeoutId)
-  }
+    let response: Response
 
-  if (!response.ok) {
+    try {
+      response = await fetch(`${path}${queryString ? `?${queryString}` : ''}`, {
+        cache: 'no-store',
+        credentials: 'include',
+        signal: controller.signal,
+      })
+    } catch (error) {
+      stopTimer({
+        success: false,
+        aborted: controller.signal.aborted,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+
+    if (!response.ok) {
+      stopTimer({
+        success: false,
+        status: response.status,
+      })
+      throw new Error(`${path} failed with status ${response.status}`)
+    }
+
+    const payload = await response.json() as T
     stopTimer({
-      success: false,
+      success: true,
       status: response.status,
+      row_count: Array.isArray((payload as any)?.data) ? (payload as any).data.length : undefined,
     })
-    throw new Error(`${path} failed with status ${response.status}`)
-  }
+    return payload
+  })()
 
-  const payload = await response.json() as T
-  stopTimer({
-    success: true,
-    status: response.status,
-    row_count: Array.isArray((payload as any)?.data) ? (payload as any).data.length : undefined,
-  })
-  return payload
+  inflightWatcherRequests.set(requestKey, requestPromise)
+  try {
+    return await requestPromise
+  } finally {
+    inflightWatcherRequests.delete(requestKey)
+  }
 }
 
 function normalizeDailyRows(rows: any[]): ComputerDailyResponseRow[] {
@@ -163,6 +188,15 @@ function getLocalTodayDateString() {
 function rangeIncludesLocalToday(params: ComputerActivityRangeParams) {
   const today = getLocalTodayDateString()
   return params.startDate <= today && params.endDate >= today
+}
+
+function getInclusiveRangeDays(params: ComputerActivityRangeParams) {
+  const { startTs, endTs } = getRangeTimestamps(params)
+  return Math.max(1, Math.ceil((endTs - startTs + 1) / (1000 * 60 * 60 * 24)))
+}
+
+function shouldUseShortRangeNativeFallback(params: ComputerActivityRangeParams) {
+  return rangeIncludesLocalToday(params) && getInclusiveRangeDays(params) <= SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS
 }
 
 function shouldSupplementTodayFromLocal(
@@ -350,11 +384,12 @@ export async function getTopApps(
     }
   }
 
-  if (!rangeIncludesLocalToday(params)) {
+  if (!shouldUseShortRangeNativeFallback(params)) {
     const cached = appsCache.get(cacheKey) ?? []
     perfInfo('computer-activity-client', 'top-apps-historical-no-native-fallback', {
       cache_key: cacheKey,
       row_count: cached.length,
+      range_days: getInclusiveRangeDays(params),
     })
     stopTimer({
       success: true,
@@ -453,11 +488,12 @@ export async function getTopDomains(
     }
   }
 
-  if (!rangeIncludesLocalToday(params)) {
+  if (!shouldUseShortRangeNativeFallback(params)) {
     const cached = domainsCache.get(cacheKey) ?? []
     perfInfo('computer-activity-client', 'top-domains-historical-no-native-fallback', {
       cache_key: cacheKey,
       row_count: cached.length,
+      range_days: getInclusiveRangeDays(params),
     })
     stopTimer({
       success: true,
@@ -536,9 +572,7 @@ export async function getComputerTimeSummary(
       return summary
     }
 
-    const mergedDaily = await getComputerTimeDaily(params)
-    const mergedTotalActiveMs = mergedDaily.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0)
-    if (mergedTotalActiveMs <= totalActiveMs) {
+    if (!rangeIncludesLocalToday(params)) {
       stopTimer({
         success: true,
         source: 'backend',
@@ -547,22 +581,49 @@ export async function getComputerTimeSummary(
       return summary
     }
 
-    const mergedTotalEvents = mergedDaily.reduce((sum, row) => sum + Math.max(0, Number(row.events_count || 0)), 0)
-    const mergedDaysTracked = mergedDaily.filter((row) => Math.max(0, Number(row.active_ms || 0)) > 0).length
+    const today = getLocalTodayDateString()
+    const [backendTodayPayload, localTodayRows] = await Promise.allSettled([
+      fetchWatcherStatsJson<{ data?: any[] }>('/api/watcher/stats/daily', {
+        start_date: today,
+        end_date: today,
+      }),
+      invokeDailySummariesWithInitRetry(today, today),
+    ])
+
+    const backendTodayRows =
+      backendTodayPayload.status === 'fulfilled'
+        ? normalizeDailyRows(Array.isArray(backendTodayPayload.value?.data) ? backendTodayPayload.value.data : [])
+        : []
+    const localTodayNormalized =
+      localTodayRows.status === 'fulfilled'
+        ? normalizeDailyRows(localTodayRows.value)
+        : []
+
+    const backendTodayMs = backendTodayRows.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0)
+    const localTodayMs = localTodayNormalized.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0)
+    const supplementMs = Math.max(0, localTodayMs - backendTodayMs)
+
+    if (supplementMs <= 0) {
+      stopTimer({
+        success: true,
+        source: 'backend',
+        total_active_ms: summary.total_active_ms,
+      })
+      return summary
+    }
 
     const mergedSummary = {
       ...summary,
-      total_active_ms: mergedTotalActiveMs,
-      total_hours: mergedTotalActiveMs / (1000 * 60 * 60),
-      total_events: Math.max(summary.total_events || 0, mergedTotalEvents),
-      days_tracked: Math.max(summary.days_tracked || 0, mergedDaysTracked),
-      avg_daily_hours: mergedDaysTracked > 0 ? mergedTotalActiveMs / (1000 * 60 * 60) / mergedDaysTracked : 0,
+      total_active_ms: totalActiveMs + supplementMs,
+      total_hours: (totalActiveMs + supplementMs) / (1000 * 60 * 60),
       source: 'backend_plus_live_today',
     }
-    perfInfo('computer-activity-client', 'summary-merged-live-today', {
+    perfInfo('computer-activity-client', 'summary-merged-live-today-delta', {
       backend_total_active_ms: totalActiveMs,
+      backend_today_ms: backendTodayMs,
+      local_today_ms: localTodayMs,
+      supplement_ms: supplementMs,
       merged_total_active_ms: mergedSummary.total_active_ms,
-      merged_days_tracked: mergedSummary.days_tracked,
     })
     stopTimer({
       success: true,

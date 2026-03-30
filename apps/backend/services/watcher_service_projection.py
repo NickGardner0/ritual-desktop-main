@@ -186,6 +186,7 @@ async def _upsert_computer_use_projection_log_impl(
                 UPDATE habit_logs
                 SET amount = :amount,
                     duration = :duration,
+                    habit_name = :habit_name,
                     status = 'completed',
                     notes = :notes,
                     completed_at = :completed_at,
@@ -200,6 +201,7 @@ async def _upsert_computer_use_projection_log_impl(
                 "log_id": log_id,
                 "amount": amount,
                 "duration": duration_seconds,
+                "habit_name": habit_name,
                 "notes": notes,
                 "completed_at": now_iso,
                 "source": service.COMPUTER_USE_PROJECTION_SOURCE,
@@ -228,11 +230,11 @@ async def _upsert_computer_use_projection_log_impl(
         text(
             """
             INSERT INTO habit_logs (
-                id, habit_id, date, amount, duration, status, notes,
+                id, habit_id, habit_name, date, amount, duration, status, notes,
                 completed_at, source, source_id, dedupe_key, log_metadata
             )
             VALUES (
-                :id, :habit_id, :date, :amount, :duration, :status, :notes,
+                :id, :habit_id, :habit_name, :date, :amount, :duration, :status, :notes,
                 :completed_at, :source, :source_id, :dedupe_key, :log_metadata
             )
             """
@@ -240,6 +242,7 @@ async def _upsert_computer_use_projection_log_impl(
         {
             "id": new_log_id,
             "habit_id": habit_id,
+            "habit_name": habit_name,
             "date": day,
             "amount": amount,
             "duration": duration_seconds,

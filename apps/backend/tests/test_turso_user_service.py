@@ -43,6 +43,31 @@ class _FailingCommitReplica(_SQLiteReplica):
         return super().commit()
 
 
+class _TimeoutReplica(_SQLiteReplica):
+    should_fail_once = True
+
+    def execute(self, *args, **kwargs):
+        if _TimeoutReplica.should_fail_once and str(args[0]).startswith("INSERT OR IGNORE INTO"):
+            _TimeoutReplica.should_fail_once = False
+            raise ValueError("sync error: http dispatch error: connection error: Operation timed out (os error 60)")
+        return super().execute(*args, **kwargs)
+
+
+class _SyncFailReplica:
+    remaining_failures = 1
+    sync_calls = 0
+
+    def __init__(self, path: str):
+        self.path = path
+
+    def sync(self):
+        _SyncFailReplica.sync_calls += 1
+        if _SyncFailReplica.remaining_failures > 0:
+            _SyncFailReplica.remaining_failures -= 1
+            raise ValueError('SqliteFailure(7, "wal_insert_frame failed")')
+        return None
+
+
 def _prepare_schema(path: str) -> None:
     conn = sqlite3.connect(path)
     try:
@@ -451,3 +476,182 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
                 conn.close()
 
         update_metadata.assert_awaited()
+
+    async def test_migrate_user_rows_retries_batch_after_timeout_write_failure(self):
+        service = TursoUserService()
+        target_user_id = "current-user"
+        source_user_id = "legacy-user"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = os.path.join(tmp, "activity.db")
+            target_path = os.path.join(tmp, "per-user.db")
+            _prepare_schema(source_path)
+            _prepare_schema(target_path)
+            _seed_rollout_user_source(source_path, source_user_id)
+            _TimeoutReplica.should_fail_once = True
+
+            user = SimpleNamespace(
+                id=target_user_id,
+                turso_db_name="ritual-user-current",
+                turso_db_url="libsql://ritual-user-current.turso.io",
+            )
+
+            with patch.object(
+                service,
+                "_mint_database_token",
+                AsyncMock(return_value="server-token"),
+            ), patch.object(
+                service,
+                "_update_user_turso_metadata",
+                AsyncMock(),
+            ) as update_metadata, patch.object(
+                service,
+                "is_rollout_gate_user",
+                return_value=False,
+            ), patch.object(
+                service,
+                "_open_remote_replica",
+                side_effect=lambda _replica_path, _sync_url, _token: _TimeoutReplica(target_path),
+            ):
+                await service._migrate_user_rows(
+                    user,
+                    source_user_id=source_user_id,
+                    source_db_path=source_path,
+                )
+
+            conn = sqlite3.connect(target_path)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM activity_events WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+            finally:
+                conn.close()
+
+        update_metadata.assert_awaited()
+
+    async def test_open_remote_replica_resets_local_cache_after_retryable_sync_failure(self):
+        service = TursoUserService()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "replica.db"
+            for suffix in ("", "-info", "-shm", "-wal"):
+                Path(f"{db_path}{suffix}").write_text("stale")
+
+            _SyncFailReplica.remaining_failures = 1
+            _SyncFailReplica.sync_calls = 0
+
+            with patch("services.turso_user_service.libsql.connect", side_effect=lambda *args, **kwargs: _SyncFailReplica(str(db_path))):
+                conn = service._open_remote_replica(
+                    db_path,
+                    "libsql://ritual-user-current.turso.io",
+                    "server-token",
+                )
+
+            self.assertIsInstance(conn, _SyncFailReplica)
+            self.assertEqual(_SyncFailReplica.sync_calls, 2)
+            for suffix in ("", "-info", "-shm", "-wal"):
+                self.assertFalse(Path(f"{db_path}{suffix}").exists())
+
+    async def test_open_remote_replica_retries_multiple_times_for_retryable_sync_failures(self):
+        service = TursoUserService()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "replica.db"
+            for suffix in ("", "-info", "-shm", "-wal"):
+                Path(f"{db_path}{suffix}").write_text("stale")
+
+            _SyncFailReplica.remaining_failures = 3
+            _SyncFailReplica.sync_calls = 0
+
+            with patch("services.turso_user_service.libsql.connect", side_effect=lambda *args, **kwargs: _SyncFailReplica(str(db_path))):
+                conn = service._open_remote_replica(
+                    db_path,
+                    "libsql://ritual-user-current.turso.io",
+                    "server-token",
+                )
+
+            self.assertIsInstance(conn, _SyncFailReplica)
+            self.assertEqual(_SyncFailReplica.sync_calls, 4)
+
+    async def test_import_user_database_builds_seed_and_switches_metadata_only_after_verification(self):
+        service = TursoUserService()
+        target_user_id = "current-user"
+        source_user_id = "legacy-user"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = Path(tmp) / "activity.db"
+            _prepare_schema(str(source_path))
+            _seed_rollout_user_source(str(source_path), source_user_id)
+
+            user = SimpleNamespace(
+                id=target_user_id,
+                turso_db_name="ritual-user-current",
+                turso_db_url="libsql://ritual-user-current.turso.io",
+                turso_provisioned_at=None,
+            )
+
+            with patch.object(
+                service,
+                "_create_database",
+                AsyncMock(return_value={"Hostname": "imported-db.example.turso.io"}),
+            ) as create_database, patch.object(
+                service,
+                "_mint_database_token",
+                AsyncMock(return_value="upload-token"),
+            ), patch.object(
+                service,
+                "_upload_database_file",
+                AsyncMock(),
+            ) as upload_database, patch.object(
+                service,
+                "_verify_database_counts",
+                AsyncMock(
+                    return_value={
+                        "context_snapshots": {"source": 1, "target": 1},
+                        "session_retrieval_docs": {"source": 1, "target": 1},
+                        "context_sessions": {"source": 1, "target": 1},
+                        "activity_events": {"source": 1, "target": 1},
+                        "afk_events": {"source": 0, "target": 0},
+                    }
+                ),
+            ), patch.object(
+                service,
+                "_update_user_turso_metadata",
+                AsyncMock(),
+            ) as update_metadata, patch.object(
+                service,
+                "is_rollout_gate_user",
+                return_value=False,
+            ):
+                await service._import_user_database(
+                    user,
+                    source_user_id=source_user_id,
+                    source_db_path=source_path,
+                )
+
+            create_database.assert_awaited()
+            upload_database.assert_awaited()
+            update_metadata.assert_awaited()
+            uploaded_seed_path = upload_database.await_args.args[2]
+            conn = sqlite3.connect(uploaded_seed_path)
+            try:
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM activity_events WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM context_snapshots WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+            finally:
+                conn.close()

@@ -1177,10 +1177,12 @@ export function MetricsView({
 
     const now = new Date();
     const hasExplicitRange = !!(dateRange?.from && dateRange?.to);
-    // Cap default computer activity to 180 days to avoid slow queries on large DBs
-    const startDate = format(hasExplicitRange ? dateRange!.from! : subDays(now, 180), 'yyyy-MM-dd');
+    // Keep the background computer-activity sparkline range bounded so it does not
+    // trigger very large daily-series fetches during initial Metrics paint.
+    const startDate = format(hasExplicitRange ? dateRange!.from! : subDays(now, 90), 'yyyy-MM-dd');
     const endDate = format(hasExplicitRange ? dateRange!.to! : now, 'yyyy-MM-dd');
     const controller = new AbortController();
+    let fetchTimer: ReturnType<typeof setTimeout> | null = null;
 
     const fetchComputerActivity = async () => {
       const stopTimer = startPerfTimer('metrics-view', 'fetch-computer-activity-daily', {
@@ -1220,9 +1222,12 @@ export function MetricsView({
       }
     };
 
-    fetchComputerActivity();
+    fetchTimer = setTimeout(fetchComputerActivity, hasExplicitRange ? 0 : 250);
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (fetchTimer) clearTimeout(fetchTimer);
+    };
   }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), isUserLoaded, user?.id]);
 
   useEffect(() => {
