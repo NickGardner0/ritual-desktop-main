@@ -14,6 +14,8 @@
     "dev:backend": "cd apps/backend && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
     "typecheck": "cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' tsc --noEmit --pretty false",
     "test:dashboard:snapshots": "node --test apps/dashboard/tests/weekly-overview-utils.test.mjs",
+    "test:dashboard:orchestrator": "node --test apps/dashboard/tests/chat-stream-orchestrator.test.mjs",
+    "test:dashboard": "node --test apps/dashboard/tests/*.test.mjs",
     "contracts:build": "npm run --workspace @ritual/shared-contracts build",
     "contracts:typecheck": "npm run --workspace @ritual/shared-contracts typecheck",
     "dev:webpack": "cd apps/dashboard && next dev -p 3000",

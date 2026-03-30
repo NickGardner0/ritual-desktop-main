@@ -2,7 +2,7 @@
 
 import React, { startTransition, useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { useQuery, useMutation, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { Download, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
+import { LogDetailPanel } from '@/components/tables/habit-logs/log-detail-panel';
 import { HabitLogsSearchFilter } from '@/components/habit-logs-search-filter';
 import { HabitLogsActions } from '@/components/habit-logs-actions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -217,7 +218,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const [density, setDensity] = useState<TableDensity>(() => readDensityFromStorage(densityStorageKey));
   const [savedViews, setSavedViews] = useState<SavedFilterView[]>(() => readSavedViewsFromStorage(savedViewsStorageKey));
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(0);
+  const [detailLog, setDetailLog] = useState<HabitLog | null>(null);
   const [localEdits, setLocalEdits] = useState<Record<string, Partial<HabitLog>>>({});
   const [updatingLogIds, setUpdatingLogIds] = useState<Record<string, boolean>>({});
 
@@ -280,8 +281,8 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Build query params from filters
-  const queryParams = useMemo(() => {
+  // Build base query params from filters (no offset — managed by infinite query)
+  const filterParamsKey = useMemo(() => {
     const params = new URLSearchParams();
 
     if (filters.q) params.set('q', filters.q);
@@ -295,24 +296,51 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       params.set('sort', sortColumn);
       params.set('order', sortDirection);
     }
-    params.set('limit', String(LOGS_PAGE_SIZE));
-    params.set('offset', String(currentPage * LOGS_PAGE_SIZE));
 
     return params.toString();
-  }, [currentPage, filters, sortColumn, sortDirection]);
+  }, [filters, sortColumn, sortDirection]);
 
-  // Fetch habit logs with filters
-  const { data: logsData, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['habit-logs', userId, queryParams],
-    queryFn: async () => {
-      const res = await fetch(`/api/analytics/habits/logs/all?${queryParams}`);
+  // Fetch habit logs with infinite scroll
+  const {
+    data: infiniteData,
+    isLoading,
+    isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteQuery({
+    queryKey: ['habit-logs', userId, filterParamsKey],
+    queryFn: async ({ pageParam = 0 }) => {
+      const params = new URLSearchParams(filterParamsKey);
+      params.set('limit', String(LOGS_PAGE_SIZE));
+      params.set('offset', String(pageParam));
+      const res = await fetch(`/api/analytics/habits/logs/all?${params.toString()}`);
       if (!res.ok) throw new Error('Failed to fetch logs');
       return res.json();
     },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const meta = lastPage?.meta || {};
+      if (meta.hasMore) {
+        return allPages.length * LOGS_PAGE_SIZE;
+      }
+      return undefined;
+    },
     enabled: !!userId,
     staleTime: 30 * 1000,
-    placeholderData: keepPreviousData,
   });
+
+  // Flatten infinite pages into a single data shape for compatibility
+  const logsData = useMemo(() => {
+    if (!infiniteData?.pages?.length) return null;
+    const firstPage = infiniteData.pages[0];
+    const allData = infiniteData.pages.flatMap((page) => page?.data || []);
+    return {
+      data: allData,
+      meta: firstPage?.meta || {},
+    };
+  }, [infiniteData]);
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -442,10 +470,6 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
 
   const scopedLogs = logs;
   const logsMeta = logsData?.meta || {};
-  const totalFilteredLogs = Number(logsMeta.totalFiltered || scopedLogs.length || 0);
-  const pageLimit = Number(logsMeta.limit || LOGS_PAGE_SIZE);
-  const hasMoreLogs = Boolean(logsMeta.hasMore);
-  const totalPages = Math.max(1, Math.ceil(totalFilteredLogs / Math.max(pageLimit, 1)));
 
   // Extract unique categories from habits
   const categories = useMemo(() => {
@@ -464,6 +488,11 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     });
     return Array.from(srcs).sort((a, b) => a.localeCompare(b));
   }, [scopedLogs]);
+
+  const sourceOptions = useMemo(() => {
+    const unique = new Set<string>(['manual', ...sources]);
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [sources]);
 
   // Check if any filters are active
   const hasFilters = useMemo(() => {
@@ -489,14 +518,12 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   // Handle filter changes
   const handleFilterChange = useCallback((newFilters: Partial<FilterState>) => {
     setActiveViewId(null);
-    setCurrentPage(0);
     setFilters((prev) => ({ ...prev, ...newFilters }));
   }, []);
 
   // Handle sort changes
   const handleSort = useCallback((column: string) => {
     setActiveViewId(null);
-    setCurrentPage(0);
 
     if (sortColumn === column) {
       if (sortDirection === 'asc') {
@@ -513,7 +540,6 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
 
   const applyBuiltInPreset = useCallback((presetId: BuiltInFilterPresetId) => {
     const nextFilters = getFiltersForPreset(presetId);
-    setCurrentPage(0);
     setFilters(cloneFilters(nextFilters));
     setSortColumn('date');
     setSortDirection('desc');
@@ -524,7 +550,6 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     const view = savedViews.find((candidate) => candidate.id === viewId);
     if (!view) return;
 
-    setCurrentPage(0);
     setFilters(cloneFilters(view.filters));
     setSortColumn(view.sortColumn);
     setSortDirection(view.sortDirection);
@@ -756,42 +781,26 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
           onSort={handleSort}
           hasFilters={hasScopedFilters}
           totals={totals}
-          isLoading={isLoading || isFetching}
+          isLoading={isLoading || (isFetching && !isFetchingNextPage)}
           availableSources={sources}
           onQuickEdit={handleQuickEdit}
           updatingLogIds={updatingLogIds}
           density={density}
+          onRowClick={setDetailLog}
+          onLoadMore={() => fetchNextPage()}
+          hasMore={hasNextPage}
+          isFetchingMore={isFetchingNextPage}
         />
       </div>
 
-      {totalFilteredLogs > pageLimit && (
-        <div className="flex items-center justify-between px-6 py-4 text-sm text-neutral-600">
-          <div>
-            Showing {currentPage * pageLimit + 1}-{Math.min((currentPage * pageLimit) + scopedLogs.length, totalFilteredLogs)} of {totalFilteredLogs}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
-              disabled={currentPage === 0 || isFetching}
-              className="h-8 rounded-sm border border-black/10 px-3 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <div className="min-w-[88px] text-center">
-              Page {currentPage + 1} of {totalPages}
-            </div>
-            <button
-              type="button"
-              onClick={() => setCurrentPage((page) => (hasMoreLogs ? page + 1 : page))}
-              disabled={!hasMoreLogs || isFetching}
-              className="h-8 rounded-sm border border-black/10 px-3 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <LogDetailPanel
+        log={detailLog}
+        open={detailLog !== null}
+        onClose={() => setDetailLog(null)}
+        onQuickEdit={handleQuickEdit}
+        isUpdating={detailLog ? Boolean(updatingLogIds[detailLog.id]) : false}
+        availableSources={sourceOptions}
+      />
 
       <AnimatePresence>
         {selectedCount > 0 && (
