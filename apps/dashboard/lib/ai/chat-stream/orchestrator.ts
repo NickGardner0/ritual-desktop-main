@@ -120,12 +120,18 @@ async function executeSearchScreenRecordings(
   );
 }
 
+// Singleton OpenAI client — reuses TCP/TLS connections across requests
+// instead of paying ~1-2s cold handshake per request.
+let _openaiClient: OpenAI | null = null;
+
 function getOpenAIClient(): OpenAI {
+  if (_openaiClient) return _openaiClient;
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not configured');
   }
-  return new OpenAI({ apiKey });
+  _openaiClient = new OpenAI({ apiKey });
+  return _openaiClient;
 }
 
 function buildCanvasToolPayload(toolResults: ChatToolResults): Record<string, unknown> | null {
@@ -433,28 +439,36 @@ function collectToolResult(toolResults: ChatToolResults, name: string, raw: stri
 export async function handleChatStreamPost(req: NextRequest) {
   const t0 = performance.now();
   try {
-    // Auth
+    // Auth — fast path: if the client (Tauri) sends a Bearer token, use it
+    // directly and skip the ~2s Clerk session validation round trip.
+    // Only fall back to Clerk's auth() when no header token is provided
+    // (e.g. browser requests relying on cookies).
     const authHeader = req.headers.get('Authorization');
     const headerToken = authHeader?.startsWith('Bearer ')
       ? authHeader.substring(7)
       : null;
     let token: string | null = null;
-    
-    try {
-      const authResult = await auth();
-      // Always prefer a fresh server-side Clerk token when available.
-      if (authResult.userId) {
-        const freshToken = await authResult.getToken();
-        token = freshToken || headerToken;
-      } else {
-        token = headerToken;
-      }
-    } catch {
+
+    if (headerToken) {
+      // Fast path: pre-validated bearer token from Tauri client
       token = headerToken;
+      console.log(`⏱️ [${elapsed(t0)}] Auth fast-path (bearer token)`);
+    } else {
+      // Slow path: Clerk session validation (browser/cookie-based requests)
+      try {
+        const authResult = await auth();
+        if (authResult.userId) {
+          const freshToken = await authResult.getToken();
+          token = freshToken || null;
+        }
+      } catch {
+        // Clerk unavailable — no token
+      }
+      console.log(`⏱️ [${elapsed(t0)}] Auth slow-path (Clerk)`);
     }
 
     if (!token) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401, headers: { 'Content-Type': 'application/json' }
       });
     }
