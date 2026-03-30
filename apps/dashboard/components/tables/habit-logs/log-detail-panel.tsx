@@ -89,7 +89,7 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-3 border-b border-[#e6e6e6]/60">
+    <div className="flex items-start justify-between gap-4 py-3 border-b border-border/60">
       <span className="text-[13px] font-medium text-neutral-500 shrink-0">{label}</span>
       <div className="text-right min-w-0">{children}</div>
     </div>
@@ -133,9 +133,9 @@ export function LogDetailPanel({
     <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-[420px] overflow-y-auto p-0 border-l border-[#e6e6e6]"
+        className="w-full sm:max-w-[420px] overflow-y-auto p-0 border-l border-border"
       >
-        <SheetHeader className="px-6 pt-6 pb-4 border-b border-[#e6e6e6]/60">
+        <SheetHeader className="px-6 pt-6 pb-4 border-b border-border/60">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <SheetTitle className="text-[18px] font-medium text-neutral-900 truncate">

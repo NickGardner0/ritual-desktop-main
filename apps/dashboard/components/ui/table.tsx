@@ -40,7 +40,7 @@ const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
 >(({ className, ...props }, ref) => (
-  <thead ref={ref} className={cn("[&_tr]:border-b [&_tr]:border-gray-300", className)} {...props} />
+  <thead ref={ref} className={cn("[&_tr]:border-b [&_tr]:border-border", className)} {...props} />
 ))
 TableHeader.displayName = "TableHeader"
 
@@ -75,7 +75,7 @@ const TableRow = React.forwardRef<
   HTMLTableRowElement,
   React.HTMLAttributes<HTMLTableRowElement>
 >(({ className, ...props }, ref) => (
-  <tr ref={ref} className={cn("border-b border-gray-300", className)} {...props} />
+  <tr ref={ref} className={cn("border-b border-border", className)} {...props} />
 ))
 TableRow.displayName = "TableRow"
 
@@ -86,7 +86,7 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      "h-12 px-4 text-left align-middle text-[#666666] font-medium [&:has([role=checkbox])]:px-0 border-r border-gray-300 last:border-r-0 w-auto",
+      "h-12 px-4 text-left align-middle text-[#666666] font-medium [&:has([role=checkbox])]:px-0 border-r border-border last:border-r-0 w-auto",
       className
     )}
     {...props}
@@ -101,7 +101,7 @@ const TableCell = React.forwardRef<
   <td
     ref={ref}
     className={cn(
-      "px-4 py-2 align-middle [&:has([role=checkbox])]:px-0 border-r border-gray-300 last:border-r-0",
+      "px-4 py-2 align-middle [&:has([role=checkbox])]:px-0 border-r border-border last:border-r-0",
       className
     )}
     {...props}
@@ -470,7 +470,7 @@ export default function DataTableDemo() {
                     onClick={() => column.toggleVisibility(!column.getIsVisible())}
                   >
                     <div
-                      className={`w-4 h-4 border border-gray-300 rounded-sm flex items-center justify-center ${column.getIsVisible() ? "bg-black" : "bg-white"}`}
+                      className={`w-4 h-4 border border-border rounded-sm flex items-center justify-center ${column.getIsVisible() ? "bg-black" : "bg-white"}`}
                     >
                       {column.getIsVisible() && (
                         <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -489,16 +489,16 @@ export default function DataTableDemo() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="border border-gray-300 bg-white rounded-none">
+      <div className="border border-border bg-white rounded-none">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="border-b border-gray-300">
+              <TableRow key={headerGroup.id} className="border-b border-border">
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead
                       key={header.id}
-                      className="text-muted-foreground font-medium border-r border-gray-300 last:border-r-0"
+                      className="text-muted-foreground font-medium border-r border-border last:border-r-0"
                     >
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
@@ -513,10 +513,10 @@ export default function DataTableDemo() {
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className="border-b border-gray-300 hover:bg-muted/50"
+                  className="border-b border-border hover:bg-muted/50"
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="py-3 border-r border-gray-300 last:border-r-0">
+                    <TableCell key={cell.id} className="py-3 border-r border-border last:border-r-0">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}

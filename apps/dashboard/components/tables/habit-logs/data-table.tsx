@@ -207,7 +207,6 @@ const COLUMNS: ColumnConfig[] = [
 ];
 
 const LEFT_STICKY_COLUMNS: string[] = ['select', 'date'];
-const TABLE_BORDER_CLASS = 'border-[#e6e6e6]';
 
 function readStoredColumnWidths(): Record<string, number> {
   if (typeof window === 'undefined') {
@@ -936,10 +935,7 @@ export function HabitLogsDataTable({
         )}
         <div
           ref={scrollViewportRef}
-          className={cn(
-            'flex-1 min-h-0 overflow-auto overscroll-x-none rounded-sm border bg-white shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] scrollbar-hide',
-            TABLE_BORDER_CLASS,
-          )}
+          className="flex-1 min-h-0 overflow-auto overscroll-x-none rounded-sm border border-border bg-white shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] scrollbar-hide"
         >
           <table className="w-max min-w-full table-fixed border-separate border-spacing-0 caption-bottom text-sm">
             <colgroup>
@@ -954,7 +950,7 @@ export function HabitLogsDataTable({
               onDragEnd={handleColumnDragEnd}
             >
               <TableHeader className="sticky top-0 z-20 border-0 bg-white">
-                <TableRow className={cn('hover:bg-transparent', TABLE_BORDER_CLASS, tableHeaderHeight)}>
+                <TableRow className={cn('hover:bg-transparent border-0', tableHeaderHeight)}>
                   <SortableContext
                     items={visibleColumns.map((c) => c.id)}
                     strategy={horizontalListSortingStrategy}
@@ -971,9 +967,7 @@ export function HabitLogsDataTable({
                           key={column.id}
                           columnId={column.id}
                           className={cn(
-                            'relative border-b border-r-0 bg-white text-neutral-500 last:border-r-0',
-                            'after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-[#e6e6e6] last:after:hidden',
-                            TABLE_BORDER_CLASS,
+                            'relative border-b border-r border-border bg-white text-neutral-500 last:border-r-0',
                             headerCellPadding,
                             getAlignmentClass(column.align),
                             stickyClass,
@@ -1014,7 +1008,7 @@ export function HabitLogsDataTable({
                               className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                               aria-label={`Resize ${column.label} column`}
                             >
-                              <span className={cn('absolute left-1/2 top-0 h-full w-px -translate-x-1/2', 'bg-[#e6e6e6]')} />
+                              <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border" />
                             </button>
                           )}
                         </SortableHeaderCell>
@@ -1041,8 +1035,7 @@ export function HabitLogsDataTable({
                     key={log.id}
                     data-index={virtualRow.index}
                     className={cn(
-                      'group cursor-default select-text',
-                      TABLE_BORDER_CLASS,
+                      'group cursor-default select-text border-0',
                       tableRowHeight,
                       'absolute left-0 w-full',
                     )}
@@ -1077,9 +1070,7 @@ export function HabitLogsDataTable({
 
                       const cellClassName = cn(
                         bodyCellPadding,
-                        'relative border-b border-r-0 last:border-r-0',
-                        'after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-[#e6e6e6] last:after:hidden',
-                        TABLE_BORDER_CLASS,
+                        'border-b border-r border-border last:border-r-0',
                         getAlignmentClass(column.align),
                         stickyClass,
                         cellBgClass,
