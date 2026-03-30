@@ -24,6 +24,22 @@ export function isContextMemoryRecapQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return false;
 
+  const specificLookupPatterns = [
+    'what was i doing in ',
+    'what did i do in ',
+    'what was i working on in ',
+    'what was i debugging in ',
+    'when did i ',
+    'find when i ',
+    'show me when ',
+    'what apps did i use at ',
+    'what was i looking at in ',
+  ];
+
+  if (specificLookupPatterns.some((pattern) => normalized.includes(pattern))) {
+    return false;
+  }
+
   const explicitPatterns = [
     'what did i work on',
     'what was i working on',
@@ -58,7 +74,11 @@ export function isContextMemoryRecapQuery(text: string): boolean {
     parseExplicitRecapAnchorDate(normalized) !== null ||
     /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(normalized);
 
-  return hasWorkVerb && hasContextTarget;
+  const scopedQuery =
+    /\bin\s+(cursor|codex|chrome|google chrome|slack|paper|finder|terminal|things|gmail|mail|safari|arc|claude)\b/.test(normalized)
+    || /\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)\b/.test(normalized);
+
+  return hasWorkVerb && hasContextTarget && !scopedQuery;
 }
 
 export function isComprehensiveWeeklyRecapQuery(text: string): boolean {

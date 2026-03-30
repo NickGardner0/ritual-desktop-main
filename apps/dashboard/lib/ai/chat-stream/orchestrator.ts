@@ -314,10 +314,34 @@ async function dispatchToolCall(
     case 'getComputerTimeSpentBreakdown':
       return executeGetComputerTimeSpentBreakdown(token, a, ctx.normalizedScreenSearchContext, ctx.timezone);
     case 'getActivitySummary':
-      return executeGetActivitySummary(token, {
+      {
+        const result = await executeGetActivitySummary(token, {
         ...a,
         query: chooseScreenSearchQuery(a?.query, ctx.latestUserContent),
-      }, ctx.normalizedScreenSearchContext, ctx.timezone);
+        }, ctx.normalizedScreenSearchContext, ctx.timezone);
+        try {
+          const parsed = JSON.parse(result);
+          if (parsed.success) {
+            return JSON.stringify({
+              success: parsed.success,
+              query: parsed.query,
+              intent_resolved: parsed.intent_resolved,
+              retrieval_tier: parsed.retrieval_tier,
+              story_plan: parsed.story_plan || null,
+              semantic_work_items: Array.isArray(parsed.semantic_work_items)
+                ? parsed.semantic_work_items
+                : [],
+              citations: Array.isArray(parsed.citations) ? parsed.citations : [],
+              citations_count: parsed.citations_count,
+              time_truth: parsed.time_truth || null,
+              confidence: parsed.confidence || null,
+              freshness: parsed.freshness || null,
+              calendar_style_summary: parsed.calendar_style_summary || null,
+            });
+          }
+        } catch (e) { console.warn('⚠️ Activity summary trim error:', e); }
+        return result;
+      }
     case 'getDailyBiometrics':
       return executeGetDailyBiometrics(token, a, ctx.timezone);
     case 'getScreenTimeSummary':
@@ -554,7 +578,7 @@ export async function handleChatStreamPost(req: NextRequest) {
     const deterministicFastPath =
       !isVoiceMode &&
       forcedToolName &&
-      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'getActivitySummary'].includes(forcedToolName);
+      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview'].includes(forcedToolName);
 
     if (deterministicFastPath) {
       console.log(`⚡ [${elapsed(t0)}] Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
@@ -763,11 +787,7 @@ export async function handleChatStreamPost(req: NextRequest) {
         toolResults.dailyOverview?.success ||
         toolResults.monthlyOverview?.success ||
         toolResults.weeklyOverview?.success;
-      const hasTextOverride =
-        (typeof toolResults.activitySummary?.rich_activity_summary === 'string'
-          && toolResults.activitySummary.rich_activity_summary.trim().length > 0) ||
-        (typeof toolResults.activitySummary?.calendar_style_summary === 'string'
-          && toolResults.activitySummary.calendar_style_summary.trim().length > 0);
+      const hasTextOverride = false;
       const canStreamSynthesis = !isVoiceMode && !hasNarrativeOverride && !hasTextOverride;
 
       console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} start (stream=${canStreamSynthesis})`);
@@ -927,19 +947,6 @@ export async function handleChatStreamPost(req: NextRequest) {
       };
     } else {
       // Pre-built text overrides (activity summaries) or plain OpenAI response
-      if (
-        !isVoiceMode
-        && typeof toolResults.activitySummary?.rich_activity_summary === 'string'
-        && toolResults.activitySummary.rich_activity_summary.trim().length > 0
-      ) {
-        finalText = toolResults.activitySummary.rich_activity_summary.trim();
-      } else if (
-        !isVoiceMode
-        && typeof toolResults.activitySummary?.calendar_style_summary === 'string'
-        && toolResults.activitySummary.calendar_style_summary.trim().length > 0
-      ) {
-        finalText = toolResults.activitySummary.calendar_style_summary.trim();
-      }
       streamSource = { type: 'complete', text: finalText };
     }
 
