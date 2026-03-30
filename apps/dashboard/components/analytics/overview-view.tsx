@@ -23,6 +23,8 @@ import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
 import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
 import { getComputerTimeDaily } from '@/lib/computerActivity/client';
+import { auditLocalStorage, perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
+import { isTauri } from '@/lib/tauri-utils';
 
 const DateRangePicker = dynamic(
   () => import("@/components/date-range-picker").then(m => ({ default: m.DateRangePicker })),
@@ -170,6 +172,8 @@ export function OverviewView({
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
   const [computerActivityResolved, setComputerActivityResolved] = useState(false);
   const lastGoodComputerActivityRef = useRef<ComputerDailyRow[]>([]);
+  const firstUsablePaintLoggedRef = useRef(false);
+  const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
 
   const overviewStatsCacheKey = useMemo(() => {
@@ -241,11 +245,31 @@ export function OverviewView({
   }, []);
 
   useEffect(() => {
+    perfInfo('overview-view', 'mount', {
+      is_tauri: typeof window !== 'undefined' ? isTauri() : false,
+      has_date_range: Boolean(dateRange?.from),
+    });
+  }, []);
+
+  useEffect(() => {
+    auditLocalStorage(
+      'overview-view',
+      [overviewStatsCacheKey, overviewComputerCacheKey, 'ritual:react-query-cache:v1'].filter(
+        (key): key is string => Boolean(key),
+      ),
+    );
+  }, [overviewComputerCacheKey, overviewStatsCacheKey]);
+
+  useEffect(() => {
     if (dateRange?.from) return;
     if (!overviewStatsCacheKey) return;
 
     const restored = readOverviewStatsCache(overviewStatsCacheKey);
     if (Object.keys(restored).length > 0) {
+      perfInfo('overview-view', 'restore-stats-cache', {
+        cache_key: overviewStatsCacheKey,
+        stat_count: Object.keys(restored).length,
+      });
       setCachedStats(restored);
     }
   }, [dateRange?.from, overviewStatsCacheKey]);
@@ -264,6 +288,10 @@ export function OverviewView({
 
     const restored = readOverviewComputerCache(overviewComputerCacheKey);
     if (restored.length > 0) {
+      perfInfo('overview-view', 'restore-computer-cache', {
+        cache_key: overviewComputerCacheKey,
+        row_count: restored.length,
+      });
       setComputerActivityDaily(restored);
       lastGoodComputerActivityRef.current = restored;
     }
@@ -274,11 +302,18 @@ export function OverviewView({
     const fetchStats = async () => {
       if (!habits.length) return;
 
+      const stopTimer = startPerfTimer('overview-view', 'fetch-stats', {
+        habit_count: habits.length,
+        has_date_range: Boolean(dateRange?.from),
+      });
       try {
         setStatsResolved(false);
         setStatsLoading(true);
         const token = await getToken();
-        if (!token) return;
+        if (!token) {
+          stopTimer({ skipped: 'missing-token' });
+          return;
+        }
 
         const params: { startDate?: string; endDate?: string; daysBack?: number } = {};
         if (dateRange?.from) {
@@ -311,9 +346,23 @@ export function OverviewView({
               }),
             );
           }
+
+          stopTimer({
+            success: true,
+            stats_count: result.habits.length,
+            cache_written: !dateRange?.from,
+          });
+        } else {
+          stopTimer({ success: false, reason: 'empty-result' });
         }
       } catch (error) {
-        console.error('❌ Failed to fetch stats from Python API:', error);
+        perfError('overview-view', 'fetch-stats-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        stopTimer({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       } finally {
         setStatsLoading(false);
         setStatsResolved(true);
@@ -330,6 +379,9 @@ export function OverviewView({
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
     const fetchComputerActivity = async () => {
+      const stopTimer = startPerfTimer('overview-view', 'fetch-computer-activity', {
+        has_date_range: Boolean(dateRange?.from),
+      });
       try {
         setComputerActivityResolved(false);
         const now = new Date();
@@ -373,9 +425,21 @@ export function OverviewView({
             }),
           );
         }
+        stopTimer({
+          success: true,
+          row_count: normalizedRows.length,
+          meaningful_rows: hasMeaningfulRows,
+          used_last_good_rows: !hasMeaningfulRows && rowsToPersist.length > 0,
+        });
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error('❌ Failed loading overview computer activity:', error);
+        perfError('overview-view', 'fetch-computer-activity-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        stopTimer({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       } finally {
         if (!controller.signal.aborted) {
           setComputerActivityResolved(true);
@@ -392,6 +456,28 @@ export function OverviewView({
       }
     };
   }, [computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
+
+  useEffect(() => {
+    if (firstUsablePaintLoggedRef.current) return;
+    if (isLoading || statsLoading || !computerActivityResolved) return;
+    if (habits.length === 0 && effectiveComputerActivityDaily.length === 0) return;
+
+    firstUsablePaintLoggedRef.current = true;
+    const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    perfInfo('overview-view', 'first-usable-paint', {
+      duration_ms: Number((end - mountTimeRef.current).toFixed(2)),
+      habit_count: habits.length,
+      stats_count: Object.keys(effectiveCachedStats).length,
+      computer_rows: effectiveComputerActivityDaily.length,
+    });
+  }, [
+    computerActivityResolved,
+    effectiveCachedStats,
+    effectiveComputerActivityDaily,
+    habits.length,
+    isLoading,
+    statsLoading,
+  ]);
 
   // Initialize ordered habits
   useEffect(() => {

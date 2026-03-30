@@ -7,18 +7,20 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
+  const startedAt = Date.now();
+  const searchParams = request.nextUrl.searchParams;
+  const queryString = searchParams.toString();
   try {
     const { userId, getToken } = await auth();
 
     if (!userId) {
+      console.warn("[Ritual][watcher-proxy][top-domains] unauthorized", {
+        duration_ms: Date.now() - startedAt,
+      });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const token = await getToken();
-    
-    // Forward query params
-    const searchParams = request.nextUrl.searchParams;
-    const queryString = searchParams.toString();
     const url = `${BACKEND_URL}/api/watcher/stats/top-domains${queryString ? `?${queryString}` : ""}`;
 
     const response = await fetch(url, {
@@ -30,6 +32,11 @@ export async function GET(request: NextRequest) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.warn("[Ritual][watcher-proxy][top-domains] backend-error", {
+        duration_ms: Date.now() - startedAt,
+        status: response.status,
+        query: Object.fromEntries(searchParams.entries()),
+      });
       return NextResponse.json(
         { error: errorData.detail || "Failed to fetch top domains" },
         { status: response.status }
@@ -37,13 +44,23 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
+    console.info("[Ritual][watcher-proxy][top-domains] success", {
+      duration_ms: Date.now() - startedAt,
+      query: Object.fromEntries(searchParams.entries()),
+      row_count: Array.isArray(data?.data) ? data.data.length : 0,
+      source: Array.isArray(data?.data) && data.data.length > 0 ? data.data[0]?.source : undefined,
+    });
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },
     });
   } catch (error) {
-    console.error("Error fetching top domains:", error);
+    console.error("[Ritual][watcher-proxy][top-domains] exception", {
+      duration_ms: Date.now() - startedAt,
+      query: Object.fromEntries(searchParams.entries()),
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

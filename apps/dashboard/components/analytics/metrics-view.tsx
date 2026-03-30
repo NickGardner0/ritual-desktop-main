@@ -53,6 +53,12 @@ import {
   getHabitDisplayName,
   isComputerHabitName,
 } from '@/lib/computer-time-habit';
+import {
+  auditLocalStorage,
+  perfError,
+  perfInfo,
+  startPerfTimer,
+} from '@/lib/perf-debug';
 import type { TimeRangePreset } from '@/lib/computerActivity/contracts';
 import {
   Select,
@@ -516,8 +522,19 @@ export function MetricsView({
   const exportCardRef = useRef<HTMLDivElement>(null);
   const shareObjectUrlRef = useRef<string | null>(null);
   const backfillAttempted = useRef(false);
+  const metricsMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const metricsFirstUsablePaintLoggedRef = useRef(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    perfInfo('metrics-view', 'mount', {
+      has_date_range: Boolean(dateRange?.from),
+      selected_habit_count: selectedHabits.length,
+      available_habit_count: availableHabits.length,
+    });
+    auditLocalStorage('metrics-view', ['ritual:react-query-cache:v1', CARD_ORDER_KEY]);
+  }, []);
   const [shareImageBlob, setShareImageBlob] = useState<Blob | null>(null);
   const [shareLabel, setShareLabel] = useState<string>('chart');
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -792,6 +809,11 @@ export function MetricsView({
     }
 
     const fetchCanonicalAnalytics = async () => {
+      const stopTimer = startPerfTimer('metrics-view', 'fetch-canonical-analytics', {
+        habit_count: habitsToFetch.length,
+        has_existing_data: Object.keys(analyticsData).length > 0,
+        use_wide_range: !dateRange?.from || !dateRange?.to,
+      });
       const hasExistingData = Object.keys(analyticsData).length > 0;
       if (!hasExistingData) {
         setLoading(true);
@@ -929,8 +951,17 @@ export function MetricsView({
 
         setAnalyticsData(dataByHabit);
         setSummaryMetrics(summaryMap);
+        stopTimer({
+          success: true,
+          source: 'tinybird_primary',
+          daily_rows: totalDailyRows,
+          habits_with_data: habitsWithData,
+          summary_rows: Object.keys(summaryMap).length,
+        });
       } catch (error) {
-        console.error('❌ Tinybird canonical analytics failed, falling back to Python:', error);
+        perfError('metrics-view', 'fetch-canonical-analytics-primary-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         try {
           const token = await getToken();
           if (!token) {
@@ -984,6 +1015,12 @@ export function MetricsView({
 
           setSummaryMetrics(fallbackSummaryMap);
           setAnalyticsData(fallbackDailyByHabit);
+          stopTimer({
+            success: true,
+            source: 'python_fallback',
+            summary_rows: Object.keys(fallbackSummaryMap).length,
+            daily_habits: Object.keys(fallbackDailyByHabit).length,
+          });
 
           if (!backfillAttempted.current) {
             backfillAttempted.current = true;
@@ -995,7 +1032,9 @@ export function MetricsView({
               .catch(err => console.warn('⚠️ Tinybird backfill failed (non-critical):', err));
           }
         } catch (fallbackError) {
-          console.error('❌ Python analytics fallback failed:', fallbackError);
+          perfError('metrics-view', 'fetch-canonical-analytics-fallback-failed', {
+            error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          });
           setAnalyticsData({});
           setSummaryMetrics({});
           setAnalyticsError(
@@ -1003,6 +1042,10 @@ export function MetricsView({
               ? fallbackError.message
               : 'Unable to load analytics metrics at the moment.',
           );
+          stopTimer({
+            success: false,
+            error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+          });
         }
       } finally {
         setLoading(false);
@@ -1040,6 +1083,10 @@ export function MetricsView({
     const controller = new AbortController();
 
     const fetchBarListAnalytics = async () => {
+      const stopTimer = startPerfTimer('metrics-view', 'fetch-bar-list-analytics', {
+        habit_count: habitsToFetch.length,
+        range: barListRange,
+      });
       try {
         const dailyParams = new URLSearchParams({
           output: 'daily',
@@ -1093,11 +1140,22 @@ export function MetricsView({
 
         setBarListAnalyticsData(nextDailyByHabit);
         setBarListSummaryMetrics(nextSummaryByHabit);
+        stopTimer({
+          success: true,
+          daily_habits: Object.keys(nextDailyByHabit).length,
+          summary_rows: Object.keys(nextSummaryByHabit).length,
+        });
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error('❌ Failed to load metrics bar-list analytics:', error);
+        perfError('metrics-view', 'fetch-bar-list-analytics-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         setBarListAnalyticsData({});
         setBarListSummaryMetrics({});
+        stopTimer({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     };
 
@@ -1125,6 +1183,10 @@ export function MetricsView({
     const controller = new AbortController();
 
     const fetchComputerActivity = async () => {
+      const stopTimer = startPerfTimer('metrics-view', 'fetch-computer-activity-daily', {
+        start_date: startDate,
+        end_date: endDate,
+      });
       try {
         const dailyRows: ComputerDailyRow[] = (await getComputerTimeDaily({ startDate, endDate }))
           .map((row) => ({
@@ -1141,10 +1203,20 @@ export function MetricsView({
         if (controller.signal.aborted) return;
 
         setComputerActivityDaily(dailyRows);
+        stopTimer({
+          success: true,
+          row_count: dailyRows.length,
+        });
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error('❌ Failed loading computer activity metrics:', error);
+        perfError('metrics-view', 'fetch-computer-activity-daily-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         setComputerActivityDaily([]);
+        stopTimer({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     };
 
@@ -1152,6 +1224,33 @@ export function MetricsView({
 
     return () => controller.abort();
   }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), isUserLoaded, user?.id]);
+
+  useEffect(() => {
+    if (metricsFirstUsablePaintLoggedRef.current) return;
+    if (queryLoading || loading) return;
+    if (
+      Object.keys(summaryMetrics).length === 0 &&
+      Object.keys(barListSummaryMetrics).length === 0 &&
+      computerActivityDaily.length === 0
+    ) {
+      return;
+    }
+
+    metricsFirstUsablePaintLoggedRef.current = true;
+    const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    perfInfo('metrics-view', 'first-usable-paint', {
+      duration_ms: Number((end - metricsMountTimeRef.current).toFixed(2)),
+      summary_rows: Object.keys(summaryMetrics).length,
+      bar_list_summary_rows: Object.keys(barListSummaryMetrics).length,
+      computer_daily_rows: computerActivityDaily.length,
+    });
+  }, [
+    barListSummaryMetrics,
+    computerActivityDaily.length,
+    loading,
+    queryLoading,
+    summaryMetrics,
+  ]);
 
 
 

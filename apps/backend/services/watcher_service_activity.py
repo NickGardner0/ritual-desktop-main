@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,37 @@ from services.watcher_service_local_db import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _perf_ms(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000, 2)
+
+
+def _log_activity_perf(
+    operation: str,
+    *,
+    start: float,
+    source: str,
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    limit: int,
+    row_count: int,
+    empty_reason: Optional[str] = None,
+) -> None:
+    payload: Dict[str, Any] = {
+        "operation": operation,
+        "source": source,
+        "user_id": user_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "limit": limit,
+        "row_count": row_count,
+        "duration_ms": _perf_ms(start),
+    }
+    if empty_reason:
+        payload["empty_reason"] = empty_reason
+    logger.info("[Ritual][computer-activity] %s", payload)
 
 
 async def record_activity_event_impl(
@@ -378,6 +410,7 @@ async def get_top_apps_impl(
     device_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get top apps by active time for a date range."""
+    perf_start = time.perf_counter()
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
@@ -412,7 +445,7 @@ async def get_top_apps_impl(
             ).fetchall()
 
             if rows:
-                return [
+                result = [
                     {
                         "app_bundle_id": row[0],
                         "app_name": row[1],
@@ -423,6 +456,17 @@ async def get_top_apps_impl(
                     }
                     for row in rows
                 ]
+                _log_activity_perf(
+                    "top_apps",
+                    start=perf_start,
+                    source="activity_db",
+                    user_id=user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                    row_count=len(result),
+                )
+                return result
 
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
@@ -461,7 +505,7 @@ async def get_top_apps_impl(
                 reverse=True,
             )[: max(1, int(limit or 10))]
 
-            return [
+            result = [
                 {
                     "app_bundle_id": item["app_bundle_id"],
                     "app_name": item["app_name"],
@@ -473,6 +517,17 @@ async def get_top_apps_impl(
                 }
                 for item in ranked
             ]
+            _log_activity_perf(
+                "top_apps",
+                start=perf_start,
+                source="local_dedup",
+                user_id=user_id,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                row_count=len(result),
+            )
+            return result
 
     tinybird_rows = await service._get_computer_activity_pipe_rows(
         user_id=user_id,
@@ -482,7 +537,7 @@ async def get_top_apps_impl(
         limit=limit,
     )
     if tinybird_rows:
-        return [
+        result = [
             {
                 "app_bundle_id": row.get("app_bundle_id"),
                 "app_name": row.get("app_name"),
@@ -494,6 +549,17 @@ async def get_top_apps_impl(
             }
             for row in tinybird_rows
         ]
+        _log_activity_perf(
+            "top_apps",
+            start=perf_start,
+            source="tinybird",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=len(result),
+        )
+        return result
 
     import sqlite3
 
@@ -501,6 +567,17 @@ async def get_top_apps_impl(
 
     if not os.path.exists(db_path):
         logger.info("Local watcher database not found at: %s", db_path)
+        _log_activity_perf(
+            "top_apps",
+            start=perf_start,
+            source="missing_local_db",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=0,
+            empty_reason="local_db_missing",
+        )
         return []
 
     try:
@@ -539,7 +616,7 @@ async def get_top_apps_impl(
             len(rows),
         )
 
-        return [
+        result = [
             {
                 "app_bundle_id": r[0],
                 "app_name": r[1],
@@ -549,8 +626,30 @@ async def get_top_apps_impl(
             }
             for r in rows
         ]
+        _log_activity_perf(
+            "top_apps",
+            start=perf_start,
+            source="local_sql",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=len(result),
+        )
+        return result
     except Exception as e:
         logger.warning("Error reading top apps from local DB: %s", e)
+        _log_activity_perf(
+            "top_apps",
+            start=perf_start,
+            source="local_sql_error",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=0,
+            empty_reason=str(e),
+        )
         return []
 
 
@@ -563,6 +662,7 @@ async def get_top_domains_impl(
     device_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get top domains by active time for a date range."""
+    perf_start = time.perf_counter()
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
@@ -598,7 +698,7 @@ async def get_top_domains_impl(
             ).fetchall()
 
             if rows:
-                return [
+                result = [
                     {
                         "domain": row[0],
                         "total_active_ms": int(row[1] or 0),
@@ -609,6 +709,17 @@ async def get_top_domains_impl(
                     }
                     for row in rows
                 ]
+                _log_activity_perf(
+                    "top_domains",
+                    start=perf_start,
+                    source="activity_db",
+                    user_id=user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                    row_count=len(result),
+                )
+                return result
 
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
@@ -644,7 +755,7 @@ async def get_top_domains_impl(
                 reverse=True,
             )[: max(1, int(limit or 10))]
 
-            return [
+            result = [
                 {
                     "domain": item["domain"],
                     "total_active_ms": int(item["total_active_ms"]),
@@ -656,6 +767,17 @@ async def get_top_domains_impl(
                 }
                 for item in ranked
             ]
+            _log_activity_perf(
+                "top_domains",
+                start=perf_start,
+                source="local_dedup",
+                user_id=user_id,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                row_count=len(result),
+            )
+            return result
 
     tinybird_rows = await service._get_computer_activity_pipe_rows(
         user_id=user_id,
@@ -665,7 +787,7 @@ async def get_top_domains_impl(
         limit=limit,
     )
     if tinybird_rows:
-        return [
+        result = [
             {
                 "domain": row.get("browser_domain"),
                 "total_active_ms": int(row.get("total_active_ms", 0) or 0),
@@ -677,6 +799,17 @@ async def get_top_domains_impl(
             }
             for row in tinybird_rows
         ]
+        _log_activity_perf(
+            "top_domains",
+            start=perf_start,
+            source="tinybird",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=len(result),
+        )
+        return result
 
     import sqlite3
 
@@ -684,6 +817,17 @@ async def get_top_domains_impl(
 
     if not os.path.exists(db_path):
         logger.info("Local watcher database not found at: %s", db_path)
+        _log_activity_perf(
+            "top_domains",
+            start=perf_start,
+            source="missing_local_db",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=0,
+            empty_reason="local_db_missing",
+        )
         return []
 
     try:
@@ -723,7 +867,7 @@ async def get_top_domains_impl(
             len(rows),
         )
 
-        return [
+        result = [
             {
                 "domain": r[0],
                 "total_active_ms": r[1],
@@ -733,8 +877,30 @@ async def get_top_domains_impl(
             }
             for r in rows
         ]
+        _log_activity_perf(
+            "top_domains",
+            start=perf_start,
+            source="local_sql",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=len(result),
+        )
+        return result
     except Exception as e:
         logger.warning("Error reading top domains from local DB: %s", e)
+        _log_activity_perf(
+            "top_domains",
+            start=perf_start,
+            source="local_sql_error",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=0,
+            empty_reason=str(e),
+        )
         return []
 
 

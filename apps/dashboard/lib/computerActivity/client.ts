@@ -6,6 +6,7 @@ import {
   invokeDetailedActivityWithInitRetry,
 } from './tauri-activity'
 import { normalizeComputerDailySummaryRow } from './normalize'
+import { perfError, perfInfo, perfWarn, startPerfTimer } from '@/lib/perf-debug'
 
 // Product rule:
 // - User-facing computer activity analytics should read from backend `/api/watcher/stats/*`
@@ -66,6 +67,12 @@ export interface AggregatedComputerStatsResponse {
   domains: TopDomainResponseRow[]
 }
 
+const DESKTOP_STATS_TIMEOUT_MS = 3500
+const summaryCache = new Map<string, ComputerSummaryResponse>()
+const dailyCache = new Map<string, ComputerDailyResponseRow[]>()
+const appsCache = new Map<string, TopAppResponseRow[]>()
+const domainsCache = new Map<string, TopDomainResponseRow[]>()
+
 function buildQueryString(params: Record<string, string | number | undefined>) {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -80,16 +87,48 @@ async function fetchWatcherStatsJson<T>(
   params: Record<string, string | number | undefined>,
 ): Promise<T> {
   const queryString = buildQueryString(params)
-  const response = await fetch(`${path}${queryString ? `?${queryString}` : ''}`, {
-    cache: 'no-store',
-    credentials: 'include',
+  const controller = new AbortController()
+  const timeoutMs = isTauri() ? DESKTOP_STATS_TIMEOUT_MS : 30000
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+  const stopTimer = startPerfTimer('computer-activity-client', 'watcher-stats-fetch', {
+    path,
+    params,
+    timeout_ms: timeoutMs,
   })
+  let response: Response
+
+  try {
+    response = await fetch(`${path}${queryString ? `?${queryString}` : ''}`, {
+      cache: 'no-store',
+      credentials: 'include',
+      signal: controller.signal,
+    })
+  } catch (error) {
+    stopTimer({
+      success: false,
+      aborted: controller.signal.aborted,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 
   if (!response.ok) {
+    stopTimer({
+      success: false,
+      status: response.status,
+    })
     throw new Error(`${path} failed with status ${response.status}`)
   }
 
-  return response.json() as Promise<T>
+  const payload = await response.json() as T
+  stopTimer({
+    success: true,
+    status: response.status,
+    row_count: Array.isArray((payload as any)?.data) ? (payload as any).data.length : undefined,
+  })
+  return payload
 }
 
 function normalizeDailyRows(rows: any[]): ComputerDailyResponseRow[] {
@@ -153,9 +192,21 @@ function mergeTodayRow(
     .sort((a, b) => a.day.localeCompare(b.day))
 }
 
+function getRangeCacheKey(
+  prefix: string,
+  params: ComputerActivityRangeParams,
+  limit?: number,
+) {
+  return `${prefix}:${params.startDate}:${params.endDate}:${limit ?? 'na'}`
+}
+
 export async function getComputerTimeDaily(
   params: ComputerActivityRangeParams,
 ): Promise<ComputerDailyResponseRow[]> {
+  const cacheKey = getRangeCacheKey('daily', params)
+  const stopTimer = startPerfTimer('computer-activity-client', 'getComputerTimeDaily', {
+    params,
+  })
   try {
     const payload = await fetchWatcherStatsJson<{ data?: any[] }>(
       '/api/watcher/stats/daily',
@@ -166,40 +217,83 @@ export async function getComputerTimeDaily(
     )
     const normalized = normalizeDailyRows(Array.isArray(payload?.data) ? payload.data : [])
     const backendRows = normalized.map((row) => ({ ...row, source: row.source || 'backend' }))
+    if (backendRows.length > 0) {
+      dailyCache.set(cacheKey, backendRows)
+      perfInfo('computer-activity-client', 'daily-backend-cache-store', {
+        cache_key: cacheKey,
+        row_count: backendRows.length,
+      })
+    }
 
     if (backendRows.length === 0 && isTauri()) {
+      perfWarn('computer-activity-client', 'daily-empty-backend-fallback-local', { params })
       const localRows = normalizeDailyRows(
         await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
       ).map((row) => ({ ...row, source: row.source || 'tauri_fallback' }))
 
       if (localRows.length > 0) {
+        stopTimer({ success: true, source: 'tauri_fallback', row_count: localRows.length })
         return localRows
       }
     }
 
     if (!shouldSupplementTodayFromLocal(params, backendRows)) {
+      stopTimer({ success: true, source: 'backend', row_count: backendRows.length })
       return backendRows
     }
 
+    perfInfo('computer-activity-client', 'daily-supplement-today-from-local', {
+      params,
+      backend_rows: backendRows.length,
+    })
     const localRows = normalizeDailyRows(
       await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
     ).map((row) => ({ ...row, source: row.source || 'tauri_fallback' }))
 
-    return mergeTodayRow(backendRows, localRows)
+    const merged = mergeTodayRow(backendRows, localRows)
+    perfInfo('computer-activity-client', 'daily-today-merged', {
+      backend_rows: backendRows.length,
+      local_rows: localRows.length,
+      merged_rows: merged.length,
+    })
+    stopTimer({ success: true, source: 'backend+tauri_today', row_count: merged.length })
+    return merged
   } catch (error) {
+    const cached = dailyCache.get(cacheKey)
+    if (cached?.length) {
+      perfWarn('computer-activity-client', 'daily-cache-hit-after-error', {
+        params,
+        row_count: cached.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      stopTimer({ success: true, source: 'cache', row_count: cached.length })
+      return cached
+    }
     if (!isTauri()) {
+      stopTimer({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw error
     }
   }
 
+  perfWarn('computer-activity-client', 'daily-hard-fallback-local', { params })
   const summaries = await invokeDailySummariesWithInitRetry(params.startDate, params.endDate)
-  return normalizeDailyRows(summaries)
+  const normalized = normalizeDailyRows(summaries)
+  stopTimer({ success: true, source: 'tauri_fallback', row_count: normalized.length })
+  return normalized
 }
 
 export async function getTopApps(
   params: ComputerActivityRangeParams,
   limit: number,
 ): Promise<TopAppResponseRow[]> {
+  const cacheKey = getRangeCacheKey('apps', params, limit)
+  const stopTimer = startPerfTimer('computer-activity-client', 'getTopApps', {
+    params,
+    limit,
+  })
   try {
     const payload = await fetchWatcherStatsJson<{ data?: any[] }>(
       '/api/watcher/stats/top-apps',
@@ -219,35 +313,90 @@ export async function getTopApps(
       source: row.source || 'backend',
     }))
 
-    if (normalizedRows.length > 0 || !isTauri()) {
-      return normalizedRows
+    if (normalizedRows.length > 0) {
+      appsCache.set(cacheKey, normalizedRows)
+      perfInfo('computer-activity-client', 'top-apps-backend-cache-store', {
+        cache_key: cacheKey,
+        row_count: normalizedRows.length,
+      })
     }
 
-    if (!rangeIncludesLocalToday(params) && normalizedRows.length > 0) {
+    if (normalizedRows.length > 0 || !isTauri()) {
+      stopTimer({
+        success: true,
+        source: normalizedRows.length > 0 ? 'backend' : 'backend-empty-web',
+        row_count: normalizedRows.length,
+      })
       return normalizedRows
     }
   } catch (error) {
+    const cached = appsCache.get(cacheKey)
+    if (cached?.length) {
+      perfWarn('computer-activity-client', 'top-apps-cache-hit-after-error', {
+        params,
+        limit,
+        row_count: cached.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      stopTimer({ success: true, source: 'cache', row_count: cached.length })
+      return cached
+    }
     if (!isTauri()) {
+      stopTimer({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw error
     }
   }
 
+  if (!rangeIncludesLocalToday(params)) {
+    const cached = appsCache.get(cacheKey) ?? []
+    perfInfo('computer-activity-client', 'top-apps-historical-no-native-fallback', {
+      cache_key: cacheKey,
+      row_count: cached.length,
+    })
+    stopTimer({
+      success: true,
+      source: 'cache-or-empty',
+      row_count: cached.length,
+      reason: 'historical-range-no-native-fallback',
+    })
+    return cached
+  }
+
+  perfWarn('computer-activity-client', 'top-apps-local-fallback', { params, limit })
   const { startTs, endTs } = getRangeTimestamps(params)
   const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit })
-  return detailed.apps.slice(0, limit).map((row) => ({
+  const rows = detailed.apps
+    .filter((row) => Math.max(0, Number(row.total_duration_ms || 0)) > 0)
+    .slice(0, limit)
+    .map((row) => ({
     app_bundle_id: row.app_bundle_id,
     app_name: row.app_name || row.app_bundle_id || 'Unknown',
     total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
     total_events: Math.max(0, Number(row.event_count || 0)),
     hours: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60 * 60)),
     source: 'tauri_fallback',
-  }))
+    }))
+  perfInfo('computer-activity-client', 'top-apps-local-fallback-result', {
+    limit,
+    row_count: rows.length,
+    total_active_ms: rows.reduce((sum, row) => sum + row.total_active_ms, 0),
+  })
+  stopTimer({ success: true, source: 'tauri_fallback', row_count: rows.length })
+  return rows
 }
 
 export async function getTopDomains(
   params: ComputerActivityRangeParams,
   limit: number,
 ): Promise<TopDomainResponseRow[]> {
+  const cacheKey = getRangeCacheKey('domains', params, limit)
+  const stopTimer = startPerfTimer('computer-activity-client', 'getTopDomains', {
+    params,
+    limit,
+  })
   try {
     const payload = await fetchWatcherStatsJson<{ data?: any[] }>(
       '/api/watcher/stats/top-domains',
@@ -267,34 +416,88 @@ export async function getTopDomains(
       source: row.source || 'backend',
     }))
 
-    if (normalizedRows.length > 0 || !isTauri()) {
-      return normalizedRows
+    if (normalizedRows.length > 0) {
+      domainsCache.set(cacheKey, normalizedRows)
+      perfInfo('computer-activity-client', 'top-domains-backend-cache-store', {
+        cache_key: cacheKey,
+        row_count: normalizedRows.length,
+      })
     }
 
-    if (!rangeIncludesLocalToday(params) && normalizedRows.length > 0) {
+    if (normalizedRows.length > 0 || !isTauri()) {
+      stopTimer({
+        success: true,
+        source: normalizedRows.length > 0 ? 'backend' : 'backend-empty-web',
+        row_count: normalizedRows.length,
+      })
       return normalizedRows
     }
   } catch (error) {
+    const cached = domainsCache.get(cacheKey)
+    if (cached?.length) {
+      perfWarn('computer-activity-client', 'top-domains-cache-hit-after-error', {
+        params,
+        limit,
+        row_count: cached.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      stopTimer({ success: true, source: 'cache', row_count: cached.length })
+      return cached
+    }
     if (!isTauri()) {
+      stopTimer({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw error
     }
   }
 
+  if (!rangeIncludesLocalToday(params)) {
+    const cached = domainsCache.get(cacheKey) ?? []
+    perfInfo('computer-activity-client', 'top-domains-historical-no-native-fallback', {
+      cache_key: cacheKey,
+      row_count: cached.length,
+    })
+    stopTimer({
+      success: true,
+      source: 'cache-or-empty',
+      row_count: cached.length,
+      reason: 'historical-range-no-native-fallback',
+    })
+    return cached
+  }
+
+  perfWarn('computer-activity-client', 'top-domains-local-fallback', { params, limit })
   const { startTs, endTs } = getRangeTimestamps(params)
   const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit })
-  return detailed.domains.slice(0, limit).map((row) => ({
+  const rows = detailed.domains
+    .filter((row) => Math.max(0, Number(row.total_duration_ms || 0)) > 0)
+    .slice(0, limit)
+    .map((row) => ({
     domain: row.domain || 'Unknown',
     total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
     total_events: Math.max(0, Number(row.event_count || 0)),
     hours: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60 * 60)),
     minutes: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60)),
     source: 'tauri_fallback',
-  }))
+    }))
+  perfInfo('computer-activity-client', 'top-domains-local-fallback-result', {
+    limit,
+    row_count: rows.length,
+    total_active_ms: rows.reduce((sum, row) => sum + row.total_active_ms, 0),
+  })
+  stopTimer({ success: true, source: 'tauri_fallback', row_count: rows.length })
+  return rows
 }
 
 export async function getComputerTimeSummary(
   params: ComputerActivityRangeParams,
 ): Promise<ComputerSummaryResponse> {
+  const cacheKey = getRangeCacheKey('summary', params)
+  const stopTimer = startPerfTimer('computer-activity-client', 'getComputerTimeSummary', {
+    params,
+  })
   try {
     const payload = await fetchWatcherStatsJson<{ data?: any }>(
       '/api/watcher/stats/summary',
@@ -316,21 +519,38 @@ export async function getComputerTimeSummary(
       avg_daily_hours: Math.max(0, Number(data.avg_daily_hours || 0)),
       source: data.source || 'backend',
     }
+    if (summary.total_active_ms > 0) {
+      summaryCache.set(cacheKey, summary)
+      perfInfo('computer-activity-client', 'summary-backend-cache-store', {
+        cache_key: cacheKey,
+        total_active_ms: summary.total_active_ms,
+      })
+    }
 
     if (!isTauri()) {
+      stopTimer({
+        success: true,
+        source: 'backend',
+        total_active_ms: summary.total_active_ms,
+      })
       return summary
     }
 
     const mergedDaily = await getComputerTimeDaily(params)
     const mergedTotalActiveMs = mergedDaily.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0)
     if (mergedTotalActiveMs <= totalActiveMs) {
+      stopTimer({
+        success: true,
+        source: 'backend',
+        total_active_ms: summary.total_active_ms,
+      })
       return summary
     }
 
     const mergedTotalEvents = mergedDaily.reduce((sum, row) => sum + Math.max(0, Number(row.events_count || 0)), 0)
     const mergedDaysTracked = mergedDaily.filter((row) => Math.max(0, Number(row.active_ms || 0)) > 0).length
 
-    return {
+    const mergedSummary = {
       ...summary,
       total_active_ms: mergedTotalActiveMs,
       total_hours: mergedTotalActiveMs / (1000 * 60 * 60),
@@ -339,18 +559,48 @@ export async function getComputerTimeSummary(
       avg_daily_hours: mergedDaysTracked > 0 ? mergedTotalActiveMs / (1000 * 60 * 60) / mergedDaysTracked : 0,
       source: 'backend_plus_live_today',
     }
+    perfInfo('computer-activity-client', 'summary-merged-live-today', {
+      backend_total_active_ms: totalActiveMs,
+      merged_total_active_ms: mergedSummary.total_active_ms,
+      merged_days_tracked: mergedSummary.days_tracked,
+    })
+    stopTimer({
+      success: true,
+      source: 'backend_plus_live_today',
+      total_active_ms: mergedSummary.total_active_ms,
+    })
+    return mergedSummary
   } catch (error) {
+    const cached = summaryCache.get(cacheKey)
+    if (cached && cached.total_active_ms > 0) {
+      perfWarn('computer-activity-client', 'summary-cache-hit-after-error', {
+        params,
+        total_active_ms: cached.total_active_ms,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      stopTimer({
+        success: true,
+        source: 'cache',
+        total_active_ms: cached.total_active_ms,
+      })
+      return cached
+    }
     if (!isTauri()) {
+      stopTimer({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
       throw error
     }
   }
 
+  perfWarn('computer-activity-client', 'summary-local-fallback', { params })
   const { startTs, endTs } = getRangeTimestamps(params)
   const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 10 })
   const totalActiveMs = Math.max(0, Number(detailed.total_active_ms || 0))
   const totalAfkMs = Math.max(0, Number(detailed.total_afk_ms || 0))
   const daily = await getComputerTimeDaily(params)
-  return {
+  const fallbackSummary = {
     total_active_ms: totalActiveMs,
     total_afk_ms: totalAfkMs,
     total_hours: totalActiveMs / (1000 * 60 * 60),
@@ -363,6 +613,12 @@ export async function getComputerTimeSummary(
       : 0,
     source: 'tauri_fallback',
   }
+  stopTimer({
+    success: true,
+    source: 'tauri_fallback',
+    total_active_ms: fallbackSummary.total_active_ms,
+  })
+  return fallbackSummary
 }
 
 export async function getAggregatedComputerStats(

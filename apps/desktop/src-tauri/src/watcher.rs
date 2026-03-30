@@ -11,7 +11,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::ritual_database::{get_activity_db, ACTIVITY_DB};
 
@@ -452,6 +452,10 @@ pub fn request_accessibility_permission() -> bool {
 fn watcher_candidate_paths() -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    if let Some(external) = external_watcher_install_path() {
+        candidates.push(external);
+    }
+
     // Try to get the executable's directory for relative sidecar paths
     let exe_dir = std::env::current_exe()
         .ok()
@@ -493,10 +497,98 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
             candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
             candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
         }
-        candidates.push(home.join(".ritual/bin/ritual-watcher"));
     }
 
     candidates
+}
+
+fn external_watcher_install_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".ritual").join("bin").join("ritual-watcher"))
+}
+
+fn bundled_watcher_binary_path() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))?;
+
+    let candidates = [
+        exe_dir.join("ritual-watcher"),
+        exe_dir.join("../Resources/ritual-watcher"),
+        exe_dir.join("../Resources/binaries/ritual-watcher"),
+    ];
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn ensure_external_watcher_binary() {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(source) = bundled_watcher_binary_path() else {
+            return;
+        };
+        let Some(target) = external_watcher_install_path() else {
+            return;
+        };
+
+        if source == target {
+            return;
+        }
+
+        let needs_copy = match (source.metadata(), target.metadata()) {
+            (Ok(source_meta), Ok(target_meta)) => {
+                let source_mtime = source_meta.modified().ok();
+                let target_mtime = target_meta.modified().ok();
+                source_meta.len() != target_meta.len()
+                    || source_mtime.zip(target_mtime).map(|(s, t)| s > t).unwrap_or(false)
+            }
+            (Ok(_), Err(_)) => true,
+            _ => false,
+        };
+
+        if !needs_copy {
+            return;
+        }
+
+        if let Some(parent) = target.parent() {
+            if let Err(err) = std::fs::create_dir_all(parent) {
+                watcher_info!(
+                    "⚠️ Failed to create external watcher directory {:?}: {}",
+                    parent,
+                    err
+                );
+                return;
+            }
+        }
+
+        if let Err(err) = std::fs::copy(&source, &target) {
+            watcher_info!(
+                "⚠️ Failed to copy watcher binary from {:?} to {:?}: {}",
+                source,
+                target,
+                err
+            );
+            return;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(err) =
+                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
+            {
+                watcher_info!(
+                    "⚠️ Failed to mark external watcher binary executable {:?}: {}",
+                    target,
+                    err
+                );
+            }
+        }
+
+        watcher_info!(
+            "✅ Installed background watcher helper outside app bundle at {:?}",
+            target
+        );
+    }
 }
 
 fn validate_watcher_binary(path: &Path) -> Result<Option<String>, String> {
@@ -570,6 +662,8 @@ fn validate_watcher_binary(path: &Path) -> Result<Option<String>, String> {
 /// Find the ritual-watcher executable and validate it's compatible with the
 /// current CLI contract.
 fn find_watcher_executable() -> Result<ResolvedWatcherBinary, String> {
+    ensure_external_watcher_binary();
+
     let candidates = watcher_candidate_paths();
     let mut seen = HashSet::new();
     let mut attempted = Vec::new();
@@ -928,6 +1022,7 @@ pub async fn get_detailed_activity(
     end_ts: i64,
     limit: Option<i64>,
 ) -> Result<DetailedActivityResponse, String> {
+    let started_at = Instant::now();
     let device_id = get_device_id_or_config().unwrap_or_default();
 
     let guard = get_activity_db().await?;
@@ -969,6 +1064,18 @@ pub async fn get_detailed_activity(
     let apps = build_app_summaries(&all_events, start_ts, end_ts);
     let domains = build_domain_summaries(&all_events, start_ts, end_ts);
     let summary = build_range_summary(&all_events, start_ts, end_ts);
+
+    watcher_info!(
+        "get_detailed_activity start_ts={} end_ts={} limit={:?} total_events={} clipped_events={} apps={} domains={} duration_ms={}",
+        start_ts,
+        end_ts,
+        limit,
+        all_events.len(),
+        events.len(),
+        apps.len(),
+        domains.len(),
+        started_at.elapsed().as_millis()
+    );
 
     Ok(DetailedActivityResponse {
         events,
@@ -1096,6 +1203,7 @@ pub struct DailySummary {
 /// Get daily summary for a specific date (YYYY-MM-DD)
 #[tauri::command]
 pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
+    let started_at = Instant::now();
     let device_id = get_device_id_or_config().unwrap_or_default();
 
     // Parse date and calculate timestamps
@@ -1129,6 +1237,13 @@ pub async fn get_daily_summary(date: String) -> Result<DailySummary, String> {
         .await
         .map_err(|e| format!("Failed to get summary events: {}", e))?;
     let summary = build_range_summary(&events, start_ts, end_ts);
+    watcher_info!(
+        "get_daily_summary date={} events={} active_ms={} duration_ms={}",
+        date,
+        events.len(),
+        summary.active_ms,
+        started_at.elapsed().as_millis()
+    );
 
     Ok(DailySummary {
         date,
@@ -1147,6 +1262,7 @@ pub async fn get_daily_summaries(
     start_date: String,
     end_date: String,
 ) -> Result<Vec<DailySummary>, String> {
+    let started_at = Instant::now();
     use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
 
     let device_id = get_device_id_or_config().unwrap_or_default();
@@ -1207,6 +1323,15 @@ pub async fn get_daily_summaries(
 
         day += Duration::days(1);
     }
+
+    watcher_info!(
+        "get_daily_summaries start_date={} end_date={} source_events={} row_count={} duration_ms={}",
+        start_date,
+        end_date,
+        all_events.len(),
+        rows.len(),
+        started_at.elapsed().as_millis()
+    );
 
     Ok(rows)
 }
@@ -1927,6 +2052,7 @@ pub struct AppIconResponse {
 /// Extracts the icon from the app bundle and caches it
 #[tauri::command]
 pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
+    let started_at = Instant::now();
     #[cfg(target_os = "macos")]
     {
         let home = dirs::home_dir().ok_or("Could not find home directory")?;
@@ -1946,6 +2072,11 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
             let icon_data = std::fs::read(&cache_path)
                 .map_err(|e| format!("Failed to read cached icon: {}", e))?;
             let base64_data = base64::engine::general_purpose::STANDARD.encode(&icon_data);
+            watcher_info!(
+                "get_app_icon bundle_id={} cache_hit=true duration_ms={}",
+                bundle_id,
+                started_at.elapsed().as_millis()
+            );
 
             return Ok(AppIconResponse {
                 bundle_id,
@@ -1960,6 +2091,11 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
             let icon_data =
                 std::fs::read(&icon_path).map_err(|e| format!("Failed to read icon: {}", e))?;
             let base64_data = base64::engine::general_purpose::STANDARD.encode(&icon_data);
+            watcher_info!(
+                "get_app_icon bundle_id={} cache_hit=false extracted=true duration_ms={}",
+                bundle_id,
+                started_at.elapsed().as_millis()
+            );
 
             return Ok(AppIconResponse {
                 bundle_id,
@@ -1968,6 +2104,11 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
             });
         }
 
+        watcher_info!(
+            "get_app_icon bundle_id={} cache_hit=false extracted=false duration_ms={}",
+            bundle_id,
+            started_at.elapsed().as_millis()
+        );
         Ok(AppIconResponse {
             bundle_id,
             icon_path: None,
@@ -1988,7 +2129,9 @@ pub fn get_app_icon(bundle_id: String) -> Result<AppIconResponse, String> {
 /// Get icons for multiple bundle IDs at once (batch operation)
 #[tauri::command]
 pub fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconResponse>, String> {
+    let started_at = Instant::now();
     let mut results = Vec::new();
+    let requested = bundle_ids.len();
 
     for bundle_id in bundle_ids {
         match get_app_icon(bundle_id.clone()) {
@@ -2000,6 +2143,13 @@ pub fn get_app_icons_batch(bundle_ids: Vec<String>) -> Result<Vec<AppIconRespons
             }),
         }
     }
+
+    watcher_info!(
+        "get_app_icons_batch requested={} returned={} duration_ms={}",
+        requested,
+        results.len(),
+        started_at.elapsed().as_millis()
+    );
 
     Ok(results)
 }

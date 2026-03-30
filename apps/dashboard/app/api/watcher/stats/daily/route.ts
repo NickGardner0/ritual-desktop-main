@@ -7,18 +7,20 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
+  const startedAt = Date.now();
+  const searchParams = request.nextUrl.searchParams;
+  const queryString = searchParams.toString();
   try {
     const { userId, getToken } = await auth();
 
     if (!userId) {
+      console.warn("[Ritual][watcher-proxy][daily] unauthorized", {
+        duration_ms: Date.now() - startedAt,
+      });
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const token = await getToken();
-    
-    // Forward query params
-    const searchParams = request.nextUrl.searchParams;
-    const queryString = searchParams.toString();
     const url = `${BACKEND_URL}/api/watcher/stats/daily${queryString ? `?${queryString}` : ""}`;
 
     const response = await fetch(url, {
@@ -29,11 +31,12 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      console.warn(
-        "[watcher/stats/daily] Backend returned",
-        response.status,
-        await response.text().catch(() => "")
-      );
+      console.warn("[Ritual][watcher-proxy][daily] backend-error", {
+        duration_ms: Date.now() - startedAt,
+        status: response.status,
+        query: Object.fromEntries(searchParams.entries()),
+        body: await response.text().catch(() => ""),
+      });
       // Return 200 with empty data so the frontend degrades gracefully instead of
       // surfacing an error overlay (common when backend is starting or auth is settling)
       return NextResponse.json(
@@ -45,13 +48,23 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
+    console.info("[Ritual][watcher-proxy][daily] success", {
+      duration_ms: Date.now() - startedAt,
+      query: Object.fromEntries(searchParams.entries()),
+      row_count: Array.isArray(data?.data) ? data.data.length : 0,
+      source: Array.isArray(data?.data) && data.data.length > 0 ? data.data[0]?.source : undefined,
+    });
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },
     });
   } catch (error) {
-    console.error("[watcher/stats/daily] Error:", error);
+    console.error("[Ritual][watcher-proxy][daily] exception", {
+      duration_ms: Date.now() - startedAt,
+      query: Object.fromEntries(searchParams.entries()),
+      error: error instanceof Error ? error.message : String(error),
+    });
     return NextResponse.json(
       { success: true, data: [], start_date: null, end_date: null },
       { headers: { "Cache-Control": "no-store, max-age=0" } }

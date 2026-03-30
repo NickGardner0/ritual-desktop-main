@@ -23,6 +23,39 @@ logger = logging.getLogger(__name__)
 MAX_SINGLE_EVENT_MS = max(60_000, int(os.getenv("WATCHER_MAX_SINGLE_EVENT_MS", "900000")))
 
 
+def _perf_ms(start: float) -> float:
+    return round((time.perf_counter() - start) * 1000, 2)
+
+
+def _log_activity_perf(
+    operation: str,
+    *,
+    start: float,
+    source: str,
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    row_count: int | None = None,
+    empty_reason: str | None = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> None:
+    payload: Dict[str, Any] = {
+        "operation": operation,
+        "source": source,
+        "user_id": user_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "duration_ms": _perf_ms(start),
+    }
+    if row_count is not None:
+        payload["row_count"] = row_count
+    if empty_reason:
+        payload["empty_reason"] = empty_reason
+    if extra:
+        payload.update(extra)
+    logger.info("[Ritual][computer-activity] %s", payload)
+
+
 def _escape_tinybird_literal_impl(value: str) -> str:
     return value.replace("'", "''")
 
@@ -534,6 +567,7 @@ async def get_computer_time_summary_impl(
     device_id: Optional[str] = None,
 ) -> Dict:
     """Get total computer time summary for a date range."""
+    perf_start = time.perf_counter()
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
@@ -583,8 +617,7 @@ async def get_computer_time_summary_impl(
                 })
                 total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
                 avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
-
-                return {
+                result = {
                     "total_active_ms": total_active_ms,
                     "total_hours": total_hours,
                     "total_events": total_events,
@@ -595,6 +628,20 @@ async def get_computer_time_summary_impl(
                     "avg_daily_hours": avg_daily_hours,
                     "source": "activity_db",
                 }
+                _log_activity_perf(
+                    "summary",
+                    start=perf_start,
+                    source="activity_db",
+                    user_id=user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    row_count=len(local_daily_rows),
+                    extra={
+                        "total_active_ms": total_active_ms,
+                        "events_count": total_events,
+                    },
+                )
+                return result
 
     local_daily_rows = _get_computer_activity_daily_totals_from_local_db_impl(
         start_date=start_date,
@@ -613,7 +660,7 @@ async def get_computer_time_summary_impl(
         total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
         avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
 
-        return {
+        result = {
             "total_active_ms": int(total_active_ms),
             "total_hours": total_hours,
             "total_events": int(total_events),
@@ -624,6 +671,20 @@ async def get_computer_time_summary_impl(
             "avg_daily_hours": avg_daily_hours,
             "source": "local_dedup",
         }
+        _log_activity_perf(
+            "summary",
+            start=perf_start,
+            source="local_dedup",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=len(local_daily_rows),
+            extra={
+                "total_active_ms": int(total_active_ms),
+                "events_count": int(total_events),
+            },
+        )
+        return result
 
     tinybird_rows = await service._get_computer_activity_pipe_rows(
         user_id=user_id,
@@ -639,7 +700,7 @@ async def get_computer_time_summary_impl(
         unique_apps = int(row.get("unique_apps", 0) or 0)
         avg_daily_ms = float(row.get("avg_daily_ms", 0) or 0)
 
-        return {
+        result = {
             "total_active_ms": total_active_ms,
             "total_hours": round(total_active_ms / (1000 * 60 * 60), 2),
             "total_events": total_events,
@@ -650,13 +711,27 @@ async def get_computer_time_summary_impl(
             "avg_daily_hours": round(avg_daily_ms / (1000 * 60 * 60), 2),
             "source": "tinybird",
         }
+        _log_activity_perf(
+            "summary",
+            start=perf_start,
+            source="tinybird",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=1,
+            extra={
+                "total_active_ms": total_active_ms,
+                "events_count": total_events,
+            },
+        )
+        return result
 
     import sqlite3
 
     db_path = get_local_watcher_db_path_impl()
     if not os.path.exists(db_path):
         logger.info("Local watcher database not found at: %s", db_path)
-        return {
+        result = {
             "total_active_ms": 0,
             "total_hours": 0,
             "total_events": 0,
@@ -664,6 +739,17 @@ async def get_computer_time_summary_impl(
             "unique_apps": 0,
             "avg_daily_hours": 0,
         }
+        _log_activity_perf(
+            "summary",
+            start=perf_start,
+            source="missing_local_db",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=0,
+            empty_reason="local_db_missing",
+        )
+        return result
 
     try:
         conn = sqlite3.connect(db_path)
@@ -691,7 +777,7 @@ async def get_computer_time_summary_impl(
         conn.close()
 
         if not row or not row[0]:
-            return {
+            result = {
                 "total_active_ms": 0,
                 "total_hours": 0,
                 "total_events": 0,
@@ -699,6 +785,17 @@ async def get_computer_time_summary_impl(
                 "unique_apps": 0,
                 "avg_daily_hours": 0,
             }
+            _log_activity_perf(
+                "summary",
+                start=perf_start,
+                source="local_sql",
+                user_id=user_id,
+                start_date=start_date,
+                end_date=end_date,
+                row_count=0,
+                empty_reason="local_sql_empty",
+            )
+            return result
 
         total_active_ms = row[0] or 0
         total_events = row[1] or 0
@@ -717,7 +814,7 @@ async def get_computer_time_summary_impl(
             unique_apps,
         )
 
-        return {
+        result = {
             "total_active_ms": total_active_ms,
             "total_hours": total_hours,
             "total_events": total_events,
@@ -725,9 +822,23 @@ async def get_computer_time_summary_impl(
             "unique_apps": unique_apps,
             "avg_daily_hours": avg_daily_hours,
         }
+        _log_activity_perf(
+            "summary",
+            start=perf_start,
+            source="local_sql",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=days_tracked,
+            extra={
+                "total_active_ms": total_active_ms,
+                "events_count": total_events,
+            },
+        )
+        return result
     except Exception as e:
         logger.warning("Error reading computer time summary from local DB: %s", e)
-        return {
+        result = {
             "total_active_ms": 0,
             "total_hours": 0,
             "total_events": 0,
@@ -735,6 +846,17 @@ async def get_computer_time_summary_impl(
             "unique_apps": 0,
             "avg_daily_hours": 0,
         }
+        _log_activity_perf(
+            "summary",
+            start=perf_start,
+            source="local_sql_error",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=0,
+            empty_reason=str(e),
+        )
+        return result
 
 
 async def get_daily_computer_time_impl(
@@ -751,6 +873,7 @@ async def get_daily_computer_time_impl(
     The SQL path is ~100x faster than the Python dedup path and accurate
     enough for daily charting (minor overlap in events is negligible).
     """
+    perf_start = time.perf_counter()
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
@@ -784,7 +907,7 @@ async def get_daily_computer_time_impl(
 
             if rows:
                 daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
-                return [
+                result = [
                     {
                         "day": row["day"],
                         "active_hours": round((int(row["active_ms"] or 0)) / (1000 * 60 * 60), 2),
@@ -796,6 +919,16 @@ async def get_daily_computer_time_impl(
                     }
                     for row in daily_rows
                 ]
+                _log_activity_perf(
+                    "daily",
+                    start=perf_start,
+                    source="activity_db",
+                    user_id=user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    row_count=len(result),
+                )
+                return result
 
     import sqlite3 as _sqlite3
 
@@ -832,7 +965,7 @@ async def get_daily_computer_time_impl(
                     "Fast SQL daily data %s to %s: %d days",
                     start_date, end_date, len(_rows),
                 )
-                return [
+                result = [
                     {
                         "day": r[0],
                         "active_hours": round((r[1] or 0) / (1000 * 60 * 60), 2),
@@ -843,6 +976,16 @@ async def get_daily_computer_time_impl(
                     }
                     for r in _rows
                 ]
+                _log_activity_perf(
+                    "daily",
+                    start=perf_start,
+                    source="local_sql",
+                    user_id=user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    row_count=len(result),
+                )
+                return result
         except Exception as _e:
             logger.warning("Fast SQL daily query failed, falling back: %s", _e)
 
@@ -853,7 +996,7 @@ async def get_daily_computer_time_impl(
         output="daily",
     )
     if tinybird_rows:
-        return [
+        result = [
             {
                 "day": row.get("day"),
                 "active_hours": round(
@@ -869,12 +1012,32 @@ async def get_daily_computer_time_impl(
             }
             for row in tinybird_rows
         ]
+        _log_activity_perf(
+            "daily",
+            start=perf_start,
+            source="tinybird",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=len(result),
+        )
+        return result
 
     import sqlite3
 
     db_path = get_local_watcher_db_path_impl()
     if not os.path.exists(db_path):
         logger.info("Local watcher database not found at: %s", db_path)
+        _log_activity_perf(
+            "daily",
+            start=perf_start,
+            source="missing_local_db",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            row_count=0,
+            empty_reason="local_db_missing",
+        )
         return []
 
     try:

@@ -11,6 +11,7 @@ import { RankedBars } from '@/components/computer-activity/RankedBars'
 import { UsageBreakdownCard } from '@/components/computer-activity/UsageBreakdownCard'
 import { useUsageBreakdown } from '@/hooks/use-usage-breakdown'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
+import { perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug'
 
 const TIME_RANGES: { value: TimeRangePreset; label: string }[] = [
   { value: '6H', label: '6H' },
@@ -121,6 +122,15 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
   const appCardRef = useRef<HTMLDivElement | null>(null)
   const websiteCardRef = useRef<HTMLDivElement | null>(null)
   const fetchIdRef = useRef(0)
+  const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now())
+  const firstUsablePaintLoggedRef = useRef(false)
+
+  useEffect(() => {
+    perfInfo('computer-time-detail-section', 'mount', {
+      external_range: externalRange ?? null,
+      initial_range: range,
+    })
+  }, [])
 
   useEffect(() => {
     if (externalRange) {
@@ -135,6 +145,9 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
     const fetchId = ++fetchIdRef.current
 
     async function load() {
+      const stopTimer = startPerfTimer('computer-time-detail-section', 'load', {
+        range,
+      })
       setIsLoading(true)
       setError(null)
 
@@ -186,11 +199,27 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
         ).length
         const hasAnyData = summary > 0 || topApps.length > 0 || topDomains.length > 0
         setError(failedCount > 0 && !hasAnyData ? 'Failed to load computer activity' : null)
+        stopTimer({
+          success: failedCount === 0 || hasAnyData,
+          failed_count: failedCount,
+          has_any_data: hasAnyData,
+          summary_active_ms: summary,
+          app_rows: topApps.length,
+          domain_rows: topDomains.length,
+        })
       } catch (err) {
         if (cancelled || fetchId !== fetchIdRef.current) return
         setError(err instanceof Error ? err.message : 'Failed to load computer activity')
         setApps([])
         setDomains([])
+        perfError('computer-time-detail-section', 'load-failed', {
+          error: err instanceof Error ? err.message : String(err),
+          range,
+        })
+        stopTimer({
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        })
       } finally {
         if (!cancelled && fetchId === fetchIdRef.current) {
           setIsLoading(false)
@@ -204,6 +233,23 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
       cancelled = true
     }
   }, [rangeWindow.end, rangeWindow.start])
+
+  useEffect(() => {
+    if (firstUsablePaintLoggedRef.current) return
+    if (isLoading) return
+    if (apps.length === 0 && domains.length === 0 && summaryActiveMs <= 0 && !error) return
+
+    firstUsablePaintLoggedRef.current = true
+    const end = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    perfInfo('computer-time-detail-section', 'first-usable-paint', {
+      duration_ms: Number((end - mountTimeRef.current).toFixed(2)),
+      range,
+      app_rows: apps.length,
+      domain_rows: domains.length,
+      summary_active_ms: summaryActiveMs,
+      has_error: Boolean(error),
+    })
+  }, [apps.length, domains.length, error, isLoading, range, summaryActiveMs])
 
   const breakdownRange = useMemo(() => {
     const start = toLocalDateString(rangeWindow.start)
