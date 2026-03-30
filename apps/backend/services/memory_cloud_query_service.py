@@ -6,6 +6,7 @@ import asyncio
 import logging
 import math
 import os
+import sqlite3
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,9 +23,127 @@ from services.memory_query_expansion import ExpandedMemoryQuery, expand_memory_q
 from services.memory_rerank_service import rerank_candidates
 from services.memory_story_service import build_query_semantic_profile, enrich_story_evidence
 from services.memory_turbopuffer_service import TurbopufferService
+from services.watcher_service_local_db import open_activity_connection_for_user
 from services.watcher_service_search_utils import score_lexical_match_impl
 
 logger = logging.getLogger(__name__)
+
+
+def _table_has_column(cursor, table_name: str, column_name: str) -> bool:
+    try:
+        rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
+    except Exception:
+        return False
+    target = str(column_name or "").strip().lower()
+    for row in rows:
+        if isinstance(row, sqlite3.Row):
+            name = row["name"]
+        elif isinstance(row, (list, tuple)) and len(row) > 1:
+            name = row[1]
+        else:
+            name = ""
+        if str(name or "").strip().lower() == target:
+            return True
+    return False
+
+
+def _preferred_semantic_text(
+    *,
+    semantic_summary: Any = "",
+    contextual_text: Any = "",
+    raw_text: Any = "",
+) -> str:
+    summary = " ".join(str(semantic_summary or "").split()).strip()
+    contextual = " ".join(str(contextual_text or "").split()).strip()
+    raw = " ".join(str(raw_text or "").split()).strip()
+
+    parts: List[str] = []
+    if summary:
+        if not summary.endswith("."):
+            summary = f"{summary}."
+        parts.append(summary)
+    if contextual:
+        parts.append(contextual)
+    elif raw:
+        parts.append(raw)
+
+    combined = "\n\n".join(part for part in parts if part).strip()
+    return combined or summary or contextual or raw
+
+
+async def _attach_snapshot_semantic_summaries(
+    *,
+    user_id: str,
+    items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    session_ids = sorted(
+        {
+            int(item.get("session_id") or item.get("session_key") or 0)
+            for item in items
+            if int(item.get("session_id") or item.get("session_key") or 0) > 0
+        }
+    )
+    if not session_ids:
+        return items
+
+    try:
+        async with open_activity_connection_for_user(user_id=user_id, write=False) as conn:
+            if conn is None:
+                return items
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT 1 FROM context_snapshots LIMIT 0")
+            except Exception:
+                return items
+            if not _table_has_column(cursor, "context_snapshots", "semantic_summary"):
+                return items
+
+            placeholders = ",".join("?" for _ in session_ids)
+            rows = cursor.execute(
+                f"""
+                SELECT session_id, semantic_summary
+                FROM (
+                    SELECT
+                        session_id,
+                        COALESCE(NULLIF(TRIM(semantic_summary), ''), '') AS semantic_summary,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY session_id
+                            ORDER BY
+                                CASE WHEN TRIM(COALESCE(semantic_summary, '')) != '' THEN 0 ELSE 1 END,
+                                COALESCE(ax_richness_score, 0.0) DESC,
+                                ts DESC
+                        ) AS rn
+                    FROM context_snapshots
+                    WHERE session_id IN ({placeholders})
+                ) ranked
+                WHERE rn = 1
+                  AND semantic_summary != ''
+                """,
+                tuple(session_ids),
+            ).fetchall()
+    except Exception:
+        return items
+
+    summaries = {
+        int(row["session_id"]): str(row["semantic_summary"] or "").strip()
+        for row in rows
+        if int(row["session_id"] or 0) > 0 and str(row["semantic_summary"] or "").strip()
+    }
+    if not summaries:
+        return items
+
+    enriched: List[Dict[str, Any]] = []
+    for item in items:
+        session_id = int(item.get("session_id") or item.get("session_key") or 0)
+        summary = summaries.get(session_id)
+        if not summary:
+            enriched.append(item)
+            continue
+        next_item = dict(item)
+        next_item["semantic_summary"] = summary
+        enriched.append(next_item)
+    return enriched
 
 
 def memory_cloud_enabled() -> bool:
@@ -275,7 +394,7 @@ def _rrf_fuse(
 
 def _build_query_budgets(intent: str) -> Dict[str, int]:
     if intent == "broad_overview":
-        return {"lane_top_k": 80, "candidate_limit": 40, "final_limit": 20}
+        return {"lane_top_k": 120, "candidate_limit": 72, "final_limit": 36}
     if intent == "semantic_lookup":
         return {"lane_top_k": 40, "candidate_limit": 20, "final_limit": 12}
     return {"lane_top_k": 50, "candidate_limit": 30, "final_limit": 16}
@@ -434,14 +553,20 @@ def _strong_signal_short_circuit(
 
 
 def _citation_source_text(item: Dict[str, Any]) -> str:
-    return str(
-        item.get("raw_visible_text")
-        or item.get("raw_text_compact")
-        or item.get("contextual_retrieval_text")
-        or item.get("contextual_text_compact")
-        or item.get("text_compact")
-        or ""
-    ).strip()
+    return _preferred_semantic_text(
+        semantic_summary=item.get("semantic_summary"),
+        contextual_text=(
+            item.get("contextual_retrieval_text")
+            or item.get("contextual_text_compact")
+            or ""
+        ),
+        raw_text=(
+            item.get("raw_visible_text")
+            or item.get("raw_text_compact")
+            or item.get("text_compact")
+            or ""
+        ),
+    )
 
 
 def _time_bucket_key(ts_ms: int) -> str:
@@ -507,7 +632,7 @@ def _select_diverse_recap_evidence(items: List[Dict[str, Any]], target: int = 20
         }
         if bucket != "unknown"
     ]
-    bucket_goal = min(4, len(available_buckets))
+    bucket_goal = min(6, len(available_buckets))
     session_counts: Dict[str, int] = {}
     app_counts: Dict[str, int] = {}
     bucket_counts: Dict[str, int] = {}
@@ -580,6 +705,7 @@ def _build_citations(items: List[Dict[str, Any]], limit: int = 8) -> List[Dict[s
                 "snippet": snippet,
                 "parent_context": item.get("parent_context"),
                 "contextual_retrieval_text": item.get("contextual_retrieval_text"),
+                "semantic_summary": item.get("semantic_summary"),
                 "score": round(float(item.get("rerank_score") or item.get("fused_score") or 0.0), 3),
                 "source": "cloud_hybrid",
                 "source_type": item.get("source_kind"),
@@ -791,6 +917,7 @@ async def query_semantic_cloud(
             if broad_overview
             else ranked_rows[: max(8, min(limit, budgets["final_limit"]))]
         )
+        final_rows = await _attach_snapshot_semantic_summaries(user_id=user_id, items=final_rows)
         diversity_metrics = _build_recap_diversity_metrics(final_rows)
         final_evidence_count = len(final_rows)
         distinct_sessions = int(diversity_metrics["distinct_sessions"])
@@ -799,7 +926,7 @@ async def query_semantic_cloud(
         distinct_time_buckets = int(diversity_metrics["distinct_time_buckets"])
         context_version_mix = dict(diversity_metrics["context_version_mix"])
 
-        citations = _build_citations(final_rows, limit=20 if broad_overview else min(max(limit, 12), 20))
+        citations = _build_citations(final_rows, limit=32 if broad_overview else min(max(limit, 12), 20))
         confidence = _confidence_from_ranked(final_rows[: max(8, limit)])
         index_health = get_memory_index_health()
 
@@ -850,7 +977,7 @@ async def query_semantic_cloud(
             "distinct_domains": distinct_domains,
             "distinct_time_buckets": distinct_time_buckets,
             "context_version_mix": context_version_mix,
-            "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=raw_text_compact",
+            "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=semantic_summary+contextual_retrieval_text",
             "rerank_provider": rerank_provider or "none",
             "query_vector_present": bool(query_vectors),
             "db_lexical_fallback": used_db_lexical_fallback,

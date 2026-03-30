@@ -1118,6 +1118,7 @@ def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
     window_title = _compact(item.get("window_title"), 140)
     document_title = _compact(item.get("document_title"), 140)
     browser_domain = _compact(item.get("browser_domain"), 80)
+    semantic_summary = _compact(item.get("semantic_summary"), 220)
     parent_context = _extract_parent_context(
         item.get("parent_context")
         or item.get("contextual_retrieval_text")
@@ -1126,8 +1127,16 @@ def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
     full_contextual_text = _extract_full_contextual_text(
         item.get("contextual_retrieval_text") or ""
     )
-    snippet = _normalize_story_snippet(item.get("snippet") or item.get("ocr_text") or "")
-    source_values = [parent_context, window_title, document_title, browser_domain, snippet, full_contextual_text]
+    snippet = _normalize_story_snippet(item.get("snippet") or item.get("ocr_text") or semantic_summary or "")
+    source_values = [
+        semantic_summary,
+        parent_context,
+        window_title,
+        document_title,
+        browser_domain,
+        snippet,
+        full_contextual_text,
+    ]
     evidence_id = item.get("evidence_id") or f"e:{item.get('session_key') or app_name}:{_safe_int(item.get('timestamp'))}"
     semantic_kind = _infer_semantic_kind(app_name, source_values)
     task_phrases = _extract_specific_task_phrases(source_values, 6)
@@ -1141,7 +1150,7 @@ def enrich_story_evidence(item: Dict[str, Any]) -> Dict[str, Any]:
     )
     action_refs = _extract_action_refs(source_values)
     error_refs = _extract_error_refs(source_values)
-    title_candidates = _extract_title_candidates([window_title, document_title, snippet])
+    title_candidates = _extract_title_candidates([window_title, document_title, semantic_summary, snippet])
     project_refs = _dedupe(
         _extract_entity_candidates([window_title, document_title] + task_phrases)
         + [title for title in title_candidates if len(title.split()) <= 6],

@@ -383,7 +383,19 @@ def _normalized_semantic_key(value: Any) -> str:
 
 def _query_mentions_daypart(query: str) -> bool:
     normalized = (query or "").strip().lower()
-    return any(phrase in normalized for phrase in ("this morning", "this afternoon", "this evening", "tonight"))
+    return any(
+        phrase in normalized
+        for phrase in (
+            "this morning",
+            "this afternoon",
+            "this evening",
+            "yesterday morning",
+            "yesterday afternoon",
+            "yesterday evening",
+            "yesterday night",
+            "tonight",
+        )
+    )
 
 
 def _looks_like_work_recap_query(query: str) -> bool:
@@ -462,13 +474,18 @@ def _resolve_query_time_bounds(
     start_dt = datetime.combine(start_day, dt_time.min)
     end_dt = datetime.combine(end_day, dt_time.max)
 
-    if "this morning" in normalized:
+    if "this morning" in normalized or "yesterday morning" in normalized:
         start_dt = datetime.combine(end_day, dt_time(hour=5))
         end_dt = datetime.combine(end_day, dt_time(hour=11, minute=59, second=59, microsecond=999999))
-    elif "this afternoon" in normalized:
+    elif "this afternoon" in normalized or "yesterday afternoon" in normalized:
         start_dt = datetime.combine(end_day, dt_time(hour=12))
         end_dt = datetime.combine(end_day, dt_time(hour=17, minute=59, second=59, microsecond=999999))
-    elif "this evening" in normalized or "tonight" in normalized:
+    elif (
+        "this evening" in normalized
+        or "yesterday evening" in normalized
+        or "yesterday night" in normalized
+        or "tonight" in normalized
+    ):
         start_dt = datetime.combine(end_day, dt_time(hour=18))
         end_dt = datetime.combine(end_day, dt_time.max)
 
@@ -975,6 +992,107 @@ def _derive_parent_context(
     ]
     parent_context = " / ".join(part for part in parts if part)
     return parent_context[:240] if parent_context else None
+
+
+def _table_has_column(cursor, table_name: str, column_name: str) -> bool:
+    try:
+        rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
+    except Exception:
+        return False
+    target = str(column_name or "").strip().lower()
+    for row in rows:
+        if isinstance(row, sqlite3.Row):
+            name = row["name"]
+        elif isinstance(row, (list, tuple)) and len(row) > 1:
+            name = row[1]
+        else:
+            name = ""
+        if str(name or "").strip().lower() == target:
+            return True
+    return False
+
+
+def _preferred_semantic_text(
+    *,
+    semantic_summary: Any = "",
+    contextual_text: Any = "",
+    raw_text: Any = "",
+) -> str:
+    summary = " ".join(str(semantic_summary or "").split()).strip()
+    contextual = " ".join(str(contextual_text or "").split()).strip()
+    raw = " ".join(str(raw_text or "").split()).strip()
+
+    parts: List[str] = []
+    if summary:
+        if not summary.endswith("."):
+            summary = f"{summary}."
+        parts.append(summary)
+    if contextual:
+        parts.append(contextual)
+    elif raw:
+        parts.append(raw)
+
+    combined = "\n\n".join(part for part in parts if part).strip()
+    return combined or summary or contextual or raw
+
+
+def _load_snapshot_semantic_summaries(cursor, session_ids: List[int]) -> Dict[int, str]:
+    clean_session_ids = sorted({int(session_id) for session_id in session_ids if int(session_id) > 0})
+    if not clean_session_ids:
+        return {}
+    if not table_exists_impl(cursor, "context_snapshots"):
+        return {}
+    if not _table_has_column(cursor, "context_snapshots", "semantic_summary"):
+        return {}
+
+    placeholders = ",".join("?" for _ in clean_session_ids)
+    rows = cursor.execute(
+        f"""
+        SELECT session_id, semantic_summary
+        FROM (
+            SELECT
+                session_id,
+                COALESCE(NULLIF(TRIM(semantic_summary), ''), '') AS semantic_summary,
+                ROW_NUMBER() OVER (
+                    PARTITION BY session_id
+                    ORDER BY
+                        CASE WHEN TRIM(COALESCE(semantic_summary, '')) != '' THEN 0 ELSE 1 END,
+                        COALESCE(ax_richness_score, 0.0) DESC,
+                        ts DESC
+                ) AS rn
+            FROM context_snapshots
+            WHERE session_id IN ({placeholders})
+        ) ranked
+        WHERE rn = 1
+          AND semantic_summary != ''
+        """,
+        tuple(clean_session_ids),
+    ).fetchall()
+    return {
+        int(row["session_id"]): str(row["semantic_summary"] or "").strip()
+        for row in rows
+        if int(row["session_id"] or 0) > 0 and str(row["semantic_summary"] or "").strip()
+    }
+
+
+def _attach_snapshot_semantic_summaries(cursor, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    summaries = _load_snapshot_semantic_summaries(
+        cursor,
+        [int(item.get("session_id") or item.get("session_key") or 0) for item in items],
+    )
+    if not summaries:
+        return items
+    enriched: List[Dict[str, Any]] = []
+    for item in items:
+        session_id = int(item.get("session_id") or item.get("session_key") or 0)
+        summary = summaries.get(session_id)
+        if not summary:
+            enriched.append(item)
+            continue
+        next_item = dict(item)
+        next_item["semantic_summary"] = summary
+        enriched.append(next_item)
+    return enriched
 
 
 async def search_context_memory_impl(
@@ -1525,6 +1643,7 @@ async def search_context_memory_impl(
             citations = []
             rerank_info = {"provider": "none", "rerank_attempted": False, "rerank_latency_ms": 0}
             if results:
+                results = _attach_snapshot_semantic_summaries(cursor, results)
                 if local_budgets["kind"] == "app_drilldown" and requested_app_scope:
                     primary_results = [r for r in results if _result_matches_app_scope(r, requested_app_scope)]
                     corroborating_results = [r for r in results if not _result_matches_app_scope(r, requested_app_scope)]
@@ -3007,7 +3126,11 @@ def _build_citations(results: List[Dict[str, Any]], start_ms: int, end_ms: int, 
         app_name = str(item.get("app_name") or "Unknown")
         window_title = item.get("window_title")
         ocr_text = str(item.get("ocr_text") or "")
-        snippet = ocr_text.strip()
+        snippet = _preferred_semantic_text(
+            semantic_summary=item.get("semantic_summary"),
+            contextual_text=item.get("contextual_retrieval_text"),
+            raw_text=ocr_text,
+        )
         if len(snippet) > 240:
             snippet = f"{snippet[:240].rstrip()}..."
 
@@ -3029,6 +3152,7 @@ def _build_citations(results: List[Dict[str, Any]], start_ms: int, end_ms: int, 
                 "snippet": snippet,
                 "parent_context": item.get("parent_context"),
                 "contextual_retrieval_text": item.get("contextual_retrieval_text"),
+                "semantic_summary": item.get("semantic_summary"),
                 "score": round(max(0.0, min(1.0, score)), 3),
                 "source": item.get("source") or "unknown",
                 "source_type": item.get("source_type"),
@@ -3165,7 +3289,11 @@ def _normalize_fallback_citations(citations: List[Dict[str, Any]], source: str) 
         chunk_id = item.get("chunk_id")
         if chunk_id is None:
             chunk_id = int(timestamp // 90_000)
-        snippet = str(item.get("snippet") or item.get("ocr_text") or "").strip()
+        snippet = _preferred_semantic_text(
+            semantic_summary=item.get("semantic_summary"),
+            contextual_text=item.get("contextual_retrieval_text"),
+            raw_text=(item.get("snippet") or item.get("ocr_text") or ""),
+        ).strip()
         if len(snippet) > 280:
             snippet = f"{snippet[:280].rstrip()}..."
         normalized.append(
@@ -3176,6 +3304,8 @@ def _normalize_fallback_citations(citations: List[Dict[str, Any]], source: str) 
                 "app_name": item.get("app_name"),
                 "window_title": item.get("window_title"),
                 "snippet": snippet,
+                "contextual_retrieval_text": item.get("contextual_retrieval_text"),
+                "semantic_summary": item.get("semantic_summary"),
                 "score": round(float(item.get("score") or item.get("relevance_score") or 0.0), 3),
                 "source": str(item.get("source") or source),
             }
@@ -3218,6 +3348,10 @@ def _fuse_citations_rrf(
                 existing["score"] = round(raw_score, 3)
             if len(str(citation.get("snippet") or "")) > len(str(existing.get("snippet") or "")):
                 existing["snippet"] = citation.get("snippet")
+            if citation.get("semantic_summary") and not existing.get("semantic_summary"):
+                existing["semantic_summary"] = citation.get("semantic_summary")
+            if citation.get("contextual_retrieval_text") and not existing.get("contextual_retrieval_text"):
+                existing["contextual_retrieval_text"] = citation.get("contextual_retrieval_text")
 
     _accumulate(primary, lane_weight=1.0)
     _accumulate(secondary, lane_weight=1.0)
