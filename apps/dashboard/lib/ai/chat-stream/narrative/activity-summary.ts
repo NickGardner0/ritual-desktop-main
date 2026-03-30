@@ -580,6 +580,304 @@ function sanitizeCalendarStyleActivitySummary(text: string): string {
     .trim();
 }
 
+function getStorySortTimestamp(item: any): number {
+  const startTs = Number(item?.start_ts || 0);
+  const endTs = Number(item?.end_ts || 0);
+  if (Number.isFinite(startTs) && startTs > 0) return startTs;
+  if (Number.isFinite(endTs) && endTs > 0) return endTs;
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function sortStoryWorkstreamsChronologically(items: any[]): any[] {
+  return [...items].sort((a: any, b: any) => {
+    const aTs = getStorySortTimestamp(a);
+    const bTs = getStorySortTimestamp(b);
+    if (aTs !== bTs) return aTs - bTs;
+    const aEnd = Number(a?.end_ts || 0);
+    const bEnd = Number(b?.end_ts || 0);
+    if (aEnd !== bEnd) return aEnd - bEnd;
+    return Number(a?.sequence_number || 0) - Number(b?.sequence_number || 0);
+  });
+}
+
+function classifyStoryDaypart(ts: unknown, timezone?: string): string {
+  const date = new Date(Number(ts || 0));
+  if (Number.isNaN(date.getTime())) return 'Other';
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).format(date),
+  );
+  if (hour < 12) return 'Morning';
+  if (hour < 15) return 'Midday';
+  if (hour < 19) return 'Afternoon';
+  return 'Evening';
+}
+
+function isGenericStoryLabel(label: string): boolean {
+  const normalized = String(label || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    'general workstream',
+    'implementation and code changes',
+    'general work',
+    'general workstream',
+    'build logs',
+    'general',
+    'work session',
+  ].includes(normalized);
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const text = clipContextText(value, 180);
+    const key = text.toLowerCase().trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+  }
+  return result;
+}
+
+function buildSemanticWorkItemBullets(item: any, query: string): string[] {
+  const bullets: string[] = [];
+  const actionSummary = String(item?.action_summary || '').trim();
+  const semanticSummary = String(item?.semantic_summary || '').trim();
+  const files = dedupeStrings(Array.isArray(item?.files) ? item.files : []);
+  const commands = dedupeStrings(Array.isArray(item?.commands) ? item.commands : []);
+  const errors = dedupeStrings(Array.isArray(item?.errors) ? item.errors : []);
+  const artifacts = dedupeStrings(Array.isArray(item?.artifacts) ? item.artifacts : []);
+  const apps = dedupeStrings(Array.isArray(item?.apps) ? item.apps : []);
+  const evidence = Array.isArray(item?.evidence) ? item.evidence : [];
+  const evidenceSnippets = dedupeStrings(
+    evidence.map((entry: any) => String(entry?.snippet || '').trim()).filter(Boolean),
+  );
+  const queryLooksDebug = /\b(debug|fix|error|issue|broken|deploy|build|bug)\b/i.test(query || '');
+
+  if (actionSummary) {
+    const parts = actionSummary
+      .split('\n')
+      .map((part) => clipContextText(part, 180))
+      .filter(Boolean);
+    if (parts.length > 0) bullets.push(`Did: ${parts.slice(0, queryLooksDebug ? 4 : 3).join(' | ')}`);
+  }
+  if (semanticSummary) {
+    bullets.push(`Summary: ${clipContextText(semanticSummary, 220)}`);
+  }
+  if (files.length > 0) {
+    bullets.push(`Files: ${files.slice(0, 6).map((f) => `\`${f}\``).join(', ')}`);
+  }
+  if (commands.length > 0) {
+    bullets.push(`Commands: ${commands.slice(0, 4).map((c) => `\`${c}\``).join(', ')}`);
+  }
+  if (errors.length > 0) {
+    bullets.push(`Errors or issues: ${errors.slice(0, 3).join(' | ')}`);
+  }
+  if (artifacts.length > 0) {
+    bullets.push(`Artifacts: ${artifacts.slice(0, 5).join(', ')}`);
+  }
+  if (apps.length > 0) {
+    bullets.push(`Apps: ${apps.slice(0, 5).join(', ')}`);
+  }
+  if (evidenceSnippets.length > 0) {
+    bullets.push(`Evidence: ${evidenceSnippets.slice(0, 2).join(' | ')}`);
+  }
+  return bullets;
+}
+
+function buildDeterministicSemanticWorkItemSummary(
+  payload: any,
+  query: string,
+  timezone?: string,
+): string | null {
+  const workItems = Array.isArray(payload?.semantic_work_items) ? payload.semantic_work_items : [];
+  if (workItems.length === 0) return null;
+
+  const ordered = [...workItems]
+    .filter((item: any) => item && (item.title || item.start_ts || item.end_ts))
+    .sort((a: any, b: any) => {
+      const aTs = getStorySortTimestamp(a);
+      const bTs = getStorySortTimestamp(b);
+      if (aTs !== bTs) return aTs - bTs;
+      return Number(b?.score_main_event || 0) - Number(a?.score_main_event || 0);
+    })
+    .slice(0, 10);
+
+  if (ordered.length === 0) return null;
+
+  const sections = new Map<string, string[]>();
+  for (const workItem of ordered) {
+    const bucket = classifyStoryDaypart(workItem?.start_ts || workItem?.end_ts, timezone);
+    const lines = sections.get(bucket) || [];
+    const title = clipContextText(
+      workItem?.title || workItem?.action_summary || workItem?.semantic_summary || 'Workstream',
+      110,
+    );
+    const timeRange = formatWorkstreamTimeRange(workItem?.start_ts, workItem?.end_ts, timezone);
+    lines.push(`**${title}**${timeRange ? ` *${timeRange}*` : ''}`);
+    for (const bullet of buildSemanticWorkItemBullets(workItem, query)) {
+      lines.push(`- ${bullet}`);
+    }
+    sections.set(bucket, lines);
+  }
+
+  const output: string[] = [];
+  for (const bucket of ['Morning', 'Midday', 'Afternoon', 'Evening']) {
+    const lines = sections.get(bucket);
+    if (!lines || lines.length === 0) continue;
+    output.push(`**${bucket}**`);
+    output.push('');
+    output.push(...lines);
+    output.push('');
+  }
+
+  const leftovers = ordered
+    .flatMap((item: any) => Array.isArray(item?.evidence) ? item.evidence : [])
+    .map((entry: any) => clipContextText(entry?.snippet || '', 140))
+    .filter(Boolean)
+    .slice(0, 4);
+  if (leftovers.length > 0) {
+    output.push('**Other things:**');
+    output.push(...leftovers.map((line: string) => `- ${line}`));
+  }
+
+  const finalText = output.join('\n').trim();
+  return finalText.length > 60 ? finalText : null;
+}
+
+function pickStoryTitle(item: any): string {
+  const label = clipContextText(item?.label || item?.title || '', 110);
+  const specificTasks = dedupeStrings(Array.isArray(item?.specific_tasks) ? item.specific_tasks : []);
+  const fileArtifacts = dedupeStrings(Array.isArray(item?.file_artifacts) ? item.file_artifacts : []);
+  const commitArtifacts = dedupeStrings(Array.isArray(item?.commit_artifacts) ? item.commit_artifacts : []);
+  const errors = dedupeStrings(Array.isArray(item?.error_artifacts) ? item.error_artifacts : []);
+
+  if (!isGenericStoryLabel(label)) return label;
+  if (specificTasks.length > 0) return specificTasks[0];
+  if (fileArtifacts.length > 0) return `${fileArtifacts[0]} changes`;
+  if (commitArtifacts.length > 0) return commitArtifacts[0];
+  if (errors.length > 0) return errors[0];
+  return label || 'Workstream';
+}
+
+function buildStoryBullets(item: any, query: string): string[] {
+  const bullets: string[] = [];
+  const specificTasks = dedupeStrings(Array.isArray(item?.specific_tasks) ? item.specific_tasks : []);
+  const files = dedupeStrings(Array.isArray(item?.file_artifacts) ? item.file_artifacts : []);
+  const commands = dedupeStrings(Array.isArray(item?.command_artifacts) ? item.command_artifacts : []);
+  const commits = dedupeStrings(
+    [
+      ...(Array.isArray(item?.commit_artifacts) ? item.commit_artifacts : []),
+      ...(Array.isArray(item?.git_op_artifacts) ? item.git_op_artifacts : []),
+    ],
+  );
+  const errors = dedupeStrings(Array.isArray(item?.error_artifacts) ? item.error_artifacts : []);
+  const taskDocs = dedupeStrings(Array.isArray(item?.task_doc_artifacts) ? item.task_doc_artifacts : []);
+  const apps = dedupeStrings(Array.isArray(item?.apps) ? item.apps : []);
+  const queryLooksDebug = /\b(debug|fix|error|issue|broken|deploy|build|bug)\b/i.test(query || '');
+
+  if (specificTasks.length > 0) {
+    bullets.push(`Did: ${specificTasks.slice(0, queryLooksDebug ? 4 : 3).join(' | ')}`);
+  }
+  if (files.length > 0) {
+    bullets.push(`Files: ${files.slice(0, 6).map((f) => `\`${f}\``).join(', ')}`);
+  }
+  if (commands.length > 0) {
+    bullets.push(`Commands: ${commands.slice(0, 4).map((c) => `\`${c}\``).join(', ')}`);
+  }
+  if (commits.length > 0) {
+    bullets.push(`Git: ${commits.slice(0, 4).join(', ')}`);
+  }
+  if (errors.length > 0) {
+    bullets.push(`Errors or issues: ${errors.slice(0, 3).join(' | ')}`);
+  }
+  if (taskDocs.length > 0) {
+    bullets.push(`Docs/tasks: ${taskDocs.slice(0, 3).join(', ')}`);
+  }
+  if (apps.length > 0) {
+    bullets.push(`Apps: ${apps.slice(0, 5).join(', ')}`);
+  }
+  return bullets;
+}
+
+function buildDeterministicStorySummary(
+  payload: any,
+  query: string,
+  timezone?: string,
+): string | null {
+  const semanticWorkItemSummary = buildDeterministicSemanticWorkItemSummary(
+    payload,
+    query,
+    timezone,
+  );
+  if (semanticWorkItemSummary) {
+    return semanticWorkItemSummary;
+  }
+
+  const storyPlan = payload?.story_plan || {};
+  const renderer = payload?.renderer || storyPlan?.renderer || {};
+  const rendererKind = String(renderer?.kind || storyPlan?.renderer_kind || '');
+  if (!['broad_overview', 'daypart_overview'].includes(rendererKind)) {
+    return null;
+  }
+
+  const mainEvent = storyPlan?.main_event || null;
+  const supporting = Array.isArray(storyPlan?.supporting_workstreams) ? storyPlan.supporting_workstreams : [];
+  const researchBrowsing = Array.isArray(storyPlan?.research_browsing) ? storyPlan.research_browsing : [];
+  const personalActivity = Array.isArray(storyPlan?.personal_activity) ? storyPlan.personal_activity : [];
+  const numberedWorkstreams = Array.isArray(storyPlan?.numbered_workstreams) ? storyPlan.numbered_workstreams : [];
+  const strongestEvidence = Array.isArray(storyPlan?.strongest_evidence) ? storyPlan.strongest_evidence : [];
+
+  const rawWorkstreams = numberedWorkstreams.length > 0
+    ? numberedWorkstreams
+    : [mainEvent, ...supporting, ...researchBrowsing, ...personalActivity].filter(Boolean);
+
+  const workstreams = sortStoryWorkstreamsChronologically(
+    rawWorkstreams.filter((item: any) => item && (item.label || item.title || item.start_ts || item.end_ts)),
+  ).slice(0, 10);
+
+  if (workstreams.length === 0) return null;
+
+  const sections = new Map<string, string[]>();
+  for (const workstream of workstreams) {
+    const bucket = classifyStoryDaypart(workstream?.start_ts || workstream?.end_ts, timezone);
+    const lines = sections.get(bucket) || [];
+    const title = pickStoryTitle(workstream);
+    const timeRange = formatWorkstreamTimeRange(workstream?.start_ts, workstream?.end_ts, timezone);
+    lines.push(`**${title}**${timeRange ? ` *${timeRange}*` : ''}`);
+    for (const bullet of buildStoryBullets(workstream, query)) {
+      lines.push(`- ${bullet}`);
+    }
+    sections.set(bucket, lines);
+  }
+
+  const output: string[] = [];
+  for (const bucket of ['Morning', 'Midday', 'Afternoon', 'Evening']) {
+    const lines = sections.get(bucket);
+    if (!lines || lines.length === 0) continue;
+    output.push(`**${bucket}**`);
+    output.push('');
+    output.push(...lines);
+    output.push('');
+  }
+
+  const leftoverEvidence = strongestEvidence
+    .map((item: any) => clipContextText(item?.snippet || '', 140))
+    .filter(Boolean)
+    .slice(0, 4);
+  if (leftoverEvidence.length > 0) {
+    output.push('**Other things:**');
+    output.push(...leftoverEvidence.map((line: string) => `- ${line}`));
+  }
+
+  const finalText = output.join('\n').trim();
+  return finalText.length > 60 ? finalText : null;
+}
+
 // ---------------------------------------------------------------------------
 // Exported: buildCalendarStyleActivitySummary
 // ---------------------------------------------------------------------------
@@ -674,8 +972,15 @@ export async function buildRichActivitySummaryFromStoryPlan(
   calendarStyleSummary?: string | null,
 ): Promise<string | null> {
   try {
-    if (!payload?.success || !payload?.story_plan) {
+    const hasSemanticWorkItems = Array.isArray(payload?.semantic_work_items)
+      && payload.semantic_work_items.length > 0;
+    if (!payload?.success || (!payload?.story_plan && !hasSemanticWorkItems)) {
       return calendarStyleSummary?.trim() || null;
+    }
+
+    const deterministicSummary = buildDeterministicStorySummary(payload, query, timezone);
+    if (deterministicSummary) {
+      return deterministicSummary;
     }
 
     const evidenceScaffold = buildContextMemoryNarrative(payload, query, timezone);

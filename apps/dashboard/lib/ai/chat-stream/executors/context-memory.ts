@@ -501,12 +501,16 @@ export async function executeGetActivitySummary(
 
     const rawPlan = response.semantic_truth?.story_plan || null;
     const cleanPlan = rawPlan ? stripStoryPlanMeta(rawPlan) : rawPlan;
+    const semanticWorkItems = Array.isArray(response?.semantic_truth?.semantic_work_items)
+      ? response.semantic_truth.semantic_work_items
+      : [];
 
     const richActivitySummary = buildRichActivitySummaryFromStoryPlanFn
       ? await buildRichActivitySummaryFromStoryPlanFn(
           {
             success: true,
             story_plan: cleanPlan,
+            semantic_work_items: semanticWorkItems,
             renderer: response.semantic_truth?.renderer || cleanPlan?.renderer || null,
             results: Array.isArray(response.results) ? response.results : [],
             citations,
@@ -523,6 +527,7 @@ export async function executeGetActivitySummary(
       intent_resolved: response.intent_resolved || 'broad_overview',
       retrieval_tier: response.retrieval_tier,
       story_plan: cleanPlan,
+      semantic_work_items: semanticWorkItems,
       citations,
       citations_count: citations.length,
       time_truth: response.time_truth || null,

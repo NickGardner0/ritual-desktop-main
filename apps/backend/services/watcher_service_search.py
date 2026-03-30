@@ -43,6 +43,10 @@ from services.memory_story_service import (
     build_story_plan,
     enrich_story_evidence,
 )
+from services.semantic_work_item_service import (
+    load_semantic_work_items_for_range,
+    materialize_semantic_work_items,
+)
 from services.memory_embedding_service import (
     get_memory_index_health,
     process_embedding_jobs_with_guard,
@@ -3185,6 +3189,49 @@ def _build_story_semantics(
         return None
 
 
+async def _materialize_recap_work_items(
+    *,
+    user_id: str,
+    range_start_ts: int,
+    range_end_ts: int,
+    source_scope: str,
+    story_plan: Dict[str, Any],
+    citations: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not story_plan or not citations:
+        return {"items": [], "stored": 0, "evidence": 0}
+    try:
+        async with open_activity_connection_for_user(user_id, write=True) as conn:
+            if conn is None:
+                return {"items": [], "stored": 0, "evidence": 0}
+            conn.row_factory = sqlite3.Row
+            result = materialize_semantic_work_items(
+                conn,
+                user_id=user_id,
+                range_start_ts=range_start_ts,
+                range_end_ts=range_end_ts,
+                source_scope=source_scope,
+                story_plan=story_plan,
+                citations=citations,
+            )
+            items = load_semantic_work_items_for_range(
+                conn,
+                user_id=user_id,
+                range_start_ts=range_start_ts,
+                range_end_ts=range_end_ts,
+                source_scope=source_scope,
+                limit=12,
+            )
+            return {
+                "items": items,
+                "stored": int(result.get("stored") or 0),
+                "evidence": int(result.get("evidence") or 0),
+            }
+    except Exception as exc:
+        logger.debug("semantic work item materialization failed: %s", exc)
+        return {"items": [], "stored": 0, "evidence": 0}
+
+
 def _clip_recap_text(value: str, max_len: int = 180) -> str:
     compact = " ".join(str(value or "").split())
     if len(compact) <= max_len:
@@ -4074,9 +4121,21 @@ async def query_memory_impl(
                 time_truth=time_truth,
             )
             if story_plan:
+                persisted_work_item_result = {"items": [], "stored": 0, "evidence": 0}
+                renderer_kind = str((story_plan.get("renderer") or {}).get("kind") or "")
+                if resolved_intent == "broad_overview" or renderer_kind == "daypart_overview":
+                    persisted_work_item_result = await _materialize_recap_work_items(
+                        user_id=user_id,
+                        range_start_ts=start_ms,
+                        range_end_ts=end_ms,
+                        source_scope=renderer_kind or resolved_intent,
+                        story_plan=story_plan,
+                        citations=citations,
+                    )
                 semantic_truth["story_plan"] = story_plan
                 semantic_truth["renderer"] = story_plan.get("renderer")
                 semantic_truth["recap_outline"] = story_plan
+                semantic_truth["semantic_work_items"] = persisted_work_item_result.get("items") or []
                 semantic_truth["generation_mode"] = (
                     (story_plan.get("renderer") or {}).get("generation_mode") or "default"
                 )
@@ -4093,6 +4152,15 @@ async def query_memory_impl(
                         "claim_grounding_rate": float(metrics.get("claim_grounding_rate") or 0.0),
                         "generic_fallback_used": bool(metrics.get("generic_fallback_used")),
                         "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
+                        "semantic_work_items_stored": int(
+                            persisted_work_item_result.get("stored") or 0
+                        ),
+                        "semantic_work_item_evidence_rows": int(
+                            persisted_work_item_result.get("evidence") or 0
+                        ),
+                        "semantic_work_items_loaded": len(
+                            persisted_work_item_result.get("items") or []
+                        ),
                     }
                 )
                 semantic_truth["debug"] = debug_payload
@@ -4160,6 +4228,15 @@ async def query_memory_impl(
                 "claim_grounding_rate": float(retrieval_debug.get("claim_grounding_rate") or 0.0),
                 "generic_fallback_used": bool(retrieval_debug.get("generic_fallback_used")),
                 "planning_only_ratio": float(retrieval_debug.get("planning_only_ratio") or 0.0),
+                "semantic_work_items_stored": int(
+                    retrieval_debug.get("semantic_work_items_stored") or 0
+                ),
+                "semantic_work_item_evidence_rows": int(
+                    retrieval_debug.get("semantic_work_item_evidence_rows") or 0
+                ),
+                "semantic_work_items_loaded": int(
+                    retrieval_debug.get("semantic_work_items_loaded") or 0
+                ),
             }
 
         return {

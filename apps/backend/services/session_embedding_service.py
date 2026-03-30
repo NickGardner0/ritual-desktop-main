@@ -101,15 +101,18 @@ def _fetch_unembedded(conn: sqlite3.Connection, batch_size: int) -> List[Dict[st
                 s.session_position,
                 s.session_count,
                 cs.document_path,
-                cs.ax_richness_score
+                cs.ax_richness_score,
+                cs.semantic_summary
             FROM session_retrieval_docs s
             LEFT JOIN (
                 SELECT session_id,
                        document_path,
                        ax_richness_score,
+                       semantic_summary,
                        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY ax_richness_score DESC) as rn
                 FROM context_snapshots
-                WHERE document_path IS NOT NULL AND document_path != ''
+                WHERE (document_path IS NOT NULL AND document_path != '')
+                   OR (semantic_summary IS NOT NULL AND semantic_summary != '')
             ) cs ON cs.session_id = s.session_id AND cs.rn = 1
             WHERE s.embedded_at IS NULL
               AND length(COALESCE(s.contextual_retrieval_text, s.raw_visible_text, '')) > ?
@@ -128,7 +131,7 @@ def _fetch_unembedded(conn: sqlite3.Connection, batch_size: int) -> List[Dict[st
                 window_title, document_title, raw_visible_text,
                 contextual_retrieval_text, capture_quality, context_version,
                 session_position, session_count,
-                NULL as document_path, 0.0 as ax_richness_score
+                NULL as document_path, 0.0 as ax_richness_score, NULL as semantic_summary
             FROM session_retrieval_docs
             WHERE embedded_at IS NULL
               AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?
@@ -160,10 +163,20 @@ def _build_embed_text(doc: Dict[str, Any]) -> str:
 
     header = " | ".join(parts) if parts else ""
 
-    # Prefer contextual text (has semantic context), fall back to raw
-    body = str(
-        doc.get("contextual_retrieval_text") or doc.get("raw_visible_text") or ""
-    ).strip()
+    semantic_summary = str(doc.get("semantic_summary") or "").strip()
+    contextual_text = str(doc.get("contextual_retrieval_text") or "").strip()
+    raw_text = str(doc.get("raw_visible_text") or "").strip()
+
+    body_parts: List[str] = []
+    if semantic_summary:
+        body_parts.append(
+            semantic_summary if semantic_summary.endswith(".") else f"{semantic_summary}."
+        )
+    if contextual_text:
+        body_parts.append(contextual_text)
+    elif raw_text:
+        body_parts.append(raw_text)
+    body = "\n\n".join(part for part in body_parts if part).strip()
 
     # Truncate to ~2000 chars for embedding (model handles up to 8191 tokens)
     if header and body:

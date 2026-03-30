@@ -151,6 +151,51 @@ SCHEMA_STATEMENTS = (
         updated_at INTEGER NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_work_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_item_key TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        source_scope TEXT NOT NULL DEFAULT 'broad_overview',
+        range_start_ts INTEGER NOT NULL,
+        range_end_ts INTEGER NOT NULL,
+        session_id INTEGER,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        action_summary TEXT NOT NULL DEFAULT '',
+        activity_class TEXT NOT NULL DEFAULT 'work',
+        story_kind TEXT NOT NULL DEFAULT 'general',
+        primary_app TEXT,
+        apps_json TEXT NOT NULL DEFAULT '[]',
+        domains_json TEXT NOT NULL DEFAULT '[]',
+        files_json TEXT NOT NULL DEFAULT '[]',
+        commands_json TEXT NOT NULL DEFAULT '[]',
+        errors_json TEXT NOT NULL DEFAULT '[]',
+        artifacts_json TEXT NOT NULL DEFAULT '[]',
+        semantic_summary TEXT NOT NULL DEFAULT '',
+        confidence REAL NOT NULL DEFAULT 0.0,
+        evidence_count INTEGER NOT NULL DEFAULT 0,
+        score_main_event REAL NOT NULL DEFAULT 0.0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_work_item_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_item_id INTEGER NOT NULL,
+        evidence_id TEXT,
+        session_id INTEGER,
+        evidence_kind TEXT NOT NULL DEFAULT 'citation',
+        snippet TEXT NOT NULL DEFAULT '',
+        timestamp INTEGER NOT NULL,
+        score REAL NOT NULL DEFAULT 0.0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(work_item_id, evidence_id, timestamp)
+    )
+    """,
 )
 
 INDEX_STATEMENTS = (
@@ -166,6 +211,9 @@ INDEX_STATEMENTS = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_snapshots_dedup ON context_snapshots(dedup_key)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_ts ON context_snapshots(session_id, ts)",
     "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time ON session_retrieval_docs(chunk_start_ts, chunk_end_ts)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_scope_range ON semantic_work_items(user_id, source_scope, range_start_ts, range_end_ts)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_time ON semantic_work_items(user_id, start_ts, end_ts)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_work_item_evidence_work_item ON semantic_work_item_evidence(work_item_id, timestamp)",
 )
 
 

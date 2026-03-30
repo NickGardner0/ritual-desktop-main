@@ -142,6 +142,7 @@ export interface ActivitySummaryResult {
   intent_resolved?: string;
   retrieval_tier?: string;
   story_plan?: Record<string, unknown>;
+  semantic_work_items?: Array<Record<string, unknown>>;
   citations?: Array<Record<string, unknown>>;
   citations_count?: number;
   time_truth?: Record<string, unknown> | null;
