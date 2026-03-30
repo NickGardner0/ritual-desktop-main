@@ -3,12 +3,23 @@
 import { cn } from "@/lib/utils";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
 
 export function Sidebar() {
   const [isExpanded, setIsExpanded] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => setIsExpanded(true), 50);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => setIsExpanded(false), 100);
+  }, []);
 
   return (
     <aside
@@ -17,8 +28,8 @@ export function Sidebar() {
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}
       style={{ transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Logo Header */}
       <div

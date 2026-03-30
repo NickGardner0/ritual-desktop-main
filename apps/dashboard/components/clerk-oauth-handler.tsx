@@ -227,8 +227,8 @@ export function ClerkOAuthHandler() {
       }
     };
     
-    // Poll for location changes frequently to catch redirects
-    const locationCheckInterval = setInterval(checkLocation, 10);
+    // Poll for location changes to catch redirects (10ms was blocking the UI thread)
+    const locationCheckInterval = setInterval(checkLocation, 200);
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     document.addEventListener('click', handleClick, true);

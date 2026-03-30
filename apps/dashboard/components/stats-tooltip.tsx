@@ -62,18 +62,25 @@ export function StatsTooltip({
 
     updatePosition();
 
-    const resizeObserver = new ResizeObserver(updatePosition);
+    // Throttle scroll/resize recalculations to avoid blocking the main thread
+    let rafId: number | null = null;
+    const throttledUpdate = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        updatePosition();
+        rafId = null;
+      });
+    };
+
+    const resizeObserver = new ResizeObserver(throttledUpdate);
     resizeObserver.observe(triggerRef.current);
 
-    const scrollHandler = () => {
-      // Recalc on scroll (e.g. if parent scrolls)
-      updatePosition();
-    };
-    window.addEventListener('scroll', scrollHandler, true);
+    window.addEventListener('scroll', throttledUpdate, { capture: true, passive: true });
 
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener('scroll', scrollHandler, true);
+      window.removeEventListener('scroll', throttledUpdate, true);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [open, triggerRef]);
 

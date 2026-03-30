@@ -13,6 +13,19 @@ import dynamic from 'next/dynamic';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
+// Cache the Tauri invoke function to avoid repeated dynamic imports in polling loops
+let _cachedInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
+async function getTauriInvoke() {
+  if (_cachedInvoke) return _cachedInvoke;
+  try {
+    const { invoke } = await import('@tauri-apps/api/tauri');
+    _cachedInvoke = invoke;
+    return invoke;
+  } catch {
+    return null;
+  }
+}
+
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
   { ssr: false }
@@ -62,7 +75,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const [lastTokenRefreshCheck, setLastTokenRefreshCheck] = useState(0);
+  const lastTokenRefreshCheckRef = useRef(0);
   const lastDashboardRefreshRef = useRef(0);
   const lastProfileSyncKeyRef = useRef<string | null>(null);
   const lastTursoSyncConfigRef = useRef<TursoSyncConfigResponse | null>(null);
@@ -245,13 +258,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
     const checkForTokenRefreshRequests = async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
+        const invoke = await getTauriInvoke();
+        if (!invoke) return;
         const timestamp = await invoke('check_token_refresh_request') as number;
         
         // If we got a new timestamp (different from last check), refresh the token
-        if (timestamp > 0 && timestamp !== lastTokenRefreshCheck) {
+        if (timestamp > 0 && timestamp !== lastTokenRefreshCheckRef.current) {
           console.log('🔄 Token refresh requested by Swift widget, writing fresh token...');
-          setLastTokenRefreshCheck(timestamp);
+          lastTokenRefreshCheckRef.current = timestamp;
           
           const token = await getToken();
           if (token) {
@@ -264,10 +278,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     };
 
-    // Check every 500ms for token refresh requests
-    const interval = setInterval(checkForTokenRefreshRequests, 500);
+    // Check every 3s for token refresh requests (500ms was starving the UI thread)
+    const interval = setInterval(checkForTokenRefreshRequests, 3000);
     return () => clearInterval(interval);
-  }, [getToken, lastTokenRefreshCheck]);
+  }, [getToken]);
 
   // Poll for dashboard refresh triggers from the native Swift timer widget
   useEffect(() => {
@@ -275,7 +289,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
     const checkForDashboardRefresh = async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
+        const invoke = await getTauriInvoke();
+        if (!invoke) return;
         const timestamp = await invoke('check_dashboard_refresh_trigger') as number;
 
         if (timestamp > 0 && timestamp !== lastDashboardRefreshRef.current) {
@@ -294,7 +309,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     };
 
-    const interval = setInterval(checkForDashboardRefresh, 500);
+    const interval = setInterval(checkForDashboardRefresh, 3000);
     return () => clearInterval(interval);
   }, [user?.id, queryClient]);
 
