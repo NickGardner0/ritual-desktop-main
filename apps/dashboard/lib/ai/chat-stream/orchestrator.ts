@@ -64,6 +64,13 @@ import type {
 import { formatVoiceResponse, generateReplyChips } from './voice';
 import { createConversation, saveMessage } from './persistence';
 
+// ---------------------------------------------------------------------------
+// Timing helper — logs elapsed ms since a start timestamp
+// ---------------------------------------------------------------------------
+function elapsed(startMs: number): string {
+  return `${(performance.now() - startMs).toFixed(0)}ms`;
+}
+
 // Thin wrappers that inject orchestrator-local dependencies into extracted executors
 async function executeSearchContextMemory(
   token: string,
@@ -424,6 +431,7 @@ function collectToolResult(toolResults: ChatToolResults, name: string, raw: stri
 // ====================
 
 export async function handleChatStreamPost(req: NextRequest) {
+  const t0 = performance.now();
   try {
     // Auth
     const authHeader = req.headers.get('Authorization');
@@ -522,6 +530,7 @@ export async function handleChatStreamPost(req: NextRequest) {
             : null;
     const weeklyOverviewQueryParams = resolveWeeklyOverviewParamsFromQuery(latestUserContent, timezone);
     const strictThisWeekForWeeklyOverview = weeklyOverviewQueryParams.strictThisWeek;
+    console.log(`⏱️ [${elapsed(t0)}] Auth + classify done | forced=${forcedToolName || 'none'} voice=${isVoiceMode}`);
 
     // Fast path: for deterministic recap tools in text mode, skip OpenAI and
     // render directly from the tool payload so routing and structure stay stable.
@@ -531,7 +540,7 @@ export async function handleChatStreamPost(req: NextRequest) {
       ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'getActivitySummary'].includes(forcedToolName);
 
     if (deterministicFastPath) {
-      console.log(`⚡ Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
+      console.log(`⚡ [${elapsed(t0)}] Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
 
       const toolResults: ChatToolResults = { allStats: [], allBreakdowns: [] };
       let toolResultJson: string;
@@ -571,6 +580,7 @@ export async function handleChatStreamPost(req: NextRequest) {
           toolResultJson = JSON.stringify({ success: false, error: 'Unknown overview tool' });
       }
 
+      console.log(`⏱️ [${elapsed(t0)}] Fast-path tool executed`);
       try {
         const parsed = JSON.parse(toolResultJson);
           if (parsed.success) {
@@ -635,12 +645,14 @@ export async function handleChatStreamPost(req: NextRequest) {
         });
       }
 
+      console.log(`⏱️ [${elapsed(t0)}] Fast-path streaming response created`);
       return createChatStreamResponse({
         conversationId,
         source: streamSource,
         canvasToolPayload,
         onComplete: streamSource.type === 'stream' && conversationId
           ? (fullText) => {
+              console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
               saveMessage(token, conversationId, 'assistant', fullText, canvasToolPayload).catch(err => {
                 console.error('❌ Failed to save assistant message:', err);
               });
@@ -659,6 +671,7 @@ export async function handleChatStreamPost(req: NextRequest) {
     ];
 
     // Call OpenAI — low temperature for reliable tool selection
+    console.log(`⏱️ [${elapsed(t0)}] OpenAI call #1 (tool selection) start`);
     let response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o-mini',
       messages: apiMessages,
@@ -668,6 +681,7 @@ export async function handleChatStreamPost(req: NextRequest) {
         : 'auto',
       temperature: 0.3,
     });
+    console.log(`⏱️ [${elapsed(t0)}] OpenAI call #1 done`);
 
     let assistantMessage = response.choices[0].message;
 
@@ -678,17 +692,24 @@ export async function handleChatStreamPost(req: NextRequest) {
       allBreakdowns: []
     };
 
+    // Track whether we captured a real-time token stream from a follow-up call.
+    // When the synthesis call streams text (not tool_calls), we pipe tokens
+    // straight to the client instead of waiting for the full response.
+    let streamedSynthesisTokens: AsyncIterable<string> | null = null;
+
     // Handle tool calls (loop up to 5 times for complex queries)
     let iterations = 0;
     while (assistantMessage.tool_calls && iterations < 5) {
       iterations++;
-      console.log(`🔧 Tool call iteration ${iterations}:`, assistantMessage.tool_calls.map(t => t.function.name));
-      
+      console.log(`⏱️ [${elapsed(t0)}] 🔧 Tool loop iteration ${iterations}:`, assistantMessage.tool_calls.map(t => t.function.name));
+
       apiMessages.push(assistantMessage);
 
       // Execute all tool calls in parallel for better latency
+      const tTools = performance.now();
       const toolCallResults = await Promise.all(
         assistantMessage.tool_calls.map(async (toolCall) => {
+          const tTool = performance.now();
           const args = JSON.parse(toolCall.function.arguments || '{}');
           const result = await withToolErrorHandling(
             toolCall.function.name,
@@ -698,10 +719,11 @@ export async function handleChatStreamPost(req: NextRequest) {
             ),
           );
 
-          console.log(`📊 Tool ${toolCall.function.name} result length:`, result.length);
+          console.log(`⏱️ [${elapsed(t0)}] 📊 ${toolCall.function.name} done (${(performance.now() - tTool).toFixed(0)}ms, ${result.length} chars)`);
           return { toolCall, result };
         })
       );
+      console.log(`⏱️ [${elapsed(t0)}] All tools done (parallel: ${(performance.now() - tTools).toFixed(0)}ms)`);
 
       // Process results sequentially (accumulation order matters for allStats/allBreakdowns)
       for (const { toolCall, result } of toolCallResults) {
@@ -713,49 +735,171 @@ export async function handleChatStreamPost(req: NextRequest) {
         });
       }
 
-      // Follow-up call: 0.3 if still selecting tools, 0.7 for final freeform answer
-      response = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: apiMessages,
-        tools,
-        tool_choice: 'auto',
-        temperature: iterations < 4 ? 0.3 : 0.7,
-      });
+      // Determine if we should try to real-stream the follow-up call.
+      // We can stream when: (a) not voice mode (needs full text for truncation),
+      // and (b) no narrative override will replace OpenAI's text anyway.
+      const hasNarrativeOverride =
+        toolResults.dailyOverview?.success ||
+        toolResults.monthlyOverview?.success ||
+        toolResults.weeklyOverview?.success;
+      const hasTextOverride =
+        (typeof toolResults.activitySummary?.rich_activity_summary === 'string'
+          && toolResults.activitySummary.rich_activity_summary.trim().length > 0) ||
+        (typeof toolResults.activitySummary?.calendar_style_summary === 'string'
+          && toolResults.activitySummary.calendar_style_summary.trim().length > 0);
+      const canStreamSynthesis = !isVoiceMode && !hasNarrativeOverride && !hasTextOverride;
 
-      assistantMessage = response.choices[0].message;
+      console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} start (stream=${canStreamSynthesis})`);
+
+      if (canStreamSynthesis) {
+        // ── Real-streaming follow-up: stream tokens to client as they arrive ──
+        const streamingResponse = await getOpenAIClient().chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: apiMessages,
+          tools,
+          tool_choice: 'auto',
+          temperature: iterations < 4 ? 0.3 : 0.7,
+          stream: true,
+        });
+
+        // Peek at the first chunk to determine if this is tool_calls or text.
+        // OpenAI never mixes tool_calls and content in a single response.
+        const iterator = streamingResponse[Symbol.asyncIterator]();
+        const firstResult = await iterator.next();
+
+        if (firstResult.done) {
+          // Empty stream — treat as end of conversation
+          console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} empty stream`);
+          assistantMessage = { role: 'assistant', content: 'I was unable to process your request.', refusal: null };
+          break;
+        }
+
+        const firstChunk = firstResult.value;
+        const isToolCallResponse = !!(firstChunk.choices[0]?.delta?.tool_calls);
+
+        if (isToolCallResponse) {
+          // ── Tool calls in stream: buffer everything, reconstruct message ──
+          const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
+
+          // Process first chunk
+          for (const tc of firstChunk.choices[0]?.delta?.tool_calls || []) {
+            toolCallsMap.set(tc.index, {
+              id: tc.id || '',
+              name: tc.function?.name || '',
+              arguments: tc.function?.arguments || '',
+            });
+          }
+
+          // Process remaining chunks
+          let done = false;
+          while (!done) {
+            const next = await iterator.next();
+            done = next.done || false;
+            if (!done) {
+              for (const tc of next.value.choices[0]?.delta?.tool_calls || []) {
+                const existing = toolCallsMap.get(tc.index);
+                if (existing) {
+                  if (tc.id) existing.id = tc.id;
+                  if (tc.function?.name) existing.name += tc.function.name;
+                  if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+                } else {
+                  toolCallsMap.set(tc.index, {
+                    id: tc.id || '',
+                    name: tc.function?.name || '',
+                    arguments: tc.function?.arguments || '',
+                  });
+                }
+              }
+            }
+          }
+
+          // Reconstruct assistant message so the loop continues
+          assistantMessage = {
+            role: 'assistant',
+            content: null,
+            refusal: null,
+            tool_calls: Array.from(toolCallsMap.entries())
+              .sort(([a], [b]) => a - b)
+              .map(([, tc]) => ({
+                id: tc.id,
+                type: 'function' as const,
+                function: { name: tc.name, arguments: tc.arguments },
+              })),
+          };
+          console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} done (tool_calls: ${assistantMessage.tool_calls!.map(t => t.function.name).join(', ')})`);
+          // Continue while loop
+        } else {
+          // ── Text content in stream: create async generator for real-time delivery ──
+          async function* yieldSynthesisTokens(): AsyncGenerator<string> {
+            // Yield first chunk's content
+            const firstContent = firstChunk.choices[0]?.delta?.content;
+            if (firstContent) yield firstContent;
+
+            // Yield remaining chunks
+            let chunkDone = false;
+            while (!chunkDone) {
+              const next = await iterator.next();
+              chunkDone = next.done || false;
+              if (!chunkDone) {
+                const content = next.value.choices[0]?.delta?.content;
+                if (content) yield content;
+              }
+            }
+          }
+
+          streamedSynthesisTokens = yieldSynthesisTokens();
+          console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} streaming text → client`);
+          // Don't set assistantMessage — we'll use the stream directly
+          break; // Exit the tool loop; tokens flow to client via streamSource
+        }
+      } else {
+        // ── Non-streaming follow-up (voice mode or narrative override expected) ──
+        response = await getOpenAIClient().chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: apiMessages,
+          tools,
+          tool_choice: 'auto',
+          temperature: iterations < 4 ? 0.3 : 0.7,
+        });
+        assistantMessage = response.choices[0].message;
+        console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} done (non-streaming)`);
+      }
     }
 
-    let finalText = assistantMessage.content || 'I was unable to process your request.';
-    
+    let finalText = (streamedSynthesisTokens ? '' : assistantMessage.content) || 'I was unable to process your request.';
+
     // Apply voice mode post-processing (Phase 4A)
     if (isVoiceMode) {
       console.log('🎤 Applying voice mode post-processing');
       finalText = formatVoiceResponse(finalText);
-      
+
       // Generate reply chips for voice mode
       const replyChips = generateReplyChips(toolResults);
       toolResults.reply_chips = replyChips;
       console.log('💬 Generated reply chips:', replyChips);
     }
 
-    // Determine stream source: real-stream overview synthesis, fake-stream everything else.
-    // Check for narrative overrides that replace OpenAI's text with a dedicated synthesis pass.
+    // Determine stream source
     let streamSource: StreamSource;
 
-    if (!isVoiceMode && toolResults.dailyOverview?.success) {
-      console.log('🌊 Real-streaming synthesis call for dailyOverview');
+    if (streamedSynthesisTokens) {
+      // Real-stream: tokens from the streaming follow-up call piped directly to client
+      console.log(`⏱️ [${elapsed(t0)}] Using real-stream synthesis tokens`);
+      streamSource = { type: 'stream', tokens: streamedSynthesisTokens };
+    } else if (!isVoiceMode && toolResults.dailyOverview?.success) {
+      console.log(`⏱️ [${elapsed(t0)}] 🌊 Real-streaming narrative for dailyOverview`);
       streamSource = {
         type: 'stream',
         tokens: streamWeeklyOverviewNarrative(toolResults.dailyOverview as WeeklyOverviewPayload, 'Daily Activity Overview'),
       };
     } else if (!isVoiceMode && toolResults.monthlyOverview?.success) {
-      console.log('🌊 Real-streaming synthesis call for monthlyOverview');
+      console.log(`⏱️ [${elapsed(t0)}] 🌊 Real-streaming narrative for monthlyOverview`);
       streamSource = {
         type: 'stream',
         tokens: streamWeeklyOverviewNarrative(toolResults.monthlyOverview as WeeklyOverviewPayload, 'Monthly Activity Overview'),
       };
     } else if (!isVoiceMode && toolResults.weeklyOverview?.success) {
-      console.log('🌊 Real-streaming synthesis call for weeklyOverview');
+      console.log(`⏱️ [${elapsed(t0)}] 🌊 Real-streaming narrative for weeklyOverview`);
       streamSource = {
         type: 'stream',
         tokens: streamWeeklyOverviewNarrative(toolResults.weeklyOverview as WeeklyOverviewPayload, 'Weekly Activity Overview'),
@@ -804,8 +948,8 @@ export async function handleChatStreamPost(req: NextRequest) {
     }
 
     const canvasToolPayload = buildCanvasToolPayload(toolResults);
+    console.log(`⏱️ [${elapsed(t0)}] Canvas payload built | keys: ${Object.keys(canvasToolPayload || {}).join(', ') || 'none'}`);
     console.log('📦 Tool results collected:', Object.keys(toolResults));
-    console.log('📦 Canvas payload keys:', Object.keys(canvasToolPayload || {}));
 
     // For pre-built text, save immediately; for real streams, save after completion
     if (streamSource.type === 'complete' && conversationId) {
@@ -814,12 +958,14 @@ export async function handleChatStreamPost(req: NextRequest) {
       });
     }
 
+    console.log(`⏱️ [${elapsed(t0)}] Response created (${streamSource.type}) — first byte leaving server`);
     return createChatStreamResponse({
       conversationId,
       source: streamSource,
       canvasToolPayload,
       onComplete: streamSource.type === 'stream' && conversationId
         ? (fullText) => {
+            console.log(`⏱️ [${elapsed(t0)}] Stream complete (${fullText.length} chars) — saving message`);
             saveMessage(token, conversationId, 'assistant', fullText, canvasToolPayload).catch(err => {
               console.error('❌ Failed to save assistant message:', err);
             });
