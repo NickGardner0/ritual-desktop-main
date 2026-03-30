@@ -770,7 +770,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden px-6">
+      <div className="flex-1 min-h-0 overflow-hidden px-6">
         <HabitLogsDataTable
           logs={scopedLogs}
           rowSelection={sanitizedRowSelection}

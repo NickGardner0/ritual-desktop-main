@@ -900,7 +900,7 @@ export function HabitLogsDataTable({
   return (
     <TooltipProvider delayDuration={20}>
       <div
-        className="relative h-full outline-none"
+        className="relative flex flex-col h-full min-h-0 outline-none"
         tabIndex={0}
         onKeyDown={handleKeyboardSelection}
         onMouseDown={() => containerRef.current?.focus()}
@@ -937,7 +937,7 @@ export function HabitLogsDataTable({
         <div
           ref={scrollViewportRef}
           className={cn(
-            'h-[calc(100%-60px)] overflow-auto overscroll-x-none rounded-sm border bg-white shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] scrollbar-hide',
+            'flex-1 min-h-0 overflow-auto overscroll-x-none rounded-sm border bg-white shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] scrollbar-hide',
             TABLE_BORDER_CLASS,
           )}
         >

@@ -577,7 +577,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
 
         {/* Main Content */}
-        <main className={`content-opaque flex-1 overflow-auto border-0 bg-white`}>
+        <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-white`}>
           {children}
         </main>
       </div>
