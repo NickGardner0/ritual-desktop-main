@@ -687,18 +687,21 @@ export async function buildRichActivitySummaryFromStoryPlan(
 
 Your job:
 - Write a comprehensive, chronologically ordered summary of what the user actually got done.
-- Prefer 4-8 substantive workstreams.
+- Prefer 4-8 substantive workstreams, but widen coverage when the scaffold shows a fuller day.
 - Cover more of the evidenced day instead of stopping after the first few items.
+- Treat chronology as a hard requirement: if the scaffold shows multiple time blocks, cover them in order.
+- Use the chronological coverage block as a checklist. Do not skip later-day work just because one early workstream has stronger evidence.
 - Use concrete verbs and concrete nouns from the evidence: repos, files, products, domains, APIs, commits, settings pages, documents, commands.
 - Preserve chronology from earliest to latest workstream.
 - Merge tiny fragments into a short "Other things" section instead of dropping them.
 
 Output format:
 - Start directly with the work summary. No greeting or preamble.
+- If the scaffold spans multiple dayparts or time blocks, use chronological section labels like **Morning**, **Midday**, **Afternoon**, **Evening** and nest the workstreams underneath them in order.
 - For each main workstream:
   **Specific title**
   *7:12 AM – 7:57 AM*
-  2-4 sentences
+  2-4 sentences that actually say what was built, debugged, configured, deployed, researched, or decided.
 - End with **Other things:** bullet points if there are smaller evidenced items left over.
 
 Quality bar:
@@ -706,6 +709,8 @@ Quality bar:
 - Do not invent details or outcomes.
 - Do not write generic filler like "you worked on", "you explored", "this involved", "focused on", "various".
 - If the evidence shows concrete implementation/debugging/configuration work, say that plainly.
+- Mention later-day workstreams if they are in the evidence, even when the early morning block is strongest.
+- Pull concrete files, commands, domains, commits, and artifacts into the prose so each section feels grounded.
 - If a lower-quality draft summary is provided, use it only as supporting context. Prefer the evidence scaffold when there is any conflict or missing detail.
 
 Evidence scaffold:
@@ -717,7 +722,7 @@ ${calendarStyleSummary?.trim() || '(none)'}`;
     const response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
       temperature: 0.2,
-      max_tokens: 2200,
+      max_tokens: 3000,
       messages: [
         { role: 'system', content: prompt },
         { role: 'user', content: `Write the final recap for: ${query}` },

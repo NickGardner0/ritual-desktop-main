@@ -215,9 +215,29 @@ function getNarrativeWorkstreamLimit(query: string, rendererKind: string): numbe
     || rendererKind === 'broad_overview'
     || /\b(what did i (work on|do|get done)|activity summary|recap)\b/.test(normalized)
   ) {
-    return 12;
+    return 16;
   }
   return 8;
+}
+
+function humanizeTimelineBucket(bucket: unknown): string {
+  const normalized = String(bucket || '').trim().toLowerCase();
+  switch (normalized) {
+    case 'morning':
+      return 'Morning';
+    case 'midday':
+      return 'Midday';
+    case 'afternoon':
+      return 'Afternoon';
+    case 'evening':
+      return 'Evening';
+    case 'late_night':
+      return 'Late night';
+    default:
+      return normalized
+        ? normalized.replace(/_/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase())
+        : 'Time block';
+  }
 }
 
 function _dedupeStrings(values: string[]): string[] {
@@ -376,6 +396,37 @@ export function buildContextMemoryNarrative(
       lines.push('[END NARRATIVE SEEDS]');
     }
 
+    if (timelineSegments.length > 0) {
+      lines.push('', '[CHRONOLOGICAL COVERAGE REQUIREMENTS — cover each major time block in order before ending the recap]');
+      for (const segment of timelineSegments.slice(0, 8)) {
+        const bucket = humanizeTimelineBucket(segment?.bucket);
+        const range = formatWorkstreamTimeRange(segment?.start_ts, segment?.end_ts, timezone);
+        const tasksText = Array.isArray(segment?.tasks) && segment.tasks.length > 0
+          ? segment.tasks.slice(0, 4).map((task: string) => clipContextText(task, 120)).join(' | ')
+          : '';
+        const appsText = Array.isArray(segment?.apps) && segment.apps.length > 0
+          ? segment.apps.slice(0, 5).join(', ')
+          : '';
+        const evidenceCount = Number(segment?.evidence_count || 0);
+        const parts = [
+          `${bucket}${range ? ` (${range})` : ''}`,
+          tasksText ? `Tasks: ${tasksText}` : '',
+          appsText ? `Apps: ${appsText}` : '',
+          evidenceCount > 0 ? `Evidence rows: ${evidenceCount}` : '',
+        ].filter(Boolean);
+        lines.push(`- ${parts.join(' • ')}`);
+      }
+      lines.push('[END CHRONOLOGICAL COVERAGE REQUIREMENTS]');
+    }
+
+    if (tasks.length > 0) {
+      lines.push('', '[CONCRETE TASKS THAT MUST BE WEAVED INTO THE RECAP]');
+      for (const task of tasks.slice(0, 12)) {
+        lines.push(`- ${clipContextText(task, 160)}`);
+      }
+      lines.push('[END CONCRETE TASKS]');
+    }
+
     // Render numbered workstreams for overview too
     const workstreamsToRender = numberedWorkstreams.length > 0
       ? numberedWorkstreams.filter((ws: any) => ws?.label && ws.label !== 'General workstream')
@@ -417,6 +468,42 @@ export function buildContextMemoryNarrative(
         lines.push(`Git activity: ${commitsAndPushes.slice(0, 4).join(', ')}`);
       }
       lines.push('[END ADDITIONAL EVIDENCE]');
+    }
+
+    if (filesTouched.length > 0 || commandsRun.length > 0 || commitsAndPushes.length > 0) {
+      lines.push('', '[ARTIFACT CHECKLIST — mention these concrete artifacts where relevant]');
+      if (filesTouched.length > 0) {
+        lines.push(`Files touched: ${filesTouched.slice(0, 14).map((file: string) => `\`${file}\``).join(', ')}`);
+      }
+      if (commandsRun.length > 0) {
+        lines.push(`Commands: ${commandsRun.slice(0, 8).map((command: string) => `\`${command}\``).join(', ')}`);
+      }
+      if (commitsAndPushes.length > 0) {
+        lines.push(`Commits and pushes: ${commitsAndPushes.slice(0, 6).map((item: string) => clipContextText(item, 100)).join(', ')}`);
+      }
+      if (errorsEncountered.length > 0) {
+        lines.push(`Errors: ${errorsEncountered.slice(0, 4).map((item: string) => clipContextText(item, 120)).join(' | ')}`);
+      }
+      lines.push('[END ARTIFACT CHECKLIST]');
+    }
+
+    if (strongestEvidence.length > 0) {
+      const chronologicalEvidence = [...strongestEvidence]
+        .sort((a: any, b: any) => Number(a?.timestamp || 0) - Number(b?.timestamp || 0))
+        .slice(0, 10);
+      lines.push('', '[STRONGEST EVIDENCE SNIPPETS — use these to preserve chronology and later-day detail]');
+      for (const evidence of chronologicalEvidence) {
+        const ts = formatContextTimestamp(evidence?.timestamp, timezone);
+        const app = evidence?.app ? String(evidence.app) : '';
+        const reason = evidence?.reason ? String(evidence.reason) : '';
+        const snippet = clipContextText(evidence?.snippet || '', 180);
+        const taskPhrases = Array.isArray(evidence?.task_phrases) && evidence.task_phrases.length > 0
+          ? ` Tasks: ${evidence.task_phrases.slice(0, 2).map((task: string) => clipContextText(task, 90)).join(' | ')}`
+          : '';
+        const prefix = [ts, app, reason].filter(Boolean).join(' • ');
+        lines.push(`- ${prefix}${prefix && snippet ? ' • ' : ''}${snippet}${taskPhrases}`);
+      }
+      lines.push('[END STRONGEST EVIDENCE]');
     }
 
     // Uncertainty / caveats

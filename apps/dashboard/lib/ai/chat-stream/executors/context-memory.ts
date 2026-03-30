@@ -467,7 +467,7 @@ export async function executeGetActivitySummary(
         days_back: safeDaysBack,
         timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
         group_by: 'app',
-        limit: 32,
+        limit: 64,
       }),
       calendarStyleSummaryPromise,
     ]);
