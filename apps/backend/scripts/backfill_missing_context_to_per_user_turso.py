@@ -39,6 +39,22 @@ TABLES = (
     "session_retrieval_docs",
 )
 SYNC_EVERY = 1000
+WRITE_RETRY_LIMIT = 5
+WRITE_RETRY_DELAY_SECONDS = 1.5
+
+
+def _is_retryable_write_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(
+        marker in message
+        for marker in (
+            "wal_insert_begin failed",
+            "database is locked",
+            "sqlite_busy",
+            "busy",
+            "locked",
+        )
+    )
 
 
 def _load_sync_config(path: Path) -> dict:
@@ -94,6 +110,8 @@ def _copy_table(
     target_user_id: str,
     *,
     apply: bool,
+    sync_url: str,
+    auth_token: str,
 ) -> dict:
     local_columns = _columns_sqlite(local_conn, table_name)
     remote_columns = _columns_libsql(remote_conn, table_name)
@@ -138,14 +156,32 @@ def _copy_table(
 
     user_id_index = next((idx for idx, col in enumerate(common_columns) if col == "user_id"), None)
 
+    def execute_insert(values: tuple) -> object:
+        nonlocal remote_conn
+        last_error: Exception | None = None
+        for attempt in range(1, WRITE_RETRY_LIMIT + 1):
+            try:
+                return remote_conn.execute(
+                    f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
+                    values,
+                )
+            except Exception as error:
+                last_error = error
+                if not _is_retryable_write_error(error) or attempt == WRITE_RETRY_LIMIT:
+                    raise
+                time.sleep(WRITE_RETRY_DELAY_SECONDS * attempt)
+                close = getattr(remote_conn, "close", None)
+                if callable(close):
+                    close()
+                remote_conn = _connect_remote_replica(sync_url, auth_token)
+        assert last_error is not None
+        raise last_error
+
     for row in cursor:
         values = list(row)
         if user_id_index is not None:
             values[user_id_index] = target_user_id
-        remote_conn.execute(
-            f"INSERT OR IGNORE INTO {table_name} ({column_list}) VALUES ({placeholders})",
-            tuple(values),
-        )
+        execute_insert(tuple(values))
         inserted += 1
         if inserted % SYNC_EVERY == 0:
             remote_conn.commit()
@@ -215,11 +251,10 @@ def main() -> int:
 
     start = time.time()
     local_conn = _connect_local_activity(local_db_path)
-    remote_conn = _connect_remote_replica(sync_url, auth_token)
-
     try:
         results = []
         for table_name in TABLES:
+            remote_conn = _connect_remote_replica(sync_url, auth_token)
             result = _copy_table(
                 local_conn,
                 remote_conn,
@@ -227,6 +262,8 @@ def main() -> int:
                 source_user_id,
                 args.user_id,
                 apply=args.apply,
+                sync_url=sync_url,
+                auth_token=auth_token,
             )
             results.append(result)
             print(
@@ -235,11 +272,11 @@ def main() -> int:
                 f"inserted={result['inserted']:,} "
                 f"remote_after={result['remote_after']:,}"
             )
+            close = getattr(remote_conn, "close", None)
+            if callable(close):
+                close()
     finally:
         local_conn.close()
-        close = getattr(remote_conn, "close", None)
-        if callable(close):
-            close()
 
     print()
     print(f"Completed in {time.time() - start:.1f}s")

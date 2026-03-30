@@ -482,27 +482,30 @@ export async function handleChatStreamPost(req: NextRequest) {
       screenRecordingResults,
       localOverviewActivity,
     } = await req.json();
+    console.log(`⏱️ [${elapsed(t0)}] Body parsed`);
     const normalizedScreenSearchContext = normalizeScreenSearchContext(screenSearchResults, screenRecordingResults);
-    
-    // Get or create conversation ID for persistence
-    let conversationId = providedConversationId;
-    if (!conversationId) {
-      conversationId = await createConversation(token);
-      console.log('📝 New conversation created:', conversationId);
-    }
-    
+
+    // Start conversation creation in the background — don't block the OpenAI
+    // call. We only need the ID at response-creation time (after all tools run).
+    const conversationIdPromise: Promise<string | null> = providedConversationId
+      ? Promise.resolve(providedConversationId)
+      : createConversation(token);
+
     // Determine if we're in voice mode
     const isVoiceMode = responseMode === 'voice';
     console.log(`🎤 Response mode: ${responseMode}`);
-    
+
     // Get the latest user message to save
     const latestUserMessage = messages[messages.length - 1];
-    
-    // Save the user message to the conversation (don't block on this)
-    if (conversationId && latestUserMessage?.role === 'user') {
-      // Fire and forget - don't block the response
-      saveMessage(token, conversationId, 'user', latestUserMessage.content).catch(err => {
-        console.error('❌ Failed to save user message:', err);
+
+    // Save the user message once the conversation ID resolves (fire-and-forget)
+    if (latestUserMessage?.role === 'user') {
+      conversationIdPromise.then(cid => {
+        if (cid) {
+          saveMessage(token, cid, 'user', latestUserMessage.content).catch(err => {
+            console.error('❌ Failed to save user message:', err);
+          });
+        }
       });
     }
     
@@ -651,6 +654,10 @@ export async function handleChatStreamPost(req: NextRequest) {
           tokens: streamWeeklyOverviewNarrative(overviewPayload as WeeklyOverviewPayload, title),
         };
       }
+
+      // Resolve conversation ID (should be ready by now — was created in parallel with tool execution)
+      const conversationId = await conversationIdPromise;
+      console.log(`⏱️ [${elapsed(t0)}] Conversation ID resolved: ${conversationId ? 'yes' : 'none'}`);
 
       // For pre-built text, save immediately; for real streams, save after completion
       if (streamSource.type === 'complete' && conversationId) {
@@ -964,6 +971,10 @@ export async function handleChatStreamPost(req: NextRequest) {
     const canvasToolPayload = buildCanvasToolPayload(toolResults);
     console.log(`⏱️ [${elapsed(t0)}] Canvas payload built | keys: ${Object.keys(canvasToolPayload || {}).join(', ') || 'none'}`);
     console.log('📦 Tool results collected:', Object.keys(toolResults));
+
+    // Resolve conversation ID (should be ready by now — was created in parallel with OpenAI + tools)
+    const conversationId = await conversationIdPromise;
+    console.log(`⏱️ [${elapsed(t0)}] Conversation ID resolved: ${conversationId ? 'yes' : 'none'}`);
 
     // For pre-built text, save immediately; for real streams, save after completion
     if (streamSource.type === 'complete' && conversationId) {

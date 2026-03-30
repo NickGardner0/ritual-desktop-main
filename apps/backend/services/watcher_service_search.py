@@ -19,6 +19,7 @@ from services.watcher_service_local_db import (
     get_local_activity_db_path_impl,
     get_local_memory_db_path_impl,
     get_local_watcher_db_path_impl,
+    open_activity_connection_for_user,
 )
 from services.watcher_service_search_utils import (
     SCREEN_SEARCH_STOP_WORDS,
@@ -49,6 +50,23 @@ from services.memory_embedding_service import (
 from services.memory_backfill_service import backfill_cloud_from_local_chunks
 
 logger = logging.getLogger(__name__)
+
+
+def _env_flag_enabled(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _legacy_memory_query_path_enabled() -> bool:
+    """Opt back into the old memory.db-first query path if Phase 1 needs rollback."""
+    return _env_flag_enabled("RITUAL_ENABLE_LEGACY_MEMORY_DB_QUERY", default=False)
+
+
+def _legacy_ocr_fallback_enabled() -> bool:
+    """Gate legacy OCR fallback behind an explicit env flag. Production default is off."""
+    return _env_flag_enabled("RITUAL_ENABLE_LEGACY_OCR_FALLBACK", default=False)
 
 
 def _prefer_explicit_local_context_db(path: str) -> bool:
@@ -1023,11 +1041,10 @@ async def search_context_memory_impl(
     is_work_recap_query = _looks_like_work_recap_query(normalized_query)
     prefer_snapshot_evidence = local_budgets["kind"] in {"exact_lookup", "app_drilldown"}
     final_limit = min(safe_limit, int(local_budgets["final_limit"]))
-    from services.watcher_service_local_db import open_activity_connection_for_user
-
     memory_db_path = get_local_watcher_db_path_impl()
     activity_db_path = get_local_activity_db_path_impl()
     force_local_context_db = _prefer_explicit_local_context_db(memory_db_path)
+    legacy_ocr_fallback_allowed = allow_legacy_fallback and _legacy_ocr_fallback_enabled()
 
     async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
         using_turso = preferred_conn is not None and not force_local_context_db
@@ -1460,7 +1477,7 @@ async def search_context_memory_impl(
                 mode_used = "context-merged"
                 status = "hybrid"
 
-            if not results and allow_legacy_fallback:
+            if not results and legacy_ocr_fallback_allowed:
                 legacy = await search_screen_recordings_impl(
                     service=service,
                     user_id=user_id,
@@ -1476,7 +1493,7 @@ async def search_context_memory_impl(
                 )
                 return legacy
 
-            if results and allow_legacy_fallback:
+            if results and legacy_ocr_fallback_allowed:
                 avg_quality = sum(float(r.get("capture_quality") or 0.0) for r in results) / max(len(results), 1)
                 if avg_quality < 0.5:
                     try:
@@ -2403,6 +2420,8 @@ def _compute_freshness(
     query_end_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
     has_activity = _table_exists(cursor, "activity_events")
+    has_session_docs = _table_exists(cursor, "session_retrieval_docs")
+    has_snapshots = _table_exists(cursor, "context_snapshots")
     has_frames = _table_exists(cursor, "ocr_frames")
     has_chunks = _table_exists(cursor, "search_chunks")
     has_chunk_embeddings = _table_exists(cursor, "chunk_embeddings")
@@ -2413,6 +2432,16 @@ def _compute_freshness(
     last_activity_ts = (
         _max_value(cursor, "SELECT MAX(ts_end) FROM activity_events")
         if has_activity
+        else None
+    )
+    last_session_doc_ts = (
+        _max_value(cursor, "SELECT MAX(chunk_end_ts) FROM session_retrieval_docs")
+        if has_session_docs
+        else None
+    )
+    last_snapshot_ts = (
+        _max_value(cursor, "SELECT MAX(ts) FROM context_snapshots")
+        if has_snapshots
         else None
     )
     last_ocr_frame_ts = (
@@ -2433,6 +2462,10 @@ def _compute_freshness(
         _max_value(cursor, "SELECT MAX(chunk_end_ts) FROM search_chunks")
         if has_chunks
         else None
+    )
+    last_context_ts = max(
+        [ts for ts in [last_session_doc_ts, last_snapshot_ts] if ts is not None],
+        default=None,
     )
 
     last_chunk_embedded_ts: Optional[int] = None
@@ -2509,7 +2542,7 @@ def _compute_freshness(
         except Exception:
             source_mismatch = False
 
-    if not source_mismatch:
+    if not source_mismatch and has_frames:
         try:
             ritual_dir = os.path.dirname(db_path)
             legacy_frames_path = os.path.join(ritual_dir, "frames.db")
@@ -2558,7 +2591,7 @@ def _compute_freshness(
     time_intent = intent_normalized in {"time_spent", "broad_overview"}
 
     semantic_anchor_ts = max(
-        [ts for ts in [last_ocr_frame_ts, last_chunk_built_ts] if ts is not None],
+        [ts for ts in [last_context_ts, last_ocr_frame_ts, last_chunk_built_ts] if ts is not None],
         default=None,
     )
     time_anchor_ts = max(
@@ -2566,7 +2599,11 @@ def _compute_freshness(
         default=None,
     )
     overall_anchor_ts = max(
-        [ts for ts in [last_capture_ts, last_activity_ts, last_ocr_frame_ts, last_chunk_built_ts] if ts is not None],
+        [
+            ts
+            for ts in [last_capture_ts, last_activity_ts, last_context_ts, last_ocr_frame_ts, last_chunk_built_ts]
+            if ts is not None
+        ],
         default=None,
     )
     semantic_anchor_lag = _lag_seconds(semantic_anchor_ts)
@@ -2586,7 +2623,12 @@ def _compute_freshness(
 
     status = "healthy"
     reasons: List[str] = []
-    if last_capture_ts is None and last_activity_ts is None and last_ocr_frame_ts is None:
+    if (
+        last_capture_ts is None
+        and last_activity_ts is None
+        and last_context_ts is None
+        and last_ocr_frame_ts is None
+    ):
         status = "unavailable"
         reasons.append("no_recent_capture_data")
     elif source_mismatch:
@@ -2627,6 +2669,9 @@ def _compute_freshness(
         "embedding_lag_seconds": embedding_lag,
         "last_capture_ts": last_capture_ts,
         "last_activity_ts": last_activity_ts,
+        "last_session_doc_ts": last_session_doc_ts,
+        "last_snapshot_ts": last_snapshot_ts,
+        "last_context_ts": last_context_ts,
         "last_ocr_frame_ts": last_ocr_frame_ts,
         "last_chunk_built_ts": last_chunk_built_ts,
         "last_chunk_embedded_ts": last_chunk_embedded_ts,
@@ -2643,6 +2688,68 @@ def _compute_freshness(
 
 
 def _compute_semantic_readiness(cursor, now_ms: int) -> Dict[str, Any]:
+    has_session_docs = _table_exists(cursor, "session_retrieval_docs")
+    if has_session_docs:
+        try:
+            cursor.execute("SELECT COUNT(*) FROM session_retrieval_docs")
+            row_total = cursor.fetchone()
+            total_docs = int(row_total[0] or 0) if row_total else 0
+            if total_docs > 0:
+                recent_cutoff = now_ms - (60 * 60 * 1000)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM session_retrieval_docs
+                    WHERE chunk_end_ts >= ?
+                    """,
+                    (recent_cutoff,),
+                )
+                row_recent = cursor.fetchone()
+                recent_docs = int(row_recent[0] or 0) if row_recent else 0
+                ready = recent_docs > 0 or total_docs >= 25
+                return {
+                    "ready": bool(ready),
+                    "coverage": 1.0,
+                    "total_chunks": total_docs,
+                    "embedded_chunks": total_docs,
+                    "recent_unembedded": 0,
+                    "reason": "session_retrieval_docs_available",
+                    "tier": "semantic_full" if ready else "semantic_frame",
+                }
+        except Exception:
+            pass
+
+    has_snapshots = _table_exists(cursor, "context_snapshots")
+    if has_snapshots:
+        try:
+            cursor.execute("SELECT COUNT(*) FROM context_snapshots")
+            row_total = cursor.fetchone()
+            total_snapshots = int(row_total[0] or 0) if row_total else 0
+            if total_snapshots > 0:
+                recent_cutoff = now_ms - (60 * 60 * 1000)
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM context_snapshots
+                    WHERE ts >= ?
+                    """,
+                    (recent_cutoff,),
+                )
+                row_recent = cursor.fetchone()
+                recent_snapshots = int(row_recent[0] or 0) if row_recent else 0
+                ready = recent_snapshots >= 5 or total_snapshots >= 100
+                return {
+                    "ready": bool(ready),
+                    "coverage": 1.0,
+                    "total_chunks": total_snapshots,
+                    "embedded_chunks": total_snapshots,
+                    "recent_unembedded": 0,
+                    "reason": "context_snapshots_available",
+                    "tier": "semantic_frame",
+                }
+        except Exception:
+            pass
+
     has_chunks = _table_exists(cursor, "search_chunks")
     has_chunk_embeddings = _table_exists(cursor, "chunk_embeddings")
     if not has_chunks or not has_chunk_embeddings:
@@ -2749,6 +2856,10 @@ def _determine_retrieval_tier(
             return "lexical_fts"
         if "activity" in mode_used:
             return "activity_only"
+        if mode_used in {"context-session-docs", "context-merged"}:
+            return "semantic_full"
+        if mode_used == "context-snapshots":
+            return "semantic_frame"
 
         readiness_tier = (semantic_readiness or {}).get("tier")
         if isinstance(readiness_tier, str) and readiness_tier in {"semantic_full", "semantic_frame", "lexical_fts"}:
@@ -3218,6 +3329,7 @@ async def _load_semantic_truth(
     allow_activity_fallback: bool,
     allow_legacy_ocr_fallback: bool = True,
 ) -> Dict[str, Any]:
+    legacy_ocr_fallback_allowed = allow_legacy_ocr_fallback and _legacy_ocr_fallback_enabled()
     semantic_result = await search_context_memory_impl(
         service=service,
         user_id=user_id,
@@ -3226,7 +3338,7 @@ async def _load_semantic_truth(
         limit=max(limit * 4, 50),
         allow_legacy_fallback=allow_activity_fallback,
     )
-    if allow_legacy_ocr_fallback and not semantic_result.get("results"):
+    if legacy_ocr_fallback_allowed and not semantic_result.get("results"):
         semantic_result = await search_screen_recordings_impl(
             service=service,
             user_id=user_id,
@@ -3323,35 +3435,79 @@ async def query_memory_impl(
     end_ms = int(datetime.combine(end_day, dt_time.max, tzinfo=query_tz).timestamp() * 1000)
     resolved_intent = _detect_memory_intent(normalized_query, intent)
 
-    memory_db_path = get_local_memory_db_path_impl()
     activity_db_path = get_local_activity_db_path_impl()
     cloud_mode = memory_cloud_enabled()
+    memory_db_path = get_local_memory_db_path_impl()
+    local_activity_available = os.path.exists(activity_db_path)
     local_memory_available = os.path.exists(memory_db_path)
-    if not local_memory_available and not cloud_mode:
+    use_legacy_memory_query_path = _legacy_memory_query_path_enabled() and local_memory_available
+    if not local_activity_available and not cloud_mode and not use_legacy_memory_query_path:
         response = _error_response(
-            f"local memory database not found at {memory_db_path}",
+            f"local activity database not found at {activity_db_path}",
             resolved_intent=resolved_intent,
         )
-        response["source_db"] = os.path.basename(memory_db_path)
+        response["source_db"] = os.path.basename(activity_db_path)
         return response
 
     conn = None
+    source_db_label: Optional[str] = None
     try:
         cursor = None
-        if local_memory_available:
-            conn = sqlite3.connect(
-                f"file:{memory_db_path}?mode=ro",
-                uri=True,
-                timeout=2.5,
-            )
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            _attach_activity_view_if_needed(
-                cursor,
-                memory_db_path=memory_db_path,
-                activity_db_path=activity_db_path,
-            )
-            cursor.execute("PRAGMA query_only = ON")
+        async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
+            if use_legacy_memory_query_path:
+                conn = sqlite3.connect(
+                    f"file:{memory_db_path}?mode=ro",
+                    uri=True,
+                    timeout=2.5,
+                )
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                _attach_activity_view_if_needed(
+                    cursor,
+                    memory_db_path=memory_db_path,
+                    activity_db_path=activity_db_path,
+                )
+                cursor.execute("PRAGMA query_only = ON")
+                source_db_label = os.path.basename(memory_db_path)
+            elif preferred_conn is not None:
+                replica_row = preferred_conn.execute("PRAGMA database_list").fetchone()
+                replica_path = None
+                if replica_row and len(replica_row) >= 3:
+                    replica_path = replica_row[2]
+                if replica_path:
+                    conn = sqlite3.connect(
+                        f"file:{replica_path}?mode=ro",
+                        uri=True,
+                        timeout=2.5,
+                    )
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA query_only = ON")
+                    source_db_label = "activity_per_user_replica"
+                elif local_activity_available:
+                    conn = sqlite3.connect(
+                        f"file:{activity_db_path}?mode=ro",
+                        uri=True,
+                        timeout=2.5,
+                    )
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA query_only = ON")
+                    source_db_label = os.path.basename(activity_db_path)
+                else:
+                    cursor = None
+            elif local_activity_available:
+                conn = sqlite3.connect(
+                    f"file:{activity_db_path}?mode=ro",
+                    uri=True,
+                    timeout=2.5,
+                )
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA query_only = ON")
+                source_db_label = os.path.basename(activity_db_path)
+            else:
+                cursor = None
 
         should_include_time = resolved_intent in {"time_spent", "broad_overview"}
         should_include_semantic = resolved_intent in {"semantic_lookup", "evidence_timeline", "broad_overview"}
@@ -3360,7 +3516,7 @@ async def query_memory_impl(
         if cursor is not None:
             freshness = _compute_freshness(
                 cursor,
-                db_path=memory_db_path,
+                db_path=memory_db_path if use_legacy_memory_query_path else activity_db_path,
                 now_ms=now_ms,
                 intent=resolved_intent,
                 query_end_ms=end_ms,
@@ -3368,8 +3524,8 @@ async def query_memory_impl(
         else:
             freshness = {
                 "status": "unavailable",
-                "reasons": ["local_memory_db_missing"],
-                "source_db": os.path.basename(memory_db_path),
+                "reasons": ["local_activity_db_missing"],
+                "source_db": source_db_label or os.path.basename(activity_db_path),
                 "local_db_available": False,
             }
         semantic_readiness: Optional[Dict[str, Any]] = None
@@ -3405,10 +3561,10 @@ async def query_memory_impl(
             else:
                 warning_parts.append("Data source mismatch or stale OCR detected; semantic claims are restricted.")
         elif freshness.get("status") == "unavailable":
-            if cloud_mode and not local_memory_available:
-                warning_parts.append("Local capture data is unavailable on this backend instance; relying on cloud memory only.")
+            if cloud_mode and not local_activity_available:
+                warning_parts.append("Local activity/context data is unavailable on this backend instance; relying on cloud memory only.")
             else:
-                warning_parts.append("No recent capture data is available.")
+                warning_parts.append("No recent activity/context data is available.")
         if freshness.get("source_mismatch"):
             warning_parts.append(
                 str(freshness.get("source_mismatch_note") or "Data source mismatch detected between canonical and legacy local DBs.")
@@ -3807,7 +3963,12 @@ async def query_memory_impl(
                 )
                 semantic_truth["debug"] = debug_payload
 
-        if resolved_intent == "time_spent" and time_truth is None and _table_exists(cursor, "activity_events"):
+        if (
+            resolved_intent == "time_spent"
+            and time_truth is None
+            and cursor is not None
+            and _table_exists(cursor, "activity_events")
+        ):
             time_truth = _load_time_truth(
                 cursor=cursor,
                 start_ms=start_ms,
@@ -3887,7 +4048,7 @@ async def query_memory_impl(
             "recap_debug": recap_debug,
             "warning": " ".join(part for part in warning_parts if part).strip() or None,
             "error": None,
-            "source_db": os.path.basename(memory_db_path),
+            "source_db": source_db_label or os.path.basename(activity_db_path),
         }
     except Exception as exc:
         logger.error("❌ query_memory_impl error: %s", exc)
@@ -3909,7 +4070,7 @@ async def query_memory_impl(
             "provider_path": None,
             "warning": None,
             "error": str(exc),
-            "source_db": os.path.basename(memory_db_path),
+            "source_db": source_db_label or os.path.basename(activity_db_path),
         }
     finally:
         if conn is not None:
