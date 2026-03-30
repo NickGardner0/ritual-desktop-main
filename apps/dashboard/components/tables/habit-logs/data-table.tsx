@@ -967,7 +967,7 @@ export function HabitLogsDataTable({
                           key={column.id}
                           columnId={column.id}
                           className={cn(
-                            'relative border-b border-r border-border bg-white text-neutral-500 last:border-r-0',
+                            'relative border-b border-border border-r-0 bg-white text-neutral-500',
                             headerCellPadding,
                             getAlignmentClass(column.align),
                             stickyClass,
@@ -1070,7 +1070,7 @@ export function HabitLogsDataTable({
 
                       const cellClassName = cn(
                         bodyCellPadding,
-                        'border-b border-r border-border last:border-r-0',
+                        'border-b border-border border-r-0',
                         getAlignmentClass(column.align),
                         stickyClass,
                         cellBgClass,
