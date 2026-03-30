@@ -1,4 +1,13 @@
-// Voice mode output shaping.
+/**
+ * Voice mode output shaping and reply chip generation.
+ *
+ * Used by the orchestrator for voice-mode post-processing
+ * and generating quick-reply chips for the chat UI.
+ */
+
+// ---------------------------------------------------------------------------
+// Voice response post-processing
+// ---------------------------------------------------------------------------
 
 export function formatVoiceResponse(text: string): string {
   if (!text) return text;
@@ -39,6 +48,7 @@ export function formatVoiceResponse(text: string): string {
     if (lastSentenceEnd > MAX_CHARS * 0.5) {
       result = truncated.substring(0, lastSentenceEnd + 1);
     } else {
+      // Check if we're cutting important numeric content
       const hasNumbers = /\d+(\.\d+)?%?/.test(truncated.substring(MAX_CHARS - 100));
       if (hasNumbers) {
         console.warn('⚠️ Voice post-processing: skipping trim to preserve numeric content');
@@ -48,13 +58,16 @@ export function formatVoiceResponse(text: string): string {
     }
   }
 
-  // Ensure response ends with a question
+  // Ensure response ends with a question (add generic one if missing)
   const trimmedResult = result.trim();
   if (!trimmedResult.endsWith('?')) {
+    // Check if there's a question somewhere near the end
     const lastQuestionMark = trimmedResult.lastIndexOf('?');
     if (lastQuestionMark > trimmedResult.length - 100) {
+      // There's a question near the end, just trim after it
       result = trimmedResult.substring(0, lastQuestionMark + 1);
     } else {
+      // Add a generic follow-up question
       result = trimmedResult + '\n\nWant me to break this down further?';
     }
   }
@@ -62,9 +75,27 @@ export function formatVoiceResponse(text: string): string {
   return result.trim();
 }
 
+// ---------------------------------------------------------------------------
+// Reply chip generation
+// ---------------------------------------------------------------------------
+
 export function generateReplyChips(toolResults: Record<string, unknown>): string[] {
   const chips: string[] = [];
 
+  if (toolResults.screenTimeSpent) {
+    chips.push('Show app time table');
+    chips.push('Show daily time table');
+    chips.push('Last 30 days');
+  }
+
+  // Overview recap
+  if (toolResults.weeklyOverview || toolResults.dailyOverview || toolResults.monthlyOverview) {
+    chips.push('Show app breakdown');
+    chips.push('Show daily tables');
+    chips.push('Compare periods');
+  }
+
+  // Based on trends data
   if (toolResults.trends) {
     const trends = toolResults.trends as { trends?: Array<{ habit_name: string }> };
     if (trends.trends && trends.trends.length > 0) {
@@ -74,22 +105,26 @@ export function generateReplyChips(toolResults: Record<string, unknown>): string
     }
   }
 
+  // Based on anomalies data
   if (toolResults.anomalies) {
     chips.push('Show trends');
     chips.push('Last 7 days');
   }
 
+  // Based on stats/breakdown
   if (toolResults.stats || toolResults.dailyBreakdown) {
     chips.push('Last 7 days');
     chips.push('Last 30 days');
     chips.push('Show anomalies');
   }
 
+  // Fallback generic chips
   if (chips.length === 0) {
     chips.push('Last 7 days');
     chips.push('Last 30 days');
     chips.push('Show insights');
   }
 
+  // Dedupe and limit to 3
   return [...new Set(chips)].slice(0, 3);
 }

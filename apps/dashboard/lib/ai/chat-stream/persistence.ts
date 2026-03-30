@@ -1,4 +1,10 @@
-import { PYTHON_API_BASE } from './core';
+/**
+ * Conversation persistence helpers (create, save messages).
+ *
+ * Used by the orchestrator for fire-and-forget message persistence.
+ */
+
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 export async function createConversation(token: string): Promise<string | null> {
   try {

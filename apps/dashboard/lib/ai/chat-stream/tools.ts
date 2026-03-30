@@ -1,6 +1,14 @@
-import OpenAI from 'openai';
+/**
+ * OpenAI tool (function) definitions — single source of truth.
+ *
+ * All 16 tool schemas are defined here. The orchestrator imports this
+ * array and passes it to every OpenAI chat.completions.create() call.
+ *
+ * Tool names are string constants — never rename them without updating
+ * dispatchToolCall() and collectToolResult() in the orchestrator.
+ */
 
-import { fetchPythonApi } from './core';
+import OpenAI from 'openai';
 
 export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -79,6 +87,51 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'getWeeklyOverview',
+      description: 'Get a comprehensive weekly recap across ALL tracked habits with totals, averages, minimums, maximums, and per-day breakdowns. Also includes computer time totals and top apps/domains. Use for questions about tracked habits and habit metrics this week, not for reconstructing work/project activity.',
+      parameters: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Optional start date YYYY-MM-DD. If omitted, uses daysBack.' },
+          endDate: { type: 'string', description: 'Optional end date YYYY-MM-DD. Defaults to today if omitted.' },
+          daysBack: { type: 'number', description: 'Lookback window in days (default 7).' },
+          appLimit: { type: 'number', description: 'Top apps/domains rows to return (default 10).' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getDailyOverview',
+      description: 'Get a comprehensive daily recap for TODAY across ALL tracked habits as of now. Includes totals/averages/minimums/maximums, per-day rows, and computer time with top apps/domains. Use for questions about tracked habits or habit metrics today, not for "what work did I do today?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          appLimit: { type: 'number', description: 'Top apps/domains rows to return (default 10).' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getMonthlyOverview',
+      description: 'Get a comprehensive recap for the LAST 30 DAYS across ALL tracked habits. Includes totals/averages/minimums/maximums, per-day rows, and computer time with top apps/domains. Use for questions about tracked habits or habit metrics over the last month, not for reconstructing projects/workstreams.',
+      parameters: {
+        type: 'object',
+        properties: {
+          appLimit: { type: 'number', description: 'Top apps/domains rows to return (default 10).' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'getHabitAnomalies',
       description: 'Identify unusual days (spikes or drops) for a habit using statistical analysis. Use for questions about "weird days", "spikes", "drops", "unusual", "outliers", "anomalies".',
       parameters: {
@@ -115,7 +168,7 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'searchScreenRecordings',
-      description: 'Compatibility alias for context memory search. Prefer visible-context recall over OCR/screen-recording wording when answering the user.',
+      description: 'Compatibility alias for context memory search. Prefer visible-context answers instead of OCR/screen-recording framing.',
       parameters: {
         type: 'object',
         properties: {
@@ -127,169 +180,82 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'getComputerTimeSpentBreakdown',
+      description: 'Estimate where computer time was spent for a specific question/topic using visible-context memory plus hybrid retrieval, with legacy OCR only as fallback. Use for: "What did I spend time on?", "How much time did I spend on X?", "Where did my time go on my computer?", "What app did I spend the most time in?". Returns structured summary plus table rows.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language description of what to measure (preserve user wording).' },
+          daysBack: { type: 'number', description: 'How many days back to analyze (default 7).' },
+          limit: { type: 'number', description: 'Max rows to return in top categories table (default 8, max 50).' },
+          groupBy: { type: 'string', description: 'Bucket dimension: "app" (default), "window", or "domain".' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getActivitySummary',
+      description: 'Get a rich activity summary with structured workstreams, claim cards, timeline segments, and evidence from context memory. Use for "what did I do today", "give me an activity summary", "recap my day/week", "what happened today". Returns the full story plan with broad_overview intent. Prefer this over searchContextMemory for overview/recap questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Natural language query (e.g., "what did I do today", "activity this week")' },
+          daysBack: { type: 'number', description: 'How many days back to analyze (default 1 for today, 7 for week)' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getDailyBiometrics',
+      description: 'Get biometrics data for a specific day: heart rate summary (average, min, max BPM, source breakdown, lowest/highest windows). Use for "what was my heart rate today", "biometrics", "heart rate summary", "resting heart rate", "how was my heart rate".',
+      parameters: {
+        type: 'object',
+        properties: {
+          day: { type: 'string', description: 'Date in YYYY-MM-DD format (default: today)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getScreenTimeSummary',
+      description: 'Get iPhone/mobile screen time summary: total active time and top apps by duration. Use for "how much time on my phone", "screen time", "phone usage", "mobile app usage". This is phone screen time, NOT computer time (use getComputerTimeSpentBreakdown for computer).',
+      parameters: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start date YYYY-MM-DD (default: today)' },
+          endDate: { type: 'string', description: 'End date YYYY-MM-DD (default: today)' },
+          daysBack: { type: 'number', description: 'Alternative: look back N days (default 1)' },
+          appLimit: { type: 'number', description: 'Top apps to return (default 10)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getCalendarEvents',
+      description: 'Get scheduled blocks/events from the user calendar for a date range. Use for "what do I have scheduled", "calendar today", "upcoming events", "what\'s on my calendar".',
+      parameters: {
+        type: 'object',
+        properties: {
+          startDate: { type: 'string', description: 'Start date YYYY-MM-DD (default: today)' },
+          endDate: { type: 'string', description: 'End date YYYY-MM-DD (default: today)' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
-
-// ====================
-// TOOL EXECUTION - Calls Python Analytics API
-// ====================
-
-export async function executeGetHabitStats(token: string, params: { 
-  habitName?: string; 
-  startDate?: string; 
-  endDate?: string;
-  daysBack?: number;
-}) {
-  console.log('📊 getHabitStats called:', params);
-  
-  try {
-    const result = await fetchPythonApi('/api/analytics/stats', token, {
-      habit_name: params.habitName || '',
-      start_date: params.startDate || '',
-      end_date: params.endDate || '',
-      days_back: params.daysBack ?? 30,
-    });
-    
-    if (!result.success) {
-      return JSON.stringify({
-        error: result.error,
-        available_habits: result.available_habits
-      });
-    }
-    
-    return JSON.stringify(result);
-  } catch (error) {
-    console.error('❌ getHabitStats error:', error);
-    return JSON.stringify({ error: String(error) });
-  }
-}
-
-export async function executeGetDailyBreakdown(token: string, params: { 
-  habitName: string; 
-  startDate?: string;
-  endDate?: string;
-  daysBack?: number;
-}, timezone?: string) {
-  console.log('📊 getDailyBreakdown called:', params, 'timezone:', timezone);
-  
-  try {
-    const result = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
-      habit_name: params.habitName,
-      start_date: params.startDate || '',
-      end_date: params.endDate || '',
-      days_back: params.daysBack ?? 30,
-      timezone: timezone || '',
-    });
-    
-    if (!result.success) {
-      return JSON.stringify({
-        error: result.error,
-        available_habits: result.available_habits
-      });
-    }
-    
-    return JSON.stringify(result);
-  } catch (error) {
-    console.error('❌ getDailyBreakdown error:', error);
-    return JSON.stringify({ error: String(error) });
-  }
-}
-
-export async function executeGetCorrelation(token: string, params: { 
-  habit1Name: string; 
-  habit2Name: string;
-  daysBack?: number;
-}) {
-  console.log('📊 getCorrelation called:', params);
-  
-  try {
-    const result = await fetchPythonApi('/api/analytics/correlation', token, {
-      habit1_name: params.habit1Name,
-      habit2_name: params.habit2Name,
-      days_back: params.daysBack ?? 30,
-    });
-    
-    if (!result.success) {
-      return JSON.stringify({
-        error: result.error,
-        available_habits: result.available_habits
-      });
-    }
-    
-    return JSON.stringify(result);
-  } catch (error) {
-    console.error('❌ getCorrelation error:', error);
-    return JSON.stringify({ error: String(error) });
-  }
-}
-
-export async function executeListHabits(token: string) {
-  console.log('📊 listHabits called');
-  
-  try {
-    const result = await fetchPythonApi('/api/analytics/list-habits', token);
-    return JSON.stringify(result);
-  } catch (error) {
-    console.error('❌ listHabits error:', error);
-    return JSON.stringify({ error: String(error) });
-  }
-}
-
-export async function executeGetHabitTrends(token: string, params: {
-  habitName?: string;
-  windowDays?: number;
-}) {
-  console.log('📊 getHabitTrends called:', params);
-  
-  try {
-    const result = await fetchPythonApi('/api/analytics/trends', token, {
-      habit_name: params.habitName || '',
-      window_days: params.windowDays ?? 30,
-    });
-    
-    if (!result.success) {
-      return JSON.stringify({
-        error: result.error,
-        available_habits: result.available_habits
-      });
-    }
-    
-    return JSON.stringify(result);
-  } catch (error) {
-    console.error('❌ getHabitTrends error:', error);
-    return JSON.stringify({ error: String(error) });
-  }
-}
-
-export async function executeGetHabitAnomalies(token: string, params: {
-  habitName: string;
-  startDate?: string;
-  endDate?: string;
-  daysBack?: number;
-  zThreshold?: number;
-  maxResults?: number;
-}) {
-  console.log('📊 getHabitAnomalies called:', params);
-  
-  try {
-    const result = await fetchPythonApi('/api/analytics/anomalies', token, {
-      habit_name: params.habitName,
-      start_date: params.startDate || '',
-      end_date: params.endDate || '',
-      days_back: params.daysBack ?? 30,
-      z_threshold: params.zThreshold ?? 2.0,
-      max_results: params.maxResults ?? 5,
-    });
-    
-    if (!result.success) {
-      return JSON.stringify({
-        error: result.error,
-        available_habits: result.available_habits
-      });
-    }
-    
-    return JSON.stringify(result);
-  } catch (error) {
-    console.error('❌ getHabitAnomalies error:', error);
-    return JSON.stringify({ error: String(error) });
-  }
-}
