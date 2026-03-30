@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   checkDesktopForUpdates,
-  desktopFrontendReady,
   getDesktopCompatibilityIssue,
+  getDesktopRuntimeInfo,
   installDesktopUpdate,
   type DesktopRuntimeInfo,
   type UpdateManifest,
@@ -41,6 +41,7 @@ export function DesktopUpdater() {
   const [manualCheckActive, setManualCheckActive] = useState(false);
   const [runtimeInfo, setRuntimeInfo] = useState<DesktopRuntimeInfo | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [updaterSessionActive, setUpdaterSessionActive] = useState(false);
   const manualCheckActiveRef = useRef(false);
 
   useEffect(() => {
@@ -79,10 +80,9 @@ export function DesktopUpdater() {
 
     let cancelled = false;
 
-    void desktopFrontendReady().then((info) => {
+    void getDesktopRuntimeInfo().then((info) => {
       if (cancelled) return;
       setRuntimeInfo(info);
-      setAvailableUpdate(normalizeManifest(info?.pendingUpdate));
     });
 
     return () => {
@@ -91,7 +91,7 @@ export function DesktopUpdater() {
   }, [isDesktopShell]);
 
   useEffect(() => {
-    if (!shouldEnableUpdater) return;
+    if (!shouldEnableUpdater || !updaterSessionActive) return;
 
     let cancelled = false;
     let disposeAvailable: (() => void) | undefined;
@@ -170,11 +170,12 @@ export function DesktopUpdater() {
       disposeAvailable?.();
       disposeStatus?.();
     };
-  }, [shouldEnableUpdater]);
+  }, [shouldEnableUpdater, updaterSessionActive]);
 
   const effectivePendingUpdate = availableUpdate ?? normalizeManifest(runtimeInfo?.pendingUpdate);
 
   const runManualUpdateCheck = async () => {
+    setUpdaterSessionActive(true);
     setChecking(true);
     setManualCheckActive(true);
     setStatusMessage('Checking GitHub Releases for a new Ritual build...');
@@ -195,6 +196,7 @@ export function DesktopUpdater() {
   };
 
   const installUpdateNow = async () => {
+    setUpdaterSessionActive(true);
     setInstalling(true);
     setStatusMessage('Downloading and installing the latest Ritual desktop build...');
 

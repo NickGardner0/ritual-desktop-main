@@ -129,6 +129,7 @@ export function OverviewView({
   onDateRangeChange,
   hideControls = false 
 }: OverviewViewProps) {
+  const isDesktopShell = typeof window !== 'undefined' && isTauri();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
   const { isLoaded, getToken } = useAuth();
   const {
@@ -994,7 +995,7 @@ export function OverviewView({
       {!hideControls && (
         <div className="relative flex items-center justify-end h-14">
           {/* History Scrubber - centered */}
-          {habits.length > 0 && (
+          {habits.length > 0 && !isDesktopShell && (
             <div className="absolute left-1/2 -translate-x-1/2 w-[500px]">
               <HistoryScrubber
                 habitLogs={displayLogs}

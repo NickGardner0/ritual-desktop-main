@@ -49,6 +49,7 @@ function WatcherConfigReconciler() {
 export function RootProviders({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
+  const isDesktopShell = typeof window !== 'undefined' && isTauri();
   const [isTransparencyProbe] = useState(() => {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_transparency_probe');
@@ -115,7 +116,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
       <QueryProvider>
         <HabitsProvider>
           <DesktopUpdater />
-          <MemoryCloudUploader />
+          {!isDesktopShell ? <MemoryCloudUploader /> : null}
           <WatcherConfigReconciler />
           {children}
         </HabitsProvider>
