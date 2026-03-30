@@ -150,7 +150,7 @@ function SortableHabitItem({
         <button
           onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
           disabled={deletingHabit === habit.id}
-          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-all disabled:opacity-50"
+          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50"
           title="Delete habit"
         >
           {deletingHabit === habit.id ? (

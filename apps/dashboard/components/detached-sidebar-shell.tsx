@@ -93,9 +93,10 @@ export function DetachedSidebarShell() {
   return (
     <aside
       className={cn(
-        "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-stretch overflow-hidden flex z-[1002] transition-all duration-200 ease-standard",
+        "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-stretch overflow-hidden flex z-[1002]",
         isExpanded ? "w-[240px]" : "w-[70px]",
       )}
+      style={{ transition: 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)' }}
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
     >

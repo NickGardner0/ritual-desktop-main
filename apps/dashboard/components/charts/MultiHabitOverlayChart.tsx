@@ -111,7 +111,7 @@ function OverlayTooltip({ active, payload, label, habitMeta }: any) {
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="rounded-lg border border-[rgba(39,37,30,0.08)] bg-white/95 px-3 py-2 shadow-lg backdrop-blur-sm">
+    <div className="rounded-lg border border-[rgba(39,37,30,0.08)] bg-white px-3 py-2 shadow-lg">
       <p className="mb-1.5 text-[11px] font-medium text-[rgba(39,37,30,0.45)]">{label}</p>
       {payload
         .filter((entry: any) => entry.value !== undefined)

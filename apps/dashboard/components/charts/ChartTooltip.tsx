@@ -154,7 +154,7 @@ export function ExpandedChartTooltip({
 
   return (
     <div
-      className={`${tooltipWidthClass} rounded-sm border border-white/45 bg-[rgba(248,249,251,0.56)] px-2.5 py-2 shadow-[0_8px_20px_rgba(15,23,42,0.16)] backdrop-blur-md`}
+      className={`${tooltipWidthClass} rounded-sm border border-white/45 bg-[rgba(248,249,251,0.94)] px-2.5 py-2 shadow-[0_8px_20px_rgba(15,23,42,0.16)]`}
     >
       <div className="mb-1 text-[11px] text-[rgba(39,37,30,0.62)]">{formatTooltipDate(rawDate)}</div>
 

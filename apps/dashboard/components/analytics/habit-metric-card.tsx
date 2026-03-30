@@ -126,11 +126,12 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
 
   return (
     <div
-      className={`group relative flex min-w-0 cursor-pointer flex-col gap-1 overflow-hidden border border-[rgba(39,37,30,0.08)] bg-white px-0 transition-all duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
+      className={`group relative flex min-w-0 cursor-pointer flex-col gap-1 overflow-hidden border border-[rgba(39,37,30,0.08)] bg-white px-0 duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
         isSparkCard ? 'h-[100px] rounded-sm py-[2px]' : 'h-[120px] rounded-sm py-[4px]'
       }`}
       onClick={onClick}
       style={{
+        transition: 'border-color 200ms ease-out, background-color 200ms ease-out, box-shadow 200ms ease-out',
         fontFamily: "'Inter', 'FK Grotesk Neue', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
       }}
     >
@@ -140,7 +141,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             event.stopPropagation();
             onRemove();
           }}
-          className="absolute right-1.5 top-1.5 z-20 rounded-full bg-white/90 p-0.5 opacity-0 shadow-sm backdrop-blur-sm transition-all duration-200 group-hover:opacity-100 hover:bg-white hover:shadow-md"
+          className="absolute right-1.5 top-1.5 z-20 rounded-full bg-white p-0.5 opacity-0 shadow-sm transition-opacity duration-200 group-hover:opacity-100 hover:shadow-md"
           aria-label="Remove habit"
         >
           <X className="h-2.5 w-2.5 text-gray-400 hover:text-gray-600" />

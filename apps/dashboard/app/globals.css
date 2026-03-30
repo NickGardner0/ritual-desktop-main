@@ -426,14 +426,16 @@
     background:
       linear-gradient(
         180deg,
-        rgba(255, 255, 255, 0.78) 0%,
-        rgba(252, 252, 250, 0.64) 42%,
-        rgba(249, 249, 247, 0.56) 100%
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(252, 252, 250, 0.88) 42%,
+        rgba(249, 249, 247, 0.85) 100%
       );
-    background-color: rgba(252, 252, 250, 0.58);
+    background-color: rgba(252, 252, 250, 0.90);
     border-right: 0 solid transparent;
-    backdrop-filter: saturate(120%) blur(14px);
-    -webkit-backdrop-filter: saturate(120%) blur(14px);
+    /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
+       forces expensive GPU recomposites on every hover/scroll, causing
+       the entire app to freeze with the macOS pinwheel. The slightly
+       higher opacity backgrounds above preserve the frosted look. */
     box-shadow:
       inset -1px 0 0 rgba(39, 37, 30, 0.04),
       inset 0 1px 0 rgba(255, 255, 255, 0.54);
