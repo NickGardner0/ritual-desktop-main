@@ -62,9 +62,9 @@ interface SortableHabitItemProps {
   habit: Habit;
   getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
   getHabitMetricClassName: (habit: Habit) => string;
-  scrubberHoveredDate: string | null;
-  scrubberHoveredValues: Record<string, number> | null;
-  activeTooltip: string | null;
+  /** Pre-computed hovered value for THIS specific habit (undefined if not hovered) */
+  hoveredValue: number | undefined;
+  isTooltipOpen: boolean;
   setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
   getHabitMetricStats: (habit: Habit) => {
     sumFormatted: string;
@@ -74,20 +74,19 @@ interface SortableHabitItemProps {
     stdDevFormatted: string;
   };
   confirmDelete: (habitId: string | undefined) => void;
-  deletingHabit: string | null;
+  isDeleting: boolean;
 }
 
-function SortableHabitItem({
+const SortableHabitItem = React.memo(function SortableHabitItem({
   habit,
   getHabitMetricDisplay,
   getHabitMetricClassName,
-  scrubberHoveredDate,
-  scrubberHoveredValues,
-  activeTooltip,
+  hoveredValue,
+  isTooltipOpen,
   setActiveTooltip,
   getHabitMetricStats,
   confirmDelete,
-  deletingHabit,
+  isDeleting,
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
@@ -105,6 +104,9 @@ function SortableHabitItem({
     transition,
     zIndex: isDragging ? 50 : undefined,
   };
+
+  const habitId = habit.id || '';
+
   return (
     <div
       ref={setNodeRef}
@@ -134,33 +136,28 @@ function SortableHabitItem({
         className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
         onClick={(e) => {
           e.stopPropagation();
-          setActiveTooltip(activeTooltip === habit.id ? null : habit.id || '');
+          setActiveTooltip(prev => prev === habitId ? null : habitId);
         }}
       >
         <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">
           <span className={getHabitMetricClassName(habit)}>
-            {getHabitMetricDisplay(
-              habit, 
-              scrubberHoveredDate && scrubberHoveredValues 
-                ? scrubberHoveredValues[habit.id || ''] 
-                : undefined
-            )}
+            {getHabitMetricDisplay(habit, hoveredValue)}
           </span>
         </span>
         <button
           onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
-          disabled={deletingHabit === habit.id}
+          disabled={isDeleting}
           className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50"
           title="Delete habit"
         >
-          {deletingHabit === habit.id ? (
+          {isDeleting ? (
             <BrailleSpinner className="text-xs text-gray-500" />
           ) : (
             <X className="w-3 h-3" />
           )}
         </button>
-        <StatsTooltip open={activeTooltip === habit.id} triggerRef={metricTriggerRef}>
-          {(() => {
+        <StatsTooltip open={isTooltipOpen} triggerRef={metricTriggerRef}>
+          {isTooltipOpen ? (() => {
             const s = getHabitMetricStats(habit);
             return (
               <div className="space-y-1.5 text-sm">
@@ -186,12 +183,12 @@ function SortableHabitItem({
                 </div>
               </div>
             );
-          })()}
+          })() : null}
         </StatsTooltip>
       </div>
     </div>
   );
-}
+});
 
 export interface SortableHabitListProps {
   habits: Habit[];
@@ -254,21 +251,27 @@ export function SortableHabitList({
         items={habits.map(h => h.id || '')}
         strategy={verticalListSortingStrategy}
       >
-        {habits.map((habit) => (
+        {habits.map((habit) => {
+          const habitId = habit.id || '';
+          return (
             <SortableHabitItem
-              key={habit.id}
+              key={habitId}
               habit={habit}
               getHabitMetricDisplay={getHabitMetricDisplay}
               getHabitMetricClassName={getHabitMetricClassName}
-              scrubberHoveredDate={scrubberHoveredDate}
-              scrubberHoveredValues={scrubberHoveredValues}
-              activeTooltip={activeTooltip}
-            setActiveTooltip={setActiveTooltip}
-            getHabitMetricStats={getHabitMetricStats}
-            confirmDelete={confirmDelete}
-            deletingHabit={deletingHabit}
-          />
-        ))}
+              hoveredValue={
+                scrubberHoveredDate && scrubberHoveredValues
+                  ? scrubberHoveredValues[habitId]
+                  : undefined
+              }
+              isTooltipOpen={activeTooltip === habitId}
+              setActiveTooltip={setActiveTooltip}
+              getHabitMetricStats={getHabitMetricStats}
+              confirmDelete={confirmDelete}
+              isDeleting={deletingHabit === habitId}
+            />
+          );
+        })}
       </SortableContext>
     </DndContext>
   );
