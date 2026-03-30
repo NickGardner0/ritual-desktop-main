@@ -917,21 +917,6 @@ fn main() {
       watcher::open_accessibility_settings,
       // Local activity queries (for detailed view with full URLs/titles)
       watcher::get_detailed_activity,
-      watcher::get_activity_timeline,
-      // Sync queue commands for reliable backend sync
-      watcher::get_sync_queue_count,
-      watcher::get_pending_sync_items,
-      watcher::mark_sync_item_complete,
-      watcher::mark_sync_item_failed,
-      watcher::get_event_for_sync,
-      watcher::get_daily_summary,
-      watcher::get_daily_summaries,
-      // Database maintenance & diagnostics
-      watcher::get_watcher_db_stats,
-      watcher::cleanup_old_events,
-      watcher::export_events,
-      // Focus metrics
-      watcher::get_focus_metrics,
       // Real-time status
       watcher::get_watcher_extended_status,
       watcher::get_browser_extension_diagnostics,
@@ -997,12 +982,6 @@ fn main() {
       ritual_database::start_embedding_worker,
       ritual_database::stop_embedding_worker,
       ritual_database::is_embedding_worker_running,
-      // Segment commands
-      ritual_database::get_segments_in_range,
-      ritual_database::get_segment_at_time,
-      ritual_database::get_frames_for_segment,
-      ritual_database::create_segments,
-      ritual_database::get_segment_stats
     ])
     .system_tray(system_tray)
     .on_system_tray_event(|_app, event| match event {
