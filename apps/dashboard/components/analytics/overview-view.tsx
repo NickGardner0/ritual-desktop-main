@@ -138,15 +138,15 @@ function QuickActionChips() {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-center gap-2 pt-5 pb-1 flex-wrap">
+    <div className="flex items-center justify-center gap-1.5 py-2 flex-wrap">
       {QUICK_ACTIONS.map((action) => (
         <button
           key={action.label}
           type="button"
           onClick={() => router.push(action.path)}
-          className="inline-flex items-center gap-2 rounded-sm border border-border bg-white px-4 py-2 text-[13px] font-medium text-neutral-700 transition-colors hover:bg-[#f7f7f6] hover:text-neutral-900"
+          className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-white px-2.5 py-1 text-[12px] font-normal text-neutral-500 transition-colors hover:bg-[#f7f7f6] hover:text-neutral-700"
         >
-          <action.icon className="h-4 w-4" />
+          <action.icon className="h-3 w-3" />
           {action.label}
         </button>
       ))}
@@ -1085,9 +1085,6 @@ export function OverviewView({
         </div>
       )}
 
-      {/* Quick Action Chips */}
-      <QuickActionChips />
-
       {/* Habits List */}
       <div className="pt-6">
         <div className="max-w-[500px] mx-auto w-full">
@@ -1106,6 +1103,9 @@ export function OverviewView({
           />
         </div>
       </div>
+
+      {/* Quick Action Chips */}
+      <QuickActionChips />
 
       {/* Empty state */}
       {isBackendUnavailable && (

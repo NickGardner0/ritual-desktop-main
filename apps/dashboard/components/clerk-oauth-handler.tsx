@@ -3,6 +3,39 @@
 import { useEffect } from 'react';
 import { isTauri } from '@/lib/tauri-utils';
 
+function isOAuthUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    const hostname = parsed.hostname.toLowerCase();
+    const currentHostname = window.location.hostname.toLowerCase();
+
+    if (hostname === currentHostname) {
+      return false;
+    }
+
+    if (
+      hostname === 'accounts.google.com' ||
+      hostname === 'appleid.apple.com' ||
+      hostname === 'oauth.clerk.com' ||
+      hostname.endsWith('.accounts.dev')
+    ) {
+      return true;
+    }
+
+    const isClerkHostedDomain =
+      hostname.startsWith('clerk.') ||
+      hostname.includes('.clerk.') ||
+      hostname.includes('.clerk.accounts.');
+    const hasOAuthPath =
+      parsed.pathname.toLowerCase().includes('oauth') ||
+      parsed.pathname.toLowerCase().includes('sso');
+
+    return isClerkHostedDomain && hasOAuthPath;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Component that configures window.open to use system browser in Tauri
  * This makes Clerk OAuth automatically open in external browser
@@ -30,14 +63,7 @@ export function ClerkOAuthHandler() {
       const urlString = url.toString();
       console.log('🌐 window.open intercepted:', urlString);
 
-      // Check if this is an OAuth URL (Google, Apple, etc.)
-      // Note: Only match external OAuth providers, NOT our own /auth routes
-      const isOAuth = urlString.includes('accounts.google.com') ||
-                     urlString.includes('appleid.apple.com') ||
-                     urlString.includes('oauth.clerk.com') ||
-                     urlString.includes('accounts.dev'); // Clerk's OAuth domain
-
-      if (isOAuth) {
+      if (isOAuthUrl(urlString)) {
         console.log('🔐 OAuth URL detected in window.open, opening in system browser');
         
         // Use Tauri's shell to open in system browser
@@ -64,12 +90,8 @@ export function ClerkOAuthHandler() {
       const url = args[2];
       if (url) {
         const urlString = url.toString();
-        const isOAuth = urlString.includes('accounts.google.com') ||
-                       urlString.includes('appleid.apple.com') ||
-                       urlString.includes('oauth.clerk.com') ||
-                       urlString.includes('accounts.dev');
-        
-        if (isOAuth) {
+
+        if (isOAuthUrl(urlString)) {
           console.log('🔐 OAuth URL detected in pushState, opening in system browser:', urlString);
           import('@tauri-apps/api/shell').then(({ open }) => {
             open(urlString);
@@ -84,12 +106,8 @@ export function ClerkOAuthHandler() {
       const url = args[2];
       if (url) {
         const urlString = url.toString();
-        const isOAuth = urlString.includes('accounts.google.com') ||
-                       urlString.includes('appleid.apple.com') ||
-                       urlString.includes('oauth.clerk.com') ||
-                       urlString.includes('accounts.dev');
-        
-        if (isOAuth) {
+
+        if (isOAuthUrl(urlString)) {
           console.log('🔐 OAuth URL detected in replaceState, opening in system browser:', urlString);
           import('@tauri-apps/api/shell').then(({ open }) => {
             open(urlString);
@@ -105,13 +123,8 @@ export function ClerkOAuthHandler() {
       const newUrl = (e.target as any)?.activeElement?.href;
       if (newUrl) {
         console.log('🌐 Navigation detected:', newUrl);
-        
-        const isOAuth = newUrl.includes('accounts.google.com') ||
-                       newUrl.includes('appleid.apple.com') ||
-                       newUrl.includes('oauth.clerk.com') ||
-                       newUrl.includes('accounts.dev');
-        
-        if (isOAuth) {
+
+        if (isOAuthUrl(newUrl)) {
           console.log('🔐 OAuth navigation detected, opening in system browser');
           e.preventDefault();
           
@@ -171,12 +184,7 @@ export function ClerkOAuthHandler() {
       
       // Also check for direct OAuth links
       if (link?.href) {
-        const isOAuth = link.href.includes('accounts.google.com') ||
-                       link.href.includes('appleid.apple.com') ||
-                       link.href.includes('oauth.clerk.com') ||
-                       link.href.includes('accounts.dev');
-        
-        if (isOAuth) {
+        if (isOAuthUrl(link.href)) {
           console.log('🔐 OAuth link clicked, opening in system browser:', link.href);
           e.preventDefault();
           e.stopPropagation();
@@ -196,13 +204,8 @@ export function ClerkOAuthHandler() {
     const checkLocation = () => {
       if (window.location.href !== currentHref && !redirectIntercepted) {
         const newUrl = window.location.href;
-        
-        const isOAuth = newUrl.includes('accounts.google.com') ||
-                       newUrl.includes('appleid.apple.com') ||
-                       newUrl.includes('oauth.clerk.com') ||
-                       newUrl.includes('accounts.dev');
-        
-        if (isOAuth) {
+
+        if (isOAuthUrl(newUrl)) {
           redirectIntercepted = true;
           console.log('🔐 OAuth redirect detected, opening in system browser:', newUrl);
           
@@ -247,4 +250,3 @@ export function ClerkOAuthHandler() {
 
   return null;
 }
-

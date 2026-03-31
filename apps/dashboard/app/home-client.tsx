@@ -8,6 +8,7 @@ import { setStandardWindowSize, setOnboardingWindowSize } from '@/lib/tauri-util
 import { isTauri } from '@/lib/tauri-utils';
 import { ArrowRight } from 'lucide-react';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
+import { DesktopSocialAuthButtons } from '@/components/desktop-social-auth-buttons';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
   FROM_WELCOME_KEY,
@@ -429,39 +430,45 @@ export function HomeClient() {
             {currentPage === 3 && (
               <div className="animate-in fade-in duration-500 flex justify-center">
                 {showSignUp ? (
-                  <SignUp
-                    routing="virtual"
-                    signInUrl="/?page=3&mode=signin"
-                    forceRedirectUrl="/auth/sso-callback"
-                    fallbackRedirectUrl="/auth/sso-callback"
-                    appearance={{
-                      elements: {
-                        socialButtonsBlockButton: {
-                          '&:hover': {
-                            cursor: 'pointer'
-                          }
-                        },
-                        dividerRow: '',
-                      }
-                    }}
-                  />
+                  <div className="w-full max-w-md">
+                    {desktopApp ? <DesktopSocialAuthButtons mode="sign-up" /> : null}
+                    <SignUp
+                      routing="virtual"
+                      signInUrl="/?page=3&mode=signin"
+                      forceRedirectUrl="/auth/sso-callback"
+                      fallbackRedirectUrl="/auth/sso-callback"
+                      appearance={{
+                        elements: {
+                          socialButtonsBlockButton: desktopApp ? 'hidden' : {
+                            '&:hover': {
+                              cursor: 'pointer'
+                            }
+                          },
+                          dividerRow: desktopApp ? 'hidden' : '',
+                        }
+                      }}
+                    />
+                  </div>
                 ) : (
-                  <SignIn
-                    routing="virtual"
-                    signUpUrl="/?page=3&mode=signup"
-                    forceRedirectUrl="/auth/sso-callback"
-                    fallbackRedirectUrl="/auth/sso-callback"
-                    appearance={{
-                      elements: {
-                        socialButtonsBlockButton: {
-                          '&:hover': {
-                            cursor: 'pointer'
-                          }
-                        },
-                        dividerRow: '',
-                      }
-                    }}
-                  />
+                  <div className="w-full max-w-md">
+                    {desktopApp ? <DesktopSocialAuthButtons mode="sign-in" /> : null}
+                    <SignIn
+                      routing="virtual"
+                      signUpUrl="/?page=3&mode=signup"
+                      forceRedirectUrl="/auth/sso-callback"
+                      fallbackRedirectUrl="/auth/sso-callback"
+                      appearance={{
+                        elements: {
+                          socialButtonsBlockButton: desktopApp ? 'hidden' : {
+                            '&:hover': {
+                              cursor: 'pointer'
+                            }
+                          },
+                          dividerRow: desktopApp ? 'hidden' : '',
+                        }
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             )}
