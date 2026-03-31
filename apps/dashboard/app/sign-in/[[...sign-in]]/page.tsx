@@ -2,7 +2,6 @@ import { SignIn } from "@clerk/nextjs";
 import { headers } from 'next/headers';
 
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
-import { DesktopSocialAuthButtons } from '@/components/desktop-social-auth-buttons';
 
 function isDesktopUserAgent(userAgent: string): boolean {
     return userAgent.includes('RitualDesktop/');
@@ -18,27 +17,26 @@ export default async function SignInPage() {
             <div className="w-full max-w-md">
                 {isDesktopApp ? <ClerkOAuthHandler /> : null}
                 <div className="flex justify-center">
-                    <div className="w-full">
-                        {isDesktopApp ? <DesktopSocialAuthButtons mode="sign-in" /> : null}
-                        <SignIn
-                            appearance={{
-                                variables: {
-                                    borderRadius: '0.125rem',
-                                },
-                                elements: {
-                                    rootBox: "mx-auto",
-                                    card: "shadow-sm rounded-sm",
-                                    formButtonPrimary: "rounded-sm",
-                                    socialButtonsBlockButton: isDesktopApp ? "hidden" : "rounded-sm",
-                                    dividerRow: isDesktopApp ? "hidden" : "",
-                                    formFieldInput: "rounded-sm",
-                                }
-                            }}
-                            signUpUrl="/sign-up"
-                            forceRedirectUrl="/auth/sso-callback"
-                            fallbackRedirectUrl="/auth/sso-callback"
-                        />
-                    </div>
+                    <SignIn
+                        appearance={{
+                            variables: {
+                                borderRadius: '0.125rem',
+                            },
+                            elements: {
+                                rootBox: "mx-auto",
+                                card: "shadow-sm rounded-sm",
+                                formButtonPrimary: "rounded-sm",
+                                socialButtonsBlockButton: "rounded-sm",
+                                dividerRow: "",
+                                formFieldInput: "rounded-sm",
+                            }
+                        }}
+                        signUpUrl="/sign-up"
+                        forceRedirectUrl="/auth/sso-callback"
+                        fallbackRedirectUrl="/auth/sso-callback"
+                        oauthFlow={isDesktopApp ? "redirect" : "auto"}
+                        oidcPrompt={isDesktopApp ? "select_account" : undefined}
+                    />
                 </div>
             </div>
         </div>
