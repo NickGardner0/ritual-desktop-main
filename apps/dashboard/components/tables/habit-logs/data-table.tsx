@@ -51,7 +51,6 @@ import {
   CategoryCell,
   SourceCell,
   NotesCell,
-  ActionsCell,
 } from './columns';
 import type { HabitLog, TableDensity } from '@/app/(dashboard)/activity/logs-client';
 
@@ -122,9 +121,9 @@ interface HabitLogTableMeta {
 const COLUMN_RESIZE_STORAGE_KEY = 'ritual:logs:column-widths:v5';
 const COLUMN_ORDER_STORAGE_KEY = 'ritual:logs:column-order:v1';
 
-const DEFAULT_COLUMN_ORDER = ['select', 'date', 'time', 'habit', 'value', 'category', 'source', 'notes', 'actions'];
+const DEFAULT_COLUMN_ORDER = ['select', 'date', 'time', 'habit', 'value', 'category', 'source', 'notes'];
 const LEFT_STICKY_COLUMNS = ['select', 'date'];
-const PINNED_COLUMNS = new Set(['select', 'actions']);
+const PINNED_COLUMNS = new Set(['select']);
 
 const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
   select: { sticky: true, align: 'center', resizable: false, sortable: false },
@@ -135,7 +134,6 @@ const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
   category: { align: 'left', resizable: true, sortable: true },
   source: { align: 'left', resizable: true, sortable: true },
   notes: { align: 'left', resizable: false, sortable: false },
-  actions: { align: 'center', resizable: false, sortable: false },
 };
 
 const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: number }> = {
@@ -147,7 +145,6 @@ const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: num
   category: { size: 180, minSize: 140, maxSize: 420 },
   source: { size: 180, minSize: 140, maxSize: 500 },
   notes: { size: 220, minSize: 150, maxSize: 500 },
-  actions: { size: 92, minSize: 92, maxSize: 92 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
@@ -353,21 +350,6 @@ const tableColumns: ColumnDef<HabitLog>[] = [
       </span>
     ),
     cell: ({ row }) => <NotesCell notes={row.original.notes} />,
-  },
-  {
-    id: 'actions',
-    ...COLUMN_SIZES.actions,
-    enableResizing: false,
-    header: () => (
-      <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
-        Actions
-      </span>
-    ),
-    cell: ({ row }) => (
-      <div className="flex items-center justify-center">
-        <ActionsCell log={row.original} />
-      </div>
-    ),
   },
 ];
 
@@ -1048,7 +1030,7 @@ export function HabitLogsDataTable({
     );
   }
 
-  const NON_CLICKABLE = new Set(['select', 'actions', 'source']);
+  const NON_CLICKABLE = new Set(['select', 'source']);
 
   return (
     <TooltipProvider delayDuration={20}>
@@ -1120,7 +1102,7 @@ export function HabitLogsDataTable({
                           key={header.id}
                           columnId={header.id}
                           className={cn(
-                            'relative h-full flex items-center border-b border-border bg-white text-neutral-500',
+                            'relative h-full flex items-center border-b border-r border-border bg-white text-neutral-500',
                             headerCellPadding,
                             getAlignmentClass(layout?.align),
                             stickyClass,
@@ -1215,7 +1197,7 @@ export function HabitLogsDataTable({
                           data-column={columnId}
                           className={cn(
                             bodyCellPadding,
-                            'h-full flex items-center border-b border-border',
+                            'h-full flex items-center border-b border-r border-border',
                             getAlignmentClass(layout?.align),
                             stickyClass,
                             cellBgClass,
@@ -1223,7 +1205,7 @@ export function HabitLogsDataTable({
                           )}
                           style={getStickyStyle(columnId)}
                           onClick={
-                            columnId === 'select' || columnId === 'actions'
+                            columnId === 'select'
                               ? (event) => event.stopPropagation()
                               : undefined
                           }

@@ -53,7 +53,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
             currentView === tab.value
               ? "bg-white text-[#27251E] font-medium shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-              : "bg-transparent text-[rgba(39,37,30,0.5)] font-normal hover:text-[rgba(39,37,30,0.8)]"
+              : "bg-transparent text-[rgba(39,37,30,0.75)] font-normal hover:text-[#27251E]"
           )}
         >
           {tab.label}

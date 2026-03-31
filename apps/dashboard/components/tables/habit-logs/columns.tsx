@@ -68,7 +68,7 @@ export const SelectCell = memo(({
     <Checkbox
       checked={checked}
       onCheckedChange={onChange}
-      className="rounded-sm border-black/15 data-[state=checked]:border-neutral-900 data-[state=checked]:bg-neutral-900"
+      className="rounded-none border-black/15 data-[state=checked]:border-neutral-900 data-[state=checked]:bg-neutral-900"
     />
   </div>
 ));
