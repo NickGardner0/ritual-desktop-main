@@ -3,6 +3,17 @@
 import { useEffect } from 'react';
 import { isTauri } from '@/lib/tauri-utils';
 
+function isExternalUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    const hostname = parsed.hostname.toLowerCase();
+    const currentHostname = window.location.hostname.toLowerCase();
+    return hostname !== currentHostname;
+  } catch {
+    return false;
+  }
+}
+
 function isOAuthUrl(url: string): boolean {
   try {
     const parsed = new URL(url, window.location.origin);
@@ -56,16 +67,17 @@ export function ClerkOAuthHandler() {
     // Store the original window.open
     const originalWindowOpen = window.open;
 
-    // Override window.open to use Tauri's shell.open for OAuth URLs
+    // Override window.open to use Tauri's shell.open for external URLs
+    // This handles both Clerk OAuth (Google/Apple) and Plaid OAuth (bank logins)
     window.open = function(url?: string | URL, target?: string, features?: string) {
       if (!url) return originalWindowOpen.call(window, url, target, features);
 
       const urlString = url.toString();
       console.log('🌐 window.open intercepted:', urlString);
 
-      if (isOAuthUrl(urlString)) {
-        console.log('🔐 OAuth URL detected in window.open, opening in system browser');
-        
+      if (isExternalUrl(urlString)) {
+        console.log('🔐 External URL detected in window.open, opening in system browser:', urlString);
+
         // Use Tauri's shell to open in system browser
         import('@tauri-apps/api/shell').then(({ open }) => {
           open(urlString);
@@ -78,7 +90,7 @@ export function ClerkOAuthHandler() {
         return null;
       }
 
-      // For non-OAuth URLs, use the original window.open
+      // For same-origin URLs, use the original window.open
       return originalWindowOpen.call(window, url, target, features);
     };
     

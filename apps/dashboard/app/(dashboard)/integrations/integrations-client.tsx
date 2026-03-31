@@ -46,6 +46,7 @@ declare global {
         token: string
         onSuccess: (publicToken: string, metadata: any) => void | Promise<void>
         onExit?: (error: any, metadata: any) => void
+        receivedRedirectUri?: string | null
       }) => {
         open: () => void
         destroy?: () => void
@@ -388,6 +389,9 @@ function useIntegrationsOverview() {
       const financialPayload = financialResponse;
       const computerTrackingPayload = computerTrackingResponse;
 
+      const wearableConnections = wearablesPayload?.connections || [];
+      const appleHealthConnection = wearableConnections.find((item: any) => item.provider === 'apple_health');
+      const whoopConnection = wearableConnections.find((item: any) => item.provider === 'whoop');
       const appleDevices = (appleWatchPayload?.devices || []).filter((device: any) => device.is_active && device.platform === 'ios');
       const watcherDevices = computerTrackingPayload?.devices || [];
       const activeWatcherDevice = watcherDevices.find((device: any) => device.is_enabled);
@@ -396,14 +400,30 @@ function useIntegrationsOverview() {
           ? null
           : await getLocalWatcherRuntimeStatus();
       const localWatcherConnected = Boolean(localWatcherStatus?.is_running || localWatcherStatus?.device_id);
+      const appleWatchConnected = appleDevices.length > 0 || appleHealthConnection?.status === 'active';
+      const whoopConnected = Boolean(whoopStatusPayload?.connected || whoopConnection?.status === 'active');
 
       return {
-        whoopStatus: whoopStatusPayload,
+        whoopStatus: {
+          ...whoopStatusPayload,
+          connected: whoopConnected,
+          sync_hour: whoopStatusPayload?.sync_hour ?? whoopConnection?.sync_hour ?? 9,
+          last_sync_at:
+            whoopStatusPayload?.last_sync_at
+            || whoopConnection?.last_sync_at
+            || whoopConnection?.last_successful_sync_at
+            || null,
+          is_active: whoopStatusPayload?.is_active ?? (whoopConnection?.status === 'active'),
+        },
         appleWatchStatus: {
-          connected: appleDevices.length > 0,
+          connected: appleWatchConnected,
           devices: appleDevices,
-          lastSyncAt: appleDevices[0]?.last_sync_at || null,
-          deviceName: appleDevices[0]?.device_name || null,
+          lastSyncAt:
+            appleDevices[0]?.last_sync_at
+            || appleHealthConnection?.last_sync_at
+            || appleHealthConnection?.last_successful_sync_at
+            || null,
+          deviceName: appleDevices[0]?.device_name || (appleWatchConnected ? 'Apple Health Device' : null),
         },
         wearableConnections: wearablesPayload,
         financialConnections: financialPayload,
@@ -658,14 +678,15 @@ export function IntegrationsClient() {
     plaidConnection?.last_error_json?.error_message ||
     plaidConnection?.last_error_json?.message ||
     'This bank connection needs to be repaired before spending can continue syncing.';
+  const effectiveWhoopConnected = Boolean(whoopConnected || (whoopConnection && whoopConnection.status === 'active'));
 
   // Update local state when query data changes
   useEffect(() => {
-    if (whoopStatusData !== undefined) {
-      setWhoopConnected(whoopStatusData.connected || false);
-      setWhoopSyncHour(whoopStatusData.sync_hour || 9);
+    if (whoopStatusData !== undefined || whoopConnection) {
+      setWhoopConnected(effectiveWhoopConnected);
+      setWhoopSyncHour(whoopStatusData?.sync_hour || whoopConnection?.sync_hour || 9);
     }
-  }, [whoopStatusData]);
+  }, [effectiveWhoopConnected, whoopConnection, whoopStatusData]);
 
   const callbackProcessedRef = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -682,6 +703,92 @@ export function IntegrationsClient() {
       }
       plaidHandlerRef.current?.destroy?.();
     };
+  }, []);
+
+  // Handle Plaid OAuth return (e.g. after Capital One login in system browser)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('oauth_state_id')) return;
+
+    const receivedRedirectUri = window.location.href;
+
+    (async () => {
+      try {
+        setPlaidConnecting(true);
+        const token = await getToken();
+        if (!token) throw new Error('Authentication required');
+
+        await ensurePlaidLoaded();
+
+        const linkTokenResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/link-token`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ account_selection_enabled: true }),
+        });
+        if (!linkTokenResponse.ok) {
+          throw new Error('Failed to initialize Plaid Link for OAuth return');
+        }
+        const { link_token } = await linkTokenResponse.json();
+
+        if (!window.Plaid) throw new Error('Plaid Link did not load');
+
+        plaidHandlerRef.current?.destroy?.();
+        plaidHandlerRef.current = window.Plaid.create({
+          token: link_token,
+          receivedRedirectUri,
+          onSuccess: async (publicToken, metadata) => {
+            try {
+              const exchangeResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/exchange-public-token`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  public_token: publicToken,
+                  institution_id: metadata?.institution?.institution_id || null,
+                  institution_name: metadata?.institution?.name || null,
+                  auto_backfill: true,
+                }),
+              });
+              if (!exchangeResponse.ok) {
+                throw new Error('Failed to connect bank account');
+              }
+              const result = await exchangeResponse.json();
+              await refetchAfterFinancialSync();
+              alert(result.message || 'Bank connected successfully.');
+            } catch (error) {
+              console.error('❌ Error exchanging Plaid public token:', error);
+              alert(`Failed to connect bank: ${error}`);
+            } finally {
+              setPlaidConnecting(false);
+              plaidHandlerRef.current = null;
+              // Clean up the OAuth params from the URL
+              window.history.replaceState({}, '', window.location.pathname);
+            }
+          },
+          onExit: (error) => {
+            if (error) {
+              console.error('❌ Plaid OAuth return failed:', error);
+              alert(`Bank connection failed: ${error.display_message || error.error_message || 'Unknown error'}`);
+            }
+            setPlaidConnecting(false);
+            plaidHandlerRef.current = null;
+            window.history.replaceState({}, '', window.location.pathname);
+          },
+        });
+
+        plaidHandlerRef.current.open();
+      } catch (error) {
+        console.error('❌ Error resuming Plaid OAuth:', error);
+        alert(`Failed to complete bank connection: ${error}`);
+        setPlaidConnecting(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const ensurePlaidLoaded = useCallback(async () => {
@@ -2306,7 +2413,7 @@ export function IntegrationsClient() {
             logo={<Monitor className="h-7 w-7 text-gray-900" />}
             title="Computer Use"
             description="Track your computer usage including apps, websites, and active time automatically."
-            isConnected={computerTrackingEnabled}
+            isConnected={computerTrackingConnected}
             onConnect={() => router.replace('/integrations?openSettings=computer-tracking')}
             onDisconnect={() => router.replace('/integrations?openSettings=computer-tracking')}
             onDetails={() => openIntegrationDetails('computer')}
@@ -2341,7 +2448,7 @@ export function IntegrationsClient() {
           }
           title="Whoop"
           description="Track your recovery, sleep, and strain data from your Whoop device."
-          isConnected={whoopConnected}
+          isConnected={effectiveWhoopConnected}
           isConnecting={whoopConnecting}
           isSyncing={syncing}
           onConnect={handleWhoopConnect}
