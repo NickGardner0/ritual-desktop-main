@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { invoke } from '@tauri-apps/api/tauri';
 import {
   ArrowLeft,
@@ -17,6 +17,8 @@ import {
   needsPermissionsOnboarding,
 } from '@/lib/onboarding-flow';
 import { isTauri, setOnboardingWindowSize } from '@/lib/tauri-utils';
+
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 type PermissionKey = 'watcherAccessibility' | 'microphone' | 'speechRecognition';
 
@@ -40,12 +42,15 @@ const permissionCards: Array<{
 
 export default function PermissionsOnboardingPage() {
   const router = useRouter();
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
+  const { getToken } = useAuth();
   const [permissionState, setPermissionState] = useState<PermissionState>(DEFAULT_PERMISSION_STATE);
   const [isChecking, setIsChecking] = useState(true);
   const [activeRequest, setActiveRequest] = useState<PermissionKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [desktopMode, setDesktopMode] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const bootstrapRan = useRef(false);
 
   const checkPermissions = useCallback(async () => {
     if (!desktopMode) {
@@ -143,8 +148,83 @@ export default function PermissionsOnboardingPage() {
 
   const allGranted = Object.values(permissionState).every(Boolean);
 
-  const handleContinue = () => {
+  // Bootstrap the watcher + Computer Time habit when accessibility is granted
+  const bootstrapWatcher = useCallback(async () => {
+    if (bootstrapRan.current || !desktopMode || !user?.id) return;
+    bootstrapRan.current = true;
+
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      // 1. Register a watcher device
+      const deviceRes = await fetch('/api/watcher/devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_name: 'My Mac', platform: 'macos' }),
+      });
+      if (!deviceRes.ok) {
+        console.error('Failed to register watcher device during onboarding');
+        return;
+      }
+      const { device_id: deviceId } = await deviceRes.json();
+      if (!deviceId) return;
+
+      // 2. Build watcher config with sensible defaults
+      const config = {
+        device_id: deviceId,
+        user_id: user.id,
+        poll_interval_ms: 5000,
+        title_mode: 'full' as const,
+        truncate_length: 80,
+        excluded_bundle_ids: [] as string[],
+        afk_timeout_seconds: 300,
+        url_mode: 'domain',
+        track_incognito: false,
+        browser_heartbeat_port: 8766,
+      };
+
+      // 3. Start the watcher and persist config for auto-start
+      await invoke('start_watcher', { config });
+      await invoke('save_watcher_config_cmd', { config });
+
+      // 4. Create the "Computer Time" habit via backend API
+      await fetch(`${PYTHON_API_BASE}/api/habits`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'Computer Time',
+          category: 'Productivity',
+          is_custom: false,
+          sensor_type: 'Manual',
+          icon: 'lucide:monitor',
+          unit_type: 'Hours',
+          integration_source: null,
+          metric_type: null,
+        }),
+      });
+
+      // 5. Notify the backend the device is active
+      await fetch(`/api/watcher/devices/${deviceId}/start`, { method: 'POST' }).catch(() => {});
+
+      console.log('✅ Watcher bootstrapped during onboarding');
+    } catch (err) {
+      console.error('Watcher bootstrap error (non-blocking):', err);
+    }
+  }, [desktopMode, user?.id, getToken]);
+
+  const handleContinue = async () => {
     if (!allGranted) return;
+
+    // If accessibility was granted, bootstrap the watcher before navigating
+    if (desktopMode && permissionState.watcherAccessibility) {
+      setIsBootstrapping(true);
+      await bootstrapWatcher();
+      setIsBootstrapping(false);
+    }
 
     markPermissionsOnboardingCompleted();
     router.replace('/dashboard');
@@ -215,15 +295,15 @@ export default function PermissionsOnboardingPage() {
           </button>
 
           <button
-            onClick={handleContinue}
-            disabled={!allGranted || isChecking}
+            onClick={() => void handleContinue()}
+            disabled={!allGranted || isChecking || isBootstrapping}
             className={`border px-8 py-2.5 text-sm font-medium transition-colors ${
-              allGranted && !isChecking
+              allGranted && !isChecking && !isBootstrapping
                 ? 'border-black bg-black text-white rounded-sm'
                 : 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed'
             }`}
           >
-            Continue
+            {isBootstrapping ? 'Setting up...' : 'Continue'}
           </button>
         </footer>
       </main>

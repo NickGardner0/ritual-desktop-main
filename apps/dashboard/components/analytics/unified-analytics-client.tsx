@@ -69,8 +69,8 @@ const AIHabitChat = dynamic(
   { ssr: false }
 );
 
-const QuickActionChips = dynamic(
-  () => import("@/components/analytics/overview-initial-section").then(m => ({ default: m.QuickActionChips })),
+const ConnectedDevicesBar = dynamic(
+  () => import("@/components/connected-devices-modal").then(m => ({ default: m.ConnectedDevicesBar })),
   { ssr: false }
 );
 
@@ -413,7 +413,7 @@ function UnifiedAnalyticsContent({
       
       {/* AI Habit Chat - Fixed near bottom, only visible in Overview mode */}
       {showAIChat && viewMode === 'overview' && (
-        <div className="fixed bottom-[48px] left-[70px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-3 pt-3 bg-gradient-to-t from-white/95 via-white/70 to-transparent pointer-events-none">
+        <div className="fixed bottom-[32px] left-[70px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-3 pt-3 bg-gradient-to-t from-white/95 via-white/70 to-transparent pointer-events-none">
           <div className="w-full max-w-2xl pointer-events-auto">
               <AIHabitChat
                 onHabitUpdate={async (habitData) => {
@@ -538,13 +538,9 @@ function UnifiedAnalyticsContent({
         </div>
       )}
 
-      {/* Quick action chips fixed at very bottom, below the chat bar */}
+      {/* Connected devices button below chat bar */}
       {viewMode === 'overview' && (
-        <div className="fixed bottom-0 left-[70px] right-0 flex justify-center pb-3 pointer-events-none">
-          <div className="pointer-events-auto">
-            <QuickActionChips />
-          </div>
-        </div>
+        <ConnectedDevicesBar />
       )}
     </div>
   );
