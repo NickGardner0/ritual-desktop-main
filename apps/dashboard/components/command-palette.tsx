@@ -423,7 +423,7 @@ export default function CommandPalette({
         {/* High z-index overlay to cover sidebar (z-[1001]) */}
         <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.18)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed left-[50%] top-[50%] z-[9999] translate-x-[-50%] translate-y-[-50%] w-full md:max-w-[600px] select-text border-none shadow-2xl focus:outline-none"
+          className="fixed left-[50%] top-[50%] z-[9999] translate-x-[-50%] translate-y-[-50%] w-full md:max-w-[680px] select-text border-none shadow-2xl focus:outline-none"
         >
           <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
           <div className="flex h-[420px] flex-col overflow-hidden rounded-sm border border-[rgba(255,255,255,0.58)] bg-[linear-gradient(180deg,rgba(255,255,255,0.50),rgba(246,244,240,0.42))] shadow-[0_24px_56px_rgba(15,23,42,0.16),0_6px_20px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.32)] backdrop-blur-[22px] supports-[backdrop-filter]:bg-[rgba(248,248,246,0.42)]">
@@ -466,9 +466,9 @@ export default function CommandPalette({
                         value={action.name}
                         onSelect={() => handleActionSelect(action)}
                         onClick={() => handleActionSelect(action)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
                       >
-                        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
+                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
                           {getActionIcon(action.icon)}
                         </span>
                         <span className="text-sm text-gray-700">{action.name}</span>
@@ -490,7 +490,7 @@ export default function CommandPalette({
                         value={`habit-${habit.name}`}
                         onSelect={() => handleHabitSelect(habit)}
                         onClick={() => handleHabitSelect(habit)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
                       >
                         <span className="w-4 h-4 flex items-center justify-center">
                           <HabitIcon iconName={habit.icon} className="w-4 h-4" />
@@ -522,9 +522,9 @@ export default function CommandPalette({
                         value={`log-${log.habit_name}-${log.date}`}
                         onSelect={() => handleLogSelect(log)}
                         onClick={() => handleLogSelect(log)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
                       >
-                        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
+                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
                           <Clock className="h-4 w-4" />
                         </span>
                         <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -557,9 +557,9 @@ export default function CommandPalette({
                         value={`conv-${conv.id}`}
                         onSelect={() => handleConversationSelect(conv)}
                         onClick={() => handleConversationSelect(conv)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
                       >
-                        <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
+                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
                           <MessageSquare className="h-4 w-4" />
                         </span>
                         <span className="text-sm text-gray-700 truncate flex-1">
@@ -579,9 +579,6 @@ export default function CommandPalette({
             {/* Logo on left */}
             <div className="flex items-center gap-2">
               <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
-              {results?.fallback && (
-                <span className="text-amber-500 text-[10px]">Offline</span>
-              )}
             </div>
             
             {/* Keyboard shortcuts on right */}

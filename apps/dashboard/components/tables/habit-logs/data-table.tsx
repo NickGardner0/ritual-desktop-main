@@ -3,6 +3,12 @@
 import React, { useState, useCallback, useRef, useMemo, useEffect, type CSSProperties } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+  type ColumnDef,
+} from '@tanstack/react-table';
+import {
   DndContext,
   closestCenter,
   PointerSensor,
@@ -18,13 +24,6 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import {
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,6 +54,8 @@ import {
   ActionsCell,
 } from './columns';
 import type { HabitLog, TableDensity } from '@/app/(dashboard)/activity/logs-client';
+
+// ── Types ──────────────────────────────────────────────────
 
 interface DataTableProps {
   logs: HabitLog[];
@@ -88,147 +89,305 @@ interface DataTableProps {
 
 type ColumnAlign = 'left' | 'center' | 'right';
 
-type ColumnConfig = {
-  id: string;
-  label: string;
-  defaultWidth: number;
-  minWidth: number;
-  maxWidth?: number;
-  sortable: boolean;
-  sticky: boolean;
+interface ColumnLayoutMeta {
+  sticky?: boolean;
   stickyRight?: boolean;
   align: ColumnAlign;
   resizable: boolean;
-};
+  sortable: boolean;
+  hideIndicator?: boolean;
+}
+
+interface HabitLogTableMeta {
+  density: TableDensity;
+  sourceOptions: string[];
+  onQuickEdit: DataTableProps['onQuickEdit'];
+  updatingLogIds: Record<string, boolean>;
+  sortColumn: string | null;
+  sortDirection: 'asc' | 'desc';
+  onSort: (column: string) => void;
+  allSelected: boolean;
+  someSelected: boolean;
+  toggleAllRows: (value: boolean) => void;
+  toggleRow: (id: string, value: boolean) => void;
+  handleShiftClickRange: (start: number, end: number) => void;
+  lastClickedIndex: number | null;
+  setLastClickedIndex: (index: number) => void;
+  setActiveRowIndex: (index: number) => void;
+  rowSelection: Record<string, boolean>;
+}
+
+// ── Constants ──────────────────────────────────────────────
 
 const COLUMN_RESIZE_STORAGE_KEY = 'ritual:logs:column-widths:v5';
 const COLUMN_ORDER_STORAGE_KEY = 'ritual:logs:column-order:v1';
 
-const COLUMNS: ColumnConfig[] = [
+const DEFAULT_COLUMN_ORDER = ['select', 'date', 'time', 'habit', 'value', 'category', 'source', 'notes', 'actions'];
+const LEFT_STICKY_COLUMNS = ['select', 'date'];
+const PINNED_COLUMNS = new Set(['select', 'actions']);
+
+const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
+  select: { sticky: true, align: 'center', resizable: false, sortable: false },
+  date: { sticky: true, align: 'left', resizable: true, sortable: true, hideIndicator: true },
+  time: { align: 'left', resizable: true, sortable: true, hideIndicator: true },
+  habit: { align: 'left', resizable: true, sortable: true },
+  value: { align: 'left', resizable: true, sortable: true },
+  category: { align: 'left', resizable: true, sortable: true },
+  source: { align: 'left', resizable: true, sortable: true },
+  notes: { align: 'left', resizable: false, sortable: false },
+  actions: { align: 'center', resizable: false, sortable: false },
+};
+
+const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: number }> = {
+  select: { size: 50, minSize: 50, maxSize: 50 },
+  date: { size: 110, minSize: 96, maxSize: 260 },
+  time: { size: 128, minSize: 104, maxSize: 240 },
+  habit: { size: 250, minSize: 180, maxSize: 620 },
+  value: { size: 168, minSize: 140, maxSize: 340 },
+  category: { size: 180, minSize: 140, maxSize: 420 },
+  source: { size: 180, minSize: 140, maxSize: 500 },
+  notes: { size: 220, minSize: 150, maxSize: 500 },
+  actions: { size: 92, minSize: 92, maxSize: 92 },
+};
+
+// ── TanStack Column Definitions ────────────────────────────
+
+const tableColumns: ColumnDef<HabitLog>[] = [
   {
     id: 'select',
-    label: '',
-    defaultWidth: 50,
-    minWidth: 50,
-    maxWidth: 50,
-    sortable: false,
-    sticky: true,
-    align: 'center',
-    resizable: false,
+    ...COLUMN_SIZES.select,
+    enableResizing: false,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <div className="flex items-center justify-center">
+          <Checkbox
+            checked={meta.allSelected || (meta.someSelected && 'indeterminate')}
+            onCheckedChange={meta.toggleAllRows}
+            className="rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
+          />
+        </div>
+      );
+    },
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      const log = row.original;
+      const isSelected = meta.rowSelection[log.id] || false;
+      return (
+        <SelectCell
+          checked={isSelected}
+          onChange={(value) => {
+            meta.toggleRow(log.id, value);
+            meta.setLastClickedIndex(row.index);
+            meta.setActiveRowIndex(row.index);
+          }}
+          onShiftClick={() => {
+            if (meta.lastClickedIndex !== null) {
+              meta.handleShiftClickRange(meta.lastClickedIndex, row.index);
+            }
+            meta.setLastClickedIndex(row.index);
+            meta.setActiveRowIndex(row.index);
+          }}
+        />
+      );
+    },
   },
   {
     id: 'date',
-    label: 'Date',
-    defaultWidth: 110,
-    minWidth: 96,
-    maxWidth: 260,
-    sortable: true,
-    sticky: true,
-    align: 'left',
-    resizable: true,
+    accessorKey: 'date',
+    ...COLUMN_SIZES.date,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <SortButton
+          column="date"
+          sortColumn={meta.sortColumn}
+          sortDirection={meta.sortDirection}
+          align="left"
+          onSort={meta.onSort}
+          hideIndicator
+        >
+          Date
+        </SortButton>
+      );
+    },
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      const log = row.original;
+      return (
+        <InlineDateEditor
+          date={log.date}
+          density={meta.density}
+          isUpdating={Boolean(meta.updatingLogIds[log.id])}
+          onSave={(nextDate) => meta.onQuickEdit(log, { date: nextDate })}
+        />
+      );
+    },
   },
   {
     id: 'time',
-    label: 'Time',
-    defaultWidth: 128,
-    minWidth: 104,
-    maxWidth: 240,
-    sortable: true,
-    sticky: false,
-    align: 'left',
-    resizable: true,
+    accessorKey: 'completed_at',
+    ...COLUMN_SIZES.time,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <SortButton
+          column="time"
+          sortColumn={meta.sortColumn}
+          sortDirection={meta.sortDirection}
+          align="left"
+          onSort={meta.onSort}
+          hideIndicator
+        >
+          Time
+        </SortButton>
+      );
+    },
+    cell: ({ row }) => <TimeCell completedAt={row.original.completed_at} />,
   },
   {
     id: 'habit',
-    label: 'Name',
-    defaultWidth: 250,
-    minWidth: 180,
-    maxWidth: 620,
-    sortable: true,
-    sticky: false,
-    align: 'left',
-    resizable: true,
+    accessorKey: 'habit_name',
+    ...COLUMN_SIZES.habit,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <SortButton
+          column="habit"
+          sortColumn={meta.sortColumn}
+          sortDirection={meta.sortDirection}
+          align="left"
+          onSort={meta.onSort}
+        >
+          Name
+        </SortButton>
+      );
+    },
+    cell: ({ row }) => <HabitCell habitName={row.original.habit_name} icon={row.original.icon} />,
   },
   {
     id: 'value',
-    label: 'Value',
-    defaultWidth: 168,
-    minWidth: 140,
-    maxWidth: 340,
-    sortable: true,
-    sticky: false,
-    align: 'left',
-    resizable: true,
+    ...COLUMN_SIZES.value,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <SortButton
+          column="value"
+          sortColumn={meta.sortColumn}
+          sortDirection={meta.sortDirection}
+          align="left"
+          onSort={meta.onSort}
+        >
+          Value
+        </SortButton>
+      );
+    },
+    cell: ({ row }) => (
+      <ValueCell
+        duration={row.original.duration}
+        amount={row.original.amount}
+        unitType={row.original.unit_type}
+      />
+    ),
   },
   {
     id: 'category',
-    label: 'Category',
-    defaultWidth: 180,
-    minWidth: 140,
-    maxWidth: 420,
-    sortable: true,
-    sticky: false,
-    align: 'left',
-    resizable: true,
+    accessorKey: 'category',
+    ...COLUMN_SIZES.category,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <SortButton
+          column="category"
+          sortColumn={meta.sortColumn}
+          sortDirection={meta.sortDirection}
+          align="left"
+          onSort={meta.onSort}
+        >
+          Category
+        </SortButton>
+      );
+    },
+    cell: ({ row }) => <CategoryCell category={row.original.category} />,
   },
   {
     id: 'source',
-    label: 'Source',
-    defaultWidth: 180,
-    minWidth: 140,
-    maxWidth: 500,
-    sortable: true,
-    sticky: false,
-    align: 'left',
-    resizable: true,
+    accessorKey: 'integration_source',
+    ...COLUMN_SIZES.source,
+    header: ({ table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      return (
+        <SortButton
+          column="source"
+          sortColumn={meta.sortColumn}
+          sortDirection={meta.sortDirection}
+          align="left"
+          onSort={meta.onSort}
+        >
+          Source
+        </SortButton>
+      );
+    },
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as HabitLogTableMeta;
+      const log = row.original;
+      return (
+        <InlineSourceEditor
+          source={log.integration_source}
+          habitName={log.habit_name}
+          sourceOptions={meta.sourceOptions}
+          density={meta.density}
+          isUpdating={Boolean(meta.updatingLogIds[log.id])}
+          onSelect={(nextSource) => meta.onQuickEdit(log, { integration_source: nextSource })}
+        />
+      );
+    },
   },
   {
     id: 'notes',
-    label: 'Notes',
-    defaultWidth: 220,
-    minWidth: 150,
-    maxWidth: 500,
-    sortable: false,
-    sticky: false,
-    align: 'left',
-    resizable: true,
+    accessorKey: 'notes',
+    ...COLUMN_SIZES.notes,
+    header: () => (
+      <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
+        Notes
+      </span>
+    ),
+    cell: ({ row }) => <NotesCell notes={row.original.notes} />,
   },
   {
     id: 'actions',
-    label: 'Actions',
-    defaultWidth: 92,
-    minWidth: 92,
-    maxWidth: 92,
-    sortable: false,
-    sticky: false,
-    align: 'center',
-    resizable: false,
+    ...COLUMN_SIZES.actions,
+    enableResizing: false,
+    header: () => (
+      <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
+        Actions
+      </span>
+    ),
+    cell: ({ row }) => (
+      <div className="flex items-center justify-center">
+        <ActionsCell log={row.original} />
+      </div>
+    ),
   },
 ];
 
-const LEFT_STICKY_COLUMNS: string[] = ['select', 'date'];
+// ── localStorage Helpers ───────────────────────────────────
 
 function readStoredColumnWidths(): Record<string, number> {
-  if (typeof window === 'undefined') {
-    return {};
-  }
+  if (typeof window === 'undefined') return {};
 
   try {
     const raw = localStorage.getItem(COLUMN_RESIZE_STORAGE_KEY);
     if (!raw) return {};
 
     const parsed = JSON.parse(raw) as Record<string, number>;
-    const columnById = Object.fromEntries(COLUMNS.map((column) => [column.id, column])) as Record<
-      string,
-      ColumnConfig
-    >;
     const next: Record<string, number> = {};
 
     for (const [key, value] of Object.entries(parsed)) {
-      const column = columnById[key];
-      if (!column || !Number.isFinite(value)) continue;
-      const clamped = Math.max(column.minWidth, Math.min(column.maxWidth ?? value, value));
-      if (clamped !== column.defaultWidth) {
+      const sizes = COLUMN_SIZES[key];
+      if (!sizes || !Number.isFinite(value)) continue;
+      const clamped = Math.max(sizes.minSize, Math.min(sizes.maxSize, value));
+      if (clamped !== sizes.size) {
         next[key] = clamped;
       }
     }
@@ -246,14 +405,19 @@ function readStoredColumnOrder(): string[] | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as string[];
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    return parsed;
+    // Ensure all columns are included (safety net for new columns)
+    const inOrder = new Set(parsed);
+    const result = [...parsed];
+    for (const id of DEFAULT_COLUMN_ORDER) {
+      if (!inOrder.has(id)) result.push(id);
+    }
+    return result;
   } catch {
     return null;
   }
 }
 
-// Columns that cannot be reordered (pinned to their position)
-const PINNED_COLUMNS = new Set(['select', 'actions']);
+// ── Helper Components ──────────────────────────────────────
 
 function SortableHeaderCell({
   columnId,
@@ -289,14 +453,15 @@ function SortableHeaderCell({
   };
 
   return (
-    <TableHead
+    <div
       ref={setNodeRef}
+      role="columnheader"
       className={className}
       style={dragStyle}
       {...(isPinned ? {} : { ...attributes, ...listeners })}
     >
       {children}
-    </TableHead>
+    </div>
   );
 }
 
@@ -491,6 +656,8 @@ function InlineSourceEditor({
   );
 }
 
+// ── Main Component ─────────────────────────────────────────
+
 export function HabitLogsDataTable({
   logs,
   rowSelection,
@@ -517,7 +684,7 @@ export function HabitLogsDataTable({
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(readStoredColumnWidths);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     const stored = readStoredColumnOrder();
-    return stored || COLUMNS.map((c) => c.id);
+    return stored || DEFAULT_COLUMN_ORDER;
   });
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -537,7 +704,7 @@ export function HabitLogsDataTable({
     overscan: 15,
   });
 
-  // Track horizontal scroll state for scroll indicators
+  // Horizontal scroll state for scroll indicators
   useEffect(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
@@ -578,73 +745,6 @@ export function HabitLogsDataTable({
     });
   }, []);
 
-  const columnById = useMemo(() => {
-    return Object.fromEntries(COLUMNS.map((column) => [column.id, column])) as Record<string, ColumnConfig>;
-  }, []);
-
-  const visibleColumns = useMemo(() => {
-    const colMap = Object.fromEntries(COLUMNS.map((c) => [c.id, c])) as Record<string, ColumnConfig>;
-    // Reorder based on columnOrder, falling back to default for any new columns
-    const ordered = columnOrder
-      .filter((id) => colMap[id] && columnVisibility[id] !== false)
-      .map((id) => colMap[id]);
-    // Add any columns not in the order list (safety net)
-    const inOrder = new Set(columnOrder);
-    for (const col of COLUMNS) {
-      if (!inOrder.has(col.id) && columnVisibility[col.id] !== false) {
-        ordered.push(col);
-      }
-    }
-    return ordered;
-  }, [columnVisibility, columnOrder]);
-  const visibleColumnIdsKey = useMemo(
-    () => visibleColumns.map((column) => column.id).join('|'),
-    [visibleColumns],
-  );
-
-  const getColumnWidth = useCallback((columnId: string) => {
-    const column = columnById[columnId];
-    if (!column) return 120;
-    return columnWidths[columnId] ?? column.defaultWidth;
-  }, [columnById, columnWidths]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(COLUMN_RESIZE_STORAGE_KEY, JSON.stringify(columnWidths));
-    } catch {
-      // Ignore storage errors.
-    }
-  }, [columnWidths]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(COLUMN_ORDER_STORAGE_KEY, JSON.stringify(columnOrder));
-    } catch {
-      // Ignore storage errors.
-    }
-  }, [columnOrder]);
-
-  const handleColumnDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    // Don't allow reordering pinned columns
-    if (PINNED_COLUMNS.has(active.id as string) || PINNED_COLUMNS.has(over.id as string)) return;
-
-    setColumnOrder((prev) => {
-      const oldIndex = prev.indexOf(active.id as string);
-      const newIndex = prev.indexOf(over.id as string);
-      if (oldIndex === -1 || newIndex === -1) return prev;
-      return arrayMove(prev, oldIndex, newIndex);
-    });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, []);
-
   const sourceOptions = useMemo(() => {
     const unique = new Set<string>(['manual', ...availableSources.map((source) => source || 'manual')]);
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
@@ -662,7 +762,6 @@ export function HabitLogsDataTable({
       onRowSelectionChange(nextSelection);
       return;
     }
-
     onRowSelectionChange({});
   }, [logs, onRowSelectionChange]);
 
@@ -679,51 +778,77 @@ export function HabitLogsDataTable({
   const handleShiftClickRange = useCallback((startIndex: number, endIndex: number) => {
     const start = Math.min(startIndex, endIndex);
     const end = Math.max(startIndex, endIndex);
-
     const nextSelection = { ...rowSelection };
     for (let index = start; index <= end; index++) {
       const log = logs[index];
       if (log) nextSelection[log.id] = true;
     }
-
     onRowSelectionChange(nextSelection);
   }, [logs, onRowSelectionChange, rowSelection]);
 
-  const getAlignmentClass = useCallback((align: ColumnAlign) => {
-    if (align === 'right') return 'text-right';
-    if (align === 'center') return 'text-center';
-    return 'text-left';
-  }, []);
+  // ── TanStack Table ─────────────────────────────────────
 
-  const getColumnStyle = useCallback((columnId: string): React.CSSProperties => {
+  const tableMeta: HabitLogTableMeta = useMemo(() => ({
+    density,
+    sourceOptions,
+    onQuickEdit,
+    updatingLogIds,
+    sortColumn,
+    sortDirection,
+    onSort,
+    allSelected,
+    someSelected,
+    toggleAllRows,
+    toggleRow,
+    handleShiftClickRange,
+    lastClickedIndex,
+    setLastClickedIndex,
+    setActiveRowIndex,
+    rowSelection,
+  }), [
+    density, sourceOptions, onQuickEdit, updatingLogIds, sortColumn, sortDirection,
+    onSort, allSelected, someSelected, toggleAllRows, toggleRow, handleShiftClickRange,
+    lastClickedIndex, rowSelection,
+  ]);
+
+  const table = useReactTable({
+    data: logs,
+    columns: tableColumns,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (row) => row.id,
+    manualSorting: true,
+    state: {
+      columnVisibility,
+      columnOrder,
+    },
+    onColumnOrderChange: setColumnOrder,
+    meta: tableMeta,
+  });
+
+  const headerGroup = table.getHeaderGroups()[0];
+  const tableRows = table.getRowModel().rows;
+
+  // ── Column Width & Sticky Helpers ──────────────────────
+
+  const getColumnWidth = useCallback((columnId: string) => {
+    if (columnWidths[columnId]) return columnWidths[columnId];
+    return COLUMN_SIZES[columnId]?.size ?? 120;
+  }, [columnWidths]);
+
+  const getStickyStyle = useCallback((columnId: string): CSSProperties => {
     const width = getColumnWidth(columnId);
-    return {
-      width,
-      minWidth: width,
-      maxWidth: width,
-    };
-  }, [getColumnWidth]);
+    const base: CSSProperties = { width, minWidth: width, maxWidth: width };
+    const layout = COLUMN_LAYOUT[columnId];
+    if (!layout) return base;
 
-  const getStickyStyle = useCallback((columnId: string): React.CSSProperties => {
-    const baseStyle = getColumnStyle(columnId);
-    const column = columnById[columnId];
-    if (!column) return baseStyle;
-
-    if (column.stickyRight) {
-      return {
-        ...baseStyle,
-        position: 'sticky',
-        right: 0,
-        zIndex: 18,
-      };
+    if (layout.stickyRight) {
+      return { ...base, position: 'sticky', right: 0, zIndex: 18 };
     }
 
-    if (!column.sticky) {
-      return baseStyle;
-    }
+    if (!layout.sticky) return base;
 
     const stickyIndex = LEFT_STICKY_COLUMNS.indexOf(columnId);
-    if (stickyIndex === -1) return baseStyle;
+    if (stickyIndex === -1) return base;
 
     let left = 0;
     for (let i = 0; i < stickyIndex; i++) {
@@ -733,23 +858,37 @@ export function HabitLogsDataTable({
       }
     }
 
-    // Add shadow to the last sticky column when scrolled
     const isLastSticky = stickyIndex === LEFT_STICKY_COLUMNS.length - 1;
-
     return {
-      ...baseStyle,
+      ...base,
       position: 'sticky',
       left,
       zIndex: 17,
-      ...(isLastSticky && canScrollLeft
-        ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }
-        : {}),
+      ...(isLastSticky && canScrollLeft ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' } : {}),
     };
-  }, [columnById, columnVisibility, getColumnStyle, getColumnWidth, canScrollLeft]);
+  }, [columnVisibility, getColumnWidth, canScrollLeft]);
+
+  const getAlignmentClass = useCallback((align?: ColumnAlign) => {
+    if (align === 'right') return 'text-right';
+    if (align === 'center') return 'text-center';
+    return 'text-left';
+  }, []);
+
+  // Persist column widths & order to localStorage
+  useEffect(() => {
+    try { localStorage.setItem(COLUMN_RESIZE_STORAGE_KEY, JSON.stringify(columnWidths)); } catch { /* ignore */ }
+  }, [columnWidths]);
+
+  useEffect(() => {
+    try { localStorage.setItem(COLUMN_ORDER_STORAGE_KEY, JSON.stringify(columnOrder)); } catch { /* ignore */ }
+  }, [columnOrder]);
+
+  // ── Column Resize (custom drag) ────────────────────────
 
   const startColumnResize = useCallback((event: React.MouseEvent<HTMLButtonElement>, columnId: string) => {
-    const column = columnById[columnId];
-    if (!column || !column.resizable) return;
+    const layout = COLUMN_LAYOUT[columnId];
+    const sizes = COLUMN_SIZES[columnId];
+    if (!layout?.resizable || !sizes) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -759,17 +898,10 @@ export function HabitLogsDataTable({
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = moveEvent.clientX - startX;
-      const nextWidth = Math.max(
-        column.minWidth,
-        Math.min(column.maxWidth ?? 999, initialWidth + delta),
-      );
-
+      const nextWidth = Math.max(sizes.minSize, Math.min(sizes.maxSize, initialWidth + delta));
       setColumnWidths((prev) => {
         if (prev[columnId] === nextWidth) return prev;
-        return {
-          ...prev,
-          [columnId]: nextWidth,
-        };
+        return { ...prev, [columnId]: nextWidth };
       });
     };
 
@@ -784,24 +916,43 @@ export function HabitLogsDataTable({
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-  }, [columnById, getColumnWidth]);
+  }, [getColumnWidth]);
+
+  // ── Column DnD Reorder ─────────────────────────────────
+
+  const handleColumnDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    if (PINNED_COLUMNS.has(active.id as string) || PINNED_COLUMNS.has(over.id as string)) return;
+
+    setColumnOrder((prev) => {
+      const oldIndex = prev.indexOf(active.id as string);
+      const newIndex = prev.indexOf(over.id as string);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  }, []);
+
+  // Cleanup cursor on unmount
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
+
+  // ── Keyboard Navigation ────────────────────────────────
 
   const tableHeaderHeight = density === 'compact' ? 'h-[40px]' : 'h-[45px]';
-  const tableRowHeight = density === 'compact' ? 'h-[40px]' : 'h-[45px]';
   const headerCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
   const bodyCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
 
   const isTextInputTarget = (target: EventTarget | null): boolean => {
     const element = target as HTMLElement | null;
     if (!element) return false;
-
     const tagName = element.tagName;
-    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
-      return true;
-    }
-
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
     if (element.isContentEditable) return true;
-
     return Boolean(
       element.closest('[role="menu"]') ||
       element.closest('[data-radix-popper-content-wrapper]'),
@@ -846,27 +997,28 @@ export function HabitLogsDataTable({
       event.preventDefault();
       const activeLog = logs[currentIndex];
       if (!activeLog) return;
-
       const isSelected = Boolean(rowSelection[activeLog.id]);
       toggleRow(activeLog.id, !isSelected);
       setLastClickedIndex(currentIndex);
     }
   }, [
-    activeRowIndex,
-    handleShiftClickRange,
-    lastClickedIndex,
-    logs,
-    onRowSelectionChange,
-    rowSelection,
-    toggleAllRows,
-    toggleRow,
+    activeRowIndex, handleShiftClickRange, lastClickedIndex, logs,
+    onRowSelectionChange, rowSelection, toggleAllRows, toggleRow, rowVirtualizer,
   ]);
+
+  // Reset horizontal scroll when visible columns change
+  const visibleColumnIdsKey = useMemo(
+    () => columnOrder.filter((id) => columnVisibility[id] !== false).join('|'),
+    [columnOrder, columnVisibility],
+  );
 
   useEffect(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
     viewport.scrollLeft = 0;
   }, [visibleColumnIdsKey]);
+
+  // ── Render ─────────────────────────────────────────────
 
   if (logs.length === 0 && !isLoading) {
     if (hasFilters) {
@@ -896,6 +1048,8 @@ export function HabitLogsDataTable({
     );
   }
 
+  const NON_CLICKABLE = new Set(['select', 'actions', 'source']);
+
   return (
     <TooltipProvider delayDuration={20}>
       <div
@@ -912,6 +1066,7 @@ export function HabitLogsDataTable({
             <span>Loading logs...</span>
           </div>
         ) : null}
+
         {/* Horizontal scroll indicators */}
         {canScrollLeft && (
           <button
@@ -933,81 +1088,55 @@ export function HabitLogsDataTable({
             <ArrowUp className="h-3.5 w-3.5 rotate-90 text-neutral-500" />
           </button>
         )}
+
         <div
           ref={scrollViewportRef}
           className="overflow-auto overscroll-none border border-border bg-white scrollbar-hide"
           style={{ height: 'calc(100vh - 180px)' }}
         >
-          <table className="w-full min-w-full table-fixed border-separate border-spacing-0 text-sm">
-            <colgroup>
-              {visibleColumns.map((column) => (
-                <col key={`col-${column.id}`} style={getColumnStyle(column.id)} />
-              ))}
-            </colgroup>
-
+          <div role="table" className="w-full min-w-full text-sm">
+            {/* Header */}
             <DndContext
               sensors={dndSensors}
               collisionDetection={closestCenter}
               onDragEnd={handleColumnDragEnd}
             >
-              <TableHeader className="sticky top-0 z-20 bg-white">
-                <TableRow className={cn('hover:bg-transparent !border-b-0', tableHeaderHeight)}>
+              <div role="rowgroup" className="sticky top-0 z-20 bg-white">
+                <div role="row" className={cn('flex items-center', tableHeaderHeight)}>
                   <SortableContext
-                    items={visibleColumns.map((c) => c.id)}
+                    items={headerGroup.headers.map((h) => h.id)}
                     strategy={horizontalListSortingStrategy}
                   >
-                    {visibleColumns.map((column) => {
-                      const stickyClass = column.stickyRight
+                    {headerGroup.headers.map((header) => {
+                      const layout = COLUMN_LAYOUT[header.id];
+                      const stickyClass = layout?.stickyRight
                         ? 'md:sticky md:right-0 z-[19]'
-                        : column.sticky
+                        : layout?.sticky
                           ? 'md:sticky z-[18]'
                           : '';
 
                       return (
                         <SortableHeaderCell
-                          key={column.id}
-                          columnId={column.id}
+                          key={header.id}
+                          columnId={header.id}
                           className={cn(
-                            'relative border-b border-border border-r-0 bg-white text-neutral-500',
+                            'relative h-full flex items-center border-b border-border bg-white text-neutral-500',
                             headerCellPadding,
-                            getAlignmentClass(column.align),
+                            getAlignmentClass(layout?.align),
                             stickyClass,
-                            column.id === 'select' && 'text-center',
+                            header.id === 'select' && 'text-center',
                           )}
-                          style={getStickyStyle(column.id)}
+                          style={getStickyStyle(header.id)}
                         >
-                          {column.id === 'select' ? (
-                            <div className="flex items-center justify-center">
-                              <Checkbox
-                                checked={allSelected || (someSelected && 'indeterminate')}
-                                onCheckedChange={toggleAllRows}
-                                className="rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
-                              />
-                            </div>
-                          ) : column.sortable ? (
-                            <SortButton
-                              column={column.id}
-                              sortColumn={sortColumn}
-                              sortDirection={sortDirection}
-                              align={column.align}
-                              onSort={onSort}
-                              hideIndicator={column.id === 'date' || column.id === 'time'}
-                            >
-                              {column.label}
-                            </SortButton>
-                          ) : (
-                            <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
-                              {column.label}
-                            </span>
-                          )}
+                          {flexRender(header.column.columnDef.header, header.getContext())}
 
-                          {column.resizable && (
+                          {layout?.resizable && (
                             <button
                               type="button"
-                              onMouseDown={(event) => startColumnResize(event, column.id)}
+                              onMouseDown={(event) => startColumnResize(event, header.id)}
                               onClick={(event) => event.stopPropagation()}
                               className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-                              aria-label={`Resize ${column.label} column`}
+                              aria-label={`Resize ${header.id} column`}
                             >
                               <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border" />
                             </button>
@@ -1016,239 +1145,109 @@ export function HabitLogsDataTable({
                       );
                     })}
                   </SortableContext>
-                </TableRow>
-              </TableHeader>
+                </div>
+              </div>
             </DndContext>
 
-            <TableBody className="border-0 block" style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+            {/* Body (virtualized) */}
+            <div role="rowgroup" style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const index = virtualRow.index;
-                const log = logs[index];
-                if (!log) return null;
+                const row = tableRows[virtualRow.index];
+                if (!row) return null;
+                const log = row.original;
                 const isSelected = rowSelection[log.id] || false;
-                const isActiveRow = index === activeRowIndex;
-                const isHoveredRow = hoveredRowIndex === index;
-                const isRowUpdating = Boolean(updatingLogIds[log.id]);
-                const NON_CLICKABLE = new Set(['select', 'actions', 'source']);
+                const isActiveRow = virtualRow.index === activeRowIndex;
+                const isHoveredRow = hoveredRowIndex === virtualRow.index;
+
+                const rowBgClass = isSelected
+                  ? 'bg-neutral-50'
+                  : isHoveredRow || isActiveRow
+                    ? 'bg-[#f7f7f6]'
+                    : 'bg-white';
 
                 return (
-                  <TableRow
+                  <div
                     key={log.id}
+                    role="row"
                     data-index={virtualRow.index}
                     className={cn(
-                      'group cursor-default select-text border-0',
-                      tableRowHeight,
-                      'absolute left-0 w-full',
+                      'group cursor-default select-text',
+                      'absolute left-0 w-full flex items-center',
+                      rowBgClass,
                     )}
-                    style={{ height: rowHeight, top: 0, transform: `translateY(${virtualRow.start}px)`, contain: 'layout style paint' } as CSSProperties}
+                    style={{
+                      height: rowHeight,
+                      top: 0,
+                      transform: `translateY(${virtualRow.start}px)`,
+                      contain: 'layout style paint',
+                    } as CSSProperties}
                     onClick={(event) => {
                       if (event.shiftKey && lastClickedIndex !== null) {
-                        handleShiftClickRange(lastClickedIndex, index);
+                        handleShiftClickRange(lastClickedIndex, virtualRow.index);
                       }
-                      setActiveRowIndex(index);
-                      // Open detail panel on row click (unless clicking interactive cells)
+                      setActiveRowIndex(virtualRow.index);
                       const target = event.target as HTMLElement;
-                      const clickedCell = target.closest('td');
+                      const clickedCell = target.closest('[data-column]');
                       const cellColumn = clickedCell?.getAttribute('data-column');
                       if (onRowClick && !event.shiftKey && cellColumn && !NON_CLICKABLE.has(cellColumn)) {
                         onRowClick(log);
                       }
                     }}
-                    onMouseEnter={() => setHoveredRowIndex(index)}
+                    onMouseEnter={() => setHoveredRowIndex(virtualRow.index)}
                   >
-                    {visibleColumns.map((column) => {
-                      const stickyClass = column.stickyRight
+                    {row.getVisibleCells().map((cell) => {
+                      const columnId = cell.column.id;
+                      const layout = COLUMN_LAYOUT[columnId];
+                      const stickyClass = layout?.stickyRight
                         ? 'md:sticky md:right-0 z-[16]'
-                        : column.sticky
+                        : layout?.sticky
                           ? 'md:sticky z-[15]'
                           : '';
 
-                      const cellBgClass = isSelected
-                        ? 'bg-neutral-50'
-                        : isHoveredRow || isActiveRow
-                          ? 'bg-[#f7f7f6]'
-                          : 'bg-white';
+                      // Sticky cells need explicit bg to cover content that scrolls underneath
+                      const needsBg = layout?.sticky || layout?.stickyRight;
+                      const cellBgClass = needsBg ? rowBgClass : '';
 
-                      const cellClassName = cn(
-                        bodyCellPadding,
-                        'border-b border-border border-r-0',
-                        getAlignmentClass(column.align),
-                        stickyClass,
-                        cellBgClass,
-                        column.id === 'select' && 'text-center',
+                      return (
+                        <div
+                          key={cell.id}
+                          role="cell"
+                          data-column={columnId}
+                          className={cn(
+                            bodyCellPadding,
+                            'h-full flex items-center border-b border-border',
+                            getAlignmentClass(layout?.align),
+                            stickyClass,
+                            cellBgClass,
+                            columnId === 'select' && 'justify-center',
+                          )}
+                          style={getStickyStyle(columnId)}
+                          onClick={
+                            columnId === 'select' || columnId === 'actions'
+                              ? (event) => event.stopPropagation()
+                              : undefined
+                          }
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
                       );
-
-                      if (column.id === 'select') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-select`}
-                            data-column="select"
-                            className={cellClassName}
-                            style={getStickyStyle('select')}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <SelectCell
-                              checked={isSelected}
-                              onChange={(value) => {
-                                toggleRow(log.id, value);
-                                setLastClickedIndex(index);
-                                setActiveRowIndex(index);
-                              }}
-                              onShiftClick={() => {
-                                if (lastClickedIndex !== null) {
-                                  handleShiftClickRange(lastClickedIndex, index);
-                                }
-                                setLastClickedIndex(index);
-                                setActiveRowIndex(index);
-                              }}
-                            />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'date') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-date`}
-                            data-column="date"
-                            className={cellClassName}
-                            style={getStickyStyle('date')}
-                          >
-                            <InlineDateEditor
-                              date={log.date}
-                              density={density}
-                              isUpdating={isRowUpdating}
-                              onSave={(nextDate) => onQuickEdit(log, { date: nextDate })}
-                            />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'time') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-time`}
-                            data-column="time"
-                            className={cellClassName}
-                            style={getStickyStyle('time')}
-                          >
-                            <TimeCell completedAt={log.completed_at} />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'habit') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-habit`}
-                            data-column="habit"
-                            className={cellClassName}
-                            style={getStickyStyle('habit')}
-                          >
-                            <HabitCell habitName={log.habit_name} icon={log.icon} />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'value') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-value`}
-                            data-column="value"
-                            className={cellClassName}
-                            style={getStickyStyle('value')}
-                          >
-                            <ValueCell
-                              duration={log.duration}
-                              amount={log.amount}
-                              unitType={log.unit_type}
-                            />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'category') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-category`}
-                            data-column="category"
-                            className={cellClassName}
-                            style={getStickyStyle('category')}
-                          >
-                            <CategoryCell category={log.category} />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'source') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-source`}
-                            data-column="source"
-                            className={cellClassName}
-                            style={getStickyStyle('source')}
-                          >
-                            <InlineSourceEditor
-                              source={log.integration_source}
-                              habitName={log.habit_name}
-                              sourceOptions={sourceOptions}
-                              density={density}
-                              isUpdating={isRowUpdating}
-                              onSelect={(nextSource) => onQuickEdit(log, { integration_source: nextSource })}
-                            />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'notes') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-notes`}
-                            data-column="notes"
-                            className={cellClassName}
-                            style={getStickyStyle('notes')}
-                          >
-                            <NotesCell notes={log.notes} />
-                          </TableCell>
-                        );
-                      }
-
-                      if (column.id === 'actions') {
-                        return (
-                          <TableCell
-                            key={`${log.id}-actions`}
-                            data-column="actions"
-                            className={cellClassName}
-                            style={getStickyStyle('actions')}
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <div className="flex items-center justify-center">
-                              <ActionsCell log={log} />
-                            </div>
-                          </TableCell>
-                        );
-                      }
-
-                      return null;
                     })}
-                  </TableRow>
+                  </div>
                 );
               })}
               {isFetchingMore && (
-                <tr
-                  className="absolute left-0 w-full"
+                <div
+                  className="absolute left-0 w-full flex items-center justify-center px-4 py-3"
                   style={{ top: rowVirtualizer.getTotalSize() }}
                 >
-                  <td colSpan={visibleColumns.length} className="px-4 py-3">
-                    <div className="flex items-center justify-center gap-2 text-sm text-neutral-500">
-                      <BrailleSpinner className="text-sm text-neutral-500" />
-                      <span>Loading more...</span>
-                    </div>
-                  </td>
-                </tr>
+                  <div className="flex items-center justify-center gap-2 text-sm text-neutral-500">
+                    <BrailleSpinner className="text-sm text-neutral-500" />
+                    <span>Loading more...</span>
+                  </div>
+                </div>
               )}
-            </TableBody>
-          </table>
+            </div>
+          </div>
         </div>
       </div>
     </TooltipProvider>

@@ -9,7 +9,8 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { Plus, Download } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Plus, Download, Bot, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format, startOfDay, endOfDay, subDays } from 'date-fns';
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
@@ -61,7 +62,7 @@ interface ComputerSummaryState {
   avg_daily_hours?: number;
 }
 
-const OVERVIEW_STATS_CACHE_VERSION = 'v2';
+const OVERVIEW_STATS_CACHE_VERSION = 'v3';
 const OVERVIEW_STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 
 function readOverviewStatsCache(cacheKey: string | null): Record<string, HabitStats> {
@@ -122,12 +123,42 @@ interface OverviewViewProps {
   onDateRangeChange?: (range: DateRange | undefined) => void;
   // Hide controls when used inside unified page (controls are in parent)
   hideControls?: boolean;
+  initialOverviewStats?: Record<string, HabitStats>;
 }
 
-export function OverviewView({ 
-  externalDateRange, 
+const QUICK_ACTIONS = [
+  { label: 'Log with AI', icon: Bot, path: '/chat' },
+  { label: 'View Trends', icon: TrendingUp, path: '/dashboard?view=metrics' },
+  { label: 'Weekly Recap', icon: CalendarCheck, path: '/chat?q=weekly+recap' },
+  { label: 'Import Data', icon: Upload, path: '/dashboard?view=overview&openImport=1' },
+  { label: 'Connect Wearable', icon: Watch, path: '/integrations' },
+];
+
+function QuickActionChips() {
+  const router = useRouter();
+
+  return (
+    <div className="flex items-center justify-center gap-2 pt-5 pb-1 flex-wrap">
+      {QUICK_ACTIONS.map((action) => (
+        <button
+          key={action.label}
+          type="button"
+          onClick={() => router.push(action.path)}
+          className="inline-flex items-center gap-2 rounded-sm border border-border bg-white px-4 py-2 text-[13px] font-medium text-neutral-700 transition-colors hover:bg-[#f7f7f6] hover:text-neutral-900"
+        >
+          <action.icon className="h-4 w-4" />
+          {action.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function OverviewView({
+  externalDateRange,
   onDateRangeChange,
-  hideControls = false 
+  hideControls = false,
+  initialOverviewStats,
 }: OverviewViewProps) {
   const isDesktopShell = typeof window !== 'undefined' && isTauri();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
@@ -170,9 +201,11 @@ export function OverviewView({
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
 
   // Cached stats from Python analytics API
-  const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>({});
+  const hasInitialOverviewStats = Boolean(initialOverviewStats && Object.keys(initialOverviewStats).length > 0);
+  const skippedInitialStatsFetchRef = useRef(false);
+  const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>(initialOverviewStats ?? {});
   const [statsLoading, setStatsLoading] = useState(false);
-  const [statsResolved, setStatsResolved] = useState(false);
+  const [statsResolved, setStatsResolved] = useState(hasInitialOverviewStats);
 
   // History scrubber state
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
@@ -311,6 +344,11 @@ export function OverviewView({
   useEffect(() => {
     const fetchStats = async () => {
       if (!habits.length) return;
+      if (!dateRange?.from && hasInitialOverviewStats && !skippedInitialStatsFetchRef.current) {
+        skippedInitialStatsFetchRef.current = true;
+        setStatsResolved(true);
+        return;
+      }
 
       const stopTimer = startPerfTimer('overview-view', 'fetch-stats', {
         habit_count: habits.length,
@@ -380,7 +418,7 @@ export function OverviewView({
     };
 
     fetchStats();
-  }, [habits, habitLogs.length, dateRange, getToken]);
+  }, [dateRange, getToken, habitLogs.length, habits, hasInitialOverviewStats]);
 
   useEffect(() => {
     if (!userLoaded || !isSignedIn || !user) return;
@@ -1046,6 +1084,9 @@ export function OverviewView({
           </div>
         </div>
       )}
+
+      {/* Quick Action Chips */}
+      <QuickActionChips />
 
       {/* Habits List */}
       <div className="pt-6">

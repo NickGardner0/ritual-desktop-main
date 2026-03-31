@@ -12,6 +12,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/integrations/whoop/store-code(.*)',
   '/api/linq/webhook(.*)',
   '/integrations/success(.*)',
+  '/integrations(.*)',
 ]);
 
 export const proxy = clerkMiddleware(async (auth, req) => {
