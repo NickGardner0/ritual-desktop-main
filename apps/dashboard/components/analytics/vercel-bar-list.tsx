@@ -32,6 +32,7 @@ interface VercelBarListCardProps {
   activeRange?: BarListRange;
   onRangeChange?: (range: BarListRange) => void;
   showRangeSelector?: boolean;
+  visibleRows?: number;
 }
 
 // ── Change Badge ──
@@ -90,10 +91,12 @@ export function VercelBarListCard({
   activeRange,
   onRangeChange,
   showRangeSelector = false,
+  visibleRows = 8,
 }: VercelBarListCardProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id || '');
 
   const items = data[activeTab] || [];
+  const listMaxHeight = visibleRows > 0 ? `${visibleRows * 32}px` : undefined;
 
   return (
     <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-xl overflow-hidden flex flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
@@ -139,7 +142,10 @@ export function VercelBarListCard({
       </div>
 
       {/* Rows */}
-      <div className="flex flex-col">
+      <div
+        className="flex flex-col overflow-y-auto overflow-x-hidden"
+        style={items.length > 0 ? { maxHeight: listMaxHeight } : undefined}
+      >
         {items.map((item, i) => (
           <div key={i} className="flex items-center px-4 py-[4.5px] hover:bg-[rgba(39,37,30,0.04)] transition-colors">
             <span className="text-[12.5px] font-normal text-[#27251E] flex-1 min-w-0 truncate">

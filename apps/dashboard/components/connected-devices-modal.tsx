@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, Plus, Search, X } from 'lucide-react';
+import { ChevronRight, Plus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -65,11 +65,21 @@ const DEVICES: DeviceEntry[] = [
   {
     id: 'apple-watch',
     name: 'Apple Watch',
-    logo: '/images/eclipse.svg',
+    logo: '/images/apple-logo.svg',
     logoWidth: 24,
     logoHeight: 24,
     description: 'Sync workouts, steps, and heart rate.',
     category: 'wearable',
+  },
+  {
+    id: 'tesla',
+    name: 'Tesla',
+    logo: '/images/Tesla_T_symbol.svg',
+    logoWidth: 24,
+    logoHeight: 24,
+    description: 'Track miles driven.',
+    category: 'productivity',
+    comingSoon: true,
   },
   {
     id: 'google-calendar',
@@ -113,8 +123,9 @@ const DEVICES: DeviceEntry[] = [
   },
 ];
 
-// Small icons shown in the trigger bar
-const BAR_ICONS = DEVICES.filter((d) => !d.comingSoon).slice(0, 3);
+// Icons shown in the trigger bar — Apple + Plaid for a clean look
+const BAR_ICON_IDS = ['apple-watch', 'plaid'];
+const BAR_ICONS = DEVICES.filter((d) => BAR_ICON_IDS.includes(d.id));
 
 // ── Trigger bar (shown below chat) ────────────────────────
 
@@ -123,7 +134,7 @@ export function ConnectedDevicesBar() {
 
   return (
     <>
-      <div className="fixed bottom-0 left-[70px] right-0 flex justify-center pb-2.5 pointer-events-none">
+      <div className="fixed bottom-0 left-[70px] right-0 flex justify-end pr-[calc((100%-70px-640px)/2+4px)] pb-2.5 pointer-events-none">
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -179,7 +190,7 @@ function ConnectedDevicesModal({
           {/* Header */}
           <div className="px-5 pt-5 pb-3">
             <DialogHeader>
-              <DialogTitle className="text-lg font-semibold text-neutral-900">
+              <DialogTitle className="text-lg font-medium text-neutral-900">
                 Connected devices
               </DialogTitle>
               <DialogDescription className="text-sm text-neutral-500 mt-1">
@@ -190,13 +201,12 @@ function ConnectedDevicesModal({
 
             {/* Search */}
             <div className="relative mt-4">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
               <input
                 type="text"
                 placeholder={`Search ${DEVICES.length} devices...`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 w-full rounded-md border border-border bg-white pl-9 pr-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-400"
+                className="h-9 w-full rounded-md border border-border bg-white px-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-400"
               />
             </div>
           </div>
@@ -250,11 +260,11 @@ function DeviceCard({
       )}
     >
       <div className="flex items-start gap-3 min-w-0">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-neutral-100">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center">
           <img
             src={device.logo}
             alt={device.name}
-            className="max-h-5 max-w-5 object-contain"
+            className="max-h-6 max-w-6 object-contain"
           />
         </div>
         <div className="min-w-0">

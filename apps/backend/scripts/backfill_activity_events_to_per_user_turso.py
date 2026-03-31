@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -39,7 +40,9 @@ import libsql_experimental as libsql
 TABLE_NAME = "activity_events"
 WRITE_RETRY_LIMIT = 5
 WRITE_RETRY_DELAY_SECONDS = 1.5
+BATCH_SIZE = 200
 SYNC_EVERY_ROWS = 5_000
+PROGRESS_EVERY_ROWS = 1_000
 
 
 def _is_retryable_write_error(error: Exception) -> bool:
@@ -71,7 +74,10 @@ def _connect_local_activity(path: Path) -> sqlite3.Connection:
 
 
 def _connect_remote_replica(sync_url: str, auth_token: str):
-    replica_dir = Path(tempfile.gettempdir()) / "ritual-targeted-activity-backfill"
+    replica_dir = (
+        Path(tempfile.gettempdir())
+        / f"ritual-targeted-activity-backfill-{os.getpid()}-{int(time.time())}"
+    )
     replica_dir.mkdir(parents=True, exist_ok=True)
     replica_path = replica_dir / "activity_backfill_replica.db"
     conn = libsql.connect(str(replica_path), sync_url=sync_url, auth_token=auth_token)
@@ -146,17 +152,37 @@ def _count_remote_prefix(
     return int(row[0] or 0)
 
 
-def _safe_resume_after_id(
+def _min_local_id(conn: sqlite3.Connection, table_name: str, user_id: str) -> int:
+    row = conn.execute(
+        f"SELECT COALESCE(MIN(id), 0) FROM {table_name} WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def _max_remote_id_lt(conn, table_name: str, user_id: str, upper_id: int) -> int:
+    row = conn.execute(
+        f"SELECT COALESCE(MAX(id), 0) FROM {table_name} WHERE user_id = ? AND id < ?",
+        (user_id, upper_id),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def _max_remote_id_gte(conn, table_name: str, user_id: str, lower_id: int) -> int:
+    row = conn.execute(
+        f"SELECT COALESCE(MAX(id), 0) FROM {table_name} WHERE user_id = ? AND id >= ?",
+        (user_id, lower_id),
+    ).fetchone()
+    return int(row[0] or 0)
+
+
+def _copy_id_bounds(
     local_conn: sqlite3.Connection,
     remote_conn,
     source_user_id: str,
     target_user_id: str,
-) -> tuple[int, int]:
+) -> tuple[int, int | None, int]:
     remote_before = _count_remote(remote_conn, TABLE_NAME, target_user_id)
-    remote_max_id = _max_remote_id(remote_conn, TABLE_NAME, target_user_id)
-    if remote_before <= 0 or remote_max_id <= 0:
-        return 0, remote_before
-
     source_local_max_id = int(
         local_conn.execute(
             f"SELECT COALESCE(MAX(id), 0) FROM {TABLE_NAME} WHERE user_id = ?",
@@ -164,8 +190,36 @@ def _safe_resume_after_id(
         ).fetchone()[0]
         or 0
     )
-    if source_local_max_id <= 0:
-        return 0, remote_before
+    source_local_min_id = _min_local_id(local_conn, TABLE_NAME, source_user_id)
+    if source_local_max_id <= 0 or source_local_min_id <= 0:
+        return 0, None, remote_before
+
+    if source_user_id != target_user_id:
+        target_local_min_id = _min_local_id(local_conn, TABLE_NAME, target_user_id)
+        if (
+            target_local_min_id > 0
+            and target_local_min_id > source_local_max_id
+        ):
+            lower_exclusive = _max_remote_id_lt(
+                remote_conn,
+                TABLE_NAME,
+                target_user_id,
+                target_local_min_id,
+            )
+            upper_inclusive = source_local_max_id
+            return min(lower_exclusive, upper_inclusive), upper_inclusive, remote_before
+
+    if source_user_id == target_user_id:
+        lower_exclusive = max(
+            source_local_min_id - 1,
+            _max_remote_id_gte(
+                remote_conn,
+                TABLE_NAME,
+                target_user_id,
+                source_local_min_id,
+            ),
+        )
+        return min(lower_exclusive, source_local_max_id), source_local_max_id, remote_before
 
     remote_prefix_count = _count_remote_prefix(
         remote_conn,
@@ -180,7 +234,7 @@ def _safe_resume_after_id(
         source_local_max_id,
     )
     if remote_prefix_count <= 0 or remote_prefix_max_id <= 0:
-        return 0, remote_before
+        return 0, source_local_max_id, remote_before
 
     local_prefix_count = _count_local_prefix(
         local_conn,
@@ -189,8 +243,8 @@ def _safe_resume_after_id(
         remote_prefix_max_id,
     )
     if local_prefix_count == remote_prefix_count:
-        return remote_prefix_max_id, remote_before
-    return 0, remote_before
+        return remote_prefix_max_id, source_local_max_id, remote_before
+    return 0, source_local_max_id, remote_before
 
 
 def _execute_with_retry(remote_conn, sql: str, values: tuple, sync_url: str, auth_token: str):
@@ -198,6 +252,25 @@ def _execute_with_retry(remote_conn, sql: str, values: tuple, sync_url: str, aut
     for attempt in range(1, WRITE_RETRY_LIMIT + 1):
         try:
             return remote_conn.execute(sql, values), remote_conn
+        except Exception as error:
+            last_error = error
+            if not _is_retryable_write_error(error) or attempt == WRITE_RETRY_LIMIT:
+                raise
+            time.sleep(WRITE_RETRY_DELAY_SECONDS * attempt)
+            close = getattr(remote_conn, "close", None)
+            if callable(close):
+                close()
+            remote_conn = _connect_remote_replica(sync_url, auth_token)
+    assert last_error is not None
+    raise last_error
+
+
+def _executemany_with_retry(remote_conn, sql: str, batch: list[tuple], sync_url: str, auth_token: str):
+    last_error: Exception | None = None
+    for attempt in range(1, WRITE_RETRY_LIMIT + 1):
+        try:
+            remote_conn.executemany(sql, batch)
+            return remote_conn
         except Exception as error:
             last_error = error
             if not _is_retryable_write_error(error) or attempt == WRITE_RETRY_LIMIT:
@@ -223,7 +296,7 @@ def _copy_from_source(
     auth_token: str,
 ) -> tuple[dict, object]:
     local_count = _count_local(local_conn, TABLE_NAME, source_user_id)
-    resume_after_id, remote_before = _safe_resume_after_id(
+    resume_after_id, upper_inclusive, remote_before = _copy_id_bounds(
         local_conn,
         remote_conn,
         source_user_id,
@@ -237,11 +310,25 @@ def _copy_from_source(
         "local_count": local_count,
         "remote_before": remote_before,
         "resume_after_id": resume_after_id,
+        "upper_inclusive": upper_inclusive,
         "inserted": 0,
     }
 
     if not apply or local_count == 0:
         return result, remote_conn
+
+    if upper_inclusive is None:
+        remaining = 0
+    else:
+        remaining = max(0, upper_inclusive - max(0, resume_after_id))
+    print(
+        f"Starting {TABLE_NAME} copy from {source_user_id}: "
+        f"local={local_count:,} "
+        f"resume_after_id={resume_after_id:,} "
+        f"upper_inclusive={upper_inclusive if upper_inclusive is not None else 'none'} "
+        f"remaining_estimate={remaining:,}",
+        flush=True,
+    )
 
     user_id_index = next((idx for idx, col in enumerate(common_columns) if col == "user_id"), None)
     if user_id_index is None:
@@ -256,6 +343,9 @@ def _copy_from_source(
     if resume_after_id > 0:
         predicate += " AND id > ?"
         params.append(resume_after_id)
+    if upper_inclusive is not None:
+        predicate += " AND id <= ?"
+        params.append(upper_inclusive)
 
     cursor = local_conn.execute(
         f"""
@@ -268,32 +358,81 @@ def _copy_from_source(
     )
 
     inserted = 0
+    failed = 0
     since_sync = 0
+    start = time.time()
+    batch: list[tuple] = []
+
+    def flush_batch(batch_rows: list[tuple]):
+        nonlocal remote_conn, inserted, failed, since_sync
+        if not batch_rows:
+            return
+        try:
+            remote_conn = _executemany_with_retry(
+                remote_conn,
+                insert_sql,
+                batch_rows,
+                sync_url,
+                auth_token,
+            )
+            inserted += len(batch_rows)
+            since_sync += len(batch_rows)
+            return
+        except Exception:
+            # Fall back to row-by-row only for the problematic batch.
+            pass
+
+        for values in batch_rows:
+            try:
+                _, remote_conn = _execute_with_retry(
+                    remote_conn,
+                    insert_sql,
+                    values,
+                    sync_url,
+                    auth_token,
+                )
+                inserted += 1
+                since_sync += 1
+            except Exception:
+                failed += 1
+
     for row in cursor:
         values = list(row)
         values[user_id_index] = target_user_id
-        _, remote_conn = _execute_with_retry(
-            remote_conn,
-            insert_sql,
-            tuple(values),
-            sync_url,
-            auth_token,
-        )
-        inserted += 1
-        since_sync += 1
-        if since_sync >= SYNC_EVERY_ROWS:
-            remote_conn.commit()
-            remote_conn.sync()
-            close = getattr(remote_conn, "close", None)
-            if callable(close):
-                close()
-            remote_conn = _connect_remote_replica(sync_url, auth_token)
-            since_sync = 0
+        batch.append(tuple(values))
+
+        if len(batch) >= BATCH_SIZE:
+            flush_batch(batch)
+            batch = []
+
+            if inserted > 0 and inserted % PROGRESS_EVERY_ROWS == 0:
+                elapsed = time.time() - start
+                rate = inserted / elapsed if elapsed > 0 else 0
+                remaining = max(0, local_count - inserted)
+                eta_minutes = remaining / rate / 60 if rate > 0 else 0
+                print(
+                    f"    {source_user_id}: {inserted:,}/{local_count:,} copied "
+                    f"({rate:.0f} rows/s, ~{eta_minutes:.1f}m left, failed={failed:,})",
+                    flush=True,
+                )
+
+            if since_sync >= SYNC_EVERY_ROWS:
+                remote_conn.commit()
+                remote_conn.sync()
+                close = getattr(remote_conn, "close", None)
+                if callable(close):
+                    close()
+                remote_conn = _connect_remote_replica(sync_url, auth_token)
+                since_sync = 0
+
+    if batch:
+        flush_batch(batch)
 
     remote_conn.commit()
     remote_conn.sync()
 
     result["inserted"] = inserted
+    result["failed"] = failed
     return result, remote_conn
 
 
@@ -389,7 +528,8 @@ def main() -> int:
                 f"local={result['local_count']:,} "
                 f"remote_before={result['remote_before']:,} "
                 f"resume_after_id={result['resume_after_id']:,} "
-                f"inserted={result['inserted']:,}"
+                f"inserted={result['inserted']:,} "
+                f"failed={result.get('failed', 0):,}"
             )
 
         remote_after_total = _count_remote(remote_conn, TABLE_NAME, args.user_id)

@@ -1375,6 +1375,8 @@ export function IntegrationsClient() {
         return <Image src="/images/cal_ai.svg" alt="Cal AI" width={80} height={32} className={size === 'panel' ? 'h-9 w-auto object-contain' : 'h-8 w-auto object-contain'} />;
       case 'googlecalendar':
         return <Image src="/images/Google_Calendar_Logo.svg" alt="Google Calendar" width={24} height={24} className={size === 'panel' ? 'h-8 w-8' : 'h-6 w-6'} />;
+      case 'tesla':
+        return <Image src="/images/Tesla_T_symbol.svg" alt="Tesla" width={24} height={24} className={size === 'panel' ? 'h-8 w-8' : 'h-6 w-6'} />;
       default:
         return null;
     }
@@ -2544,6 +2546,14 @@ export function IntegrationsClient() {
           description="Track meeting time, frequency, and patterns by syncing your Google Calendar events"
           comingSoon
           onDetails={() => openIntegrationDetails('googlecalendar')}
+        />
+
+        <IntegrationCard
+          logo={<Image src="/images/Tesla_T_symbol.svg" alt="Tesla" width={24} height={24} className="h-6 w-6" />}
+          title="Tesla"
+          description="Track miles driven"
+          comingSoon
+          onDetails={() => openIntegrationDetails('tesla')}
         />
       </div>
 

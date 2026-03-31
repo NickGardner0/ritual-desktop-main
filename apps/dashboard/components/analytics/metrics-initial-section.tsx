@@ -34,36 +34,46 @@ export function MetricsInitialSection({
   onBarListRangeChange,
   computerTimeRangePreset,
 }: MetricsInitialSectionProps) {
+  const shouldShowTopRail = showInsights || habitBarItems.length > 0;
+
   return (
     <>
       {cardGrid}
 
-      {showInsights ? (
+      {shouldShowTopRail ? (
         <div className="mx-auto mt-8 w-full max-w-[920px]">
-          <InsightCardsGrid />
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_310px] xl:items-start">
+            <div className="min-w-0">
+              {showInsights ? <InsightCardsGrid compact /> : null}
+            </div>
+            {showBarLists && habitBarItems.length > 0 ? (
+              <div className="min-w-0 xl:max-w-[310px]">
+                <VercelBarListCard
+                  tabs={[
+                    { id: 'habits', label: 'Habits' },
+                    { id: 'streaks', label: 'Streaks' },
+                  ]}
+                  defaultTab="habits"
+                  data={{
+                    habits: habitBarItems,
+                    streaks: streakBarItems,
+                  }}
+                  showRangeSelector
+                  activeRange={barListRange}
+                  onRangeChange={onBarListRangeChange}
+                  visibleRows={8}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
-      {showBarLists && habitBarItems.length > 0 ? (
-        <div className="mx-auto mt-8 w-full max-w-[920px]">
-          <div className="grid grid-cols-1 gap-[6px] lg:grid-cols-2">
-            <VercelBarListCard
-              tabs={[
-                { id: 'habits', label: 'Habits' },
-                { id: 'streaks', label: 'Streaks' },
-              ]}
-              defaultTab="habits"
-              data={{
-                habits: habitBarItems,
-                streaks: streakBarItems,
-              }}
-              showRangeSelector
-              activeRange={barListRange}
-              onRangeChange={onBarListRangeChange}
-            />
+      {showBarLists ? (
+        <div className="mx-auto mt-6 w-full max-w-[920px]">
+          <div className="grid grid-cols-1 gap-[6px]">
             <ComputerTimeBarList activeRange={barListRange} onRangeChange={onBarListRangeChange} />
           </div>
-
           <ComputerTimeDetailSection externalRange={computerTimeRangePreset} />
         </div>
       ) : null}

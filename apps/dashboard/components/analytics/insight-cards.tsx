@@ -57,36 +57,43 @@ const INSIGHT_CARDS: InsightCard[] = [
 
 interface InsightCardsGridProps {
   onCardClick?: (card: { title: string; description: string }) => void;
+  compact?: boolean;
 }
 
-export function InsightCardsGrid({ onCardClick }: InsightCardsGridProps) {
+export function InsightCardsGrid({ onCardClick, compact = false }: InsightCardsGridProps) {
   return (
-    <div className="w-full max-w-[708px]">
+    <div className={`w-full ${compact ? 'max-w-none' : 'max-w-[708px]'}`}>
       {/* Section header */}
-      <div className="mb-3">
-        <h3 className="text-[15px] font-medium tracking-[-0.3px] text-[#27251E]">
+      <div className={compact ? 'mb-2.5' : 'mb-3'}>
+        <h3 className={`${compact ? 'text-[14px]' : 'text-[15px]'} font-medium tracking-[-0.3px] text-[#27251E]`}>
           Understand Your Logs
         </h3>
-        <p className="mt-0.5 text-[12px] tracking-[-0.1px] text-[rgba(39,37,30,0.45)]">
+        <p className={`mt-0.5 ${compact ? 'text-[11px] leading-[14px]' : 'text-[12px]'} tracking-[-0.1px] text-[rgba(39,37,30,0.45)]`}>
           Explore the aggregate performance of your behavior
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-[6px] sm:grid-cols-3">
+      <div className={`grid grid-cols-2 ${compact ? 'gap-[5px]' : 'gap-[6px]'} sm:grid-cols-3`}>
         {INSIGHT_CARDS.map((card) => (
           <button
             key={card.title}
             type="button"
             onClick={() => onCardClick?.({ title: card.title, description: card.description })}
-            className="group flex h-[124px] cursor-pointer flex-col justify-between overflow-hidden rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 py-4 text-left duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]"
+            className={`group flex cursor-pointer flex-col justify-between overflow-hidden rounded-sm border border-[rgba(39,37,30,0.08)] bg-white text-left duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
+              compact ? 'h-[108px] px-3.5 py-3' : 'h-[124px] px-4 py-4'
+            }`}
             style={{ transition: 'border-color 200ms ease-out, background-color 200ms ease-out, box-shadow 200ms ease-out' }}
           >
-            <card.Icon className="h-[18px] w-[18px] text-[#27251E]" strokeWidth={1.5} />
+            <card.Icon className={`${compact ? 'h-[16px] w-[16px]' : 'h-[18px] w-[18px]'} text-[#27251E]`} strokeWidth={1.5} />
             <div className="min-w-0">
-              <span className="block truncate text-[12.75px] font-medium leading-[17px] tracking-[-0.24px] text-[#27251E]">
+              <span className={`block truncate font-medium tracking-[-0.24px] text-[#27251E] ${
+                compact ? 'text-[12px] leading-[15px]' : 'text-[12.75px] leading-[17px]'
+              }`}>
                 {card.title}
               </span>
-              <span className="mt-1 block text-[11px] leading-[14px] tracking-[-0.18px] text-[rgba(39,37,30,0.62)]">
+              <span className={`mt-1 block tracking-[-0.18px] text-[rgba(39,37,30,0.62)] ${
+                compact ? 'text-[10.5px] leading-[13px]' : 'text-[11px] leading-[14px]'
+              }`}>
                 {card.description}
               </span>
             </div>

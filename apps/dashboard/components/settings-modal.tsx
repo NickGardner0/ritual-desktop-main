@@ -24,7 +24,7 @@ const fontOptions: { value: FontOption; label: string }[] = [
 ];
 
 const SETTINGS_PANEL_CLASS =
-  'relative bg-[#FCFCFB] w-full max-w-[520px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-xl z-10 overflow-hidden max-h-[560px] flex flex-col';
+  'relative bg-[#FCFCFB] w-full max-w-[520px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-xl z-10 overflow-hidden max-h-[min(560px,calc(100vh-2rem))] flex flex-col';
 const SETTINGS_HEADER_CLASS =
   'flex items-center justify-between pl-2.5 pr-4 py-2.5 border-b border-gray-200/70 bg-[#FCFCFB]';
 const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-sm transition-colors';

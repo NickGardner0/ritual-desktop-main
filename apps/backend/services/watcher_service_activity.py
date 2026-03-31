@@ -21,8 +21,112 @@ from services.watcher_service_local_db import (
     get_local_watcher_db_path_impl,
     open_activity_connection_for_user,
 )
+from services.watcher_service_computer_activity import (
+    _aggregate_computer_activity_daily_rows_from_events_impl,
+    _resolve_activity_user_ids,
+    _sqlite_user_filter_clause,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _rank_top_apps_from_daily_rows(
+    daily_rows: List[Dict[str, Any]],
+    limit: int,
+    *,
+    source: str,
+) -> List[Dict[str, Any]]:
+    grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in daily_rows:
+        app_bundle = str(row.get("app_bundle_id") or "unknown")
+        app_name = str(row.get("app_name") or "Unknown")
+        active_ms = int(row.get("active_ms", 0) or 0)
+        if active_ms <= 0:
+            continue
+
+        key_tuple = (app_bundle, app_name)
+        bucket = grouped.setdefault(
+            key_tuple,
+            {
+                "app_bundle_id": app_bundle,
+                "app_name": app_name,
+                "total_active_ms": 0,
+                "total_events": 0,
+                "days_used": set(),
+            },
+        )
+        bucket["total_active_ms"] += active_ms
+        bucket["total_events"] += int(row.get("events_count", 0) or 0)
+        day = str(row.get("day") or "")
+        if day:
+            bucket["days_used"].add(day)
+
+    ranked = sorted(
+        grouped.values(),
+        key=lambda item: item["total_active_ms"],
+        reverse=True,
+    )[: max(1, int(limit or 10))]
+
+    return [
+        {
+            "app_bundle_id": item["app_bundle_id"],
+            "app_name": item["app_name"],
+            "total_active_ms": int(item["total_active_ms"]),
+            "total_events": int(item["total_events"]),
+            "days_used": len(item["days_used"]),
+            "hours": round(int(item["total_active_ms"]) / (1000 * 60 * 60), 2),
+            "source": source,
+        }
+        for item in ranked
+    ]
+
+
+def _rank_top_domains_from_daily_rows(
+    daily_rows: List[Dict[str, Any]],
+    limit: int,
+    *,
+    source: str,
+) -> List[Dict[str, Any]]:
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in daily_rows:
+        domain = str(row.get("browser_domain") or "").strip()
+        active_ms = int(row.get("active_ms", 0) or 0)
+        if not domain or active_ms <= 0:
+            continue
+
+        bucket = grouped.setdefault(
+            domain,
+            {
+                "domain": domain,
+                "total_active_ms": 0,
+                "total_events": 0,
+                "days_used": set(),
+            },
+        )
+        bucket["total_active_ms"] += active_ms
+        bucket["total_events"] += int(row.get("events_count", 0) or 0)
+        day = str(row.get("day") or "")
+        if day:
+            bucket["days_used"].add(day)
+
+    ranked = sorted(
+        grouped.values(),
+        key=lambda item: item["total_active_ms"],
+        reverse=True,
+    )[: max(1, int(limit or 10))]
+
+    return [
+        {
+            "domain": item["domain"],
+            "total_active_ms": int(item["total_active_ms"]),
+            "total_events": int(item["total_events"]),
+            "days_used": len(item["days_used"]),
+            "hours": round(int(item["total_active_ms"]) / (1000 * 60 * 60), 2),
+            "minutes": round(int(item["total_active_ms"]) / (1000 * 60), 1),
+            "source": source,
+        }
+        for item in ranked
+    ]
 
 
 def _perf_ms(start: float) -> float:
@@ -423,43 +527,38 @@ async def get_top_apps_impl(
             if device_id:
                 device_clause = " AND device_id = ?"
                 params.append(device_id)
-            params.append(limit)
 
             rows = conn.execute(
                 f"""
                 SELECT
+                    ts_start,
+                    ts_end,
                     app_bundle_id,
                     app_name,
-                    COALESCE(SUM(CASE WHEN ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
-                    COUNT(*) as total_events
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
                   AND user_id = ?
                   AND COALESCE(is_afk, 0) = 0
                   {device_clause}
-                GROUP BY app_bundle_id, app_name
-                ORDER BY total_active_ms DESC
-                LIMIT ?
                 """,
                 params,
             ).fetchall()
 
             if rows:
-                result = [
-                    {
-                        "app_bundle_id": row[0],
-                        "app_name": row[1],
-                        "total_active_ms": int(row[2] or 0),
-                        "total_events": int(row[3] or 0),
-                        "hours": round((int(row[2] or 0)) / (1000 * 60 * 60), 2),
-                        "source": "activity_db",
-                    }
-                    for row in rows
-                ]
+                daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
+                    [(row[0], row[1], row[2], row[3], "", 0) for row in rows],
+                    start_ms,
+                    end_ms,
+                )
+                result = _rank_top_apps_from_daily_rows(
+                    daily_rows,
+                    limit,
+                    source="activity_db_dedup",
+                )
                 _log_activity_perf(
                     "top_apps",
                     start=perf_start,
-                    source="activity_db",
+                    source="activity_db_dedup",
                     user_id=user_id,
                     start_date=start_date,
                     end_date=end_date,
@@ -474,50 +573,12 @@ async def get_top_apps_impl(
         user_id=user_id,
     )
     if local_daily_rows:
-        grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
-        for row in local_daily_rows:
-            app_bundle = str(row.get("app_bundle_id") or "unknown")
-            app_name = str(row.get("app_name") or "Unknown")
-            active_ms = int(row.get("active_ms", 0) or 0)
-            if active_ms <= 0:
-                continue
-
-            key_tuple = (app_bundle, app_name)
-            bucket = grouped.setdefault(
-                key_tuple,
-                {
-                    "app_bundle_id": app_bundle,
-                    "app_name": app_name,
-                    "total_active_ms": 0,
-                    "total_events": 0,
-                    "days_used": set(),
-                },
-            )
-            bucket["total_active_ms"] += active_ms
-            bucket["total_events"] += int(row.get("events_count", 0) or 0)
-            day = str(row.get("day") or "")
-            if day:
-                bucket["days_used"].add(day)
-
-        if grouped:
-            ranked = sorted(
-                grouped.values(),
-                key=lambda item: item["total_active_ms"],
-                reverse=True,
-            )[: max(1, int(limit or 10))]
-
-            result = [
-                {
-                    "app_bundle_id": item["app_bundle_id"],
-                    "app_name": item["app_name"],
-                    "total_active_ms": int(item["total_active_ms"]),
-                    "total_events": int(item["total_events"]),
-                    "days_used": len(item["days_used"]),
-                    "hours": round(int(item["total_active_ms"]) / (1000 * 60 * 60), 2),
-                    "source": "local_dedup",
-                }
-                for item in ranked
-            ]
+        result = _rank_top_apps_from_daily_rows(
+            local_daily_rows,
+            limit,
+            source="local_dedup",
+        )
+        if result:
             _log_activity_perf(
                 "top_apps",
                 start=perf_start,
@@ -584,27 +645,29 @@ async def get_top_apps_impl(
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-
-        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-        start_ms = int(start_date_obj.timestamp() * 1000)
-        end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-
-        cursor.execute(
-            """
+        user_ids = _resolve_activity_user_ids(user_id)
+        user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        query = f"""
             SELECT
+                ts_start,
+                ts_end,
                 app_bundle_id,
                 app_name,
-                SUM(CASE WHEN ts_end > ts_start THEN ts_end - ts_start ELSE 0 END) as total_active_ms,
-                COUNT(*) as total_events
+                browser_domain,
+                COALESCE(is_afk, 0)
             FROM activity_events
             WHERE ts_start >= ? AND ts_start < ?
               AND COALESCE(is_afk, 0) = 0
-            GROUP BY app_bundle_id, app_name
-            ORDER BY total_active_ms DESC
-            LIMIT ?
-            """,
-            (start_ms, end_ms, limit),
+              {user_clause}
+        """
+        params: list[Any] = [start_ms, end_ms, *user_params]
+        if device_id:
+            query += " AND device_id = ?"
+            params.append(device_id)
+
+        cursor.execute(
+            query,
+            params,
         )
 
         rows = cursor.fetchall()
@@ -617,20 +680,12 @@ async def get_top_apps_impl(
             len(rows),
         )
 
-        result = [
-            {
-                "app_bundle_id": r[0],
-                "app_name": r[1],
-                "total_active_ms": r[2],
-                "total_events": r[3],
-                "hours": round(r[2] / (1000 * 60 * 60), 2),
-            }
-            for r in rows
-        ]
+        daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(rows, start_ms, end_ms)
+        result = _rank_top_apps_from_daily_rows(daily_rows, limit, source="local_sql_dedup")
         _log_activity_perf(
             "top_apps",
             start=perf_start,
-            source="local_sql",
+            source="local_sql_dedup",
             user_id=user_id,
             start_date=start_date,
             end_date=end_date,
@@ -676,14 +731,13 @@ async def get_top_domains_impl(
             if device_id:
                 device_clause = " AND device_id = ?"
                 params.append(device_id)
-            params.append(limit)
 
             rows = conn.execute(
                 f"""
                 SELECT
+                    ts_start,
+                    ts_end,
                     browser_domain,
-                    COALESCE(SUM(CASE WHEN ts_end > ts_start THEN ts_end - ts_start ELSE 0 END), 0) as total_active_ms,
-                    COUNT(*) as total_events
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
                   AND user_id = ?
@@ -691,29 +745,25 @@ async def get_top_domains_impl(
                   AND browser_domain IS NOT NULL
                   AND browser_domain != ''
                   {device_clause}
-                GROUP BY browser_domain
-                ORDER BY total_active_ms DESC
-                LIMIT ?
                 """,
                 params,
             ).fetchall()
 
             if rows:
-                result = [
-                    {
-                        "domain": row[0],
-                        "total_active_ms": int(row[1] or 0),
-                        "total_events": int(row[2] or 0),
-                        "hours": round((int(row[1] or 0)) / (1000 * 60 * 60), 2),
-                        "minutes": round((int(row[1] or 0)) / (1000 * 60), 1),
-                        "source": "activity_db",
-                    }
-                    for row in rows
-                ]
+                daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
+                    [(row[0], row[1], "browser", "Browser", row[2], 0) for row in rows],
+                    start_ms,
+                    end_ms,
+                )
+                result = _rank_top_domains_from_daily_rows(
+                    daily_rows,
+                    limit,
+                    source="activity_db_dedup",
+                )
                 _log_activity_perf(
                     "top_domains",
                     start=perf_start,
-                    source="activity_db",
+                    source="activity_db_dedup",
                     user_id=user_id,
                     start_date=start_date,
                     end_date=end_date,
@@ -728,47 +778,12 @@ async def get_top_domains_impl(
         user_id=user_id,
     )
     if local_daily_rows:
-        grouped: Dict[str, Dict[str, Any]] = {}
-        for row in local_daily_rows:
-            domain = str(row.get("browser_domain") or "").strip()
-            active_ms = int(row.get("active_ms", 0) or 0)
-            if not domain or active_ms <= 0:
-                continue
-
-            bucket = grouped.setdefault(
-                domain,
-                {
-                    "domain": domain,
-                    "total_active_ms": 0,
-                    "total_events": 0,
-                    "days_used": set(),
-                },
-            )
-            bucket["total_active_ms"] += active_ms
-            bucket["total_events"] += int(row.get("events_count", 0) or 0)
-            day = str(row.get("day") or "")
-            if day:
-                bucket["days_used"].add(day)
-
-        if grouped:
-            ranked = sorted(
-                grouped.values(),
-                key=lambda item: item["total_active_ms"],
-                reverse=True,
-            )[: max(1, int(limit or 10))]
-
-            result = [
-                {
-                    "domain": item["domain"],
-                    "total_active_ms": int(item["total_active_ms"]),
-                    "total_events": int(item["total_events"]),
-                    "days_used": len(item["days_used"]),
-                    "hours": round(int(item["total_active_ms"]) / (1000 * 60 * 60), 2),
-                    "minutes": round(int(item["total_active_ms"]) / (1000 * 60), 1),
-                    "source": "local_dedup",
-                }
-                for item in ranked
-            ]
+        result = _rank_top_domains_from_daily_rows(
+            local_daily_rows,
+            limit,
+            source="local_dedup",
+        )
+        if result:
             _log_activity_perf(
                 "top_domains",
                 start=perf_start,
@@ -835,28 +850,28 @@ async def get_top_domains_impl(
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-
-        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-        start_ms = int(start_date_obj.timestamp() * 1000)
-        end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-
-        cursor.execute(
-            """
+        user_ids = _resolve_activity_user_ids(user_id)
+        user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        query = f"""
             SELECT
-                browser_domain,
-                SUM(CASE WHEN ts_end > ts_start THEN ts_end - ts_start ELSE 0 END) as total_active_ms,
-                COUNT(*) as total_events
+                ts_start,
+                ts_end,
+                browser_domain
             FROM activity_events
             WHERE ts_start >= ? AND ts_start < ?
               AND COALESCE(is_afk, 0) = 0
               AND browser_domain IS NOT NULL
               AND browser_domain != ''
-            GROUP BY browser_domain
-            ORDER BY total_active_ms DESC
-            LIMIT ?
-            """,
-            (start_ms, end_ms, limit),
+              {user_clause}
+        """
+        params: list[Any] = [start_ms, end_ms, *user_params]
+        if device_id:
+            query += " AND device_id = ?"
+            params.append(device_id)
+
+        cursor.execute(
+            query,
+            params,
         )
 
         rows = cursor.fetchall()
@@ -869,20 +884,16 @@ async def get_top_domains_impl(
             len(rows),
         )
 
-        result = [
-            {
-                "domain": r[0],
-                "total_active_ms": r[1],
-                "total_events": r[2],
-                "hours": round(r[1] / (1000 * 60 * 60), 2),
-                "minutes": round(r[1] / (1000 * 60), 1),
-            }
-            for r in rows
-        ]
+        daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
+            [(row[0], row[1], "browser", "Browser", row[2], 0) for row in rows],
+            start_ms,
+            end_ms,
+        )
+        result = _rank_top_domains_from_daily_rows(daily_rows, limit, source="local_sql_dedup")
         _log_activity_perf(
             "top_domains",
             start=perf_start,
-            source="local_sql",
+            source="local_sql_dedup",
             user_id=user_id,
             start_date=start_date,
             end_date=end_date,
