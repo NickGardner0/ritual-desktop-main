@@ -443,7 +443,7 @@ export default function CommandPalette({
 
           {/* Results */}
           <div className="min-h-0 flex-1 overflow-y-auto bg-[rgba(255,255,255,0.10)]">
-            <Command className="rtlp-cmd">
+            <Command className="rtlp-cmd" shouldFilter={false}>
               <Command.List className="px-1 py-2 max-h-full overflow-y-auto">
                 
                 {/* No results */}
@@ -465,7 +465,8 @@ export default function CommandPalette({
                         key={action.id}
                         value={action.name}
                         onSelect={() => handleActionSelect(action)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
+                        onClick={() => handleActionSelect(action)}
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
                       >
                         <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           {getActionIcon(action.icon)}
@@ -488,7 +489,8 @@ export default function CommandPalette({
                         key={habit.id}
                         value={`habit-${habit.name}`}
                         onSelect={() => handleHabitSelect(habit)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
+                        onClick={() => handleHabitSelect(habit)}
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
                       >
                         <span className="w-4 h-4 flex items-center justify-center">
                           <HabitIcon iconName={habit.icon} className="w-4 h-4" />
@@ -519,7 +521,8 @@ export default function CommandPalette({
                         key={log.id}
                         value={`log-${log.habit_name}-${log.date}`}
                         onSelect={() => handleLogSelect(log)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
+                        onClick={() => handleLogSelect(log)}
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
                       >
                         <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           <Clock className="h-4 w-4" />
@@ -553,7 +556,8 @@ export default function CommandPalette({
                         key={conv.id}
                         value={`conv-${conv.id}`}
                         onSelect={() => handleConversationSelect(conv)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-[rgba(255,255,255,0.28)] data-[selected=true]:bg-[rgba(255,255,255,0.30)]"
+                        onClick={() => handleConversationSelect(conv)}
+                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#F2F1EF] data-[selected=true]:bg-[#EEEDEB]"
                       >
                         <span className="text-gray-400 w-4 h-4 flex items-center justify-center">
                           <MessageSquare className="h-4 w-4" />
