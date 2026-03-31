@@ -137,14 +137,14 @@ const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
 };
 
 const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: number }> = {
-  select: { size: 50, minSize: 50, maxSize: 50 },
-  date: { size: 110, minSize: 96, maxSize: 260 },
-  time: { size: 128, minSize: 104, maxSize: 240 },
-  habit: { size: 250, minSize: 180, maxSize: 620 },
-  value: { size: 168, minSize: 140, maxSize: 340 },
-  category: { size: 180, minSize: 140, maxSize: 420 },
-  source: { size: 180, minSize: 140, maxSize: 500 },
-  notes: { size: 220, minSize: 150, maxSize: 500 },
+  select: { size: 40, minSize: 40, maxSize: 40 },
+  date: { size: 90, minSize: 80, maxSize: 200 },
+  time: { size: 100, minSize: 80, maxSize: 200 },
+  habit: { size: 200, minSize: 140, maxSize: 500 },
+  value: { size: 140, minSize: 100, maxSize: 280 },
+  category: { size: 140, minSize: 100, maxSize: 300 },
+  source: { size: 120, minSize: 90, maxSize: 300 },
+  notes: { size: 170, minSize: 120, maxSize: 400 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
@@ -677,7 +677,7 @@ export function HabitLogsDataTable({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  const rowHeight = density === 'compact' ? 40 : 45;
+  const rowHeight = density === 'compact' ? 34 : 38;
 
   const rowVirtualizer = useVirtualizer({
     count: logs.length,
@@ -925,9 +925,9 @@ export function HabitLogsDataTable({
 
   // ── Keyboard Navigation ────────────────────────────────
 
-  const tableHeaderHeight = density === 'compact' ? 'h-[40px]' : 'h-[45px]';
-  const headerCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
-  const bodyCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
+  const tableHeaderHeight = density === 'compact' ? 'h-[34px]' : 'h-[38px]';
+  const headerCellPadding = density === 'compact' ? 'px-2 py-1' : 'px-3 py-1.5';
+  const bodyCellPadding = density === 'compact' ? 'px-2 py-1' : 'px-3 py-1.5';
 
   const isTextInputTarget = (target: EventTarget | null): boolean => {
     const element = target as HTMLElement | null;
@@ -1054,7 +1054,7 @@ export function HabitLogsDataTable({
           <button
             type="button"
             onClick={() => scrollHorizontal('left')}
-            className="absolute left-0 top-0 z-30 flex h-[45px] w-8 items-center justify-start bg-gradient-to-r from-white via-white/80 to-transparent pl-1"
+            className="absolute left-0 top-0 z-30 flex h-[38px] w-8 items-center justify-start bg-gradient-to-r from-white via-white/80 to-transparent pl-1"
             aria-label="Scroll left"
           >
             <ArrowUp className="h-3.5 w-3.5 -rotate-90 text-neutral-500" />
@@ -1064,7 +1064,7 @@ export function HabitLogsDataTable({
           <button
             type="button"
             onClick={() => scrollHorizontal('right')}
-            className="absolute right-0 top-0 z-30 flex h-[45px] w-8 items-center justify-end bg-gradient-to-l from-white via-white/80 to-transparent pr-1"
+            className="absolute right-0 top-0 z-30 flex h-[38px] w-8 items-center justify-end bg-gradient-to-l from-white via-white/80 to-transparent pr-1"
             aria-label="Scroll right"
           >
             <ArrowUp className="h-3.5 w-3.5 rotate-90 text-neutral-500" />

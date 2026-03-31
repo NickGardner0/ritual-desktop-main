@@ -32,7 +32,7 @@ function QuickActionChips() {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-center gap-1.5 pt-10 pb-2 flex-wrap">
+    <div className="flex items-center justify-center gap-1.5 pt-4 pb-28 flex-wrap">
       {QUICK_ACTIONS.map((action) => (
         <button
           key={action.label}
