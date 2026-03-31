@@ -1,40 +1,53 @@
 'use client';
 
-import dynamic from 'next/dynamic';
+import { useEffect, useRef } from 'react';
+import { UnifiedAnalyticsClient } from '@/components/analytics/unified-analytics-client';
+import type { ViewMode } from '@/components/analytics/view-mode-toggle';
+import type { DashboardDerivedInitialData } from './dashboard-initial-data';
+import { perfInfo } from '@/lib/perf-debug';
 
-function DashboardSkeleton() {
+export function ClientDashboard({
+  initialViewMode,
+  initialDerivedData,
+}: {
+  initialViewMode: ViewMode;
+  initialDerivedData: DashboardDerivedInitialData;
+}) {
+  const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  useEffect(() => {
+    perfInfo('client-dashboard', 'mount', {
+      initial_view_mode: initialViewMode,
+      has_overview_stats: Boolean(initialDerivedData?.overviewStats && Object.keys(initialDerivedData.overviewStats).length > 0),
+      has_metrics_data: Boolean(initialDerivedData?.metricsAnalyticsData && Object.keys(initialDerivedData.metricsAnalyticsData).length > 0),
+    });
+
+    let frame1 = 0;
+    let frame2 = 0;
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      frame1 = window.requestAnimationFrame(() => {
+        frame2 = window.requestAnimationFrame(() => {
+          const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          perfInfo('client-dashboard', 'first-shell-frame', {
+            duration_ms: Number((end - mountTimeRef.current).toFixed(2)),
+            initial_view_mode: initialViewMode,
+          });
+        });
+      });
+    }
+
+    return () => {
+      if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+        if (frame1) window.cancelAnimationFrame(frame1);
+        if (frame2) window.cancelAnimationFrame(frame2);
+      }
+    };
+  }, [initialDerivedData, initialViewMode]);
+
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-      <div className="flex items-center justify-between">
-        <div className="space-y-2">
-          <div className="h-8 w-32 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-          <div className="h-4 w-48 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-32 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-          <div className="h-9 w-40 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-        </div>
-      </div>
-      <div className="max-w-[500px] mx-auto space-y-2">
-        {[1, 2, 3, 4, 5, 6].map(i => (
-          <div 
-            key={i} 
-            className="h-8 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" 
-          />
-        ))}
-      </div>
-    </div>
+    <UnifiedAnalyticsClient
+      initialViewMode={initialViewMode}
+      initialDerivedData={initialDerivedData}
+    />
   );
-}
-
-// ssr:false defers the ENTIRE client component tree (React Query, Clerk hooks,
-// Radix UI, recharts, @dnd-kit, etc.) to a client-only chunk. The server only
-// compiles this thin wrapper + the skeleton above.
-const UnifiedAnalyticsClient = dynamic(
-  () => import('@/components/analytics/unified-analytics-client').then(m => ({ default: m.UnifiedAnalyticsClient })),
-  { ssr: false, loading: () => <DashboardSkeleton /> }
-);
-
-export function ClientDashboard() {
-  return <UnifiedAnalyticsClient />;
 }

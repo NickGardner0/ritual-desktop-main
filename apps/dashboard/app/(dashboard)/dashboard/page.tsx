@@ -12,18 +12,31 @@
  */
 
 import type { Metadata } from 'next';
+import { HydrationBoundary } from '@tanstack/react-query';
 import { ClientDashboard } from './client-dashboard';
+import { loadDashboardInitialData } from './dashboard-server-data';
 
 export const metadata: Metadata = {
   title: 'Dashboard | Ritual',
   description: 'Track and manage your daily habits',
 };
 
-export default function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const initialData = await loadDashboardInitialData(searchParams);
+
   return (
     <div className="flex-1 overflow-auto bg-white relative">
       <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-7 pb-72">
-        <ClientDashboard />
+        <HydrationBoundary state={initialData.dehydratedState}>
+          <ClientDashboard
+            initialViewMode={initialData.initialViewMode}
+            initialDerivedData={initialData.derived}
+          />
+        </HydrationBoundary>
       </div>
     </div>
   );

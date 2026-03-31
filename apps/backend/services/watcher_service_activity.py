@@ -471,6 +471,7 @@ async def get_top_apps_impl(
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,
+        user_id=user_id,
     )
     if local_daily_rows:
         grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
@@ -724,6 +725,7 @@ async def get_top_domains_impl(
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,
+        user_id=user_id,
     )
     if local_daily_rows:
         grouped: Dict[str, Dict[str, Any]] = {}

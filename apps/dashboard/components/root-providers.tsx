@@ -1,44 +1,16 @@
 'use client';
 
-import { ReactNode, useEffect, useRef, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ThemeProvider } from '@/components/theme-provider';
-import { ClerkProvider, useUser } from '@clerk/nextjs';
+import { ClerkProvider } from '@clerk/nextjs';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
 import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
-import { DesktopUpdater } from '@/components/desktop-updater';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
-
-function WatcherConfigReconciler() {
-  const { isLoaded, user } = useUser();
-  const lastUserIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!isTauri() || !isLoaded || !user?.id) return;
-    if (lastUserIdRef.current === user.id) return;
-    lastUserIdRef.current = user.id;
-
-    void (async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        const updated = await invoke<boolean>('reconcile_watcher_config_user_cmd', {
-          userId: user.id,
-        });
-        if (updated) {
-          console.log(`✅ Reconciled watcher config to current user ${user.id}`);
-        }
-      } catch (error) {
-        console.error('Failed to reconcile watcher config user:', error);
-      }
-    })();
-  }, [isLoaded, user?.id]);
-
-  return null;
-}
 
 /**
  * Root Providers Wrapper
@@ -66,6 +38,10 @@ export function RootProviders({ children }: { children: ReactNode }) {
   // Show the Tauri window once React has mounted and content is ready
   // This prevents the "tiny window flash" issue on macOS
   useEffect(() => {
+    if (!isDesktopShell) {
+      return;
+    }
+
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       if (params.get('ritual_sidebar_window') === '1') {
@@ -82,7 +58,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
       showMainWindow();
     }, 50);
     return () => clearTimeout(timer);
-  }, [pathname]);
+  }, [isDesktopShell, isDesktopBootstrap, pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -115,9 +91,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
     <OpenPanelProvider>
       <QueryProvider>
         <HabitsProvider>
-          <DesktopUpdater />
           {!isDesktopShell ? <MemoryCloudUploader /> : null}
-          <WatcherConfigReconciler />
           {children}
         </HabitsProvider>
       </QueryProvider>

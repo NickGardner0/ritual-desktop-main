@@ -20,11 +20,10 @@ import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerA
 import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 import {
   clearNativeDesktopSpeechState,
+  ensureNativeDesktopVoicePermissions,
   formatNativeSpeechError,
   getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
-  showNativeDesktopMicrophonePermissionDialog,
-  showNativeDesktopSpeechRecognitionPermissionDialog,
   startNativeDesktopSpeechRecognition,
   stopNativeDesktopSpeechRecognition,
 } from '@/lib/native-voice';
@@ -1562,6 +1561,7 @@ export function ChatClient() {
     setVoiceError(null);
     setIsProcessingVoice(false);
     await resetNativeVoiceSession();
+    await ensureNativeDesktopVoicePermissions();
     await startNativeDesktopSpeechRecognition();
     setIsListening(true);
 
@@ -1622,13 +1622,22 @@ export function ChatClient() {
       return;
     }
 
-    try {
-      setVoiceError(null);
-      if (isTauri()) {
+    setVoiceError(null);
+    if (isTauri()) {
+      try {
         await startNativeVoiceRecognition();
         return;
+      } catch (nativeError) {
+        console.warn('Native desktop speech recognition failed:', nativeError);
+        await resetNativeVoiceSession().catch(() => undefined);
+        setIsListening(false);
+        setIsProcessingVoice(false);
+        setVoiceError(formatNativeSpeechError(getNativeSpeechErrorMessage(nativeError)));
+        return;
       }
+    }
 
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
@@ -1700,13 +1709,6 @@ export function ChatClient() {
 
     } catch (err: any) {
       const nativeMessage = getNativeSpeechErrorMessage(err);
-      if (isTauri()) {
-        if (nativeMessage === 'microphone-permission-denied') {
-          await showNativeDesktopMicrophonePermissionDialog().catch(() => undefined);
-        } else if (nativeMessage === 'speech-permission-denied') {
-          await showNativeDesktopSpeechRecognitionPermissionDialog().catch(() => undefined);
-        }
-      }
       setVoiceError(
         err?.name === 'NotAllowedError'
           ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'

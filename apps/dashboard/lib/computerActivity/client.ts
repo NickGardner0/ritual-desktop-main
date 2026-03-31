@@ -363,6 +363,11 @@ export async function getTopApps(
       })
       return normalizedRows
     }
+
+    perfWarn('computer-activity-client', 'top-apps-backend-empty-desktop-fallback', {
+      params,
+      limit,
+    })
   } catch (error) {
     const cached = appsCache.get(cacheKey)
     if (cached?.length) {
@@ -384,23 +389,11 @@ export async function getTopApps(
     }
   }
 
-  if (!shouldUseShortRangeNativeFallback(params)) {
-    const cached = appsCache.get(cacheKey) ?? []
-    perfInfo('computer-activity-client', 'top-apps-historical-no-native-fallback', {
-      cache_key: cacheKey,
-      row_count: cached.length,
-      range_days: getInclusiveRangeDays(params),
-    })
-    stopTimer({
-      success: true,
-      source: 'cache-or-empty',
-      row_count: cached.length,
-      reason: 'historical-range-no-native-fallback',
-    })
-    return cached
-  }
-
-  perfWarn('computer-activity-client', 'top-apps-local-fallback', { params, limit })
+  perfWarn('computer-activity-client', 'top-apps-local-fallback', {
+    params,
+    limit,
+    range_days: getInclusiveRangeDays(params),
+  })
   const { startTs, endTs } = getRangeTimestamps(params)
   const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit })
   const rows = detailed.apps
@@ -467,6 +460,11 @@ export async function getTopDomains(
       })
       return normalizedRows
     }
+
+    perfWarn('computer-activity-client', 'top-domains-backend-empty-desktop-fallback', {
+      params,
+      limit,
+    })
   } catch (error) {
     const cached = domainsCache.get(cacheKey)
     if (cached?.length) {
@@ -488,23 +486,11 @@ export async function getTopDomains(
     }
   }
 
-  if (!shouldUseShortRangeNativeFallback(params)) {
-    const cached = domainsCache.get(cacheKey) ?? []
-    perfInfo('computer-activity-client', 'top-domains-historical-no-native-fallback', {
-      cache_key: cacheKey,
-      row_count: cached.length,
-      range_days: getInclusiveRangeDays(params),
-    })
-    stopTimer({
-      success: true,
-      source: 'cache-or-empty',
-      row_count: cached.length,
-      reason: 'historical-range-no-native-fallback',
-    })
-    return cached
-  }
-
-  perfWarn('computer-activity-client', 'top-domains-local-fallback', { params, limit })
+  perfWarn('computer-activity-client', 'top-domains-local-fallback', {
+    params,
+    limit,
+    range_days: getInclusiveRangeDays(params),
+  })
   const { startTs, endTs } = getRangeTimestamps(params)
   const detailed = await invokeDetailedActivityWithInitRetry({ startTs, endTs, limit })
   const rows = detailed.domains
@@ -572,13 +558,23 @@ export async function getComputerTimeSummary(
       return summary
     }
 
-    if (!rangeIncludesLocalToday(params)) {
+    const includesToday = rangeIncludesLocalToday(params)
+
+    if (!includesToday && summary.total_active_ms > 0) {
       stopTimer({
         success: true,
         source: 'backend',
         total_active_ms: summary.total_active_ms,
       })
       return summary
+    }
+
+    if (!includesToday && summary.total_active_ms <= 0) {
+      perfWarn('computer-activity-client', 'summary-backend-empty-desktop-fallback', {
+        params,
+        range_days: getInclusiveRangeDays(params),
+      })
+      throw new Error('backend summary returned empty for desktop historical range')
     }
 
     const today = getLocalTodayDateString()

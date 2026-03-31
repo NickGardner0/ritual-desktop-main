@@ -238,20 +238,20 @@ const Item = ({
           {/* Icon - always in same position from sidebar edge */}
           <div className={cn(
             "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
-            "text-gray-900",
+            "text-[#111111]",
             isCollapsedActive && "scale-[1.04]"
           )}>
-            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.55 : 2.0} />
+            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.6 : 2.15} />
           </div>
 
           {isExpanded && (
             <div className="absolute top-0 left-[55px] right-[4px] h-[40px] flex items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] transition-colors duration-200 text-gray-700 group-hover:text-gray-900",
+                  "text-sm font-[450] transition-colors duration-200 text-[#2a2a2a] group-hover:text-[#111111]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-gray-900 font-[600]",
+                  isActive && "text-[#111111] font-[600]",
                 )}
               >
                 {item.name}
@@ -262,8 +262,8 @@ const Item = ({
                   onClick={handleChevronClick}
                   className={cn(
                     "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto mr-3",
-                    "text-gray-600 hover:text-gray-900 pointer-events-auto",
-                    isActive && "text-gray-900",
+                    "text-[#3a3a3a] hover:text-[#111111] pointer-events-auto",
+                    isActive && "text-[#111111]",
                     shouldShowChildren && "rotate-180",
                   )}
                 >

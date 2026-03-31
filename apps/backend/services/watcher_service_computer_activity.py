@@ -15,12 +15,32 @@ from services.watcher_service_local_db import (
     merge_time_intervals_impl,
     open_activity_connection_for_user,
 )
+from services.turso_user_service import turso_user_service
 
 logger = logging.getLogger(__name__)
 
 # Guardrail: extremely long single events are typically stale heartbeat artifacts.
 # Keep this configurable, but default to 15 minutes for analytics rollups.
 MAX_SINGLE_EVENT_MS = max(60_000, int(os.getenv("WATCHER_MAX_SINGLE_EVENT_MS", "900000")))
+
+
+def _resolve_activity_user_ids(target_user_id: str) -> List[str]:
+    """Return the target user id plus any configured historical source id."""
+    user_ids = [target_user_id]
+    try:
+        source_user_id = turso_user_service.resolve_migration_source_user_id(target_user_id)
+    except Exception:
+        source_user_id = target_user_id
+
+    source_user_id = (source_user_id or "").strip()
+    if source_user_id and source_user_id not in user_ids:
+        user_ids.append(source_user_id)
+    return user_ids
+
+
+def _sqlite_user_filter_clause(user_ids: List[str]) -> tuple[str, List[Any]]:
+    placeholders = ", ".join(["?"] * len(user_ids))
+    return f" AND user_id IN ({placeholders})", list(user_ids)
 
 
 def _perf_ms(start: float) -> float:
@@ -268,6 +288,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
     service,
     start_date: str,
     end_date: str,
+    user_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Aggregate local watcher events into computer_activity_daily rows with day clipping + de-overlap."""
     import sqlite3
@@ -284,6 +305,10 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        user_clause = ""
+        user_params: List[Any] = []
+        if user_ids:
+            user_clause, user_params = _sqlite_user_filter_clause(user_ids)
 
         cursor.execute(
             """
@@ -296,10 +321,13 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
                 COALESCE(is_afk, 0) AS is_afk
             FROM activity_events
             WHERE ts_start < ? AND ts_end > ?
+            """
+            + user_clause
+            + """
               AND ts_end > ts_start
             ORDER BY ts_start ASC
             """,
-            (end_ms, start_ms),
+            (end_ms, start_ms, *user_params),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -313,6 +341,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
 def _get_computer_activity_daily_totals_from_local_db_impl(
     start_date: str,
     end_date: str,
+    user_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Compute de-overlapped day totals across all apps/domains from local watcher DB."""
     import sqlite3
@@ -329,6 +358,10 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        user_clause = ""
+        user_params: List[Any] = []
+        if user_ids:
+            user_clause, user_params = _sqlite_user_filter_clause(user_ids)
         cursor.execute(
             """
             SELECT
@@ -339,10 +372,13 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
                 COALESCE(browser_domain, '') AS browser_domain
             FROM activity_events
             WHERE ts_start < ? AND ts_end > ?
+            """
+            + user_clause
+            + """
               AND ts_end > ts_start
             ORDER BY ts_start ASC
             """,
-            (end_ms, start_ms),
+            (end_ms, start_ms, *user_params),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -356,6 +392,7 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
 def _get_computer_activity_distinct_counts_from_local_db_impl(
     start_date: str,
     end_date: str,
+    user_ids: Optional[List[str]] = None,
 ) -> Dict[str, int]:
     """Count unique apps/domains in range from local watcher DB (non-AFK, overlapping range)."""
     import sqlite3
@@ -372,6 +409,10 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        user_clause = ""
+        user_params: List[Any] = []
+        if user_ids:
+            user_clause, user_params = _sqlite_user_filter_clause(user_ids)
         cursor.execute(
             """
             SELECT
@@ -385,10 +426,13 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
                 END) AS unique_domains
             FROM activity_events
             WHERE ts_start < ? AND ts_end > ?
+            """
+            + user_clause
+            + """
               AND ts_end > ts_start
               AND COALESCE(is_afk, 0) = 0
             """,
-            (end_ms, start_ms),
+            (end_ms, start_ms, *user_params),
         )
         row = cursor.fetchone()
         conn.close()
@@ -426,7 +470,11 @@ async def _sync_computer_activity_range_to_tinybird_impl(
         if not tinybird:
             return {"success": False, "error": "Tinybird service unavailable"}
 
-        local_rows = service._get_computer_activity_daily_rows_from_local_db(start_date, end_date)
+        local_rows = service._get_computer_activity_daily_rows_from_local_db(
+            start_date,
+            end_date,
+            user_id=user_id,
+        )
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
         delete_condition = (
@@ -568,6 +616,7 @@ async def get_computer_time_summary_impl(
 ) -> Dict:
     """Get total computer time summary for a date range."""
     perf_start = time.perf_counter()
+    activity_user_ids = _resolve_activity_user_ids(user_id)
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
@@ -575,7 +624,8 @@ async def get_computer_time_summary_impl(
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
-            params: list[Any] = [end_ms, start_ms, user_id]
+            user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+            params: list[Any] = [end_ms, start_ms, *activity_user_ids]
             device_clause = ""
             if device_id:
                 device_clause = " AND device_id = ?"
@@ -591,7 +641,7 @@ async def get_computer_time_summary_impl(
                     COALESCE(browser_domain, '') AS browser_domain
                 FROM activity_events
                 WHERE ts_start < ? AND ts_end > ?
-                  AND user_id = ?
+                  AND user_id IN ({user_placeholders})
                   AND ts_end > ts_start
                   {device_clause}
                 ORDER BY ts_start ASC
@@ -646,11 +696,13 @@ async def get_computer_time_summary_impl(
     local_daily_rows = _get_computer_activity_daily_totals_from_local_db_impl(
         start_date=start_date,
         end_date=end_date,
+        user_ids=activity_user_ids,
     )
     if local_daily_rows:
         distinct_counts = _get_computer_activity_distinct_counts_from_local_db_impl(
             start_date=start_date,
             end_date=end_date,
+            user_ids=activity_user_ids,
         )
         total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in local_daily_rows)
         total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in local_daily_rows)
@@ -754,6 +806,7 @@ async def get_computer_time_summary_impl(
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        user_clause, user_params = _sqlite_user_filter_clause(activity_user_ids)
 
         start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
@@ -763,20 +816,26 @@ async def get_computer_time_summary_impl(
         cursor.execute(
             """
             SELECT
-                SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END) as total_active_ms,
-                COUNT(*) as total_events,
-                COUNT(DISTINCT date(ts_start/1000, 'unixepoch', 'localtime')) as days_tracked,
-                COUNT(DISTINCT app_bundle_id) as unique_apps
+                ts_start,
+                ts_end,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(app_bundle_id, '') AS app_bundle_id,
+                COALESCE(browser_domain, '') AS browser_domain
             FROM activity_events
-            WHERE ts_start >= ? AND ts_start < ?
+            WHERE ts_start < ? AND ts_end > ?
+            """
+            + user_clause
+            + """
+              AND ts_end > ts_start
+            ORDER BY ts_start ASC
             """,
-            (start_ms, end_ms),
+            (end_ms, start_ms, *user_params),
         )
 
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
         conn.close()
 
-        if not row or not row[0]:
+        if not rows:
             result = {
                 "total_active_ms": 0,
                 "total_hours": 0,
@@ -797,10 +856,21 @@ async def get_computer_time_summary_impl(
             )
             return result
 
-        total_active_ms = row[0] or 0
-        total_events = row[1] or 0
-        days_tracked = row[2] or 0
-        unique_apps = row[3] or 0
+        local_daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
+        total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in local_daily_rows)
+        total_events = sum(int(row.get("events_count", 0) or 0) for row in local_daily_rows)
+        days_tracked = sum(1 for row in local_daily_rows if int(row.get("active_ms", 0) or 0) > 0)
+        unique_apps = len({
+            str(row[3] or "").strip()
+            for row in rows
+            if str(row[3] or "").strip()
+        })
+        unique_domains = len({
+            str(row[4] or "").strip()
+            for row in rows
+            if str(row[4] or "").strip()
+        })
+        total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in local_daily_rows)
 
         total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
         avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
@@ -820,6 +890,8 @@ async def get_computer_time_summary_impl(
             "total_events": total_events,
             "days_tracked": days_tracked,
             "unique_apps": unique_apps,
+            "unique_domains": unique_domains,
+            "total_afk_ms": total_afk_ms,
             "avg_daily_hours": avg_daily_hours,
         }
         _log_activity_perf(
@@ -874,6 +946,7 @@ async def get_daily_computer_time_impl(
     enough for daily charting (minor overlap in events is negligible).
     """
     perf_start = time.perf_counter()
+    activity_user_ids = _resolve_activity_user_ids(user_id)
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
@@ -881,7 +954,8 @@ async def get_daily_computer_time_impl(
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
-            params: list[Any] = [start_ms, end_ms, user_id]
+            user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+            params: list[Any] = [end_ms, start_ms, *activity_user_ids]
             device_clause = ""
             if device_id:
                 device_clause = " AND device_id = ?"
@@ -890,48 +964,35 @@ async def get_daily_computer_time_impl(
             rows = conn.execute(
                 f"""
                 SELECT
-                    date(ts_start/1000, 'unixepoch', 'localtime') AS day,
-                    SUM(
-                        CASE
-                            WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start
-                            THEN MIN(ts_end, ?) - ts_start
-                            ELSE 0
-                        END
-                    ) AS total_active_ms,
-                    COUNT(*) AS total_events,
-                    COUNT(DISTINCT CASE
-                        WHEN COALESCE(is_afk, 0) = 0 AND app_bundle_id IS NOT NULL AND app_bundle_id != ''
-                        THEN app_bundle_id
-                        ELSE NULL
-                    END) AS unique_apps,
-                    COUNT(DISTINCT CASE
-                        WHEN COALESCE(is_afk, 0) = 0 AND browser_domain IS NOT NULL AND browser_domain != ''
-                        THEN browser_domain
-                        ELSE NULL
-                    END) AS unique_domains
+                    ts_start,
+                    ts_end,
+                    COALESCE(is_afk, 0) AS is_afk,
+                    COALESCE(app_bundle_id, '') AS app_bundle_id,
+                    COALESCE(browser_domain, '') AS browser_domain
                 FROM activity_events
-                WHERE ts_start >= ? AND ts_start < ?
-                  AND user_id = ?
+                WHERE ts_start < ? AND ts_end > ?
+                  AND user_id IN ({user_placeholders})
                   AND ts_end > ts_start
                   {device_clause}
-                GROUP BY day
-                ORDER BY day ASC
+                ORDER BY ts_start ASC
                 """,
-                [end_ms, *params],
+                params,
             ).fetchall()
 
             if rows:
+                aggregated_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
                 result = [
                     {
-                        "day": row[0],
-                        "active_hours": round((int(row[1] or 0)) / (1000 * 60 * 60), 2),
-                        "active_ms": int(row[1] or 0),
-                        "events_count": int(row[2] or 0),
-                        "apps_count": int(row[3] or 0),
-                        "domains_count": int(row[4] or 0),
+                        "day": row["day"],
+                        "active_hours": round(int(row["active_ms"]) / (1000 * 60 * 60), 2),
+                        "active_ms": int(row["active_ms"]),
+                        "afk_ms": int(row.get("afk_ms", 0) or 0),
+                        "events_count": int(row.get("events_count", 0) or 0),
+                        "apps_count": int(row.get("apps_count", 0) or 0),
+                        "domains_count": int(row.get("domains_count", 0) or 0),
                         "source": "activity_db",
                     }
-                    for row in rows
+                    for row in aggregated_rows
                 ]
                 _log_activity_perf(
                     "daily",
@@ -941,7 +1002,7 @@ async def get_daily_computer_time_impl(
                     start_date=start_date,
                     end_date=end_date,
                     row_count=len(result),
-                    extra={"query_mode": "sql_grouped"},
+                    extra={"query_mode": "deduped_events"},
                 )
                 return result
 
@@ -950,27 +1011,26 @@ async def get_daily_computer_time_impl(
     _db_path = get_local_watcher_db_path_impl()
     if os.path.exists(_db_path):
         try:
-            _start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            _end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            _start_ms = int(_start_dt.timestamp() * 1000)
-            _end_ms = int((_end_dt + timedelta(days=1)).timestamp() * 1000)
-
             _conn = _sqlite3.connect(_db_path)
             _cursor = _conn.cursor()
+            _user_clause, _user_params = _sqlite_user_filter_clause(activity_user_ids)
             _cursor.execute(
                 """
                 SELECT
-                    date(ts_start/1000, 'unixepoch', 'localtime') as day,
-                    SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start
-                        THEN ts_end - ts_start ELSE 0 END) as total_active_ms,
-                    COUNT(*) as total_events,
-                    COUNT(DISTINCT app_bundle_id) as unique_apps
+                    ts_start,
+                    ts_end,
+                    COALESCE(is_afk, 0) AS is_afk,
+                    COALESCE(app_bundle_id, '') AS app_bundle_id,
+                    COALESCE(browser_domain, '') AS browser_domain
                 FROM activity_events
-                WHERE ts_start >= ? AND ts_start < ?
-                GROUP BY day
-                ORDER BY day ASC
+                WHERE ts_start < ? AND ts_end > ?
+                """
+                + _user_clause
+                + """
+                  AND ts_end > ts_start
+                ORDER BY ts_start ASC
                 """,
-                (_start_ms, _end_ms),
+                (end_ms, start_ms, *_user_params),
             )
             _rows = _cursor.fetchall()
             _conn.close()
@@ -980,16 +1040,19 @@ async def get_daily_computer_time_impl(
                     "Fast SQL daily data %s to %s: %d days",
                     start_date, end_date, len(_rows),
                 )
+                _aggregated_rows = _aggregate_computer_activity_daily_totals_from_events_impl(_rows, start_ms, end_ms)
                 result = [
                     {
-                        "day": r[0],
-                        "active_hours": round((r[1] or 0) / (1000 * 60 * 60), 2),
-                        "active_ms": r[1] or 0,
-                        "events_count": r[2] or 0,
-                        "apps_count": r[3] or 0,
+                        "day": r["day"],
+                        "active_hours": round((r["active_ms"] or 0) / (1000 * 60 * 60), 2),
+                        "active_ms": r["active_ms"] or 0,
+                        "afk_ms": r.get("afk_ms", 0) or 0,
+                        "events_count": r.get("events_count", 0) or 0,
+                        "apps_count": r.get("apps_count", 0) or 0,
+                        "domains_count": r.get("domains_count", 0) or 0,
                         "source": "local_sql",
                     }
-                    for r in _rows
+                    for r in _aggregated_rows
                 ]
                 _log_activity_perf(
                     "daily",
@@ -1058,6 +1121,7 @@ async def get_daily_computer_time_impl(
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        user_clause, user_params = _sqlite_user_filter_clause(activity_user_ids)
 
         start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
@@ -1067,16 +1131,20 @@ async def get_daily_computer_time_impl(
         cursor.execute(
             """
             SELECT
-                date(ts_start/1000, 'unixepoch', 'localtime') as day,
-                SUM(CASE WHEN COALESCE(is_afk, 0) = 0 AND ts_end > ts_start THEN ts_end - ts_start ELSE 0 END) as total_active_ms,
-                COUNT(*) as total_events,
-                COUNT(DISTINCT app_bundle_id) as unique_apps
+                ts_start,
+                ts_end,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(app_bundle_id, '') AS app_bundle_id,
+                COALESCE(browser_domain, '') AS browser_domain
             FROM activity_events
-            WHERE ts_start >= ? AND ts_start < ?
-            GROUP BY day
-            ORDER BY day ASC
+            WHERE ts_start < ? AND ts_end > ?
+            """
+            + user_clause
+            + """
+              AND ts_end > ts_start
+            ORDER BY ts_start ASC
             """,
-            (start_ms, end_ms),
+            (end_ms, start_ms, *user_params),
         )
 
         rows = cursor.fetchall()
@@ -1089,15 +1157,19 @@ async def get_daily_computer_time_impl(
             len(rows),
         )
 
+        aggregated_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
+
         return [
             {
-                "day": r[0],
-                "active_hours": round((r[1] or 0) / (1000 * 60 * 60), 2),
-                "active_ms": r[1] or 0,
-                "events_count": r[2] or 0,
-                "apps_count": r[3] or 0,
+                "day": r["day"],
+                "active_hours": round((r["active_ms"] or 0) / (1000 * 60 * 60), 2),
+                "active_ms": r["active_ms"] or 0,
+                "afk_ms": r.get("afk_ms", 0) or 0,
+                "events_count": r.get("events_count", 0) or 0,
+                "apps_count": r.get("apps_count", 0) or 0,
+                "domains_count": r.get("domains_count", 0) or 0,
             }
-            for r in rows
+            for r in aggregated_rows
         ]
     except Exception as e:
         logger.warning("Error reading daily computer time from local DB: %s", e)
@@ -1117,6 +1189,7 @@ async def get_usage_daily_breakdown_impl(
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,
+        user_id=user_id,
     )
     if local_daily_rows:
         target_key = str(key or "").strip().lower()

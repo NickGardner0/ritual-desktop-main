@@ -29,6 +29,8 @@ import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { habitKeys, habitLogKeys } from '@/hooks/use-habits-query';
 import { useUser } from '@clerk/nextjs';
+import type { DashboardDerivedInitialData } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
+import { perfInfo } from '@/lib/perf-debug';
 // Import from separate file to avoid pulling in recharts (~500KB)
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
@@ -39,17 +41,17 @@ const ENABLE_STARTUP_COMPUTER_SYNC = false;
 // server-side compilation, cutting the initial /dashboard compile from ~70s.
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })),
-  { ssr: false, loading: () => <ControlLoadingFallback /> }
+  { loading: () => <ControlLoadingFallback /> }
 );
 
 const OverviewView = dynamic(
   () => import('./overview-view').then(m => ({ default: m.OverviewView })),
-  { ssr: false, loading: () => <ViewLoadingFallback /> }
+  { loading: () => <ViewLoadingFallback /> }
 );
 
 const MetricsView = dynamic(
   () => import('./metrics-view').then(m => ({ default: m.MetricsView })),
-  { ssr: false, loading: () => <ViewLoadingFallback /> }
+  { loading: () => <ViewLoadingFallback /> }
 );
 
 const HabitSelectionModal = dynamic(
@@ -82,7 +84,11 @@ function ControlLoadingFallback() {
 }
 
 // Inner component that uses the filter context
-function UnifiedAnalyticsContent() {
+function UnifiedAnalyticsContent({
+  initialDerivedData,
+}: {
+  initialDerivedData?: DashboardDerivedInitialData;
+}) {
   const { viewMode, setViewMode, dateRange, setDateRange, selectedHabits, setSelectedHabits, toggleHabit, selectAllHabits, clearHabitSelection } = useAnalyticsFilters();
   const router = useRouter();
   const pathname = usePathname();
@@ -104,6 +110,8 @@ function UnifiedAnalyticsContent() {
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
+  const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const firstViewReadyLoggedRef = useRef(false);
 
   // Keep "Computer Use" habit in sync after initial paint so startup is not
   // blocked by a write + read-after-write cycle.
@@ -211,6 +219,41 @@ function UnifiedAnalyticsContent() {
     setViewMode('metrics');
     setSelectedHabits([habitId]);
   }, [habits, searchParams, setSelectedHabits, setViewMode]);
+
+  useEffect(() => {
+    if (firstViewReadyLoggedRef.current) return;
+    if (viewMode === 'overview') {
+      const hasOverviewPayload = Boolean(initialDerivedData?.overviewStats && Object.keys(initialDerivedData.overviewStats).length > 0);
+      if (!hasOverviewPayload && habits.length === 0) return;
+    }
+    if (viewMode === 'metrics') {
+      const hasMetricsPayload = Boolean(initialDerivedData?.metricsAnalyticsData && Object.keys(initialDerivedData.metricsAnalyticsData).length > 0);
+      if (!hasMetricsPayload && habits.length === 0) return;
+    }
+
+    firstViewReadyLoggedRef.current = true;
+    let frame1 = 0;
+    let frame2 = 0;
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      frame1 = window.requestAnimationFrame(() => {
+        frame2 = window.requestAnimationFrame(() => {
+          const end = typeof performance !== 'undefined' ? performance.now() : Date.now();
+          perfInfo('unified-analytics', 'first-view-ready', {
+            view_mode: viewMode,
+            duration_ms: Number((end - shellMountTimeRef.current).toFixed(2)),
+            habit_count: habits.length,
+          });
+        });
+      });
+    }
+
+    return () => {
+      if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+        if (frame1) window.cancelAnimationFrame(frame1);
+        if (frame2) window.cancelAnimationFrame(frame2);
+      }
+    };
+  }, [habits.length, initialDerivedData, viewMode]);
   
   // Update URL when view mode changes
   const handleViewChange = useCallback((newView: ViewMode) => {
@@ -311,7 +354,10 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'overview' && (
-            <OverviewView hideControls={true} />
+            <OverviewView
+              hideControls={true}
+              initialOverviewStats={initialDerivedData?.overviewStats}
+            />
           )}
         </div>
         
@@ -327,7 +373,13 @@ function UnifiedAnalyticsContent() {
           }`}
         >
           {viewMode === 'metrics' && (
-            <MetricsView hideControls={true} />
+            <MetricsView
+              hideControls={true}
+              initialAnalyticsData={initialDerivedData?.metricsAnalyticsData}
+              initialSummaryMetrics={initialDerivedData?.metricsSummaryMetrics}
+              initialBarListAnalyticsData={initialDerivedData?.metricsBarListAnalyticsData}
+              initialBarListSummaryMetrics={initialDerivedData?.metricsBarListSummaryMetrics}
+            />
           )}
         </div>
 
@@ -494,13 +546,19 @@ function getInitialViewMode(searchParams: URLSearchParams): ViewMode {
 }
 
 // Main component with provider wrapper
-export function UnifiedAnalyticsClient() {
+export function UnifiedAnalyticsClient({
+  initialViewMode,
+  initialDerivedData,
+}: {
+  initialViewMode?: ViewMode;
+  initialDerivedData?: DashboardDerivedInitialData;
+}) {
   const searchParams = useSearchParams();
-  const initialViewMode = getInitialViewMode(searchParams);
-  
+  const resolvedInitialViewMode = initialViewMode ?? getInitialViewMode(searchParams);
+
   return (
-    <AnalyticsFilterProvider initialViewMode={initialViewMode}>
-      <UnifiedAnalyticsContent />
+    <AnalyticsFilterProvider initialViewMode={resolvedInitialViewMode}>
+      <UnifiedAnalyticsContent initialDerivedData={initialDerivedData} />
     </AnalyticsFilterProvider>
   );
 }

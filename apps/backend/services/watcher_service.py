@@ -24,6 +24,7 @@ from services.watcher_service_computer_activity import (
     _get_computer_activity_daily_rows_from_local_db_impl,
     _get_computer_activity_pipe_rows_impl,
     _query_computer_activity_summary_pipe_impl,
+    _resolve_activity_user_ids,
     _sync_computer_activity_range_to_tinybird_impl,
     get_computer_time_summary_impl,
     get_daily_computer_time_impl,
@@ -464,11 +465,13 @@ class WatcherService:
         self,
         start_date: str,
         end_date: str,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         return _get_computer_activity_daily_rows_from_local_db_impl(
             self,
             start_date=start_date,
             end_date=end_date,
+            user_ids=_resolve_activity_user_ids(user_id) if user_id else None,
         )
 
     async def _sync_computer_activity_range_to_tinybird(

@@ -9,15 +9,12 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
-import { Plus, Download, Bot, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format, startOfDay, endOfDay, subDays } from 'date-fns';
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
-import { HistoryScrubber } from '@/components/history-scrubber';
 import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
@@ -26,11 +23,7 @@ import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normali
 import { getComputerTimeDaily, getComputerTimeSummary } from '@/lib/computerActivity/client';
 import { auditLocalStorage, perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
-
-const DateRangePicker = dynamic(
-  () => import("@/components/date-range-picker").then(m => ({ default: m.DateRangePicker })),
-  { ssr: false }
-);
+import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
 
 const HabitSelectionModal = dynamic(
   () => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })),
@@ -42,10 +35,6 @@ const DataImportModal = dynamic(
   { ssr: false }
 );
 
-const SortableHabitList = dynamic(
-  () => import('./sortable-habit-list').then(m => ({ default: m.SortableHabitList })),
-  { ssr: false }
-);
 
 interface ComputerDailyRow {
   day: string;
@@ -126,33 +115,6 @@ interface OverviewViewProps {
   initialOverviewStats?: Record<string, HabitStats>;
 }
 
-const QUICK_ACTIONS = [
-  { label: 'Log with AI', icon: Bot, path: '/chat' },
-  { label: 'View Trends', icon: TrendingUp, path: '/dashboard?view=metrics' },
-  { label: 'Weekly Recap', icon: CalendarCheck, path: '/chat?q=weekly+recap' },
-  { label: 'Import Data', icon: Upload, path: '/dashboard?view=overview&openImport=1' },
-  { label: 'Connect Wearable', icon: Watch, path: '/integrations' },
-];
-
-function QuickActionChips() {
-  const router = useRouter();
-
-  return (
-    <div className="flex items-center justify-center gap-1.5 py-2 flex-wrap">
-      {QUICK_ACTIONS.map((action) => (
-        <button
-          key={action.label}
-          type="button"
-          onClick={() => router.push(action.path)}
-          className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-white px-2.5 py-1 text-[12px] font-normal text-neutral-500 transition-colors hover:bg-[#f7f7f6] hover:text-neutral-700"
-        >
-          <action.icon className="h-3 w-3" />
-          {action.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function OverviewView({
   externalDateRange,
@@ -264,13 +226,7 @@ export function OverviewView({
 
   const handleScrubberSelect = useCallback((date: string | null) => {
     setScrubberSelectedDate(date);
-    if (date) {
-      const selectedDateObj = parseISO(date);
-      setDateRange({ from: selectedDateObj, to: selectedDateObj });
-    } else {
-      setDateRange(undefined);
-    }
-  }, [setDateRange]);
+  }, []);
 
   const displayLogs = useMemo(() => {
     return [...habitLogs, ...optimisticLogs];
@@ -295,6 +251,7 @@ export function OverviewView({
   }, []);
 
   useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
     auditLocalStorage(
       'overview-view',
       [overviewStatsCacheKey, overviewComputerCacheKey, 'ritual:react-query-cache:v1'].filter(
@@ -302,20 +259,6 @@ export function OverviewView({
       ),
     );
   }, [overviewComputerCacheKey, overviewStatsCacheKey]);
-
-  useEffect(() => {
-    if (dateRange?.from) return;
-    if (!overviewStatsCacheKey) return;
-
-    const restored = readOverviewStatsCache(overviewStatsCacheKey);
-    if (Object.keys(restored).length > 0) {
-      perfInfo('overview-view', 'restore-stats-cache', {
-        cache_key: overviewStatsCacheKey,
-        stat_count: Object.keys(restored).length,
-      });
-      setCachedStats(restored);
-    }
-  }, [dateRange?.from, overviewStatsCacheKey]);
 
   // Clear cached stats when date range changes so stale all-time data
   // doesn't display while the date-filtered API call is in flight
@@ -327,18 +270,16 @@ export function OverviewView({
 
   useEffect(() => {
     if (dateRange?.from) return;
-    if (!overviewComputerCacheKey) return;
-
-    const restored = readOverviewComputerCache(overviewComputerCacheKey);
-    if (restored.length > 0) {
+    if (computerActivityDaily.length > 0) return;
+    if (bootstrappedComputerActivityDaily.length > 0) {
       perfInfo('overview-view', 'restore-computer-cache', {
         cache_key: overviewComputerCacheKey,
-        row_count: restored.length,
+        row_count: bootstrappedComputerActivityDaily.length,
       });
-      setComputerActivityDaily(restored);
-      lastGoodComputerActivityRef.current = restored;
+      setComputerActivityDaily(bootstrappedComputerActivityDaily);
+      lastGoodComputerActivityRef.current = bootstrappedComputerActivityDaily;
     }
-  }, [dateRange?.from, overviewComputerCacheKey]);
+  }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from, overviewComputerCacheKey]);
 
   // Fetch stats from Python analytics API
   useEffect(() => {
@@ -563,7 +504,14 @@ export function OverviewView({
     };
 
     fetchComputerActivity();
-    refreshTimer = setInterval(fetchComputerActivity, 60_000);
+    if (!dateRange?.from) {
+      refreshTimer = setInterval(() => {
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+          return;
+        }
+        void fetchComputerActivity();
+      }, 60_000);
+    }
     return () => {
       controller.abort();
       if (deferredDailyTimer) {
@@ -659,6 +607,9 @@ export function OverviewView({
     if (!user || !isBackendUnavailable) return;
 
     const retryTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
       fetchHabits();
       fetchHabitLogs();
     }, 8_000);
@@ -1029,83 +980,30 @@ export function OverviewView({
 
   return (
     <div className="space-y-0">
-      {/* Header with controls - only show if not hidden */}
-      {!hideControls && (
-        <div className="relative flex items-center justify-end h-14">
-          {/* History Scrubber - centered */}
-          {habits.length > 0 && !isDesktopShell && (
-            <div className="absolute left-1/2 -translate-x-1/2 w-[500px]">
-              <HistoryScrubber
-                habitLogs={displayLogs}
-                habits={orderedHabits}
-                daysToShow={90}
-                onHoverDate={handleScrubberHover}
-                onSelectDate={handleScrubberSelect}
-                selectedDate={scrubberSelectedDate}
-              />
-            </div>
-          )}
-          
-          <div className="flex items-center space-x-1 relative z-10">
-            {/* Add Habit button */}
-            <div className="relative group">
-              <button
-                onClick={() => setShowSelectionModal(true)}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
-                aria-label="Add Habit"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <div className="absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                Add
-              </div>
-            </div>
-
-            {/* Import button */}
-            <div className="relative group">
-              <button
-                onClick={() => setShowImportModal(true)}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
-                aria-label="Import Data"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              <div className="absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                Import
-              </div>
-            </div>
-
-            {/* Date Range Picker */}
-            <DateRangePicker
-              className="w-auto"
-              onDateRangeChange={setDateRange}
-              initialDateRange={dateRange}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Habits List */}
-      <div className="pt-6">
-        <div className="max-w-[500px] mx-auto w-full">
-          <SortableHabitList
-            habits={orderedHabits}
-            onReorder={handleReorder}
-            getHabitMetricDisplay={getHabitMetricDisplay}
-            getHabitMetricClassName={getHabitMetricClassName}
-            scrubberHoveredDate={scrubberHoveredDate}
-            scrubberHoveredValues={scrubberHoveredValues}
-            activeTooltip={activeTooltip}
-            setActiveTooltip={setActiveTooltip}
-            getHabitMetricStats={getHabitMetricStats}
-            confirmDelete={confirmDelete}
-            deletingHabit={deletingHabit}
-          />
-        </div>
-      </div>
-
-      {/* Quick Action Chips */}
-      <QuickActionChips />
+      <OverviewInitialSection
+        hideControls={hideControls}
+        isDesktopShell={isDesktopShell}
+        habits={habits}
+        orderedHabits={orderedHabits}
+        displayLogs={displayLogs}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
+        scrubberSelectedDate={scrubberSelectedDate}
+        onScrubberHover={handleScrubberHover}
+        onScrubberSelect={handleScrubberSelect}
+        onShowSelectionModal={() => setShowSelectionModal(true)}
+        onShowImportModal={() => setShowImportModal(true)}
+        onReorder={handleReorder}
+        getHabitMetricDisplay={getHabitMetricDisplay}
+        getHabitMetricClassName={getHabitMetricClassName}
+        scrubberHoveredDate={scrubberHoveredDate}
+        scrubberHoveredValues={scrubberHoveredValues}
+        activeTooltip={activeTooltip}
+        setActiveTooltip={setActiveTooltip}
+        getHabitMetricStats={getHabitMetricStats}
+        confirmDelete={confirmDelete}
+        deletingHabit={deletingHabit}
+      />
 
       {/* Empty state */}
       {isBackendUnavailable && (

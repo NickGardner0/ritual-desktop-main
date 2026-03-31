@@ -11,6 +11,7 @@
 'use client';
 
 import { DashboardLayout } from '@/components/dashboard-layout';
+import { DesktopRuntimeBridge } from '@/components/desktop-runtime-bridge';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { AIProvider } from '@/contexts/AIContext';
 import { FontProvider } from '@/contexts/FontContext';
@@ -57,6 +58,7 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
   return (
     <FontProvider>
     <AIProvider>
+      <DesktopRuntimeBridge />
       <DashboardLayout>
         {children}
       </DashboardLayout>

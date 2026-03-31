@@ -10,6 +10,21 @@ private var recognizer: SFSpeechRecognizer?
 private var currentTranscript = ""
 private var finalTranscriptEmitted = false
 
+private func runOnMainThread<T>(_ block: @escaping () -> T) -> T {
+    if Thread.isMainThread {
+        return block()
+    }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var result: T? = nil
+    DispatchQueue.main.async {
+        result = block()
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return result!
+}
+
 // Helper function to emit events to Tauri frontend
 private func emitTauriEvent(event: String, payload: String) {
     print("🎤 [Swift] Emitting event: \(event) with payload: \(payload)")
@@ -92,101 +107,90 @@ func start_speech_recognition() -> Bool {
 
 private func startSpeechRecognitionInternal() -> Bool {
     print("🎤 [Swift] startSpeechRecognitionInternal called")
-    
-    do {
-        // Stop any existing recognition first
-        _ = stop_speech_recognition()
-        resetSpeechState()
 
-        guard requestSpeechPermissionIfNeeded() else {
-            print("❌ [Swift] Speech recognition permission unavailable")
-            emitTauriEvent(event: "ritual:speech:error", payload: "speech-permission-denied")
-            return false
-        }
+    return runOnMainThread {
+        do {
+            // Stop any existing recognition first
+            _ = stop_speech_recognition()
+            resetSpeechState()
 
-        guard requestMicrophonePermissionIfNeeded() else {
-            print("❌ [Swift] Microphone permission unavailable")
-            emitTauriEvent(event: "ritual:speech:error", payload: "microphone-permission-denied")
-            return false
-        }
-        
-        // Initialize recognizer
-        recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        guard let recognizer = recognizer, recognizer.isAvailable else {
-            print("❌ [Swift] Speech recognizer not available")
-            emitTauriEvent(event: "ritual:speech:error", payload: "recognizer-unavailable")
-            return false
-        }
-        
-        // Note: AVAudioSession is iOS-only, not needed on macOS
-        // macOS handles audio session management automatically
-        
-        // Initialize audio engine
-        audioEngine = AVAudioEngine()
-        guard let audioEngine = audioEngine else {
-            print("❌ [Swift] Failed to create audio engine")
-            emitTauriEvent(event: "ritual:speech:error", payload: "audio-engine-failed")
-            return false
-        }
-        
-        // Create recognition request
-        request = SFSpeechAudioBufferRecognitionRequest()
-        guard let request = request else {
-            print("❌ [Swift] Failed to create speech request")
-            emitTauriEvent(event: "ritual:speech:error", payload: "request-failed")
-            return false
-        }
-        
-        request.shouldReportPartialResults = true
-        
-        // Set up audio input with error handling
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
-        // Remove any existing tap first
-        inputNode.removeTap(onBus: 0)
-        
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            request.append(buffer)
-        }
-        
-        // Start recognition task
-        task = recognizer.recognitionTask(with: request) { [weak request] result, error in
-            DispatchQueue.main.async {
-                if let result = result {
-                    let transcript = result.bestTranscription.formattedString
-                    currentTranscript = transcript
-                    print("🎤 [Swift] Transcript: \(transcript)")
-                    emitTauriEvent(event: "ritual:speech:partial", payload: transcript)
-                    
-                    if result.isFinal {
-                        print("🎤 [Swift] Final result: \(transcript)")
-                        finalTranscriptEmitted = true
-                        emitTauriEvent(event: "ritual:speech:final", payload: transcript)
+            guard requestSpeechPermissionIfNeeded() else {
+                print("❌ [Swift] Speech recognition permission unavailable")
+                emitTauriEvent(event: "ritual:speech:error", payload: "speech-permission-denied")
+                return false
+            }
+
+            guard requestMicrophonePermissionIfNeeded() else {
+                print("❌ [Swift] Microphone permission unavailable")
+                emitTauriEvent(event: "ritual:speech:error", payload: "microphone-permission-denied")
+                return false
+            }
+
+            recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+            guard let recognizer = recognizer, recognizer.isAvailable else {
+                print("❌ [Swift] Speech recognizer not available")
+                emitTauriEvent(event: "ritual:speech:error", payload: "recognizer-unavailable")
+                return false
+            }
+
+            audioEngine = AVAudioEngine()
+            guard let audioEngine = audioEngine else {
+                print("❌ [Swift] Failed to create audio engine")
+                emitTauriEvent(event: "ritual:speech:error", payload: "audio-engine-failed")
+                return false
+            }
+
+            request = SFSpeechAudioBufferRecognitionRequest()
+            guard let request = request else {
+                print("❌ [Swift] Failed to create speech request")
+                emitTauriEvent(event: "ritual:speech:error", payload: "request-failed")
+                return false
+            }
+
+            request.shouldReportPartialResults = true
+
+            let inputNode = audioEngine.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
+            inputNode.removeTap(onBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+                request.append(buffer)
+            }
+
+            task = recognizer.recognitionTask(with: request) { [weak request] result, error in
+                DispatchQueue.main.async {
+                    if let result = result {
+                        let transcript = result.bestTranscription.formattedString
+                        currentTranscript = transcript
+                        print("🎤 [Swift] Transcript: \(transcript)")
+                        emitTauriEvent(event: "ritual:speech:partial", payload: transcript)
+
+                        if result.isFinal {
+                            print("🎤 [Swift] Final result: \(transcript)")
+                            finalTranscriptEmitted = true
+                            emitTauriEvent(event: "ritual:speech:final", payload: transcript)
+                            _ = stop_speech_recognition()
+                        }
+                    }
+
+                    if let error = error {
+                        print("❌ [Swift] Speech recognition error: \(error)")
+                        emitTauriEvent(event: "ritual:speech:error", payload: "recognition-error: \(error.localizedDescription)")
                         _ = stop_speech_recognition()
                     }
                 }
-                
-                if let error = error {
-                    print("❌ [Swift] Speech recognition error: \(error)")
-                    emitTauriEvent(event: "ritual:speech:error", payload: "recognition-error: \(error.localizedDescription)")
-                    _ = stop_speech_recognition()
-                }
             }
+
+            audioEngine.prepare()
+            try audioEngine.start()
+            print("✅ [Swift] Speech recognition started successfully")
+            emitTauriEvent(event: "ritual:speech:status", payload: "started")
+            return true
+        } catch {
+            print("❌ [Swift] Failed to start speech recognition: \(error)")
+            emitTauriEvent(event: "ritual:speech:error", payload: "startup-failed: \(error.localizedDescription)")
+            _ = stop_speech_recognition()
+            return false
         }
-        
-        // Start audio engine
-        audioEngine.prepare()
-        try audioEngine.start()
-        print("✅ [Swift] Speech recognition started successfully")
-        emitTauriEvent(event: "ritual:speech:status", payload: "started")
-        return true
-        
-    } catch {
-        print("❌ [Swift] Failed to start speech recognition: \(error)")
-        emitTauriEvent(event: "ritual:speech:error", payload: "startup-failed: \(error.localizedDescription)")
-        _ = stop_speech_recognition()
-        return false
     }
 }
 
@@ -194,40 +198,34 @@ private func startSpeechRecognitionInternal() -> Bool {
 func stop_speech_recognition() -> Bool {
     print("🎤 [Swift] stop_speech_recognition called")
 
-    let transcript = currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-    var emittedFinalOnStop = false
-    if !transcript.isEmpty && !finalTranscriptEmitted {
-        finalTranscriptEmitted = true
-        emittedFinalOnStop = true
-        emitTauriEvent(event: "ritual:speech:final", payload: transcript)
+    return runOnMainThread {
+        let transcript = currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        var emittedFinalOnStop = false
+        if !transcript.isEmpty && !finalTranscriptEmitted {
+            finalTranscriptEmitted = true
+            emittedFinalOnStop = true
+            emitTauriEvent(event: "ritual:speech:final", payload: transcript)
+        }
+
+        if let audioEngine = audioEngine, audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+
+        request?.endAudio()
+        task?.cancel()
+
+        audioEngine = nil
+        request = nil
+        task = nil
+        recognizer = nil
+
+        print("✅ [Swift] Speech recognition stopped")
+        if !emittedFinalOnStop && !finalTranscriptEmitted {
+            emitTauriEvent(event: "ritual:speech:status", payload: "stopped")
+        }
+        return true
     }
-    
-    // Stop audio engine safely
-    if let audioEngine = audioEngine, audioEngine.isRunning {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-    }
-    
-    // End recognition request
-    request?.endAudio()
-    
-    // Cancel recognition task
-    task?.cancel()
-    
-    // Note: No need to reset audio session on macOS
-    // macOS handles audio session management automatically
-    
-    // Clear references
-    audioEngine = nil
-    request = nil
-    task = nil
-    recognizer = nil
-    
-    print("✅ [Swift] Speech recognition stopped")
-    if !emittedFinalOnStop && !finalTranscriptEmitted {
-        emitTauriEvent(event: "ritual:speech:status", payload: "stopped")
-    }
-    return true
 }
 
 @_cdecl("get_speech_state_json")
