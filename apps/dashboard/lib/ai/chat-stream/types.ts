@@ -140,6 +140,9 @@ export interface ActivitySummaryResult {
   success: boolean;
   query?: string;
   intent_resolved?: string;
+  days_back?: number;
+  start_date?: string | null;
+  end_date?: string | null;
   retrieval_tier?: string;
   story_plan?: Record<string, unknown>;
   semantic_work_items?: Array<Record<string, unknown>>;

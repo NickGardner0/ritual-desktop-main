@@ -216,12 +216,10 @@ export const CategoryCell = memo(({ category }: { category: string }) => {
   const normalizedCategory = normalizeCategoryLabel(category);
 
   return (
-    <div className="flex min-w-0 items-center">
-      <span className="inline-flex items-center gap-1.5 rounded-[3px] border border-black/[0.06] bg-[#F2F1EF] px-2 py-[3px]">
-        <span className={cn('h-2 w-2 shrink-0 rounded-[2px]', getCategoryFillClass(category))} />
-        <span className="block truncate text-[12px] font-medium leading-none text-neutral-600">
-          {normalizedCategory}
-        </span>
+    <div className="flex min-w-0 items-center gap-2">
+      <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', getCategoryFillClass(category))} />
+      <span className="block truncate text-[13px] font-normal text-neutral-600">
+        {normalizedCategory}
       </span>
     </div>
   );

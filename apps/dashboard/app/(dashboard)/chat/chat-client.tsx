@@ -1777,10 +1777,10 @@ export function ChatClient() {
     return (
       <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
         {isSidebarCollapsed && (
-          <div className="absolute top-2 left-3 z-10 flex items-center gap-1">
+          <div className="absolute top-0.5 left-3 z-10 flex items-center gap-1">
             <button
               onClick={() => setIsSidebarCollapsed(false)}
-              className="p-1.5 flex items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
+              className="flex h-9 w-9 items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
               title="Expand sidebar"
             >
               <PanelRight className="w-5 h-5" />
@@ -1888,7 +1888,7 @@ export function ChatClient() {
           transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
           className="h-full shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)]"
         >
-          <div className="px-3 pt-3 pb-2">
+          <div className="px-3 pt-1.5 pb-2">
             <div className="flex items-center justify-between">
               <button
                 onClick={() => router.push('/dashboard')}
@@ -1906,7 +1906,7 @@ export function ChatClient() {
               </button>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-2">
               <button
                 onClick={startNewConversation}
                 className="flex w-full items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-[13px] font-medium text-[#3d392f] transition-colors hover:border-gray-300"
@@ -1950,7 +1950,7 @@ export function ChatClient() {
                           "flex-1 min-w-0 rounded-md px-2.5 py-1.5 text-left text-[13px] leading-[1.25rem] transition-colors",
                           conv.id === conversationId
                             ? "bg-white text-[#232119] shadow-[0_0_0_1px_rgba(15,23,42,0.03)]"
-                            : "text-[#605b51] hover:bg-[#ecebe7] hover:text-[#2f2c25]"
+                            : "text-[#605b51] hover:bg-[#e5e5e5] hover:text-[#2f2c25]"
                         )}
                         title={displayTitle}
                       >
@@ -1961,7 +1961,7 @@ export function ChatClient() {
                           e.stopPropagation();
                           deleteConversation(conv.id);
                         }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-[#ecebe7] hover:text-gray-600"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-[#e5e5e5] hover:text-gray-600"
                         title="Delete conversation"
                         aria-label="Delete conversation"
                       >
@@ -1980,10 +1980,10 @@ export function ChatClient() {
 
   const renderCollapsedSidebarToggle = () =>
     isSidebarCollapsed ? (
-      <div className="absolute left-3 top-1.5 z-10">
+      <div className="absolute left-3 top-0.5 z-10">
         <button
           onClick={() => setIsSidebarCollapsed(false)}
-          className="flex h-11 w-11 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
+          className="flex h-9 w-9 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
           title="Expand sidebar"
         >
           <PanelRight className="h-5 w-5" />

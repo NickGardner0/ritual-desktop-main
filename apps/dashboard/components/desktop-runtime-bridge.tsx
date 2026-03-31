@@ -43,6 +43,33 @@ function WatcherConfigReconciler() {
   return null;
 }
 
+function RecorderConfigReconciler() {
+  const { isLoaded, user } = useUser();
+  const lastUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri() || !isLoaded || !user?.id) return;
+    if (lastUserIdRef.current === user.id) return;
+    lastUserIdRef.current = user.id;
+
+    void (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        const updated = await invoke<boolean>('reconcile_recorder_config_user_cmd', {
+          userId: user.id,
+        });
+        if (updated) {
+          console.log(`✅ Reconciled recorder config to current user ${user.id}`);
+        }
+      } catch (error) {
+        console.error('Failed to reconcile recorder config user:', error);
+      }
+    })();
+  }, [isLoaded, user?.id]);
+
+  return null;
+}
+
 function RuntimeSyncBridge() {
   const { getToken } = useAuth();
   const { user } = useUser();
@@ -433,6 +460,7 @@ export function DesktopRuntimeBridge() {
     <>
       <DesktopUpdater />
       <WatcherConfigReconciler />
+      <RecorderConfigReconciler />
       <RuntimeSyncBridge />
     </>
   );

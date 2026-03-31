@@ -66,6 +66,24 @@ static CHUNK_BACKFILL_RUNNING: AtomicBool = AtomicBool::new(false);
 static CHUNK_BACKFILL_STATUS: Lazy<Arc<RwLock<ChunkEmbeddingBackfillStatus>>> =
     Lazy::new(|| Arc::new(RwLock::new(ChunkEmbeddingBackfillStatus::default())));
 
+fn resolve_local_fallback_user_id() -> String {
+    if let Some(config) = crate::watcher::get_saved_watcher_config() {
+        let user_id = config.user_id.trim();
+        if !user_id.is_empty() {
+            return user_id.to_string();
+        }
+    }
+
+    if let Some(config) = crate::recorder::read_recorder_config() {
+        let user_id = config.user_id.trim();
+        if !user_id.is_empty() {
+            return user_id.to_string();
+        }
+    }
+
+    "local-user".to_string()
+}
+
 fn normalize_hybrid_weights(fts_weight: f32, vector_weight: f32) -> (f32, f32) {
     let mut fts = if fts_weight.is_finite() && fts_weight >= 0.0 {
         fts_weight
@@ -1581,6 +1599,7 @@ pub fn seed_memory_upload_outbox(
         let now = Utc::now().timestamp_millis();
         let fresh_cutoff = now.saturating_sub(2 * 60 * 60 * 1000);
         let safe_limit = limit.unwrap_or(500).clamp(1, 10_000) as i64;
+        let fallback_user_id = resolve_local_fallback_user_id();
         let mut inserted: i64 = 0;
 
         let mut session_doc_rows = conn
@@ -1602,7 +1621,7 @@ pub fn seed_memory_upload_outbox(
                 INSERT INTO memory_upload_outbox
                 (user_id, device_id, chunk_id, logical_chunk_id, content_hash, payload_json, status, retry_count, next_retry_at, last_error, created_at, updated_at)
                 SELECT
-                    COALESCE(NULLIF(src.user_id, ''), 'local-user'),
+                    COALESCE(NULLIF(src.user_id, ''), ?),
                     COALESCE(NULLIF(src.device_id, ''), 'local-device'),
                     -src.session_id,
                     printf('context-session-%d', src.session_id),
@@ -1696,7 +1715,7 @@ pub fn seed_memory_upload_outbox(
                         ELSE memory_upload_outbox.updated_at
                     END
                 "#,
-                libsql::params![now, now, fresh_cutoff, safe_limit],
+                libsql::params![fallback_user_id.clone(), now, now, fresh_cutoff, safe_limit],
             ).await.map_err(|e| format!("Failed to seed context session docs into memory upload outbox: {}", e))? as i64;
         }
 
@@ -1705,7 +1724,7 @@ pub fn seed_memory_upload_outbox(
             INSERT INTO memory_upload_outbox
             (user_id, device_id, chunk_id, logical_chunk_id, content_hash, payload_json, status, retry_count, next_retry_at, last_error, created_at, updated_at)
             SELECT
-                COALESCE(NULLIF(src.user_id, ''), 'local-user'),
+                COALESCE(NULLIF(src.user_id, ''), ?),
                 COALESCE(NULLIF(src.device_id, ''), 'local-device'),
                 src.id,
                 COALESCE(NULLIF(src.logical_chunk_id, ''), printf('local-search-chunk-%d', src.id)),
@@ -1758,7 +1777,7 @@ pub fn seed_memory_upload_outbox(
                         WHEN EXISTS (
                             SELECT 1
                             FROM memory_upload_outbox o
-                            WHERE o.user_id = COALESCE(NULLIF(s.user_id, ''), 'local-user')
+                            WHERE o.user_id = COALESCE(NULLIF(s.user_id, ''), ?)
                               AND o.device_id = COALESCE(NULLIF(s.device_id, ''), 'local-device')
                               AND o.logical_chunk_id = COALESCE(NULLIF(s.logical_chunk_id, ''), printf('local-search-chunk-%d', s.id))
                         ) THEN 1
@@ -1798,7 +1817,7 @@ pub fn seed_memory_upload_outbox(
                     ELSE memory_upload_outbox.updated_at
                 END
             "#,
-            libsql::params![now, now, fresh_cutoff, safe_limit],
+            libsql::params![fallback_user_id.clone(), now, now, fresh_cutoff, fallback_user_id.clone(), safe_limit],
         ).await.map_err(|e| format!("Failed to seed memory upload outbox: {}", e))? as i64;
 
         Ok(MemoryUploadOutboxSeedResult {
@@ -2056,4 +2075,3 @@ pub fn ack_memory_upload_outbox_batch(
         })
     })
 }
-

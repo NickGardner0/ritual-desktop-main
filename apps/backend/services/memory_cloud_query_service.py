@@ -394,7 +394,7 @@ def _rrf_fuse(
 
 def _build_query_budgets(intent: str) -> Dict[str, int]:
     if intent == "broad_overview":
-        return {"lane_top_k": 120, "candidate_limit": 72, "final_limit": 36}
+        return {"lane_top_k": 144, "candidate_limit": 96, "final_limit": 48}
     if intent == "semantic_lookup":
         return {"lane_top_k": 40, "candidate_limit": 20, "final_limit": 12}
     return {"lane_top_k": 50, "candidate_limit": 30, "final_limit": 16}
@@ -926,7 +926,7 @@ async def query_semantic_cloud(
         distinct_time_buckets = int(diversity_metrics["distinct_time_buckets"])
         context_version_mix = dict(diversity_metrics["context_version_mix"])
 
-        citations = _build_citations(final_rows, limit=32 if broad_overview else min(max(limit, 12), 20))
+        citations = _build_citations(final_rows, limit=40 if broad_overview else min(max(limit, 12), 20))
         confidence = _confidence_from_ranked(final_rows[: max(8, limit)])
         index_health = get_memory_index_health()
 

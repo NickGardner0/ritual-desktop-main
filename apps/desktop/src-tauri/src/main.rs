@@ -836,6 +836,30 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     Ok(true)
 }
 
+#[tauri::command]
+fn reconcile_recorder_config_user_cmd(user_id: String) -> Result<bool, String> {
+    let trimmed_user_id = user_id.trim();
+    if trimmed_user_id.is_empty() {
+        return Err("User ID is required".to_string());
+    }
+
+    let Some(mut config) = recorder::read_recorder_config() else {
+        return Ok(false);
+    };
+
+    if config.user_id == trimmed_user_id {
+        return Ok(false);
+    }
+
+    println!(
+        "🔁 Reconciling recorder config user from {} to {}",
+        config.user_id, trimmed_user_id
+    );
+    config.user_id = trimmed_user_id.to_string();
+    recorder::save_recorder_config_cmd(config)?;
+    Ok(true)
+}
+
 fn get_voice_settings_path() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
@@ -929,6 +953,7 @@ fn main() {
       save_watcher_config_cmd,
       clear_watcher_config_cmd,
       reconcile_watcher_config_user_cmd,
+      reconcile_recorder_config_user_cmd,
       // Voice hotkey settings
       get_voice_hotkey,
       set_voice_hotkey,

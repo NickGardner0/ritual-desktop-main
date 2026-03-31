@@ -39,8 +39,8 @@ const DEVICES: DeviceEntry[] = [
     id: 'oura',
     name: 'Oura Ring',
     logo: '/images/oura.svg',
-    logoWidth: 32,
-    logoHeight: 32,
+    logoWidth: 48,
+    logoHeight: 48,
     description: 'Sync sleep, readiness, and HRV trends.',
     category: 'wearable',
   },
@@ -134,21 +134,21 @@ export function ConnectedDevicesBar() {
 
   return (
     <>
-      <div className="fixed bottom-0 left-[70px] right-0 flex justify-end pr-[calc((100%-70px-640px)/2+4px)] pb-2.5 pointer-events-none">
+      <div className="fixed bottom-0 left-[70px] right-0 flex justify-end pr-[calc((100%-70px-640px)/2-12px)] pb-2.5 pointer-events-none">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="pointer-events-auto inline-flex items-center gap-2 text-[13px] text-neutral-500 hover:text-neutral-700 transition-colors"
+          className="pointer-events-auto inline-flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-600 transition-colors"
         >
           <span>Connect devices</span>
-          <ChevronRight className="h-3.5 w-3.5" />
-          <span className="inline-flex -space-x-1.5">
+          <ChevronRight className="h-3 w-3" />
+          <span className="inline-flex -space-x-1">
             {BAR_ICONS.map((d) => (
               <img
                 key={d.id}
                 src={d.logo}
                 alt={d.name}
-                className="h-5 w-5 rounded-full border border-white bg-white object-contain"
+                className="h-4 w-4 border border-white bg-white object-contain"
               />
             ))}
           </span>
@@ -185,7 +185,7 @@ function ConnectedDevicesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[560px] p-0 gap-0 rounded-lg overflow-hidden">
+      <DialogContent className="max-w-[560px] p-0 gap-0 rounded-sm overflow-hidden">
         <div className="flex flex-col h-[500px]">
           {/* Header */}
           <div className="px-5 pt-5 pb-3">
@@ -206,7 +206,7 @@ function ConnectedDevicesModal({
                 placeholder={`Search ${DEVICES.length} devices...`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-9 w-full rounded-md border border-border bg-white px-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-400"
+                className="h-9 w-full rounded-sm border border-border bg-white px-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-400"
               />
             </div>
           </div>
@@ -253,18 +253,21 @@ function DeviceCard({
       onClick={device.comingSoon ? undefined : onConnect}
       disabled={device.comingSoon}
       className={cn(
-        'flex items-start justify-between w-full p-3 border border-border rounded-md text-left transition-colors',
+        'flex items-start justify-between w-full p-3 border border-border rounded-sm text-left transition-colors',
         device.comingSoon
           ? 'opacity-50 cursor-default'
           : 'hover:bg-neutral-50 cursor-pointer',
       )}
     >
       <div className="flex items-start gap-3 min-w-0">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden">
           <img
             src={device.logo}
             alt={device.name}
-            className="max-h-6 max-w-6 object-contain"
+            className={cn(
+              'object-contain',
+              device.id === 'oura' ? 'max-h-10 max-w-10' : 'max-h-6 max-w-6',
+            )}
           />
         </div>
         <div className="min-w-0">

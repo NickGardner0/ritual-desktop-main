@@ -326,6 +326,10 @@ export async function executeGetActivitySummary(
   isScreenTimeSpentQueryFn?: (text: string) => boolean,
 ) {
   const safeDaysBack = clampDaysBack(params.daysBack ?? 1);
+  const remoteQueryLimit = 96;
+  const localResolveLimit = 48;
+  const localHydrateLimit = 64;
+  const localCitationLimit = 36;
   const query = params.query || 'activity summary';
   console.log('📋 getActivitySummary called:', { query, daysBack: safeDaysBack });
 
@@ -367,7 +371,7 @@ export async function executeGetActivitySummary(
       {
         query,
         daysBack: safeDaysBack,
-        limit: 30,
+        limit: localResolveLimit,
       },
       prefetchedScreenSearchContext,
       isScreenTimeSpentQueryFn || (() => false),
@@ -383,7 +387,7 @@ export async function executeGetActivitySummary(
         const localContext = await fetchLocalScreenSearchContext(token, {
           query,
           daysBack: safeDaysBack,
-          limit: 40,
+          limit: localHydrateLimit,
         });
         if (localContext) {
           const mergedResults = mergeScreenResults(localContext.results, screenSearchContext.results);
@@ -410,7 +414,7 @@ export async function executeGetActivitySummary(
       screenSearchContext = await fetchLocalScreenSearchContext(token, {
         query,
         daysBack: safeDaysBack,
-        limit: 40,
+        limit: localHydrateLimit,
       });
     }
 
@@ -419,7 +423,9 @@ export async function executeGetActivitySummary(
     }
 
     const rankedResults = rerankScreenResultsByQuery(screenSearchContext.results, query);
-    const filteredResults = rankedResults.filter((row) => !isActivityAggregateText(row.ocr_text)).slice(0, 30);
+    const filteredResults = rankedResults
+      .filter((row) => !isActivityAggregateText(row.ocr_text))
+      .slice(0, localResolveLimit);
     if (filteredResults.length === 0) {
       return null;
     }
@@ -430,13 +436,13 @@ export async function executeGetActivitySummary(
       screenSearchContext.semanticTruth,
     );
     const citationsSource = (screenSearchContext.citations && screenSearchContext.citations.length > 0)
-      ? screenSearchContext.citations.slice(0, 25).map((citation) => ({
+      ? screenSearchContext.citations.slice(0, localCitationLimit).map((citation) => ({
           app: citation.app_name || '',
           title: citation.window_title || '',
           text: (citation.snippet || '').slice(0, 300),
           ts: citation.timestamp || 0,
         }))
-      : filteredResults.slice(0, 25).map((result) => ({
+      : filteredResults.slice(0, localCitationLimit).map((result) => ({
           app: result.app_name || '',
           title: result.window_title || '',
           text: (result.ocr_text || '').slice(0, 300),
@@ -447,6 +453,9 @@ export async function executeGetActivitySummary(
       success: true,
       query,
       intent_resolved: 'broad_overview',
+      days_back: safeDaysBack,
+      start_date: screenSearchContext.startDate || null,
+      end_date: screenSearchContext.endDate || null,
       retrieval_tier: screenSearchContext.retrievalTier || screenSearchContext.modeUsed || 'desktop_local',
       story_plan: stripStoryPlanMeta(structuredEvidence.recap_outline || null),
       citations: citationsSource,
@@ -467,7 +476,7 @@ export async function executeGetActivitySummary(
         days_back: safeDaysBack,
         timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
         group_by: 'app',
-        limit: 64,
+        limit: remoteQueryLimit,
       }),
       calendarStyleSummaryPromise,
     ]);
@@ -492,7 +501,7 @@ export async function executeGetActivitySummary(
       });
     }
 
-    const citations = remoteCitations.slice(0, 25).map((c: any) => ({
+    const citations = remoteCitations.slice(0, localCitationLimit).map((c: any) => ({
       app: c.app_name || c.app || '',
       title: c.window_title || c.title || '',
       text: (c.text_compact || c.contextual_text_compact || c.snippet || '').slice(0, 300),
@@ -525,6 +534,9 @@ export async function executeGetActivitySummary(
       success: true,
       query: response.query || query,
       intent_resolved: response.intent_resolved || 'broad_overview',
+      days_back: Number(response.days_back || safeDaysBack),
+      start_date: response.start_date || null,
+      end_date: response.end_date || null,
       retrieval_tier: response.retrieval_tier,
       story_plan: cleanPlan,
       semantic_work_items: semanticWorkItems,
@@ -546,6 +558,9 @@ export async function executeGetActivitySummary(
       details: String(error),
       query,
       intent_resolved: 'broad_overview',
+      days_back: safeDaysBack,
+      start_date: null,
+      end_date: null,
       calendar_style_summary: calendarStyleSummary || null,
       calendar_style_date: recapAnchorDate,
     });

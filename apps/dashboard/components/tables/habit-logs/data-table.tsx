@@ -1074,9 +1074,13 @@ export function HabitLogsDataTable({
         <div
           ref={scrollViewportRef}
           className="overflow-auto overscroll-none border border-border bg-white scrollbar-hide"
-          style={{ height: 'calc(100vh - 180px)' }}
+          style={{
+            height: 'calc(100vh - 180px)',
+            maskImage: 'linear-gradient(to bottom, black calc(100% - 12px), transparent 100%)',
+            WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 12px), transparent 100%)',
+          }}
         >
-          <div role="table" className="w-full min-w-full text-sm">
+          <div role="table" className="w-full text-sm">
             {/* Header */}
             <DndContext
               sensors={dndSensors}
@@ -1084,7 +1088,7 @@ export function HabitLogsDataTable({
               onDragEnd={handleColumnDragEnd}
             >
               <div role="rowgroup" className="sticky top-0 z-20 bg-white">
-                <div role="row" className={cn('flex items-center', tableHeaderHeight)}>
+                <div role="row" className={cn('flex items-center min-w-full', tableHeaderHeight)}>
                   <SortableContext
                     items={headerGroup.headers.map((h) => h.id)}
                     strategy={horizontalListSortingStrategy}
@@ -1156,7 +1160,7 @@ export function HabitLogsDataTable({
                     data-index={virtualRow.index}
                     className={cn(
                       'group cursor-default select-text',
-                      'absolute left-0 w-full flex items-center',
+                      'absolute left-0 w-full min-w-full flex items-center',
                       rowBgClass,
                     )}
                     style={{

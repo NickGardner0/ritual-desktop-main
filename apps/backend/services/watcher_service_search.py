@@ -1099,6 +1099,114 @@ def _attach_snapshot_semantic_summaries(cursor, items: List[Dict[str, Any]]) -> 
     return enriched
 
 
+def _context_signal_summary(cursor, *, recent_cutoff_ms: int) -> Dict[str, int]:
+    summary = {
+        "session_docs_total": 0,
+        "session_docs_recent": 0,
+        "snapshots_total": 0,
+        "snapshots_recent": 0,
+        "combined_total": 0,
+        "combined_recent": 0,
+    }
+
+    try:
+        if table_exists_impl(cursor, "session_retrieval_docs"):
+            row = cursor.execute("SELECT COUNT(*) FROM session_retrieval_docs").fetchone()
+            summary["session_docs_total"] = int(row[0] or 0) if row else 0
+            row = cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM session_retrieval_docs
+                WHERE chunk_end_ts >= ?
+                """,
+                (recent_cutoff_ms,),
+            ).fetchone()
+            summary["session_docs_recent"] = int(row[0] or 0) if row else 0
+    except Exception:
+        pass
+
+    try:
+        if table_exists_impl(cursor, "context_snapshots"):
+            row = cursor.execute("SELECT COUNT(*) FROM context_snapshots").fetchone()
+            summary["snapshots_total"] = int(row[0] or 0) if row else 0
+            row = cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM context_snapshots
+                WHERE ts >= ?
+                """,
+                (recent_cutoff_ms,),
+            ).fetchone()
+            summary["snapshots_recent"] = int(row[0] or 0) if row else 0
+    except Exception:
+        pass
+
+    summary["combined_total"] = summary["session_docs_total"] + summary["snapshots_total"]
+    summary["combined_recent"] = summary["session_docs_recent"] + summary["snapshots_recent"]
+    return summary
+
+
+def _should_prefer_local_activity_context(
+    preferred_summary: Dict[str, int],
+    local_summary: Dict[str, int],
+) -> bool:
+    local_total = int(local_summary.get("combined_total") or 0)
+    local_recent = int(local_summary.get("combined_recent") or 0)
+    preferred_total = int(preferred_summary.get("combined_total") or 0)
+    preferred_recent = int(preferred_summary.get("combined_recent") or 0)
+
+    if local_total <= 0:
+        return False
+    if preferred_total <= 0 and local_total > 0:
+        return True
+    if preferred_recent <= 0 and local_recent >= 5:
+        return True
+    if local_recent >= max(preferred_recent * 2, preferred_recent + 20) and local_total >= preferred_total:
+        return True
+    if local_total >= max(preferred_total * 3, preferred_total + 500):
+        return True
+    return False
+
+
+def _maybe_open_richer_local_activity_context(
+    *,
+    current_cursor,
+    activity_db_path: str,
+    recent_cutoff_ms: int,
+    current_source_label: str,
+) -> tuple[Optional[sqlite3.Connection], Optional[sqlite3.Cursor], Optional[str]]:
+    if not activity_db_path or not os.path.exists(activity_db_path):
+        return None, None, None
+    if current_source_label != "activity_per_user_replica":
+        return None, None, None
+
+    preferred_summary = _context_signal_summary(current_cursor, recent_cutoff_ms=recent_cutoff_ms)
+    local_conn = sqlite3.connect(
+        f"file:{activity_db_path}?mode=ro",
+        uri=True,
+        timeout=2.5,
+    )
+    local_conn.row_factory = sqlite3.Row
+    local_cursor = local_conn.cursor()
+    local_cursor.execute("PRAGMA query_only = ON")
+    local_summary = _context_signal_summary(local_cursor, recent_cutoff_ms=recent_cutoff_ms)
+
+    if not _should_prefer_local_activity_context(preferred_summary, local_summary):
+        local_conn.close()
+        return None, None, None
+
+    warning = (
+        "Per-user context replica is sparse compared with the local activity DB; "
+        "using the richer local context source for recap retrieval."
+    )
+    logger.info(
+        "Promoting local activity DB for context retrieval: preferred=%s local=%s",
+        preferred_summary,
+        local_summary,
+    )
+    return local_conn, local_cursor, warning
+
+
 async def search_context_memory_impl(
     service,
     user_id: str,
@@ -1168,6 +1276,7 @@ async def search_context_memory_impl(
     force_local_context_db = _prefer_explicit_local_context_db(memory_db_path)
     legacy_ocr_fallback_allowed = allow_legacy_fallback and _legacy_ocr_fallback_enabled()
 
+    local_override_conn: Optional[sqlite3.Connection] = None
     async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
         using_turso = preferred_conn is not None and not force_local_context_db
         if using_turso:
@@ -1194,13 +1303,27 @@ async def search_context_memory_impl(
                 )
             cursor.execute("PRAGMA query_only = ON")
 
+            warning: Optional[str] = None
+            if using_turso and os.path.exists(activity_db_path):
+                override_conn, override_cursor, override_warning = _maybe_open_richer_local_activity_context(
+                    current_cursor=cursor,
+                    activity_db_path=activity_db_path,
+                    recent_cutoff_ms=max(now_ms - (72 * 60 * 60 * 1000), cutoff_ms),
+                    current_source_label="activity_per_user_replica",
+                )
+                if override_conn is not None and override_cursor is not None:
+                    local_override_conn = override_conn
+                    conn = override_conn
+                    cursor = override_cursor
+                    using_turso = False
+                    warning = override_warning
+
             has_session_docs = table_exists_impl(cursor, "session_retrieval_docs")
             has_snapshots = table_exists_impl(cursor, "context_snapshots")
 
             results: List[Dict[str, Any]] = []
             mode_used = "none"
             status = "unavailable"
-            warning: Optional[str] = None
 
             if has_session_docs:
                 candidate_limit = int(local_budgets["session_candidate_limit"])
@@ -1734,10 +1857,12 @@ async def search_context_memory_impl(
                 "story_plan": story_plan,
                 "renderer": renderer,
                 "debug": debug,
-                "source_db": "turso_replica" if using_turso else os.path.basename(memory_db_path),
+                "source_db": "turso_replica" if using_turso else os.path.basename(activity_db_path if local_override_conn is not None else memory_db_path),
             }
         finally:
-            if conn is not None and not using_turso:
+            if local_override_conn is not None:
+                local_override_conn.close()
+            elif conn is not None and not using_turso:
                 conn.close()
 
 
@@ -3632,6 +3757,11 @@ async def query_memory_impl(
 
     conn = None
     source_db_label: Optional[str] = None
+    local_override_conn: Optional[sqlite3.Connection] = None
+    should_include_time = resolved_intent in {"time_spent", "broad_overview"}
+    should_include_semantic = resolved_intent in {"semantic_lookup", "evidence_timeline", "broad_overview"}
+    now_ms = int(time.time() * 1000)
+    override_warning: Optional[str] = None
     try:
         cursor = None
         async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
@@ -3690,10 +3820,22 @@ async def query_memory_impl(
             else:
                 cursor = None
 
-        should_include_time = resolved_intent in {"time_spent", "broad_overview"}
-        should_include_semantic = resolved_intent in {"semantic_lookup", "evidence_timeline", "broad_overview"}
-
-        now_ms = int(time.time() * 1000)
+        if should_include_semantic and cursor is not None and source_db_label == "activity_per_user_replica" and local_activity_available:
+            override_conn, override_cursor, override_warning = _maybe_open_richer_local_activity_context(
+                current_cursor=cursor,
+                activity_db_path=activity_db_path,
+                recent_cutoff_ms=max(now_ms - (72 * 60 * 60 * 1000), start_ms),
+                current_source_label=source_db_label,
+            )
+            if override_conn is not None and override_cursor is not None:
+                if conn is not None:
+                    conn.close()
+                local_override_conn = override_conn
+                conn = override_conn
+                cursor = override_cursor
+                source_db_label = os.path.basename(activity_db_path)
+            else:
+                override_warning = None
         if cursor is not None:
             freshness = _compute_freshness(
                 cursor,
@@ -3746,6 +3888,8 @@ async def query_memory_impl(
                 warning_parts.append("Local activity/context data is unavailable on this backend instance; relying on cloud memory only.")
             else:
                 warning_parts.append("No recent activity/context data is available.")
+        if should_include_semantic and override_warning:
+            warning_parts.append(override_warning)
         if freshness.get("source_mismatch"):
             warning_parts.append(
                 str(freshness.get("source_mismatch_note") or "Data source mismatch detected between canonical and legacy local DBs.")

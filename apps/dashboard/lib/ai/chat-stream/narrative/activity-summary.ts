@@ -95,6 +95,59 @@ function formatActivityRangeMs(ms: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+function buildRecapEnrichmentContext(payload: any): string {
+  const lines: string[] = [];
+
+  const biometrics = payload?.daily_biometrics;
+  if (biometrics?.success) {
+    const averageBpm = Number(biometrics.average_bpm || 0);
+    const minBpm = Number(biometrics.min_bpm || 0);
+    const maxBpm = Number(biometrics.max_bpm || 0);
+    const totalSamples = Number(biometrics.total_samples || 0);
+    const day = String(biometrics.day || '').trim();
+    const biometricsBits = [
+      averageBpm > 0 ? `average ${averageBpm.toFixed(1)} bpm` : '',
+      minBpm > 0 ? `min ${minBpm.toFixed(1)}` : '',
+      maxBpm > 0 ? `max ${maxBpm.toFixed(1)}` : '',
+      totalSamples > 0 ? `${totalSamples} samples` : '',
+    ].filter(Boolean);
+    if (biometricsBits.length > 0) {
+      lines.push(`Biometrics${day ? ` for ${day}` : ''}: ${biometricsBits.join(', ')}.`);
+    }
+  }
+
+  const calendarEvents = Array.isArray(payload?.calendar_events?.events)
+    ? payload.calendar_events.events
+    : [];
+  if (calendarEvents.length > 0) {
+    const topEvents = calendarEvents
+      .slice(0, 6)
+      .map((event: any) => {
+        const title = clipContextText(event?.title || 'Untitled', 64);
+        const startTime = String(event?.start_time || '').trim();
+        const endTime = String(event?.end_time || '').trim();
+        const timeRange = [startTime, endTime].filter(Boolean).join(' - ');
+        return timeRange ? `${timeRange}: ${title}` : title;
+      })
+      .filter(Boolean);
+    if (topEvents.length > 0) {
+      lines.push(`Calendar context: ${topEvents.join('; ')}.`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function appendRecapEnrichment(summary: string, payload: any): string {
+  const enrichment = buildRecapEnrichmentContext(payload);
+  if (!enrichment) return summary.trim();
+  return `${summary.trim()}\n\n**Additional context**\n${enrichment
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => `- ${line}`)
+    .join('\n')}`.trim();
+}
+
 // ---------------------------------------------------------------------------
 // Date parsing
 // ---------------------------------------------------------------------------
@@ -875,7 +928,8 @@ function buildDeterministicStorySummary(
   }
 
   const finalText = output.join('\n').trim();
-  return finalText.length > 60 ? finalText : null;
+  if (finalText.length <= 60) return null;
+  return appendRecapEnrichment(finalText, payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -975,7 +1029,8 @@ export async function buildRichActivitySummaryFromStoryPlan(
     const hasSemanticWorkItems = Array.isArray(payload?.semantic_work_items)
       && payload.semantic_work_items.length > 0;
     if (!payload?.success || (!payload?.story_plan && !hasSemanticWorkItems)) {
-      return calendarStyleSummary?.trim() || null;
+      const fallback = calendarStyleSummary?.trim() || null;
+      return fallback ? appendRecapEnrichment(fallback, payload) : null;
     }
 
     const deterministicSummary = buildDeterministicStorySummary(payload, query, timezone);
@@ -985,8 +1040,11 @@ export async function buildRichActivitySummaryFromStoryPlan(
 
     const evidenceScaffold = buildContextMemoryNarrative(payload, query, timezone);
     if (!evidenceScaffold || evidenceScaffold.trim().length < 80) {
-      return calendarStyleSummary?.trim() || null;
+      const fallback = calendarStyleSummary?.trim() || null;
+      return fallback ? appendRecapEnrichment(fallback, payload) : null;
     }
+
+    const enrichmentContext = buildRecapEnrichmentContext(payload);
 
     const prompt = `You are turning a rich evidence scaffold into a concrete, Littlebird-quality activity recap.
 
@@ -1017,12 +1075,16 @@ Quality bar:
 - Mention later-day workstreams if they are in the evidence, even when the early morning block is strongest.
 - Pull concrete files, commands, domains, commits, and artifacts into the prose so each section feels grounded.
 - If a lower-quality draft summary is provided, use it only as supporting context. Prefer the evidence scaffold when there is any conflict or missing detail.
+- If additional biometrics or calendar context is provided, weave it into the recap only where it strengthens chronology or explains pacing/meetings. Do not force it into every section.
 
 Evidence scaffold:
 ${evidenceScaffold}
 
 Supporting draft summary:
-${calendarStyleSummary?.trim() || '(none)'}`;
+${calendarStyleSummary?.trim() || '(none)'}
+
+Additional recap context:
+${enrichmentContext || '(none)'}`;
 
     const response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
@@ -1035,9 +1097,14 @@ ${calendarStyleSummary?.trim() || '(none)'}`;
     });
 
     const content = response.choices[0]?.message?.content?.trim();
-    return content ? sanitizeCalendarStyleActivitySummary(content) : (calendarStyleSummary?.trim() || null);
+    if (content) {
+      return appendRecapEnrichment(sanitizeCalendarStyleActivitySummary(content), payload);
+    }
+    const fallback = calendarStyleSummary?.trim() || null;
+    return fallback ? appendRecapEnrichment(fallback, payload) : null;
   } catch (error) {
     console.error('❌ buildRichActivitySummaryFromStoryPlan error:', error);
-    return calendarStyleSummary?.trim() || null;
+    const fallback = calendarStyleSummary?.trim() || null;
+    return fallback ? appendRecapEnrichment(fallback, payload) : null;
   }
 }

@@ -55,6 +55,9 @@ import { buildSystemPrompt } from './system-prompt';
 import { createChatStreamResponse } from './stream-response';
 import type { StreamSource } from './stream-response';
 import type {
+  ActivitySummaryResult,
+  BiometricsResult,
+  CalendarEventsResult,
   ChatToolResults,
   ScreenRecordingResult,
   ScreenSearchContext,
@@ -168,6 +171,89 @@ function buildCanvasToolPayload(toolResults: ChatToolResults): Record<string, un
   }
 
   return Object.keys(payload).length > 0 ? payload : null;
+}
+
+function safeJsonParse<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichActivitySummaryContext(
+  token: string,
+  activitySummary: ActivitySummaryResult | undefined,
+  latestUserContent: string,
+  timezone?: string,
+): Promise<{
+  activitySummary?: ActivitySummaryResult;
+  dailyBiometrics?: BiometricsResult;
+  calendarEvents?: CalendarEventsResult;
+}> {
+  if (!activitySummary?.success) {
+    return {};
+  }
+
+  const anchorDay =
+    (typeof activitySummary.calendar_style_date === 'string' && activitySummary.calendar_style_date.trim()) ||
+    (typeof activitySummary.end_date === 'string' && activitySummary.end_date.trim()) ||
+    inferRecapAnchorDate(latestUserContent, Number(activitySummary.days_back || 1), timezone) ||
+    undefined;
+
+  const startDate =
+    (typeof activitySummary.start_date === 'string' && activitySummary.start_date.trim()) ||
+    anchorDay ||
+    undefined;
+  const endDate =
+    (typeof activitySummary.end_date === 'string' && activitySummary.end_date.trim()) ||
+    anchorDay ||
+    startDate ||
+    undefined;
+
+  const [dailyBiometricsRaw, calendarEventsRaw] = await Promise.all([
+    anchorDay
+      ? executeGetDailyBiometrics(token, { day: anchorDay }, timezone)
+      : Promise.resolve(JSON.stringify({ success: false, error: 'No recap anchor day resolved.' })),
+    (startDate && endDate)
+      ? executeGetCalendarEvents(token, { startDate, endDate }, timezone)
+      : Promise.resolve(JSON.stringify({ success: false, error: 'No recap date range resolved.' })),
+  ]);
+
+  const dailyBiometrics = safeJsonParse<BiometricsResult>(dailyBiometricsRaw) || undefined;
+  const calendarEvents = safeJsonParse<CalendarEventsResult>(calendarEventsRaw) || undefined;
+
+  const enrichedActivitySummary: ActivitySummaryResult = {
+    ...activitySummary,
+    daily_biometrics: dailyBiometrics?.success ? dailyBiometrics : null,
+    calendar_events: calendarEvents?.success ? calendarEvents : null,
+  };
+
+  const enrichedNarrative = await buildRichActivitySummaryFromStoryPlan(
+    {
+      success: true,
+      story_plan: enrichedActivitySummary.story_plan,
+      semantic_work_items: enrichedActivitySummary.semantic_work_items,
+      renderer: (enrichedActivitySummary.story_plan as Record<string, unknown> | undefined)?.renderer || null,
+      results: [],
+      citations: enrichedActivitySummary.citations || [],
+      daily_biometrics: dailyBiometrics?.success ? dailyBiometrics : null,
+      calendar_events: calendarEvents?.success ? calendarEvents : null,
+    },
+    latestUserContent,
+    timezone,
+    enrichedActivitySummary.calendar_style_summary,
+  );
+
+  if (enrichedNarrative && enrichedNarrative.trim().length > 0) {
+    enrichedActivitySummary.rich_activity_summary = enrichedNarrative.trim();
+  }
+
+  return {
+    activitySummary: enrichedActivitySummary,
+    dailyBiometrics: dailyBiometrics?.success ? dailyBiometrics : undefined,
+    calendarEvents: calendarEvents?.success ? calendarEvents : undefined,
+  };
 }
 
 // ====================
@@ -578,7 +664,7 @@ export async function handleChatStreamPost(req: NextRequest) {
     const deterministicFastPath =
       !isVoiceMode &&
       forcedToolName &&
-      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview'].includes(forcedToolName);
+      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'getActivitySummary'].includes(forcedToolName);
 
     if (deterministicFastPath) {
       console.log(`⚡ [${elapsed(t0)}] Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
@@ -624,17 +710,35 @@ export async function handleChatStreamPost(req: NextRequest) {
       console.log(`⏱️ [${elapsed(t0)}] Fast-path tool executed`);
       try {
         const parsed = JSON.parse(toolResultJson);
-          if (parsed.success) {
-            if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
-            else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
-            else if (forcedToolName === 'getActivitySummary') toolResults.activitySummary = parsed;
-            else toolResults.monthlyOverview = parsed;
+        if (parsed.success) {
+          if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
+          else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
+          else if (forcedToolName === 'getActivitySummary') toolResults.activitySummary = parsed;
+          else toolResults.monthlyOverview = parsed;
 
           if (parsed.suggested_followups) {
             toolResults.suggested_followups = parsed.suggested_followups;
           }
         }
       } catch (e) { console.warn('⚠️ Tool result parse error:', e); }
+
+      if (forcedToolName === 'getActivitySummary' && toolResults.activitySummary?.success) {
+        const recapEnrichment = await enrichActivitySummaryContext(
+          token,
+          toolResults.activitySummary,
+          latestUserContent,
+          timezone,
+        );
+        if (recapEnrichment.activitySummary) {
+          toolResults.activitySummary = recapEnrichment.activitySummary;
+        }
+        if (recapEnrichment.dailyBiometrics) {
+          toolResults.dailyBiometrics = recapEnrichment.dailyBiometrics;
+        }
+        if (recapEnrichment.calendarEvents) {
+          toolResults.calendarEvents = recapEnrichment.calendarEvents;
+        }
+      }
 
       const title = getOverviewTitleFromQuery(
         forcedToolName,
