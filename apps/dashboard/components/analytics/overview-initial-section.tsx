@@ -28,11 +28,11 @@ const QUICK_ACTIONS = [
   { label: 'Connect Wearable', icon: Watch, path: '/integrations' },
 ];
 
-function QuickActionChips() {
+export function QuickActionChips() {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-center gap-1.5 pt-4 pb-28 flex-wrap">
+    <div className="flex items-center justify-center gap-1.5 pt-2 pb-4 flex-wrap">
       {QUICK_ACTIONS.map((action) => (
         <button
           key={action.label}
@@ -166,8 +166,6 @@ export function OverviewInitialSection({
           />
         </div>
       </div>
-
-      <QuickActionChips />
     </>
   );
 }

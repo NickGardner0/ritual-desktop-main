@@ -117,6 +117,9 @@ export function RootProviders({ children }: { children: ReactNode }) {
           signInForceRedirectUrl="/auth/sso-callback"
           signUpForceRedirectUrl="/auth/sso-callback"
           afterSignOutUrl="/"
+          localization={{
+            formFieldHintText__optional: '',
+          }}
           appearance={{
             userProfile: {
               elements: {

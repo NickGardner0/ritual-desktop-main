@@ -69,6 +69,11 @@ const AIHabitChat = dynamic(
   { ssr: false }
 );
 
+const QuickActionChips = dynamic(
+  () => import("@/components/analytics/overview-initial-section").then(m => ({ default: m.QuickActionChips })),
+  { ssr: false }
+);
+
 // Loading fallback for lazy-loaded views
 function ViewLoadingFallback() {
   return (
@@ -406,9 +411,9 @@ function UnifiedAnalyticsContent({
         />
       )}
       
-      {/* AI Habit Chat - Fixed at bottom, only visible in Overview mode */}
+      {/* AI Habit Chat - Inline in overview, flows after habits list */}
       {showAIChat && viewMode === 'overview' && (
-        <div className="fixed bottom-0 left-[70px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-5 pt-3 bg-gradient-to-t from-white/90 via-white/60 to-transparent">
+        <div className="flex justify-center px-4 sm:px-6 lg:px-8 pt-6 pb-8">
           <div className="w-full max-w-2xl">
               <AIHabitChat
                 onHabitUpdate={async (habitData) => {
@@ -532,6 +537,9 @@ function UnifiedAnalyticsContent({
           </div>
         </div>
       )}
+
+      {/* Quick action chips below the chat */}
+      {viewMode === 'overview' && <QuickActionChips />}
     </div>
   );
 }

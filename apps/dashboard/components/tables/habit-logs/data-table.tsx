@@ -138,13 +138,13 @@ const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
 
 const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: number }> = {
   select: { size: 40, minSize: 40, maxSize: 40 },
-  date: { size: 90, minSize: 80, maxSize: 200 },
-  time: { size: 100, minSize: 80, maxSize: 200 },
-  habit: { size: 200, minSize: 140, maxSize: 500 },
-  value: { size: 140, minSize: 100, maxSize: 280 },
-  category: { size: 140, minSize: 100, maxSize: 300 },
-  source: { size: 120, minSize: 90, maxSize: 300 },
-  notes: { size: 170, minSize: 120, maxSize: 400 },
+  date: { size: 110, minSize: 90, maxSize: 200 },
+  time: { size: 110, minSize: 80, maxSize: 200 },
+  habit: { size: 240, minSize: 140, maxSize: 500 },
+  value: { size: 160, minSize: 100, maxSize: 280 },
+  category: { size: 155, minSize: 100, maxSize: 300 },
+  source: { size: 140, minSize: 90, maxSize: 300 },
+  notes: { size: 195, minSize: 120, maxSize: 400 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
