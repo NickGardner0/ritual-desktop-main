@@ -528,7 +528,7 @@ export function HabitLogsDataTable({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  const rowHeight = density === 'compact' ? 42 : 46;
+  const rowHeight = density === 'compact' ? 40 : 45;
 
   const rowVirtualizer = useVirtualizer({
     count: logs.length,
@@ -786,8 +786,8 @@ export function HabitLogsDataTable({
     window.addEventListener('mouseup', onMouseUp);
   }, [columnById, getColumnWidth]);
 
-  const tableHeaderHeight = density === 'compact' ? 'h-[42px]' : 'h-[46px]';
-  const tableRowHeight = density === 'compact' ? 'h-[42px]' : 'h-[46px]';
+  const tableHeaderHeight = density === 'compact' ? 'h-[40px]' : 'h-[45px]';
+  const tableRowHeight = density === 'compact' ? 'h-[40px]' : 'h-[45px]';
   const headerCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
   const bodyCellPadding = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-2';
 
@@ -899,7 +899,7 @@ export function HabitLogsDataTable({
   return (
     <TooltipProvider delayDuration={20}>
       <div
-        className="relative flex flex-col h-full min-h-0 outline-none"
+        className="relative outline-none"
         tabIndex={0}
         onKeyDown={handleKeyboardSelection}
         onMouseDown={() => containerRef.current?.focus()}
@@ -917,7 +917,7 @@ export function HabitLogsDataTable({
           <button
             type="button"
             onClick={() => scrollHorizontal('left')}
-            className="absolute left-0 top-0 z-30 flex h-[46px] w-8 items-center justify-start bg-gradient-to-r from-white via-white/80 to-transparent pl-1"
+            className="absolute left-0 top-0 z-30 flex h-[45px] w-8 items-center justify-start bg-gradient-to-r from-white via-white/80 to-transparent pl-1"
             aria-label="Scroll left"
           >
             <ArrowUp className="h-3.5 w-3.5 -rotate-90 text-neutral-500" />
@@ -927,7 +927,7 @@ export function HabitLogsDataTable({
           <button
             type="button"
             onClick={() => scrollHorizontal('right')}
-            className="absolute right-0 top-0 z-30 flex h-[46px] w-8 items-center justify-end bg-gradient-to-l from-white via-white/80 to-transparent pr-1"
+            className="absolute right-0 top-0 z-30 flex h-[45px] w-8 items-center justify-end bg-gradient-to-l from-white via-white/80 to-transparent pr-1"
             aria-label="Scroll right"
           >
             <ArrowUp className="h-3.5 w-3.5 rotate-90 text-neutral-500" />
@@ -935,9 +935,10 @@ export function HabitLogsDataTable({
         )}
         <div
           ref={scrollViewportRef}
-          className="flex-1 min-h-0 overflow-auto overscroll-x-none rounded-sm border border-border bg-white shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] scrollbar-hide"
+          className="overflow-auto overscroll-none border border-border bg-white scrollbar-hide"
+          style={{ height: 'calc(100vh - 180px)' }}
         >
-          <table className="w-max min-w-full table-fixed border-separate border-spacing-0 caption-bottom text-sm">
+          <table className="w-full min-w-full table-fixed border-separate border-spacing-0 text-sm">
             <colgroup>
               {visibleColumns.map((column) => (
                 <col key={`col-${column.id}`} style={getColumnStyle(column.id)} />
@@ -949,8 +950,8 @@ export function HabitLogsDataTable({
               collisionDetection={closestCenter}
               onDragEnd={handleColumnDragEnd}
             >
-              <TableHeader className="sticky top-0 z-20 border-0 bg-white">
-                <TableRow className={cn('hover:bg-transparent border-0', tableHeaderHeight)}>
+              <TableHeader className="sticky top-0 z-20 bg-white">
+                <TableRow className={cn('hover:bg-transparent !border-b-0', tableHeaderHeight)}>
                   <SortableContext
                     items={visibleColumns.map((c) => c.id)}
                     strategy={horizontalListSortingStrategy}
@@ -1019,7 +1020,7 @@ export function HabitLogsDataTable({
               </TableHeader>
             </DndContext>
 
-            <TableBody className="border-0" style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+            <TableBody className="border-0 block" style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
               {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                 const index = virtualRow.index;
                 const log = logs[index];
@@ -1039,7 +1040,7 @@ export function HabitLogsDataTable({
                       tableRowHeight,
                       'absolute left-0 w-full',
                     )}
-                    style={{ top: 0, transform: `translateY(${virtualRow.start}px)` } as CSSProperties}
+                    style={{ height: rowHeight, top: 0, transform: `translateY(${virtualRow.start}px)`, contain: 'layout style paint' } as CSSProperties}
                     onClick={(event) => {
                       if (event.shiftKey && lastClickedIndex !== null) {
                         handleShiftClickRange(lastClickedIndex, index);
