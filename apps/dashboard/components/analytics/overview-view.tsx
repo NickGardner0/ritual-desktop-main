@@ -979,7 +979,7 @@ export function OverviewView({
   }
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-0 h-[calc(100vh-160px)] overflow-hidden">
       <OverviewInitialSection
         hideControls={hideControls}
         isDesktopShell={isDesktopShell}

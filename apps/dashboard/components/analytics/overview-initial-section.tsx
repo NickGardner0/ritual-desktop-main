@@ -3,7 +3,7 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Plus, Download, Bot, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
+import { Plus, Download, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
@@ -20,8 +20,8 @@ const SortableHabitList = dynamic(
   { ssr: false },
 );
 
-const QUICK_ACTIONS = [
-  { label: 'Log with AI', icon: Bot, path: '/chat' },
+const QUICK_ACTIONS: { label: string; icon?: typeof TrendingUp; imageSrc?: string; path: string }[] = [
+  { label: 'Ritual Chat', imageSrc: '/images/eclipse.svg', path: '/chat' },
   { label: 'View Trends', icon: TrendingUp, path: '/dashboard?view=metrics' },
   { label: 'Weekly Recap', icon: CalendarCheck, path: '/chat?q=weekly+recap' },
   { label: 'Import Data', icon: Upload, path: '/dashboard?view=overview&openImport=1' },
@@ -40,7 +40,11 @@ export function QuickActionChips() {
           onClick={() => router.push(action.path)}
           className="inline-flex items-center gap-1.5 rounded-sm border border-border bg-white px-2.5 py-1 text-[12px] font-medium text-neutral-700 transition-colors hover:bg-[#f7f7f6] hover:text-neutral-900"
         >
-          <action.icon className="h-3 w-3" />
+          {action.imageSrc ? (
+            <img src={action.imageSrc} alt="" className="h-3 w-3 opacity-70" />
+          ) : action.icon ? (
+            <action.icon className="h-3 w-3" />
+          ) : null}
           {action.label}
         </button>
       ))}
@@ -149,7 +153,7 @@ export function OverviewInitialSection({
         </div>
       )}
 
-      <div className="pt-6">
+      <div className="pt-6 flex-1 overflow-auto pb-4">
         <div className="max-w-[500px] mx-auto w-full">
           <SortableHabitList
             habits={orderedHabits}

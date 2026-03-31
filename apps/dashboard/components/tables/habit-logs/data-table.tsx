@@ -1127,6 +1127,8 @@ export function HabitLogsDataTable({
                       );
                     })}
                   </SortableContext>
+                  {/* Filler to extend header border to full width */}
+                  <div className="flex-1 h-full border-b border-border bg-white" />
                 </div>
               </div>
             </DndContext>
@@ -1214,6 +1216,8 @@ export function HabitLogsDataTable({
                         </div>
                       );
                     })}
+                    {/* Filler to extend row border to full width */}
+                    <div className={cn('flex-1 h-full border-b border-border', rowBgClass)} />
                   </div>
                 );
               })}
