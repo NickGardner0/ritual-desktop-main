@@ -227,7 +227,11 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
             turso_provisioned_at="2026-03-27T00:00:00Z",
         )
 
-        with patch.object(service, "_load_user", AsyncMock(return_value=user)), patch.object(
+        with patch.object(service, "_load_user_turso_metadata", AsyncMock(return_value=user)), patch.object(
+            service,
+            "_load_user",
+            AsyncMock(return_value=user),
+        ), patch.object(
             service,
             "_retrieve_database",
             AsyncMock(side_effect=AssertionError("should not call platform API")),
@@ -252,12 +256,8 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(service, "is_platform_configured", return_value=True), patch.object(
             service,
-            "_load_user",
+            "ensure_user_activity_metadata",
             AsyncMock(return_value=user),
-        ), patch.object(
-            service,
-            "ensure_user_activity_database",
-            AsyncMock(side_effect=AssertionError("should not reprovision")),
         ), patch.object(
             service,
             "_mint_database_token",
@@ -281,7 +281,7 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(service, "is_platform_configured", return_value=True), patch.object(
             service,
-            "_load_user",
+            "ensure_user_activity_metadata",
             AsyncMock(return_value=user),
         ), patch.object(
             service,

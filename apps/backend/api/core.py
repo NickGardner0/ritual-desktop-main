@@ -110,9 +110,7 @@ def create_core_router(
                 phone_number=current_user.get("phone"),
             )
             try:
-                provisioned = await turso_user_service.ensure_user_activity_database(user.id)
-                if provisioned is not None:
-                    user = provisioned
+                await turso_user_service.ensure_user_activity_metadata(user.id)
             except TursoProvisioningError:
                 if turso_user_service.is_platform_configured():
                     raise

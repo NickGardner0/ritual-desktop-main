@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import httpx
 import libsql_experimental as libsql
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from database.connection import get_db_session
 from database.models import UserDB
@@ -237,6 +237,15 @@ class UserActivityAccess:
     use_per_user_db: bool = False
 
 
+@dataclass
+class UserTursoMetadata:
+    id: str
+    turso_db_name: Optional[str] = None
+    turso_db_url: Optional[str] = None
+    turso_provisioned_at: Optional[datetime] = None
+    turso_migrated_at: Optional[datetime] = None
+
+
 class TursoUserService:
     def __init__(self) -> None:
         self.platform_api_base = (
@@ -404,6 +413,30 @@ class TursoUserService:
             result = await session.execute(select(UserDB).where(UserDB.id == user_id))
             return result.scalar_one_or_none()
 
+    async def _load_user_turso_metadata(self, user_id: str) -> Optional[UserTursoMetadata]:
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(
+                    UserDB.id,
+                    UserDB.turso_db_name,
+                    UserDB.turso_db_url,
+                    UserDB.turso_provisioned_at,
+                    UserDB.turso_migrated_at,
+                ).where(UserDB.id == user_id)
+            )
+            row = result.first()
+
+        if row is None:
+            return None
+
+        return UserTursoMetadata(
+            id=row[0],
+            turso_db_name=row[1],
+            turso_db_url=row[2],
+            turso_provisioned_at=row[3],
+            turso_migrated_at=row[4],
+        )
+
     async def _update_user_turso_metadata(
         self,
         user_id: str,
@@ -414,19 +447,60 @@ class TursoUserService:
         migrated_at: Optional[datetime] = None,
     ) -> None:
         async with get_db_session() as session:
-            result = await session.execute(select(UserDB).where(UserDB.id == user_id))
-            user = result.scalar_one_or_none()
-            if user is None:
+            existing = await self._load_user_turso_metadata(user_id)
+            if existing is None:
                 raise TursoProvisioningError(f"User {user_id} not found while updating Turso metadata")
 
-            user.turso_db_name = database_name
-            user.turso_db_url = sync_url
-            if provisioned_at is not None and user.turso_provisioned_at is None:
-                user.turso_provisioned_at = provisioned_at
+            values: Dict[str, Any] = {
+                "turso_db_name": database_name,
+                "turso_db_url": sync_url,
+                "updated_at": datetime.utcnow(),
+            }
+            if provisioned_at is not None and existing.turso_provisioned_at is None:
+                values["turso_provisioned_at"] = provisioned_at
             if migrated_at is not None:
-                user.turso_migrated_at = migrated_at
-            user.updated_at = datetime.utcnow()
+                values["turso_migrated_at"] = migrated_at
+
+            await session.execute(update(UserDB).where(UserDB.id == user_id).values(**values))
             await session.commit()
+
+    async def ensure_user_activity_metadata(self, user_id: str) -> Optional[UserTursoMetadata]:
+        user = await self._load_user_turso_metadata(user_id)
+        if user is None:
+            raise TursoProvisioningError(f"User {user_id} does not exist")
+        if not self.is_platform_configured():
+            return user
+
+        if user.turso_db_name and user.turso_db_url and user.turso_provisioned_at is not None:
+            logger.debug(
+                "Per-user Turso metadata already present for %s; skipping provisioning",
+                user_id,
+            )
+            return user
+
+        database_name = user.turso_db_name or self.build_database_name(user_id)
+        database = await self._retrieve_database(database_name)
+        created_database = database is None
+        if database is None:
+            database = await self._create_database(database_name)
+
+        hostname = str(database.get("Hostname") or "").strip()
+        if not hostname:
+            refreshed = await self._retrieve_database(database_name)
+            hostname = str((refreshed or {}).get("Hostname") or "").strip()
+        if not hostname:
+            raise TursoProvisioningError(f"Turso database {database_name} is missing a hostname")
+
+        sync_url = self.sync_url_for_hostname(hostname)
+        if created_database or user.turso_provisioned_at is None or user.turso_db_url != sync_url:
+            await self._ensure_remote_schema(user_id, sync_url, database_name)
+        await self._update_user_turso_metadata(
+            user_id,
+            database_name=database_name,
+            sync_url=sync_url,
+            provisioned_at=user.turso_provisioned_at or datetime.utcnow(),
+        )
+        return await self._load_user_turso_metadata(user_id)
 
     def _is_retryable_replica_error(self, exc: Exception) -> bool:
         message = str(exc).lower()
@@ -507,41 +581,7 @@ class TursoUserService:
         await asyncio.to_thread(_apply_schema)
 
     async def ensure_user_activity_database(self, user_id: str) -> Optional[UserDB]:
-        user = await self._load_user(user_id)
-        if user is None:
-            raise TursoProvisioningError(f"User {user_id} does not exist")
-        if not self.is_platform_configured():
-            return user
-
-        if user.turso_db_name and user.turso_db_url and user.turso_provisioned_at is not None:
-            logger.debug(
-                "Per-user Turso metadata already present for %s; skipping provisioning",
-                user_id,
-            )
-            return user
-
-        database_name = user.turso_db_name or self.build_database_name(user_id)
-        database = await self._retrieve_database(database_name)
-        created_database = database is None
-        if database is None:
-            database = await self._create_database(database_name)
-
-        hostname = str(database.get("Hostname") or "").strip()
-        if not hostname:
-            refreshed = await self._retrieve_database(database_name)
-            hostname = str((refreshed or {}).get("Hostname") or "").strip()
-        if not hostname:
-            raise TursoProvisioningError(f"Turso database {database_name} is missing a hostname")
-
-        sync_url = self.sync_url_for_hostname(hostname)
-        if created_database or user.turso_provisioned_at is None or user.turso_db_url != sync_url:
-            await self._ensure_remote_schema(user_id, sync_url, database_name)
-        await self._update_user_turso_metadata(
-            user_id,
-            database_name=database_name,
-            sync_url=sync_url,
-            provisioned_at=user.turso_provisioned_at or datetime.utcnow(),
-        )
+        await self.ensure_user_activity_metadata(user_id)
         return await self._load_user(user_id)
 
     def _legacy_activity_db_path(self) -> Path:
@@ -1165,7 +1205,7 @@ class TursoUserService:
         }
 
     async def get_user_activity_access(self, user_id: str) -> UserActivityAccess:
-        user = await self._load_user(user_id)
+        user = await self._load_user_turso_metadata(user_id)
         if user and user.turso_migrated_at and user.turso_db_name and user.turso_db_url:
             return UserActivityAccess(
                 mode="per-user",
@@ -1179,12 +1219,7 @@ class TursoUserService:
         if not self.is_platform_configured():
             raise TursoProvisioningError("Per-user Turso sync is not configured")
 
-        user = await self._load_user(user_id)
-        if user is None:
-            raise TursoProvisioningError(f"User {user_id} does not exist")
-
-        if not user.turso_db_name or not user.turso_db_url:
-            user = await self.ensure_user_activity_database(user_id)
+        user = await self.ensure_user_activity_metadata(user_id)
 
         if user is None or not user.turso_db_name or not user.turso_db_url:
             raise TursoProvisioningError("Per-user Turso database metadata is missing")
