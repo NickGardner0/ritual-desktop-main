@@ -534,7 +534,7 @@ async def get_top_apps_impl(
                     ts_start,
                     ts_end,
                     app_bundle_id,
-                    app_name,
+                    app_name
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
                   AND user_id = ?
@@ -737,7 +737,7 @@ async def get_top_domains_impl(
                 SELECT
                     ts_start,
                     ts_end,
-                    browser_domain,
+                    browser_domain
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
                   AND user_id = ?

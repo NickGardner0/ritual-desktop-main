@@ -99,7 +99,7 @@ export function VercelBarListCard({
   const listMaxHeight = visibleRows > 0 ? `${visibleRows * 32}px` : undefined;
 
   return (
-    <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-xl overflow-hidden flex flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+    <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-sm overflow-hidden flex flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
       {/* Header */}
       <div className="px-4 pt-3 pb-1.5">
         <div className="flex items-center justify-between">

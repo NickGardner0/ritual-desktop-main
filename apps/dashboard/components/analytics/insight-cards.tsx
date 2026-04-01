@@ -80,19 +80,19 @@ export function InsightCardsGrid({ onCardClick, compact = false }: InsightCardsG
             type="button"
             onClick={() => onCardClick?.({ title: card.title, description: card.description })}
             className={`group flex cursor-pointer flex-col justify-between overflow-hidden rounded-sm border border-[rgba(39,37,30,0.08)] bg-white text-left duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
-              compact ? 'h-[96px] px-3 py-2.5' : 'h-[124px] px-4 py-4'
+              compact ? 'h-[90px] px-2.5 py-2' : 'h-[124px] px-4 py-4'
             }`}
             style={{ transition: 'border-color 200ms ease-out, background-color 200ms ease-out, box-shadow 200ms ease-out' }}
           >
-            <card.Icon className={`${compact ? 'h-[15px] w-[15px]' : 'h-[18px] w-[18px]'} text-[#27251E]`} strokeWidth={1.5} />
+            <card.Icon className={`${compact ? 'h-[14px] w-[14px]' : 'h-[18px] w-[18px]'} text-[#27251E]`} strokeWidth={1.5} />
             <div className="min-w-0">
               <span className={`block truncate font-medium tracking-[-0.24px] text-[#27251E] ${
-                compact ? 'text-[11.5px] leading-[14px]' : 'text-[12.75px] leading-[17px]'
+                compact ? 'text-[11px] leading-[13px]' : 'text-[12.75px] leading-[17px]'
               }`}>
                 {card.title}
               </span>
               <span className={`mt-1 block tracking-[-0.18px] text-[rgba(39,37,30,0.62)] ${
-                compact ? 'text-[10px] leading-[12px]' : 'text-[11px] leading-[14px]'
+                compact ? 'text-[9.5px] leading-[11px]' : 'text-[11px] leading-[14px]'
               }`}>
                 {card.description}
               </span>
