@@ -1139,12 +1139,74 @@ export function IntegrationsClient() {
       await openInBrowser(authUrl.toString());
 
       if (isDesktopApp) {
-        startPollingForConnection();
+        startPollingForTeslaConnection();
       }
     } catch (error) {
       console.error('Error connecting to Tesla:', error);
       setTeslaConnecting(false);
     }
+  }
+
+  function startPollingForTeslaConnection() {
+    let pollCount = 0;
+    const maxPolls = 60;
+
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      pollCount++;
+
+      try {
+        const token = await getToken();
+        if (!token) {
+          stopPolling();
+          return;
+        }
+
+        const sessionId = oauthSessionIdRef.current;
+        const sessionToken = oauthSessionTokenRef.current;
+        if (sessionId && sessionToken) {
+          const codeResponse = await fetch(
+            `/api/integrations/tesla/store-code?sessionId=${encodeURIComponent(sessionId)}&sessionToken=${encodeURIComponent(sessionToken)}`
+          );
+
+          if (codeResponse.ok) {
+            const codeData = await codeResponse.json();
+            if (codeData.found && codeData.code) {
+              oauthSessionIdRef.current = null;
+              oauthSessionTokenRef.current = null;
+              await handleTeslaCallback(codeData.code);
+              stopPolling();
+              return;
+            }
+          }
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.connected) {
+            setTeslaConnected(true);
+            setTeslaConnecting(false);
+            refetchOverview();
+            stopPolling();
+            return;
+          }
+        }
+
+        if (pollCount >= maxPolls) {
+          setTeslaConnecting(false);
+          stopPolling();
+        }
+      } catch (error) {
+        console.error('Error polling Tesla connection:', error);
+      }
+    }, 2000);
   }
 
   async function handleTeslaSync() {
