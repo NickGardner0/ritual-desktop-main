@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from services import linq_service
+from services import sendblue_service
 
 
 class _FakeResponse:
@@ -37,32 +37,34 @@ class _FakeAsyncClient:
         return _FakeResponse()
 
 
-class LinqServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_send_linq_message_creates_chat_with_expected_payload(self):
+class SendblueServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_send_message_posts_to_sendblue_with_expected_payload(self):
         _FakeAsyncClient.calls = []
 
-        with patch.object(linq_service, "LINQ_API_KEY", "test-key"), patch.object(
-            linq_service,
-            "LINQ_FROM_NUMBER",
-            "+1 (631) 745-0064",
-        ), patch("services.linq_service.httpx.AsyncClient", _FakeAsyncClient):
-            sent = await linq_service.send_linq_message(
+        with patch.object(sendblue_service, "SENDBLUE_API_KEY", "test-key"), patch.object(
+            sendblue_service, "SENDBLUE_API_SECRET", "test-secret"
+        ), patch.object(
+            sendblue_service,
+            "SENDBLUE_FROM_NUMBER",
+            "+1 (835) 276-1673",
+        ), patch("services.sendblue_service.httpx.AsyncClient", _FakeAsyncClient):
+            sent = await sendblue_service.send_message(
                 phone_number="631-555-1234",
                 text="Welcome to Ritual.",
-                display_name="Ritual",
             )
 
         self.assertTrue(sent)
         self.assertEqual(len(_FakeAsyncClient.calls), 1)
         call = _FakeAsyncClient.calls[0]
-        self.assertEqual(call["url"], "https://api.linqapp.com/api/partner/v3/chats")
-        self.assertEqual(call["json"]["from"], "+16317450064")
-        self.assertEqual(call["json"]["to"], ["+16315551234"])
-        self.assertEqual(call["json"]["display_name"], "Ritual")
-        self.assertEqual(call["json"]["message"]["parts"][0]["value"], "Welcome to Ritual.")
+        self.assertEqual(call["url"], "https://api.sendblue.co/api/send-message")
+        self.assertEqual(call["json"]["number"], "+16315551234")
+        self.assertEqual(call["json"]["content"], "Welcome to Ritual.")
+        self.assertEqual(call["json"]["from_number"], "+18352761673")
+        self.assertEqual(call["headers"]["sb-api-key-id"], "test-key")
+        self.assertEqual(call["headers"]["sb-api-secret-key"], "test-secret")
 
     def test_build_onboarding_welcome_text_includes_core_examples(self):
-        text = linq_service.build_onboarding_welcome_text("Nick")
+        text = sendblue_service.build_onboarding_welcome_text("Nick")
 
         self.assertIn("Welcome to Ritual, Nick.", text)
         self.assertIn("30mg caffeine", text)

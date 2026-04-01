@@ -33,20 +33,20 @@ class _SessionContext:
         return False
 
 
-class UserServiceOnboardingLinqTests(unittest.IsolatedAsyncioTestCase):
-    async def test_update_onboarding_sends_linq_welcome_once_when_phone_present(self):
+class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_update_onboarding_sends_welcome_once_when_phone_present(self):
         service = UserService()
         existing_user = SimpleNamespace(
             id="user-1",
             onboarding_completed=False,
-            linq_onboarding_welcome_sent_at=None,
+            sms_welcome_sent_at=None,
             phone_number=None,
         )
         updated_user = SimpleNamespace(
             id="user-1",
             full_name="Nick Gardner",
             phone_number="+16317450064",
-            linq_onboarding_welcome_sent_at=None,
+            sms_welcome_sent_at=None,
         )
 
         session = AsyncMock()
@@ -77,21 +77,21 @@ class UserServiceOnboardingLinqTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, updated_user)
         send_welcome.assert_awaited_once_with("+16317450064", "Nick Gardner")
         self.assertEqual(session.commit.await_count, 2)
-        self.assertIsInstance(updated_user.linq_onboarding_welcome_sent_at, datetime)
+        self.assertIsInstance(updated_user.sms_welcome_sent_at, datetime)
 
-    async def test_update_onboarding_skips_linq_welcome_when_already_sent(self):
+    async def test_update_onboarding_skips_welcome_when_already_sent(self):
         service = UserService()
         existing_user = SimpleNamespace(
             id="user-1",
             onboarding_completed=True,
-            linq_onboarding_welcome_sent_at=datetime.now(timezone.utc),
+            sms_welcome_sent_at=datetime.now(timezone.utc),
             phone_number="+16317450064",
         )
         updated_user = SimpleNamespace(
             id="user-1",
             full_name="Nick Gardner",
             phone_number="+16317450064",
-            linq_onboarding_welcome_sent_at=existing_user.linq_onboarding_welcome_sent_at,
+            sms_welcome_sent_at=existing_user.sms_welcome_sent_at,
         )
 
         session = AsyncMock()

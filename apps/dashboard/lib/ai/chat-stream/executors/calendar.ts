@@ -6,6 +6,8 @@
 
 import { fetchPythonApi, getTimezoneYmd } from './shared-api';
 
+const CALENDAR_TIMEOUT_MS = 8000;
+
 export async function executeGetCalendarEvents(
   token: string,
   params: { startDate?: string; endDate?: string },
@@ -20,7 +22,7 @@ export async function executeGetCalendarEvents(
     const response = await fetchPythonApi('/api/calendar/scheduled-blocks', token, {
       start_date: startDate,
       end_date: endDate,
-    });
+    }, { timeoutMs: CALENDAR_TIMEOUT_MS });
 
     const blocks = Array.isArray(response) ? response : (response?.data || response?.blocks || []);
 

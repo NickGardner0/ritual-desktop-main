@@ -394,7 +394,7 @@ def _rrf_fuse(
 
 def _build_query_budgets(intent: str) -> Dict[str, int]:
     if intent == "broad_overview":
-        return {"lane_top_k": 144, "candidate_limit": 96, "final_limit": 48}
+        return {"lane_top_k": 192, "candidate_limit": 128, "final_limit": 64}
     if intent == "semantic_lookup":
         return {"lane_top_k": 40, "candidate_limit": 20, "final_limit": 12}
     return {"lane_top_k": 50, "candidate_limit": 30, "final_limit": 16}

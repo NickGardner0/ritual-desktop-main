@@ -18,7 +18,7 @@ class UserDB(Base):
     full_name = Column(String)
     
     phone_number = Column(String, nullable=True)
-    linq_onboarding_welcome_sent_at = Column(DateTime, nullable=True)
+    sms_welcome_sent_at = Column(DateTime, nullable=True)
     turso_db_name = Column(String, nullable=True)
     turso_db_url = Column(String, nullable=True)
     turso_provisioned_at = Column(DateTime, nullable=True)

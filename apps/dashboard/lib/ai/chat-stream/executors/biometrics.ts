@@ -7,6 +7,8 @@
 import { fetchPythonApi } from './shared-api';
 import { getTimezoneYmd } from './shared-api';
 
+const BIOMETRICS_TIMEOUT_MS = 8000;
+
 export async function executeGetDailyBiometrics(
   token: string,
   params: { day?: string },
@@ -20,6 +22,7 @@ export async function executeGetDailyBiometrics(
       '/api/v1/biometrics/heart-rate/day-summary',
       token,
       { day },
+      { timeoutMs: BIOMETRICS_TIMEOUT_MS },
     );
 
     if (!response || response.detail) {

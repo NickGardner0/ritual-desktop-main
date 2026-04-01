@@ -8,11 +8,42 @@
 
 export const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
+interface PythonApiRequestOptions {
+  timeoutMs?: number;
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs?: number,
+) {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return fetch(input, init);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Python API helpers
 // ---------------------------------------------------------------------------
 
-export async function fetchPythonApi(endpoint: string, token: string, params?: Record<string, string | number>) {
+export async function fetchPythonApi(
+  endpoint: string,
+  token: string,
+  params?: Record<string, string | number>,
+  options?: PythonApiRequestOptions,
+) {
   const url = new URL(`${PYTHON_API_BASE}${endpoint}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -24,12 +55,12 @@ export async function fetchPythonApi(endpoint: string, token: string, params?: R
 
   console.log(`🐍 Calling Python API: ${url.toString()}`);
 
-  const response = await fetch(url.toString(), {
+  const response = await fetchWithTimeout(url.toString(), {
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-  });
+  }, options?.timeoutMs);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -44,18 +75,19 @@ export async function fetchPythonApiPost(
   endpoint: string,
   token: string,
   body: Record<string, unknown>,
+  options?: PythonApiRequestOptions,
 ) {
   const url = `${PYTHON_API_BASE}${endpoint}`;
   console.log(`🐍 Calling Python API (POST): ${url}`);
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
-  });
+  }, options?.timeoutMs);
 
   if (!response.ok) {
     const errorText = await response.text();

@@ -256,6 +256,31 @@ async function enrichActivitySummaryContext(
   };
 }
 
+async function tryEnrichActivitySummaryContext(
+  token: string,
+  activitySummary: ActivitySummaryResult | undefined,
+  latestUserContent: string,
+  timezone?: string,
+): Promise<{
+  activitySummary?: ActivitySummaryResult;
+  dailyBiometrics?: BiometricsResult;
+  calendarEvents?: CalendarEventsResult;
+}> {
+  try {
+    return await enrichActivitySummaryContext(
+      token,
+      activitySummary,
+      latestUserContent,
+      timezone,
+    );
+  } catch (error) {
+    console.error('⚠️ Activity summary enrichment failed open:', error);
+    return {
+      activitySummary,
+    };
+  }
+}
+
 // ====================
 // HELPERS
 // ====================
@@ -722,8 +747,12 @@ export async function handleChatStreamPost(req: NextRequest) {
         }
       } catch (e) { console.warn('⚠️ Tool result parse error:', e); }
 
-      if (forcedToolName === 'getActivitySummary' && toolResults.activitySummary?.success) {
-        const recapEnrichment = await enrichActivitySummaryContext(
+      if (
+        forcedToolName === 'getActivitySummary'
+        && toolResults.activitySummary?.success
+        && toolResults.activitySummary.retrieval_tier !== 'day_recap_bundle'
+      ) {
+        const recapEnrichment = await tryEnrichActivitySummaryContext(
           token,
           toolResults.activitySummary,
           latestUserContent,

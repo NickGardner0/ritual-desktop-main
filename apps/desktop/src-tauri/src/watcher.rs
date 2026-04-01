@@ -452,16 +452,13 @@ pub fn request_accessibility_permission() -> bool {
 fn watcher_candidate_paths() -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if let Some(external) = external_watcher_install_path() {
-        candidates.push(external);
-    }
-
     // Try to get the executable's directory for relative sidecar paths
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
-    // Prefer bundled sidecars first.
+    // Prefer the bundled helper first in release builds so we do not
+    // accidentally launch a stale external copy from ~/.ritual/bin.
     if let Some(exe) = &exe_dir {
         let target = std::env::var("TARGET").unwrap_or_else(|_| String::new());
         if !target.is_empty() {
@@ -497,6 +494,11 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
             candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
             candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
         }
+    }
+
+    // External installs are kept as the last-resort fallback only.
+    if let Some(external) = external_watcher_install_path() {
+        candidates.push(external);
     }
 
     candidates
@@ -766,6 +768,66 @@ fn log_existing_watcher_bindings(context: &str) {
     }
 }
 
+fn list_watcher_pids_for_device(device_id: &str) -> Vec<u32> {
+    if device_id.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(output) = Command::new("ps")
+        .args(["-axo", "pid=,command="])
+        .output()
+    else {
+        return Vec::new();
+    };
+
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let device_flag = format!("--device-id {}", device_id);
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || !trimmed.contains("ritual-watcher") || !trimmed.contains(&device_flag) {
+                return None;
+            }
+
+            let mut parts = trimmed.splitn(2, char::is_whitespace);
+            let pid = parts.next()?.trim().parse::<u32>().ok()?;
+            Some(pid)
+        })
+        .collect()
+}
+
+fn kill_watcher_pid(pid: u32) {
+    let _ = Command::new("kill").arg(pid.to_string()).output();
+}
+
+fn cleanup_existing_watcher_processes(device_id: &str, context: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let pids = list_watcher_pids_for_device(device_id);
+        if pids.is_empty() {
+            watcher_info!("🧹 {}: no existing watcher processes found for device", context);
+            return;
+        }
+
+        for pid in &pids {
+            kill_watcher_pid(*pid);
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        watcher_info!(
+            "🧹 {}: cleaned up {} existing watcher process(es) for device {}",
+            context,
+            pids.len(),
+            device_id
+        );
+    }
+}
+
 /// Start the ritual-watcher sidecar
 #[tauri::command]
 pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, String> {
@@ -783,25 +845,19 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
         *guard = Some(config.device_id.clone());
     }
 
-    // CRITICAL: Kill any existing watcher processes first to prevent duplicates
-    // This handles orphaned processes from crashes or previous sessions
-    #[cfg(target_os = "macos")]
-    {
-        let _ = Command::new("pkill")
-            .args(["ritual-watcher"])
-            .output();
-        // Brief pause to ensure processes are terminated
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        watcher_info!("🧹 Cleaned up any existing watcher processes");
-    }
-
     // Clear our stored handle
     {
         let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *guard = None;
+        if let Some(mut existing_child) = guard.take() {
+            let _ = existing_child.kill();
+            let _ = existing_child.wait();
+        }
     }
+
+    // Clean up orphaned watcher processes for this exact device only.
+    cleanup_existing_watcher_processes(&config.device_id, "pre-start");
 
     // Find executable
     let resolved_binary = find_watcher_executable()?;
@@ -863,23 +919,19 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
         *guard = Some(config.device_id.clone());
     }
 
-    // CRITICAL: Kill any existing watcher processes first to prevent duplicates
-    #[cfg(target_os = "macos")]
-    {
-        let _ = Command::new("pkill")
-            .args(["ritual-watcher"])
-            .output();
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        watcher_info!("🧹 Cleaned up any existing watcher processes");
-    }
-
     // Clear our stored handle
     {
         let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *guard = None;
+        if let Some(mut existing_child) = guard.take() {
+            let _ = existing_child.kill();
+            let _ = existing_child.wait();
+        }
     }
+
+    // Clean up orphaned watcher processes for this exact device only.
+    cleanup_existing_watcher_processes(&config.device_id, "pre-start sync");
 
     // Find executable
     let resolved_binary = find_watcher_executable()?;
@@ -947,11 +999,8 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
         }
     } else {
         watcher_info!("ℹ️ No watcher process to stop");
-        #[cfg(target_os = "macos")]
-        {
-            let _ = Command::new("pkill")
-                .args(["ritual-watcher"])
-                .output();
+        if let Some(device_id) = get_device_id_or_config() {
+            cleanup_existing_watcher_processes(&device_id, "stop fallback");
         }
     }
 

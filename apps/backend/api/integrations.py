@@ -26,6 +26,11 @@ class WhoopBulkSyncRequest(BaseModel):
     fullHistory: bool = False
 
 
+class TeslaBackfillRequest(BaseModel):
+    previous_odometer: float
+    as_of_date: str  # ISO date string e.g. "2025-10-01"
+
+
 def create_whoop_router(
     *,
     get_current_user: Callable[..., Any],
@@ -322,6 +327,159 @@ def create_whoop_router(
             raise
         except Exception:
             logger.exception("Whoop sync-hour update failed")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    return router
+
+
+# ── Tesla Integration Router ─────────────────────────────
+
+
+def create_tesla_router(
+    *,
+    get_current_user: Callable[..., Any],
+    tesla_service: Any,
+) -> APIRouter:
+    """Build Tesla integration router with injected dependencies."""
+    router = APIRouter(prefix="/api/integrations/tesla", tags=["integrations"])
+
+    @router.post("/callback")
+    async def tesla_callback(
+        code: str,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if not code:
+                raise HTTPException(status_code=400, detail="No authorization code provided")
+
+            user_id = current_user["id"]
+            logger.info("Tesla callback: exchanging code for user %s", user_id)
+            token_data = await tesla_service.exchange_code_for_token(code)
+
+            await tesla_service.save_connection(
+                user_id=user_id,
+                access_token=token_data["access_token"],
+                refresh_token=token_data.get("refresh_token"),
+                expires_in=token_data.get("expires_in", 28800),
+            )
+            logger.info("Tesla integration saved for user %s", user_id)
+
+            # Discover vehicles and do initial odometer snapshot
+            try:
+                access_token = token_data["access_token"]
+                vehicles = await tesla_service.list_vehicles(access_token)
+                if vehicles:
+                    # Store vehicle info + take first odometer reading (no miles logged yet)
+                    await tesla_service.sync_odometer(user_id)
+            except Exception:
+                logger.warning("Initial Tesla vehicle discovery failed (non-fatal)", exc_info=True)
+
+            return {
+                "status": "success",
+                "message": "Tesla connected successfully",
+            }
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Tesla callback failed")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.get("/status")
+    async def tesla_status(current_user=Depends(get_current_user)):
+        try:
+            return await tesla_service.get_connection_status(current_user["id"])
+        except Exception:
+            logger.exception("Tesla status check failed")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.post("/sync")
+    async def tesla_sync(current_user=Depends(get_current_user)):
+        try:
+            logger.info("Starting Tesla odometer sync for user %s", current_user["id"])
+            result = await tesla_service.sync_odometer(current_user["id"])
+            return result
+        except Exception as exc:
+            logger.exception("Tesla sync failed")
+            message = str(exc).strip() or "Request could not be processed."
+            raise HTTPException(status_code=500, detail=message)
+
+    @router.post("/backfill-odometer")
+    async def tesla_backfill_odometer(
+        payload: "TeslaBackfillRequest",
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            logger.info(
+                "Tesla backfill for user %s: previous_odometer=%.1f, date=%s",
+                current_user["id"],
+                payload.previous_odometer,
+                payload.as_of_date,
+            )
+            result = await tesla_service.backfill_from_odometer(
+                user_id=current_user["id"],
+                previous_odometer=payload.previous_odometer,
+                as_of_date=payload.as_of_date,
+            )
+            return result
+        except Exception as exc:
+            logger.exception("Tesla backfill failed")
+            raise HTTPException(status_code=500, detail=str(exc) or "Backfill failed")
+
+    @router.post("/sync-all")
+    async def tesla_sync_all(
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        """Bulk sync all active Tesla connections (called by Trigger.dev)."""
+        try:
+            expected_internal_key = os.getenv("INTERNAL_API_KEY")
+            if not expected_internal_key:
+                raise HTTPException(status_code=503, detail="INTERNAL_API_KEY not configured")
+            if internal_key != expected_internal_key:
+                raise HTTPException(status_code=403, detail="Invalid internal API key")
+
+            logger.info("Starting bulk Tesla sync for all users")
+            from database.models import WearableConnectionDB as WC
+
+            async with get_db_session() as session:
+                result = await session.execute(
+                    select(WC).where(
+                        WC.provider == "tesla",
+                        WC.status == "active",
+                    )
+                )
+                connections = result.scalars().all()
+
+            sync_results = []
+            for conn in connections:
+                try:
+                    r = await tesla_service.sync_odometer(conn.user_id)
+                    sync_results.append({"user_id": conn.user_id, "success": True, "data": r})
+                except Exception:
+                    logger.exception("Tesla bulk sync failed for user %s", conn.user_id)
+                    sync_results.append({"user_id": conn.user_id, "success": False, "error": "Sync failed"})
+
+            successful = sum(1 for r in sync_results if r["success"])
+            logger.info("Bulk Tesla sync completed: %s/%s successful", successful, len(sync_results))
+            return {
+                "success": True,
+                "total_users": len(sync_results),
+                "successful_syncs": successful,
+                "results": sync_results,
+            }
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Bulk Tesla sync failed")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.delete("")
+    async def tesla_disconnect(current_user=Depends(get_current_user)):
+        try:
+            await tesla_service.disconnect(current_user["id"])
+            logger.info("Tesla disconnected for user %s", current_user["id"])
+            return {"status": "success", "message": "Tesla disconnected successfully"}
+        except Exception:
+            logger.exception("Tesla disconnect failed")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
 
     return router

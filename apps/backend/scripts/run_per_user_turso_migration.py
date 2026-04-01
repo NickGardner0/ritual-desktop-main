@@ -28,7 +28,7 @@ def _ensure_local_operator_schema() -> None:
 
     required_user_columns = {
         "phone_number": "ALTER TABLE users ADD COLUMN phone_number TEXT",
-        "linq_onboarding_welcome_sent_at": "ALTER TABLE users ADD COLUMN linq_onboarding_welcome_sent_at DATETIME",
+        "sms_welcome_sent_at": "ALTER TABLE users ADD COLUMN sms_welcome_sent_at DATETIME",
         "turso_db_name": "ALTER TABLE users ADD COLUMN turso_db_name TEXT",
         "turso_db_url": "ALTER TABLE users ADD COLUMN turso_db_url TEXT",
         "turso_provisioned_at": "ALTER TABLE users ADD COLUMN turso_provisioned_at DATETIME",

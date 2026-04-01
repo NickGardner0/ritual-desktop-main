@@ -647,6 +647,12 @@ export function IntegrationsClient() {
   const [plaidAccountSavingId, setPlaidAccountSavingId] = useState<string | null>(null);
   const [appleWatchSyncing, setAppleWatchSyncing] = useState(false);
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
+  const [teslaConnected, setTeslaConnected] = useState(false);
+  const [teslaConnecting, setTeslaConnecting] = useState(false);
+  const [teslaSyncing, setTeslaSyncing] = useState(false);
+  const [teslaBackfilling, setTeslaBackfilling] = useState(false);
+  const [teslaBackfillOdometer, setTeslaBackfillOdometer] = useState('');
+  const [teslaBackfillDate, setTeslaBackfillDate] = useState('');
   const [wearableConnectingProvider, setWearableConnectingProvider] = useState<string | null>(null);
   const [wearableSyncingProvider, setWearableSyncingProvider] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -667,6 +673,7 @@ export function IntegrationsClient() {
   const appleHealthConnection = findWearableConnection('apple_health');
   const ouraConnection = findWearableConnection('oura');
   const garminConnection = findWearableConnection('garmin');
+  const teslaConnection = findWearableConnection('tesla');
   const financialConnections = financialConnectionsData?.connections || [];
   const plaidConnection = financialConnections.find((item: any) => item.provider === 'plaid');
   const plaidConnected = !!plaidConnection && plaidConnection.status === 'active';
@@ -679,6 +686,7 @@ export function IntegrationsClient() {
     plaidConnection?.last_error_json?.message ||
     'This bank connection needs to be repaired before spending can continue syncing.';
   const effectiveWhoopConnected = Boolean(whoopConnected || (whoopConnection && whoopConnection.status === 'active'));
+  const effectiveTeslaConnected = Boolean(teslaConnected || (teslaConnection && teslaConnection.status === 'active'));
 
   // Update local state when query data changes
   useEffect(() => {
@@ -687,6 +695,10 @@ export function IntegrationsClient() {
       setWhoopSyncHour(whoopStatusData?.sync_hour || whoopConnection?.sync_hour || 9);
     }
   }, [effectiveWhoopConnected, whoopConnection, whoopStatusData]);
+
+  useEffect(() => {
+    setTeslaConnected(effectiveTeslaConnected);
+  }, [effectiveTeslaConnected]);
 
   const callbackProcessedRef = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -827,10 +839,27 @@ export function IntegrationsClient() {
     const wearableConnected = searchParams.get('wearable_connected');
     const wearableError = searchParams.get('wearable_error');
 
+    const teslaCode = searchParams.get('tesla_code');
+    const teslaError = searchParams.get('tesla_error');
+
     if (whoopCode && !callbackProcessedRef.current) {
       callbackProcessedRef.current = true;
       setIsProcessingCallback(true);
       handleWhoopCallback(whoopCode);
+      return;
+    }
+
+    if (teslaCode && !callbackProcessedRef.current) {
+      callbackProcessedRef.current = true;
+      setIsProcessingCallback(true);
+      handleTeslaCallback(teslaCode);
+      return;
+    }
+
+    if (teslaError) {
+      console.error('Tesla OAuth error:', teslaError);
+      alert(`Tesla connection failed: ${teslaError}`);
+      router.replace('/integrations');
       return;
     }
 
@@ -1024,6 +1053,177 @@ export function IntegrationsClient() {
     } catch (error) {
       console.error('❌ Error connecting to Whoop:', error);
       setWhoopConnecting(false);
+    }
+  }
+
+  // ── Tesla handlers ───────────────────────────────────
+
+  async function handleTeslaCallback(code: string) {
+    try {
+      setTeslaConnecting(true);
+      const token = await getToken();
+      if (!token) {
+        setTeslaConnecting(false);
+        setIsProcessingCallback(false);
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/callback?code=${code}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Failed to connect Tesla');
+
+      setTeslaConnected(true);
+      setTeslaConnecting(false);
+      setIsProcessingCallback(false);
+      refetchOverview();
+      router.replace('/integrations');
+    } catch (error) {
+      console.error('Error handling Tesla callback:', error);
+      alert(`Failed to connect Tesla: ${error}`);
+      setTeslaConnecting(false);
+      setIsProcessingCallback(false);
+      callbackProcessedRef.current = false;
+      router.replace('/integrations');
+    }
+  }
+
+  async function handleTeslaConnect() {
+    try {
+      setTeslaConnecting(true);
+      oauthSessionIdRef.current = null;
+      oauthSessionTokenRef.current = null;
+
+      const clientId = process.env.NEXT_PUBLIC_TESLA_CLIENT_ID;
+      const redirectUri = process.env.NEXT_PUBLIC_TESLA_REDIRECT_URI;
+
+      if (!clientId || !redirectUri) {
+        throw new Error('Tesla configuration missing. Set NEXT_PUBLIC_TESLA_CLIENT_ID and NEXT_PUBLIC_TESLA_REDIRECT_URI.');
+      }
+
+      const randomState = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      const isDesktopApp = isTauri();
+
+      let sessionId = null;
+      if (isDesktopApp) {
+        sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        const sessionToken = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        oauthSessionIdRef.current = sessionId;
+        oauthSessionTokenRef.current = sessionToken;
+      }
+
+      const stateData = {
+        random: randomState,
+        source: isDesktopApp ? 'desktop' : 'web',
+        ...(sessionId && { sessionId }),
+        ...(oauthSessionTokenRef.current && { sessionToken: oauthSessionTokenRef.current }),
+      };
+      const state = btoa(JSON.stringify(stateData));
+
+      const authUrl = new URL('https://auth.tesla.com/oauth2/v3/authorize');
+      authUrl.searchParams.set('client_id', clientId);
+      authUrl.searchParams.set('redirect_uri', redirectUri);
+      authUrl.searchParams.set('response_type', 'code');
+      authUrl.searchParams.set('scope', 'openid vehicle_device_data offline_access');
+      authUrl.searchParams.set('state', state);
+
+      await openInBrowser(authUrl.toString());
+
+      if (isDesktopApp) {
+        startPollingForConnection();
+      }
+    } catch (error) {
+      console.error('Error connecting to Tesla:', error);
+      setTeslaConnecting(false);
+    }
+  }
+
+  async function handleTeslaSync() {
+    try {
+      setTeslaSyncing(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/sync`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) throw new Error('Tesla sync failed');
+      const result = await response.json();
+      console.log('Tesla sync result:', result);
+      refetchOverview();
+      fetchHabits();
+      fetchHabitLogs();
+    } catch (error) {
+      console.error('Tesla sync error:', error);
+      alert(`Tesla sync failed: ${error}`);
+    } finally {
+      setTeslaSyncing(false);
+    }
+  }
+
+  async function handleTeslaBackfill() {
+    const odometer = parseFloat(teslaBackfillOdometer);
+    if (!odometer || odometer <= 0 || !teslaBackfillDate) {
+      alert('Please enter a valid odometer reading and date.');
+      return;
+    }
+
+    try {
+      setTeslaBackfilling(true);
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/backfill-odometer`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ previous_odometer: odometer, as_of_date: teslaBackfillDate }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Backfill failed');
+      }
+
+      const result = await response.json();
+      alert(`Backfilled ${result.days_backfilled} days (${result.total_miles} total miles, ~${result.daily_average} mi/day)`);
+      setTeslaBackfillOdometer('');
+      setTeslaBackfillDate('');
+      refetchOverview();
+      fetchHabits();
+      fetchHabitLogs();
+    } catch (error) {
+      console.error('Tesla backfill error:', error);
+      alert(`Backfill failed: ${error}`);
+    } finally {
+      setTeslaBackfilling(false);
+    }
+  }
+
+  async function handleTeslaDisconnect() {
+    try {
+      const token = await getToken();
+      if (!token) return;
+
+      await fetch(`${API_BASE_URL}/api/integrations/tesla`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      setTeslaConnected(false);
+      refetchOverview();
+    } catch (error) {
+      console.error('Tesla disconnect error:', error);
     }
   }
 
@@ -1769,6 +1969,104 @@ export function IntegrationsClient() {
                     <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
                     <AccordionContent>{renderAutoSyncDetails('garmin', garminConnection, null, null)}</AccordionContent>
                   </AccordionItem>
+                ) : null}
+              </Accordion>
+            </ScrollArea>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedIntegration === 'tesla') {
+      return (
+        <div className="flex h-full flex-col bg-white">
+          {renderPanelHeader('tesla', 'Tesla', 'Miles driven • By Tesla')}
+          <div className="min-h-0 flex-1 px-5">
+            <ScrollArea className="h-full">
+              <Accordion type="multiple" defaultValue={['how-it-works', ...(effectiveTeslaConnected ? ['settings'] : [])]} className="pt-4">
+                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
+                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
+                  <AccordionContent className="text-sm text-[#69665c]">
+                    <p className="mb-3">
+                      Ritual reads your Tesla&apos;s odometer every 6 hours and logs the miles you&apos;ve driven as a daily habit.
+                    </p>
+                    <p>
+                      On the first sync, your current odometer is saved as a baseline. From then on, each sync computes the difference and logs new miles driven.
+                    </p>
+                  </AccordionContent>
+                </AccordionItem>
+                {effectiveTeslaConnected ? (
+                  <>
+                    <AccordionItem value="settings" className="border-[#e7e5dd]">
+                      <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-4 pb-4">
+                          <div>
+                            <p className="text-sm text-[#69665c]">
+                              Odometer is synced automatically every 6 hours. You can also sync manually.
+                            </p>
+                            {teslaConnection?.last_sync_at && (
+                              <p className="mt-2 text-xs text-[#9d9a90]">
+                                Last synced: {new Date(teslaConnection.last_sync_at).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleTeslaSync}
+                            disabled={teslaSyncing}
+                            className="w-full rounded-sm border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {teslaSyncing ? 'Syncing...' : 'Sync now'}
+                          </button>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                    <AccordionItem value="backfill" className="border-[#e7e5dd]">
+                      <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Backfill historical miles</AccordionTrigger>
+                      <AccordionContent>
+                        <div className="space-y-4 pb-4">
+                          <p className="text-sm text-[#69665c]">
+                            Enter a past odometer reading from your Tesla app to backfill daily miles between that date and today. Miles will be distributed evenly across each day.
+                          </p>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-[#69665c]">
+                              Odometer reading (miles)
+                            </label>
+                            <input
+                              type="number"
+                              value={teslaBackfillOdometer}
+                              onChange={(e) => setTeslaBackfillOdometer(e.target.value)}
+                              placeholder="e.g. 42150"
+                              className="w-full rounded-sm border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-[#69665c]">
+                              As of date
+                            </label>
+                            <input
+                              type="date"
+                              value={teslaBackfillDate}
+                              onChange={(e) => setTeslaBackfillDate(e.target.value)}
+                              className="w-full rounded-sm border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleTeslaBackfill}
+                            disabled={teslaBackfilling || !teslaBackfillOdometer || !teslaBackfillDate}
+                            className="w-full rounded-sm border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {teslaBackfilling ? 'Backfilling...' : 'Backfill miles'}
+                          </button>
+                          <p className="text-xs text-[#9d9a90]">
+                            Tip: Open the Tesla app → tap your car → Vehicle → Odometer to find past readings.
+                          </p>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </>
                 ) : null}
               </Accordion>
             </ScrollArea>
@@ -2551,8 +2849,13 @@ export function IntegrationsClient() {
         <IntegrationCard
           logo={<Image src="/images/Tesla_T_symbol.svg" alt="Tesla" width={24} height={24} className="h-6 w-6" />}
           title="Tesla"
-          description="Track miles driven"
-          comingSoon
+          description="Track miles driven from your Tesla vehicles."
+          isConnected={effectiveTeslaConnected}
+          isConnecting={teslaConnecting}
+          isSyncing={teslaSyncing}
+          onConnect={handleTeslaConnect}
+          onSync={handleTeslaSync}
+          onDisconnect={handleTeslaDisconnect}
           onDetails={() => openIntegrationDetails('tesla')}
         />
       </div>

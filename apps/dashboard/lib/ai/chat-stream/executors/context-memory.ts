@@ -361,6 +361,52 @@ export async function executeGetActivitySummary(
   const recapAnchorDate = inferRecapAnchorDateFn
     ? inferRecapAnchorDateFn(query, safeDaysBack, timezone)
     : null;
+  if (recapAnchorDate) {
+    try {
+      const recapResponse = await fetchPythonApiPost(
+        '/api/memory/recap/day',
+        token,
+        {
+          query,
+          anchor_date: recapAnchorDate,
+          timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+          days_back: safeDaysBack,
+        },
+        { timeoutMs: 12_000 },
+      );
+      if (recapResponse?.success) {
+        return JSON.stringify({
+          success: true,
+          query,
+          anchor_date: recapAnchorDate,
+          intent_resolved: recapResponse.intent_resolved || 'anchored_day_recap',
+          days_back: Number(recapResponse.days_back || safeDaysBack),
+          start_date: recapResponse.start_date || recapAnchorDate,
+          end_date: recapResponse.end_date || recapAnchorDate,
+          retrieval_tier: recapResponse.retrieval_tier || 'day_recap_bundle',
+          story_plan: recapResponse?.semantic_truth?.story_plan || null,
+          citations: Array.isArray(recapResponse.citations) ? recapResponse.citations : [],
+          citations_count: Number(recapResponse.citations_count || (Array.isArray(recapResponse.citations) ? recapResponse.citations.length : 0)),
+          time_truth: recapResponse.time_truth || null,
+          confidence: recapResponse.confidence || null,
+          freshness: recapResponse.freshness || null,
+          rich_activity_summary: recapResponse.rich_activity_summary || recapResponse.rendered_summary || null,
+          calendar_style_summary: recapResponse.calendar_style_summary || recapResponse.rendered_summary || null,
+          calendar_style_date: recapResponse.calendar_style_date || recapAnchorDate,
+          bundle: recapResponse.bundle || null,
+          workstreams: Array.isArray(recapResponse.workstreams) ? recapResponse.workstreams : [],
+          health: recapResponse.health || null,
+          degraded: Boolean(recapResponse.degraded),
+          degradation_notes: Array.isArray(recapResponse.degradation_notes) ? recapResponse.degradation_notes : [],
+          semantic_truth: recapResponse.semantic_truth || null,
+          source: 'anchored_day_recap_bundle',
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ Anchored recap bundle failed, falling back to broad overview path:', error);
+    }
+  }
+
   const calendarStyleSummaryPromise = (recapAnchorDate && buildCalendarStyleActivitySummaryFn)
     ? buildCalendarStyleActivitySummaryFn(token, recapAnchorDate, timezone)
     : Promise.resolve(null);

@@ -624,17 +624,27 @@ export function OverviewView({
     const cachedHabitStats = effectiveCachedStats[habit.id || ''];
 
     if (isComputerHabit) {
-      const totalHours = Math.round(
-        (
-          scrubberHoveredDate
-            ? effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0)
-            : (
-                !dateRange?.from && computerActivitySummary
-                  ? Number(computerActivitySummary.total_hours || 0)
-                  : effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0)
-              )
-        ) * 100
-      ) / 100;
+      let computerHours: number;
+      if (scrubberHoveredDate) {
+        // Hovered date on scrubber — sum all rows (single day fetch)
+        computerHours = effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+      } else if (!dateRange?.from && computerActivitySummary) {
+        // "All time" — use the pre-computed summary
+        computerHours = Number(computerActivitySummary.total_hours || 0);
+      } else if (dateRange?.from) {
+        // Specific date or date range — filter rows to match
+        const fromStr = dateRange.from.toISOString().slice(0, 10);
+        const toStr = dateRange.to ? dateRange.to.toISOString().slice(0, 10) : fromStr;
+        computerHours = effectiveComputerActivityDaily
+          .filter((row) => {
+            const day = row.day;
+            return day && day >= fromStr && day <= toStr;
+          })
+          .reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+      } else {
+        computerHours = effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+      }
+      const totalHours = Math.round(computerHours * 100) / 100;
 
       // The history scrubber is derived from habit logs and does not include
       // local desktop watcher data. When the computer habit is displayed, use

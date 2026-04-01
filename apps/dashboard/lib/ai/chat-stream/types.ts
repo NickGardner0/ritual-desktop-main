@@ -139,6 +139,7 @@ export interface OverviewResult {
 export interface ActivitySummaryResult {
   success: boolean;
   query?: string;
+  anchor_date?: string | null;
   intent_resolved?: string;
   days_back?: number;
   start_date?: string | null;
@@ -154,6 +155,11 @@ export interface ActivitySummaryResult {
   rich_activity_summary?: string | null;
   calendar_style_summary?: string | null;
   calendar_style_date?: string | null;
+  bundle?: Record<string, unknown> | null;
+  workstreams?: Array<Record<string, unknown>>;
+  health?: Record<string, unknown> | null;
+  degraded?: boolean;
+  degradation_notes?: string[];
   error?: string;
   [key: string]: unknown;
 }

@@ -142,6 +142,40 @@ class MemoryQueryResponse(BaseModel):
     error: Optional[str] = None
 
 
+class DayRecapRequest(BaseModel):
+    query: str
+    anchor_date: Optional[str] = None
+    timezone: Optional[str] = None
+    days_back: Optional[int] = 1
+
+
+class DayRecapResponse(BaseModel):
+    success: bool
+    query: str
+    anchor_date: str
+    days_back: int
+    rendered_summary: str
+    rich_activity_summary: Optional[str] = None
+    calendar_style_summary: Optional[str] = None
+    calendar_style_date: Optional[str] = None
+    bundle: Dict
+    workstreams: List[Dict]
+    health: Dict
+    degraded: bool = False
+    degradation_notes: List[str] = []
+    citations: List[Dict]
+    citations_count: int = 0
+    retrieval_tier: Optional[str] = None
+    intent_resolved: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    freshness: Optional[Dict] = None
+    confidence: Optional[Dict] = None
+    time_truth: Optional[Dict] = None
+    semantic_truth: Optional[Dict] = None
+    error: Optional[str] = None
+
+
 class MemoryChunkIngestItem(BaseModel):
     chunk_id: str
     logical_chunk_id: Optional[str] = None

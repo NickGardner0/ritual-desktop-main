@@ -960,8 +960,8 @@ def _build_local_context_budgets(query: str, intent: str, requested_limit: int) 
             "expanded_query_limit": 5,
             "session_candidate_limit": min(max(requested_limit * 8, 200), 800),
             "snapshot_candidate_limit": min(max(requested_limit * 14, 300), 1200),
-            "final_limit": min(max(requested_limit, 1), 50),
-            "citation_limit": 50,
+            "final_limit": min(max(requested_limit, 1), 64),
+            "citation_limit": 48,
         }
     return {
         "kind": "topic_lookup",

@@ -13,6 +13,8 @@ from urllib.parse import urlparse, urlunparse
 from fastapi import APIRouter, Depends, HTTPException
 
 from .watcher_common import (
+    DayRecapRequest,
+    DayRecapResponse,
     MemoryIngestRequest,
     MemoryIngestResponse,
     MemoryQueryRequest,
@@ -20,6 +22,7 @@ from .watcher_common import (
     ScreenSearchResponse,
     get_current_user,
 )
+from services.day_recap_service import build_day_recap
 from services.memory_backfill_service import backfill_cloud_from_local_chunks
 from services.memory_cloud_store import (
     get_memory_query_observability,
@@ -37,6 +40,7 @@ from services.memory_retention_service import reconcile_superseded_provider_docs
 from services.memory_turbopuffer_service import TurbopufferService
 from services.watcher_service import watcher_service
 from services.watcher_service_local_db import get_local_watcher_db_path_impl
+from services.watcher_service_local_db import open_activity_connection_for_user
 from services.watcher_service_search import query_memory_impl
 from services.watcher_service_search_utils import (
     get_local_bridge_status_impl,
@@ -231,6 +235,29 @@ def _cloud_pipeline_snapshot(now_ms: int) -> dict:
     return snapshot
 
 
+async def _activity_context_snapshot(now_ms: int, user_id: str) -> dict:
+    snapshot = {
+        "latest_context_snapshots_ts": None,
+        "latest_session_retrieval_docs_ts": None,
+        "context_snapshot_count": 0,
+        "session_retrieval_doc_count": 0,
+    }
+    async with open_activity_connection_for_user(user_id, write=False) as conn:
+        if conn is None:
+            return snapshot
+        if _table_exists(conn, "context_snapshots"):
+            snapshot["latest_context_snapshots_ts"] = _scalar(conn, "SELECT MAX(ts) FROM context_snapshots")
+            snapshot["context_snapshot_count"] = _scalar(conn, "SELECT COUNT(*) FROM context_snapshots") or 0
+        if _table_exists(conn, "session_retrieval_docs"):
+            snapshot["latest_session_retrieval_docs_ts"] = _scalar(conn, "SELECT MAX(chunk_end_ts) FROM session_retrieval_docs")
+            snapshot["session_retrieval_doc_count"] = _scalar(conn, "SELECT COUNT(*) FROM session_retrieval_docs") or 0
+    snapshot["context_snapshots_lag_seconds"] = _lag_seconds(now_ms, snapshot["latest_context_snapshots_ts"])
+    snapshot["session_retrieval_docs_lag_seconds"] = _lag_seconds(now_ms, snapshot["latest_session_retrieval_docs_ts"])
+    snapshot["latest_context_snapshots_iso_utc"] = _ts_to_iso_utc(snapshot["latest_context_snapshots_ts"])
+    snapshot["latest_session_retrieval_docs_iso_utc"] = _ts_to_iso_utc(snapshot["latest_session_retrieval_docs_ts"])
+    return snapshot
+
+
 @router.post("/query", response_model=MemoryQueryResponse)
 async def query_memory(
     request: MemoryQueryRequest,
@@ -280,6 +307,34 @@ async def query_memory(
         raise
     except Exception:
         raise HTTPException(status_code=500, detail="Unable to process memory query.")
+
+
+@router.post("/recap/day", response_model=DayRecapResponse)
+async def recap_day_memory(
+    request: DayRecapRequest,
+    current_user=Depends(get_current_user),
+):
+    query = (request.query or "").strip()
+    anchor_date = (request.anchor_date or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    if not anchor_date:
+        raise HTTPException(status_code=400, detail="anchor_date is required")
+    try:
+        return await build_day_recap(
+            user_id=current_user["id"],
+            query=query,
+            anchor_date=anchor_date,
+            timezone_name=request.timezone,
+            days_back=request.days_back or 1,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("memory.recap.day failed")
+        raise HTTPException(status_code=500, detail="Unable to build day recap.")
 
 
 @router.post("/search-context", response_model=ScreenSearchResponse)
@@ -531,6 +586,7 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
     now_ms = int(time.time() * 1000)
     local_snapshot = _local_pipeline_snapshot(now_ms)
     cloud_snapshot = _cloud_pipeline_snapshot(now_ms)
+    activity_snapshot = await _activity_context_snapshot(now_ms, current_user["id"])
     slo = check_pipeline_slo()
     index_health = get_memory_index_health()
     query_obs = get_memory_query_observability()
@@ -565,8 +621,43 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
     except Exception:
         bridge_status = "down"
 
+    latest_context_ts = activity_snapshot.get("latest_context_snapshots_ts")
+    latest_session_doc_ts = activity_snapshot.get("latest_session_retrieval_docs_ts")
+    latest_search_chunks_ts = local_snapshot.get("chunk_max_ts")
+    pending_outbox = int(local_snapshot.get("outbox_pending") or 0)
+    cloud_freshness_lag = cloud_snapshot.get("cloud_lag_seconds")
+    search_chunk_lag = _lag_seconds(now_ms, latest_search_chunks_ts)
+    session_doc_lag = _lag_seconds(now_ms, latest_session_doc_ts)
+    context_ready = bool(activity_snapshot.get("context_snapshot_count") or activity_snapshot.get("session_retrieval_doc_count"))
+    semantic_ready = bool(
+        latest_search_chunks_ts
+        and latest_session_doc_ts
+        and abs(int(latest_search_chunks_ts) - int(latest_session_doc_ts)) <= 15 * 60 * 1000
+        and pending_outbox <= 1000
+    )
+    watcher_ready = bool(activity_snapshot.get("context_snapshot_count"))
+    calendar_ready = True
+    degradation_reasons: list[str] = []
+    if not context_ready:
+        degradation_reasons.append("local_context_empty")
+    if latest_search_chunks_ts and latest_session_doc_ts and abs(int(latest_search_chunks_ts) - int(latest_session_doc_ts)) > 15 * 60 * 1000:
+        degradation_reasons.append("local_semantic_lag")
+    if pending_outbox > 1000:
+        degradation_reasons.append("outbox_backlog")
+    if cloud_freshness_lag is not None and int(cloud_freshness_lag) > 15 * 60:
+        degradation_reasons.append("cloud_freshness_lag")
+    can_answer_anchored_day_recap = context_ready or watcher_ready
+    overall_status = "Healthy"
+    if not can_answer_anchored_day_recap:
+        overall_status = "Insufficient for recap"
+    elif degradation_reasons:
+        overall_status = "Degraded but usable"
+    elif (search_chunk_lag or 0) > 0 or (session_doc_lag or 0) > 0:
+        overall_status = "Catching up"
+
     return {
         "local": local_snapshot,
+        "activity": activity_snapshot,
         "cloud": cloud_snapshot,
         "index_health": index_health,
         "bridge": {
@@ -579,5 +670,31 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
         },
         "slo": slo,
         "query_observability": query_obs,
+        "retrieval_health": {
+            "latest_context_snapshots_ts": latest_context_ts,
+            "latest_session_retrieval_docs_ts": latest_session_doc_ts,
+            "latest_search_chunks_ts": latest_search_chunks_ts,
+            "memory_upload_outbox": {
+                "pending": pending_outbox,
+                "uploading": int(local_snapshot.get("outbox_uploading") or 0),
+                "failed": int(local_snapshot.get("outbox_failed") or 0),
+            },
+            "cloud_embedding_freshness": {
+                "cloud_lag_seconds": cloud_freshness_lag,
+                "last_upsert_ts": cloud_snapshot.get("last_upsert_ts"),
+            },
+            "lane_readiness": {
+                "context_ready": context_ready,
+                "semantic_ready": semantic_ready,
+                "calendar_ready": calendar_ready,
+                "watcher_ready": watcher_ready,
+            },
+            "summary": {
+                "overall_status": overall_status,
+                "can_answer_anchored_day_recap": can_answer_anchored_day_recap,
+                "primary_source_selected": "hybrid_semantic+local_context" if semantic_ready else "local_context",
+                "degradation_reasons": degradation_reasons,
+            },
+        },
         "timestamp_ms": now_ms,
     }

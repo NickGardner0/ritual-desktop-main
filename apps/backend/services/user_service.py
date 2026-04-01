@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
 from database.models import UserDB
-from services.linq_service import send_onboarding_welcome
+from services.sendblue_service import send_onboarding_welcome
 
 logger = logging.getLogger(__name__)
 
@@ -116,12 +116,12 @@ class UserService:
                 updated_user = result.scalar_one()
 
                 effective_phone_number = normalized_phone_number or updated_user.phone_number
-                should_send_linq_welcome = (
+                should_send_welcome = (
                     bool(effective_phone_number)
-                    and updated_user.linq_onboarding_welcome_sent_at is None
+                    and updated_user.sms_welcome_sent_at is None
                 )
 
-                if should_send_linq_welcome:
+                if should_send_welcome:
                     try:
                         welcome_sent = await send_onboarding_welcome(
                             effective_phone_number,
@@ -132,13 +132,13 @@ class UserService:
                             await session.execute(
                                 update(UserDB)
                                 .where(UserDB.id == user_id)
-                                .values(linq_onboarding_welcome_sent_at=sent_at)
+                                .values(sms_welcome_sent_at=sent_at)
                             )
                             await session.commit()
-                            updated_user.linq_onboarding_welcome_sent_at = sent_at
-                            logger.info("✅ Sent Linq onboarding welcome to user: %s", user_id)
+                            updated_user.sms_welcome_sent_at = sent_at
+                            logger.info("✅ Sent onboarding welcome SMS to user: %s", user_id)
                     except Exception as welcome_error:
-                        logger.warning("⚠️ Failed to send Linq onboarding welcome: %s", welcome_error)
+                        logger.warning("⚠️ Failed to send onboarding welcome SMS: %s", welcome_error)
                 
                 logger.info(f"✅ Successfully updated onboarding for user: {user_id}")
                 return updated_user
@@ -149,7 +149,7 @@ class UserService:
                 raise Exception(f"Failed to update onboarding: {str(e)}")
     
     async def get_user_by_phone(self, phone_number: str) -> Optional[UserDB]:
-        """Look up a user by phone number (for Linq webhook)"""
+        """Look up a user by phone number (for Sendblue webhook)"""
         async with get_db_session() as session:
             try:
                 normalized_phone = _normalize_phone_number(phone_number)

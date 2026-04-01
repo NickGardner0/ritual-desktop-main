@@ -10,7 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/auth/desktop-oauth-bridge(.*)',
   '/api/integrations/whoop/callback(.*)',
   '/api/integrations/whoop/store-code(.*)',
-  '/api/linq/webhook(.*)',
+  '/api/sendblue/webhook(.*)',
   '/integrations/success(.*)',
   '/integrations(.*)',
 ]);

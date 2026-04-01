@@ -3,13 +3,14 @@
 import React, { startTransition, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type, Database, Trash2, LogOut, Watch, Mic, Check } from 'lucide-react';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useUser, useClerk, useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleHealthSyncStatus } from './apple-health-sync-status';
 
 type SettingsView = 'account' | 'computer-tracking' | 'apple-health' | 'voice-logging';
+const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -31,6 +32,7 @@ const SETTINGS_HEADER_BUTTON_CLASS = 'p-1 rounded-sm transition-colors';
 
 export function SettingsModal({ isOpen, onClose, onOpen, initialView }: SettingsModalProps) {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const { signOut, openUserProfile } = useClerk();
   const router = useRouter();
   const { font, setFont } = useFont();
@@ -38,6 +40,9 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [currentView, setCurrentView] = useState<SettingsView>('account');
+  const [showRetrievalHealth, setShowRetrievalHealth] = useState(false);
+  const [retrievalHealth, setRetrievalHealth] = useState<any>(null);
+  const [retrievalHealthLoading, setRetrievalHealthLoading] = useState(false);
   const wasOpenRef = useRef(false);
 
   // When opening with initialView, switch to that view
@@ -56,6 +61,44 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
     }
     wasOpenRef.current = isOpen;
   }, [isOpen, onOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const email = user?.primaryEmailAddress?.emailAddress || '';
+    const enabled = (
+      email.includes('nickgardner')
+      || window.localStorage.getItem('ritual-show-retrieval-health') === '1'
+    );
+    setShowRetrievalHealth(enabled);
+  }, [user]);
+
+  useEffect(() => {
+    if (!isOpen || !showRetrievalHealth) return;
+    let cancelled = false;
+
+    const loadDiagnostics = async () => {
+      setRetrievalHealthLoading(true);
+      try {
+        const token = await getToken();
+        const response = await fetch(`${PYTHON_API_BASE}/api/memory/diagnostics`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) throw new Error(`Diagnostics failed: ${response.status}`);
+        const payload = await response.json();
+        if (!cancelled) {
+          setRetrievalHealth(payload?.retrieval_health || null);
+        }
+      } catch (error) {
+        console.error('Failed to load retrieval health:', error);
+        if (!cancelled) setRetrievalHealth(null);
+      } finally {
+        if (!cancelled) setRetrievalHealthLoading(false);
+      }
+    };
+
+    loadDiagnostics();
+    return () => { cancelled = true; };
+  }, [getToken, isOpen, showRetrievalHealth]);
 
   const handleClose = () => {
     setCurrentView('account');
@@ -360,6 +403,66 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
               <LogOut className="w-4 h-4 text-gray-500" />
               <span className="text-sm font-normal text-gray-900">Sign Out</span>
             </button>
+
+            {showRetrievalHealth && (
+              <div className="py-3 border-t border-gray-200/60">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2.5">
+                    <Database className="w-4 h-4 text-gray-500" />
+                    <span className="text-sm font-medium text-gray-900">Retrieval Health</span>
+                  </div>
+                  <div className={`text-[11px] px-2 py-1 rounded-full border ${
+                    retrievalHealth?.summary?.overall_status === 'Healthy'
+                      ? 'border-green-200 bg-green-50 text-green-700'
+                      : retrievalHealth?.summary?.overall_status === 'Catching up'
+                        ? 'border-amber-200 bg-amber-50 text-amber-700'
+                        : retrievalHealth?.summary?.overall_status === 'Degraded but usable'
+                          ? 'border-orange-200 bg-orange-50 text-orange-700'
+                          : 'border-red-200 bg-red-50 text-red-700'
+                  }`}>
+                    {retrievalHealthLoading ? 'Loading…' : (retrievalHealth?.summary?.overall_status || 'Unavailable')}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-gray-200 bg-gray-50/70 p-3 space-y-2">
+                  <RetrievalHealthRow
+                    label="Latest context capture"
+                    value={formatDebugTimestamp(retrievalHealth?.latest_context_snapshots_ts)}
+                  />
+                  <RetrievalHealthRow
+                    label="Latest session doc"
+                    value={formatDebugTimestamp(retrievalHealth?.latest_session_retrieval_docs_ts)}
+                  />
+                  <RetrievalHealthRow
+                    label="Latest semantic chunk"
+                    value={formatDebugTimestamp(retrievalHealth?.latest_search_chunks_ts)}
+                  />
+                  <RetrievalHealthRow
+                    label="Outbox backlog"
+                    value={String(retrievalHealth?.memory_upload_outbox?.pending ?? 0)}
+                  />
+                  <RetrievalHealthRow
+                    label="Primary source"
+                    value={String(retrievalHealth?.summary?.primary_source_selected || 'unknown')}
+                  />
+                  <RetrievalHealthRow
+                    label="Fail-open mode"
+                    value={retrievalHealth?.lane_readiness?.semantic_ready ? 'Normal hybrid' : 'Local context preferred'}
+                  />
+                  {Array.isArray(retrievalHealth?.summary?.degradation_reasons) && retrievalHealth.summary.degradation_reasons.length > 0 && (
+                    <div className="pt-1">
+                      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Degradation reasons</div>
+                      <div className="flex flex-wrap gap-1">
+                        {retrievalHealth.summary.degradation_reasons.map((reason: string) => (
+                          <span key={reason} className="text-[11px] px-2 py-1 rounded-full bg-white border border-gray-200 text-gray-600">
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -394,6 +497,26 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   );
 
   return createPortal(modalContent, document.body);
+}
+
+function formatDebugTimestamp(value: unknown): string {
+  const ts = Number(value || 0);
+  if (!Number.isFinite(ts) || ts <= 0) return 'Unavailable';
+  return new Date(ts).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function RetrievalHealthRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 text-xs">
+      <span className="text-gray-500">{label}</span>
+      <span className="text-gray-900 text-right">{value}</span>
+    </div>
+  );
 }
 
 // MARK: - Voice Logging Settings Sub-View

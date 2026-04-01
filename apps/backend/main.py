@@ -36,13 +36,14 @@ from services.habits_service import HabitsService
 from services.auth_service import AuthService
 from services.tinybird_service import TinybirdService
 from services.whoop_service import WhoopService
+from services.tesla_service import TeslaService
 from services.user_service import UserService
 from api.analytics import create_analytics_router
 from api.biometrics import create_biometrics_router
 from api.core import create_core_router
 from api.conversations import create_conversations_router
 from api.financial import create_financial_router
-from api.integrations import create_whoop_router
+from api.integrations import create_whoop_router, create_tesla_router
 from api.imports import create_imports_router
 from api.search import create_search_router
 from api.screen_time import create_screen_time_router
@@ -96,6 +97,7 @@ except Exception as e:
     tinybird_service = None
     logger.warning("Tinybird service unavailable; analytics sync disabled: %s", e)
 whoop_service = WhoopService()
+tesla_service = TeslaService()
 user_service = UserService()
 
 
@@ -136,6 +138,12 @@ app.include_router(
     create_whoop_router(
         get_current_user=get_current_user,
         whoop_service=whoop_service,
+    )
+)
+app.include_router(
+    create_tesla_router(
+        get_current_user=get_current_user,
+        tesla_service=tesla_service,
     )
 )
 app.include_router(
@@ -346,8 +354,8 @@ app.include_router(memory_router)
 from api.watcher import router as watcher_router
 app.include_router(watcher_router)
 
-from api.linq import router as linq_router
-app.include_router(linq_router)
+from api.sendblue import router as sendblue_router
+app.include_router(sendblue_router)
 
 
 def _memory_cloud_enabled() -> bool:

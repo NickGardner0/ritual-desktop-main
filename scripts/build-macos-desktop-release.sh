@@ -167,20 +167,8 @@ done
 echo "Sidecar signing complete."
 
 cd apps/desktop
-set +e
 ../../node_modules/.bin/tauri build --config src-tauri/tauri.generated.production.conf.json --bundles app
-TAURI_BUILD_EXIT=$?
-set -e
 cd ../..
-
-if [[ ${TAURI_BUILD_EXIT} -ne 0 ]]; then
-  if [[ -d "${APP_PATH}" ]]; then
-    echo "warning: Tauri bundler returned ${TAURI_BUILD_EXIT}, continuing with manual signing because ${APP_PATH} exists" >&2
-  else
-    echo "Tauri build failed before producing ${APP_PATH}" >&2
-    exit ${TAURI_BUILD_EXIT}
-  fi
-fi
 
 if [[ ! -f "${HELPER_PATH}" ]]; then
   echo "Bundled helper not found at ${HELPER_PATH}" >&2
@@ -253,9 +241,13 @@ node scripts/validate-updater-artifacts.mjs --latest "${LATEST_JSON}"
 
 echo "Checking packaged app for accidental dashboard build artifacts..."
 ARTIFACT_CHECK_OUTPUT="$(mktemp)"
-if strings "${APP_PATH}/Contents/MacOS/${PRODUCT_NAME}" | rg -n \
-  '\.next/cache|/dev/cache/turbopack|/server/app/api/|/dev/server/app/api/|route\.js\.map' \
-  >"${ARTIFACT_CHECK_OUTPUT}"; then
+ARTIFACT_PATTERN='\.next/cache|/dev/cache/turbopack|/server/app/api/|/dev/server/app/api/|route\.js\.map'
+if command -v rg >/dev/null 2>&1; then
+  strings "${APP_PATH}/Contents/MacOS/${PRODUCT_NAME}" | rg -n "${ARTIFACT_PATTERN}" >"${ARTIFACT_CHECK_OUTPUT}" || true
+else
+  strings "${APP_PATH}/Contents/MacOS/${PRODUCT_NAME}" | grep -nE "${ARTIFACT_PATTERN}" >"${ARTIFACT_CHECK_OUTPUT}" || true
+fi
+if [[ -s "${ARTIFACT_CHECK_OUTPUT}" ]]; then
   echo "Packaged app still embeds dashboard/Next build artifacts:" >&2
   cat "${ARTIFACT_CHECK_OUTPUT}" >&2
   rm -f "${ARTIFACT_CHECK_OUTPUT}"
