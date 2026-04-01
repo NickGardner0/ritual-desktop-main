@@ -101,6 +101,24 @@ def _start_end_ms(anchor: date, timezone_name: Optional[str]) -> Tuple[int, int]
     return int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
 
 
+def _start_end_ms_for_range(
+    start_day: date,
+    end_day: date,
+    timezone_name: Optional[str],
+) -> Tuple[int, int]:
+    zone = _resolve_zone(timezone_name)
+    start_dt = datetime.combine(start_day, dt_time.min, tzinfo=zone)
+    end_dt = datetime.combine(end_day, dt_time.max, tzinfo=zone)
+    return int(start_dt.timestamp() * 1000), int(end_dt.timestamp() * 1000)
+
+
+def _iter_days(start_day: date, end_day: date) -> Iterable[date]:
+    current = start_day
+    while current <= end_day:
+        yield current
+        current = current.fromordinal(current.toordinal() + 1)
+
+
 _STOP_WORDS = {
     "about", "after", "again", "app", "apps", "browser", "code", "dashboard", "details",
     "doing", "from", "into", "just", "page", "pages", "project", "query", "related",
@@ -403,6 +421,65 @@ def build_recap_workstreams(
     return main
 
 
+def _augment_workstreams_with_usage_hints(
+    workstreams: Sequence[RecapWorkstream],
+    top_apps: Sequence[Dict[str, Any]],
+    top_domains: Sequence[Dict[str, Any]],
+) -> List[RecapWorkstream]:
+    app_hints = {
+        str(item.get("app_name") or "").strip().lower(): str(item.get("app_name") or "").strip()
+        for item in top_apps
+        if str(item.get("app_name") or "").strip()
+    }
+    domain_hints = {
+        str(item.get("domain") or item.get("browser_domain") or "").strip().lower(): str(item.get("domain") or item.get("browser_domain") or "").strip()
+        for item in top_domains
+        if str(item.get("domain") or item.get("browser_domain") or "").strip()
+    }
+    if not app_hints and not domain_hints:
+        return list(workstreams)
+
+    augmented: List[RecapWorkstream] = []
+    for workstream in workstreams:
+        normalized_entities = {entity.lower() for entity in workstream.supporting_entities}
+        matched_apps = [
+            label for key, label in app_hints.items()
+            if key and any(key in entity or entity in key for entity in normalized_entities)
+        ]
+        matched_domains = [
+            label for key, label in domain_hints.items()
+            if key and any(key in entity or entity in key for entity in normalized_entities)
+        ]
+        hint_entities = list(dict.fromkeys([*matched_apps, *matched_domains]))[:3]
+        if not hint_entities:
+            augmented.append(workstream)
+            continue
+
+        supporting_entities = list(dict.fromkeys([*workstream.supporting_entities, *hint_entities]))[:8]
+        sentences = list(workstream.sentences)
+        existing_text = " ".join(sentences).lower()
+        unseen_hints = [entity for entity in hint_entities if entity.lower() not in existing_text]
+        if unseen_hints:
+            sentences.append(
+                f"The strongest tools in this block were {', '.join(unseen_hints[:3])}."
+            )
+
+        augmented.append(
+            RecapWorkstream(
+                kind=workstream.kind,
+                start_ts=workstream.start_ts,
+                end_ts=workstream.end_ts,
+                primary_title=workstream.primary_title,
+                supporting_entities=supporting_entities,
+                source_evidence_ids=workstream.source_evidence_ids,
+                confidence=workstream.confidence,
+                narrative_priority=workstream.narrative_priority,
+                sentences=sentences[:4],
+            )
+        )
+    return augmented
+
+
 def _format_time_range(start_ts: int, end_ts: int, timezone_name: Optional[str]) -> str:
     zone = _resolve_zone(timezone_name)
     start = datetime.fromtimestamp(start_ts / 1000, tz=zone)
@@ -492,7 +569,6 @@ def _memory_health_snapshot(now_ms: int) -> Dict[str, Any]:
     path = get_local_memory_db_path_impl()
     snapshot = {
         "path": path,
-        "latest_search_chunks_ts": None,
         "pending_outbox": 0,
         "uploading_outbox": 0,
         "failed_outbox": 0,
@@ -502,19 +578,12 @@ def _memory_health_snapshot(now_ms: int) -> Dict[str, Any]:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
     try:
         conn.execute("PRAGMA query_only = ON")
-        if _table_exists(conn, "search_chunks"):
-            snapshot["latest_search_chunks_ts"] = _scalar(conn, "SELECT MAX(chunk_end_ts) FROM search_chunks")
         if _table_exists(conn, "memory_upload_outbox"):
             snapshot["pending_outbox"] = _scalar(conn, "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'pending'") or 0
             snapshot["uploading_outbox"] = _scalar(conn, "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'uploading'") or 0
             snapshot["failed_outbox"] = _scalar(conn, "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'failed'") or 0
     finally:
         conn.close()
-    snapshot["search_chunk_lag_ms"] = (
-        max(0, now_ms - int(snapshot["latest_search_chunks_ts"]))
-        if snapshot["latest_search_chunks_ts"]
-        else None
-    )
     return snapshot
 
 
@@ -584,6 +653,31 @@ def _git_commits_for_date(target_day: str) -> Dict[str, Any]:
                 )
     commits.sort(key=lambda item: item.get("time") or "", reverse=False)
     return {"success": True, "date": target_day, "commits": commits[:30], "repos_scanned": len(seen_repos)}
+
+
+def _git_commits_for_range(start_day: str, end_day: str) -> Dict[str, Any]:
+    commits: List[Dict[str, Any]] = []
+    repos_scanned = 0
+    seen_hashes: set[Tuple[str, str]] = set()
+    start = _parse_anchor_date(start_day)
+    end = _parse_anchor_date(end_day)
+    for current in _iter_days(start, end):
+        payload = _git_commits_for_date(current.isoformat())
+        repos_scanned = max(repos_scanned, int(payload.get("repos_scanned") or 0))
+        for commit in payload.get("commits") or []:
+            key = (str(commit.get("repo") or ""), str(commit.get("hash") or ""))
+            if key in seen_hashes:
+                continue
+            seen_hashes.add(key)
+            commits.append(commit)
+    commits.sort(key=lambda item: item.get("time") or "", reverse=False)
+    return {
+        "success": True,
+        "start_date": start_day,
+        "end_date": end_day,
+        "commits": commits[:80],
+        "repos_scanned": repos_scanned,
+    }
 
 
 async def _with_timeout(label: str, timeout_s: float, awaitable):
@@ -795,6 +889,22 @@ async def _fetch_calendar_events(user_id: str, anchor_date: str, timezone_name: 
     return events
 
 
+async def _fetch_calendar_events_for_range(
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    timezone_name: Optional[str],
+) -> List[Dict[str, Any]]:
+    events: List[Dict[str, Any]] = []
+    start = _parse_anchor_date(start_date)
+    end = _parse_anchor_date(end_date)
+    for current in _iter_days(start, end):
+        day_events = await _fetch_calendar_events(user_id, current.isoformat(), timezone_name)
+        events.extend(day_events)
+    events.sort(key=lambda item: int(item.get("start_ts") or 0))
+    return events
+
+
 def _normalize_git_commit(commit: Dict[str, Any]) -> NormalizedEvidence:
     commit_ts = int(datetime.fromisoformat(str(commit["time"]).replace("Z", "+00:00")).timestamp() * 1000)
     evidence = NormalizedEvidence(
@@ -907,9 +1017,8 @@ async def build_day_recap(
     semantic_citations = list(semantic_payload.get("citations") or []) if isinstance(semantic_payload, dict) else []
     semantic_story_plan = ((semantic_payload or {}).get("semantic_truth") or {}).get("story_plan") if isinstance(semantic_payload, dict) else None
     semantic_freshness = (semantic_payload or {}).get("freshness") if isinstance(semantic_payload, dict) else {}
-    semantic_stale = (
-        bool(memory_health.get("search_chunk_lag_ms") and memory_health["search_chunk_lag_ms"] > SEMANTIC_STALE_LAG_MS)
-        or bool(semantic_freshness and int(semantic_freshness.get("embedding_lag_seconds") or 0) > 15 * 60)
+    semantic_stale = bool(
+        semantic_freshness and int(semantic_freshness.get("embedding_lag_seconds") or 0) > 15 * 60
     )
     semantic_sparse = (
         len(semantic_citations) < 8
@@ -934,6 +1043,7 @@ async def build_day_recap(
     can_answer = bool(context_ready or watcher_ready or git_payload.get("commits") or calendar_payload or biometrics_payload)
 
     workstreams = build_recap_workstreams(normalized_evidence, calendar_payload)
+    workstreams = _augment_workstreams_with_usage_hints(workstreams, apps_payload, domains_payload)
     bundle = {
         "anchor_date": anchor_date,
         "timezone": timezone_name,
@@ -949,7 +1059,6 @@ async def build_day_recap(
         "health_snapshot": {
             "latest_context_snapshots_ts": latest_context_ts,
             "latest_session_retrieval_docs_ts": latest_session_doc_ts,
-            "latest_search_chunks_ts": memory_health.get("latest_search_chunks_ts"),
             "pending_memory_upload_outbox": memory_health.get("pending_outbox"),
             "uploading_memory_upload_outbox": memory_health.get("uploading_outbox"),
             "failed_memory_upload_outbox": memory_health.get("failed_outbox"),
@@ -993,18 +1102,18 @@ async def build_day_recap(
     degradation_reasons = list(dict.fromkeys(note for note in degradation_notes if note))
     if semantic_status != "healthy":
         degradation_reasons.append("semantic_support_degraded")
+    catching_up = not semantic_error and (semantic_sparse or semantic_stale)
     overall_status = "healthy"
     if not can_answer:
         overall_status = "insufficient"
+    elif catching_up:
+        overall_status = "catching_up"
     elif degradation_reasons:
         overall_status = "degraded_but_usable"
-    elif semantic_sparse or semantic_stale:
-        overall_status = "catching_up"
 
     health = {
         "latest_context_snapshots_ts": latest_context_ts,
         "latest_session_retrieval_docs_ts": latest_session_doc_ts,
-        "latest_search_chunks_ts": memory_health.get("latest_search_chunks_ts"),
         "memory_upload_outbox": {
             "pending": int(memory_health.get("pending_outbox") or 0),
             "uploading": int(memory_health.get("uploading_outbox") or 0),
@@ -1019,7 +1128,7 @@ async def build_day_recap(
         },
         "overall_status": overall_status,
         "can_answer_anchored_day_recap": can_answer,
-        "primary_source_selected": "local_context" if semantic_status != "healthy" else "hybrid_semantic+local_context",
+        "primary_source_selected": "cloud_degraded" if semantic_status != "healthy" else "cloud_primary",
         "degradation_reasons": degradation_reasons,
     }
 
@@ -1043,6 +1152,252 @@ async def build_day_recap(
         "intent_resolved": "anchored_day_recap",
         "start_date": anchor_date,
         "end_date": anchor_date,
+        "freshness": semantic_freshness or {"status": "unknown"},
+        "confidence": {
+            "level": "high" if workstreams else "low",
+            "score": round(sum(item.confidence for item in workstreams) / max(len(workstreams), 1), 3) if workstreams else 0.2,
+            "corroborating_chunks": len(bundle["citations"]),
+        },
+        "time_truth": {
+            "start_ms": start_ms,
+            "end_ms": end_ms,
+            "timezone": timezone_name,
+        },
+        "semantic_truth": {
+            "story_plan": semantic_story_plan,
+            "mode_used": (semantic_payload or {}).get("answer_mode") if isinstance(semantic_payload, dict) else None,
+            "debug": {"citation_count": len(semantic_citations)},
+        },
+    }
+
+
+async def build_range_recap(
+    *,
+    user_id: str,
+    query: str,
+    start_date: str,
+    end_date: str,
+    timezone_name: Optional[str],
+    days_back: Optional[int] = None,
+) -> Dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    start_day = _parse_anchor_date(start_date)
+    end_day = _parse_anchor_date(end_date)
+    if end_day < start_day:
+        raise ValueError("end_date must be on or after start_date")
+
+    start_ms, end_ms = _start_end_ms_for_range(start_day, end_day, timezone_name)
+    memory_health = _memory_health_snapshot(now_ms)
+
+    context_task = _with_timeout("context", WATCHER_TIMEOUT_S, _fetch_context_lanes(user_id, start_ms, end_ms))
+    apps_task = _with_timeout("top apps", WATCHER_TIMEOUT_S, get_top_apps_impl(watcher_service, user_id, start_date, end_date, limit=12))
+    domains_task = _with_timeout("top domains", WATCHER_TIMEOUT_S, get_top_domains_impl(watcher_service, user_id, start_date, end_date, limit=12))
+    git_task = _with_timeout("git commits", GIT_TIMEOUT_S, asyncio.to_thread(_git_commits_for_range, start_date, end_date))
+    calendar_task = _with_timeout("calendar", CALENDAR_TIMEOUT_S, _fetch_calendar_events_for_range(user_id, start_date, end_date, timezone_name))
+    semantic_task = _with_timeout(
+        "semantic bundle",
+        SEMANTIC_TIMEOUT_S,
+        query_memory_impl(
+            service=watcher_service,
+            user_id=user_id,
+            query=query,
+            intent="broad_overview",
+            days_back=max(days_back or 1, 1),
+            start_date=start_date,
+            end_date=end_date,
+            timezone=timezone_name,
+            group_by="app",
+            limit=64,
+        ),
+    )
+
+    (
+        (context_payload, context_error),
+        (apps_payload, apps_error),
+        (domains_payload, domains_error),
+        (git_payload, git_error),
+        (calendar_payload, calendar_error),
+        (semantic_payload, semantic_error),
+    ) = await asyncio.gather(
+        context_task,
+        apps_task,
+        domains_task,
+        git_task,
+        calendar_task,
+        semantic_task,
+    )
+
+    degradation_notes = [note for note in [context_error, apps_error, domains_error, git_error, calendar_error, semantic_error] if note]
+    context_payload = context_payload or {
+        "context_snapshots": [],
+        "context_docs": [],
+        "normalized_evidence": [],
+        "latest_context_snapshots_ts": None,
+        "latest_session_retrieval_docs_ts": None,
+    }
+    apps_payload = apps_payload or []
+    domains_payload = domains_payload or []
+    git_payload = git_payload or {"commits": []}
+    calendar_payload = calendar_payload or []
+
+    normalized_evidence: List[NormalizedEvidence] = list(context_payload.get("normalized_evidence") or [])
+    screen_evidence = []
+    for snapshot in context_payload.get("context_snapshots") or []:
+        screen_evidence.append(
+            {
+                "time": snapshot.get("ts"),
+                "app_name": snapshot.get("app_name"),
+                "window_title": snapshot.get("window_title"),
+                "document_path": snapshot.get("document_path"),
+                "semantic_summary": snapshot.get("semantic_summary"),
+                "snippet": snapshot.get("visible_text_raw"),
+            }
+        )
+    for commit in git_payload.get("commits") or []:
+        try:
+            normalized_evidence.append(_normalize_git_commit(commit))
+        except Exception:
+            continue
+
+    semantic_citations = list(semantic_payload.get("citations") or []) if isinstance(semantic_payload, dict) else []
+    semantic_story_plan = ((semantic_payload or {}).get("semantic_truth") or {}).get("story_plan") if isinstance(semantic_payload, dict) else None
+    semantic_freshness = (semantic_payload or {}).get("freshness") if isinstance(semantic_payload, dict) else {}
+    semantic_stale = bool(
+        semantic_freshness and int(semantic_freshness.get("embedding_lag_seconds") or 0) > 15 * 60
+    )
+    semantic_sparse = (
+        len(semantic_citations) < 8
+        or not semantic_story_plan
+        or int(memory_health.get("pending_outbox") or 0) > OUTBOX_PENDING_DEGRADED
+    )
+    semantic_status = "healthy"
+    if semantic_error:
+        semantic_status = "failed"
+    elif semantic_sparse or semantic_stale:
+        semantic_status = "degraded"
+    if semantic_status != "healthy":
+        degradation_notes.append(
+            "Cloud semantic retrieval was sparse or stale, so this recap leaned more heavily on local context and watcher evidence."
+        )
+
+    latest_context_ts = context_payload.get("latest_context_snapshots_ts")
+    latest_session_doc_ts = context_payload.get("latest_session_retrieval_docs_ts")
+    context_ready = bool((context_payload.get("context_docs") or []) or (context_payload.get("context_snapshots") or []))
+    watcher_ready = bool(screen_evidence or apps_payload or domains_payload)
+    calendar_ready = calendar_error is None
+    can_answer = bool(context_ready or watcher_ready or git_payload.get("commits") or calendar_payload)
+
+    workstreams = build_recap_workstreams(normalized_evidence, calendar_payload)
+    label = f"{start_date} to {end_date}" if start_date != end_date else start_date
+    bundle = {
+        "anchor_date": None,
+        "start_date": start_date,
+        "end_date": end_date,
+        "timezone": timezone_name,
+        "time_window": {"start_ms": start_ms, "end_ms": end_ms},
+        "lane_status": {
+            "context": {"status": "healthy" if context_ready else "degraded", "count": len(context_payload.get("context_docs") or []) + len(context_payload.get("context_snapshots") or [])},
+            "watcher": {"status": "healthy" if watcher_ready else "degraded", "count": len(screen_evidence) + len(apps_payload) + len(domains_payload)},
+            "git": {"status": "healthy" if git_error is None else "degraded", "count": len(git_payload.get("commits") or [])},
+            "calendar": {"status": "healthy" if calendar_error is None else "degraded", "count": len(calendar_payload or [])},
+            "semantic": {"status": semantic_status, "count": len(semantic_citations)},
+        },
+        "health_snapshot": {
+            "latest_context_snapshots_ts": latest_context_ts,
+            "latest_session_retrieval_docs_ts": latest_session_doc_ts,
+            "pending_memory_upload_outbox": memory_health.get("pending_outbox"),
+            "uploading_memory_upload_outbox": memory_health.get("uploading_outbox"),
+            "failed_memory_upload_outbox": memory_health.get("failed_outbox"),
+            "cloud_freshness": semantic_freshness,
+        },
+        "context_docs": context_payload.get("context_docs") or [],
+        "context_snapshots": context_payload.get("context_snapshots") or [],
+        "screen_evidence": screen_evidence,
+        "top_apps": apps_payload,
+        "top_domains": domains_payload,
+        "git_commits": git_payload.get("commits") or [],
+        "calendar_events": calendar_payload,
+        "daily_biometrics": None,
+        "semantic_candidates": semantic_citations[:64],
+        "citations": [_bundle_citation(item) for item in normalized_evidence[:48]] + semantic_citations[:12],
+        "degradation_notes": degradation_notes,
+    }
+    rendered_summary = render_day_recap(
+        anchor_date=label,
+        timezone_name=timezone_name,
+        workstreams=workstreams,
+        degradation_notes=degradation_notes,
+        bundle=bundle,
+    )
+
+    workstream_dicts = [
+        {
+            "kind": item.kind,
+            "start_ts": item.start_ts,
+            "end_ts": item.end_ts,
+            "primary_title": item.primary_title,
+            "supporting_entities": item.supporting_entities,
+            "source_evidence_ids": item.source_evidence_ids,
+            "confidence": item.confidence,
+            "narrative_priority": item.narrative_priority,
+            "sentences": item.sentences,
+        }
+        for item in workstreams
+    ]
+
+    degradation_reasons = list(dict.fromkeys(note for note in degradation_notes if note))
+    if semantic_status != "healthy":
+        degradation_reasons.append("semantic_support_degraded")
+    catching_up = not semantic_error and (semantic_sparse or semantic_stale)
+    overall_status = "healthy"
+    if not can_answer:
+        overall_status = "insufficient"
+    elif catching_up:
+        overall_status = "catching_up"
+    elif degradation_reasons:
+        overall_status = "degraded_but_usable"
+
+    health = {
+        "latest_context_snapshots_ts": latest_context_ts,
+        "latest_session_retrieval_docs_ts": latest_session_doc_ts,
+        "memory_upload_outbox": {
+            "pending": int(memory_health.get("pending_outbox") or 0),
+            "uploading": int(memory_health.get("uploading_outbox") or 0),
+            "failed": int(memory_health.get("failed_outbox") or 0),
+        },
+        "cloud_freshness": semantic_freshness,
+        "lane_readiness": {
+            "context_ready": context_ready,
+            "semantic_ready": semantic_status == "healthy",
+            "calendar_ready": calendar_ready,
+            "watcher_ready": watcher_ready,
+        },
+        "overall_status": overall_status,
+        "can_answer_anchored_day_recap": can_answer,
+        "primary_source_selected": "cloud_degraded" if semantic_status != "healthy" else "cloud_primary",
+        "degradation_reasons": degradation_reasons,
+    }
+
+    return {
+        "success": True,
+        "query": query,
+        "anchor_date": None,
+        "days_back": days_back or max(1, (end_day.toordinal() - start_day.toordinal()) + 1),
+        "rendered_summary": rendered_summary,
+        "rich_activity_summary": rendered_summary,
+        "calendar_style_summary": rendered_summary,
+        "calendar_style_date": end_date,
+        "bundle": bundle,
+        "workstreams": workstream_dicts,
+        "health": health,
+        "degraded": overall_status != "healthy",
+        "degradation_notes": degradation_reasons,
+        "citations": bundle["citations"][:48],
+        "citations_count": len(bundle["citations"][:48]),
+        "retrieval_tier": "range_recap_bundle",
+        "intent_resolved": "range_recap",
+        "start_date": start_date,
+        "end_date": end_date,
         "freshness": semantic_freshness or {"status": "unknown"},
         "confidence": {
             "level": "high" if workstreams else "low",

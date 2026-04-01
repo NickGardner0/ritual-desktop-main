@@ -7,15 +7,12 @@
  * Matches the minimalistic design of other settings panels.
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
+import React, { useState, useCallback, useEffect } from 'react';
 import { 
   Video, 
   Monitor,
   AlertCircle,
   Trash2,
-  RefreshCw,
-  Database,
   Lock
 } from 'lucide-react';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -40,47 +37,6 @@ interface RecorderSettingsProps {
   userId: string;
   deviceId: string;
   onClose?: () => void;
-}
-
-interface ChunkEmbeddingCoverage {
-  total_chunks: number;
-  embedded_chunks: number;
-  pending_chunks: number;
-  coverage: number;
-  frames_without_embeddings: number;
-  worker_running: boolean;
-  last_worker_run: number | null;
-}
-
-interface BackfillChunkEmbeddingsResult {
-  success: boolean;
-  lookback_days: number;
-  batch_size: number;
-  max_batches: number;
-  batches_run: number;
-  chunks_rebuilt: number;
-  queue_seeded: number;
-  chunk_embeddings_processed: number;
-  chunk_embeddings_failed: number;
-  chunk_embeddings_skipped: number;
-  total_chunks_before: number;
-  total_chunks_after: number;
-  embedded_chunks_before: number;
-  embedded_chunks_after: number;
-  pending_chunks_before: number;
-  pending_chunks_after: number;
-  coverage_before: number;
-  coverage_after: number;
-  message: string;
-}
-
-interface ChunkEmbeddingBackfillStatus {
-  running: boolean;
-  started_at: number | null;
-  finished_at: number | null;
-  last_message: string | null;
-  last_error: string | null;
-  last_result: BackfillChunkEmbeddingsResult | null;
 }
 
 // ============================================================
@@ -123,12 +79,6 @@ export function RecorderSettings({
   const { status: storageStatus, runMaintenance } = useRecorderStorage();
   const { saveConfig, clearConfig } = useRecorderConfig();
   const [isCleaning, setIsCleaning] = useState(false);
-  const [semanticCoverage, setSemanticCoverage] = useState<ChunkEmbeddingCoverage | null>(null);
-  const [semanticLoading, setSemanticLoading] = useState(false);
-  const [semanticRebuilding, setSemanticRebuilding] = useState(false);
-  const [semanticBackfillStatus, setSemanticBackfillStatus] = useState<ChunkEmbeddingBackfillStatus | null>(null);
-  const [semanticMessage, setSemanticMessage] = useState<string | null>(null);
-  const [semanticError, setSemanticError] = useState<string | null>(null);
 
   // Update config with userId/deviceId
   useEffect(() => {
@@ -166,95 +116,6 @@ export function RecorderSettings({
   ) => {
     setConfig(prev => ({ ...prev, [key]: value }));
   }, []);
-
-  const fetchSemanticCoverage = useCallback(async (silent = false) => {
-    if (!isTauri) return null;
-
-    if (!silent) setSemanticLoading(true);
-    try {
-      const result = await invoke<ChunkEmbeddingCoverage>('get_chunk_embedding_coverage');
-      setSemanticCoverage(result);
-      return result;
-    } catch (e) {
-      console.error('Failed to fetch semantic coverage:', e);
-      if (!silent) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setSemanticError(msg);
-      }
-      return null;
-    } finally {
-      if (!silent) setSemanticLoading(false);
-    }
-  }, []);
-
-  const fetchSemanticBackfillStatus = useCallback(async (silent = false) => {
-    if (!isTauri) return null;
-    try {
-      const result = await invoke<ChunkEmbeddingBackfillStatus>('get_chunk_embedding_backfill_status');
-      setSemanticBackfillStatus(result);
-      if (!silent) {
-        if (result.last_error) {
-          setSemanticError(result.last_error);
-        }
-      }
-      return result;
-    } catch (e) {
-      console.error('Failed to fetch semantic backfill status:', e);
-      if (!silent) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setSemanticError(msg);
-      }
-      return null;
-    }
-  }, []);
-
-  const handleRebuildSemanticIndex = useCallback(async () => {
-    if (!isTauri || semanticRebuilding || semanticBackfillStatus?.running) return;
-
-    setSemanticError(null);
-    setSemanticMessage('Starting semantic index repair...');
-    setSemanticRebuilding(true);
-
-    try {
-      await invoke('ensure_embedding_pipeline_ready');
-      const startMessage = await invoke<string>('start_chunk_embedding_backfill', {
-        batchSize: 200,
-        maxBatches: 600,
-        lookbackDays: 3650,
-      });
-      setSemanticMessage(startMessage || 'Semantic index repair started in background.');
-      await fetchSemanticBackfillStatus(true);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setSemanticError(msg);
-      setSemanticMessage(null);
-    } finally {
-      setSemanticRebuilding(false);
-      void fetchSemanticCoverage(true);
-      void fetchSemanticBackfillStatus(true);
-    }
-  }, [fetchSemanticBackfillStatus, fetchSemanticCoverage, semanticBackfillStatus?.running, semanticRebuilding]);
-
-  useEffect(() => {
-    if (!isTauri) return;
-    void fetchSemanticCoverage();
-    void fetchSemanticBackfillStatus(true);
-    const pollMs = semanticBackfillStatus?.running ? 1500 : 5000;
-    const interval = window.setInterval(() => {
-      void fetchSemanticCoverage(true);
-      void fetchSemanticBackfillStatus(true);
-    }, pollMs);
-    return () => window.clearInterval(interval);
-  }, [fetchSemanticBackfillStatus, fetchSemanticCoverage, semanticBackfillStatus?.running]);
-
-  const semanticIsCatchingUp = useMemo(() => {
-    if (!semanticCoverage) return true;
-    if (semanticBackfillStatus?.running) return true;
-    if (semanticCoverage.pending_chunks > 25) return true;
-    if (semanticCoverage.frames_without_embeddings > 100) return true;
-    if (semanticCoverage.total_chunks >= 200 && semanticCoverage.coverage < 0.95) return true;
-    return false;
-  }, [semanticBackfillStatus?.running, semanticCoverage]);
 
   const rowClass = 'flex items-center justify-between py-2.5';
   const sectionClass = 'rounded-none border border-gray-200/70 bg-white px-3';
@@ -352,51 +213,6 @@ export function RecorderSettings({
               />
             </button>
           </div>
-        </div>
-      </section>
-
-      <section className={sectionClass}>
-        <div className="pt-2 pb-1 text-[10px] uppercase tracking-[0.12em] text-gray-500">Health</div>
-        <div className={rowClass}>
-          <div className="flex items-center gap-2 text-[13px] text-gray-900">
-            <Database className="w-3.5 h-3.5 text-gray-400" />
-            <span className="font-medium">Semantic Index</span>
-          </div>
-          {semanticLoading ? (
-            <BrailleSpinner className="text-xs text-gray-400" />
-          ) : (
-            <span className={`text-[11px] ${semanticIsCatchingUp ? 'text-amber-700' : 'text-emerald-700'}`}>
-              {semanticIsCatchingUp ? 'Catching up' : 'Healthy'}
-            </span>
-          )}
-        </div>
-
-        {semanticCoverage && (
-          <div className="pb-2 text-[11px] text-gray-500">
-            {semanticCoverage.embedded_chunks}/{semanticCoverage.total_chunks} chunks embedded
-            {semanticCoverage.pending_chunks > 0 ? ` · ${semanticCoverage.pending_chunks} pending` : ''}
-          </div>
-        )}
-
-        {(semanticError || semanticMessage) && (
-          <p className={`pb-2 text-[11px] ${semanticError ? 'text-red-500' : 'text-gray-500'}`}>
-            {semanticError || semanticMessage}
-          </p>
-        )}
-
-        <div className="border-t border-gray-200/60 pt-2 pb-2 flex justify-end">
-          <button
-            onClick={handleRebuildSemanticIndex}
-            disabled={!isTauri || semanticRebuilding || semanticBackfillStatus?.running}
-            className="h-8 px-3 text-[12px] text-gray-700 border border-gray-300 rounded-none hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center gap-1.5"
-          >
-            {semanticRebuilding || semanticBackfillStatus?.running ? (
-              <BrailleSpinner className="text-xs" />
-            ) : (
-              <RefreshCw className="w-3 h-3" />
-            )}
-            {semanticRebuilding || semanticBackfillStatus?.running ? 'Repairing...' : 'Repair index'}
-          </button>
         </div>
       </section>
 

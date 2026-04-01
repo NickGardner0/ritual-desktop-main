@@ -1,11 +1,9 @@
 """
-Simplified embedding pipeline: activity.db session_retrieval_docs → OpenAI → Turbopuffer.
-
-Replaces the old multi-hop pipeline:
-  ocr_frames (memory.db) → search_chunks → memory_chunks → memory_embedding_jobs → OpenAI → Turbopuffer
+Canonical embedding pipeline: activity.db session_retrieval_docs → OpenAI → Turbopuffer.
 
 This service reads session docs directly from activity.db, embeds them with OpenAI,
-and upserts to Turbopuffer in one pass. No intermediate tables, no job queue.
+and upserts to Turbopuffer in one pass. Local OCR chunking and local vector indexing
+are no longer part of the primary chat/search architecture.
 """
 
 from __future__ import annotations

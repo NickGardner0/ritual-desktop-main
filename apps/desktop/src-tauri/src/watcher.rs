@@ -1152,7 +1152,8 @@ pub struct DailySummary {
 }
 
 /// Get daily summaries for an inclusive date range (YYYY-MM-DD).
-/// Not a Tauri command — called directly by the local HTTP bridge.
+/// Used by both the local HTTP bridge and direct Tauri fallback from the dashboard.
+#[tauri::command]
 pub async fn get_daily_summaries(
     start_date: String,
     end_date: String,

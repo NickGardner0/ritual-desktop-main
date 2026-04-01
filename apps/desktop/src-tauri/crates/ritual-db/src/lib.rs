@@ -1,16 +1,14 @@
-//! Ritual Database - Unified libSQL database layer with vector search
+//! Ritual Database - Unified libSQL database layer
 //!
 //! This crate provides a unified database layer for the Ritual app, consolidating:
 //! - Activity tracking (from watcher.db)
 //! - Screen recording metadata and OCR (from frames.db)
 //! - Sync queue (from sync_queue.db)
-//! - Vector embeddings for semantic search (NEW)
 //!
 //! # Architecture
 //!
 //! The database uses libSQL (a SQLite fork) which provides:
 //! - Full SQLite compatibility
-//! - Native vector search (no extensions needed)
 //! - Embedded in the application (no separate install)
 //!
 //! # Usage
@@ -34,7 +32,6 @@ pub mod migration;
 pub mod activity;
 pub mod recorder;
 pub mod sync;
-pub mod vector;
 pub mod segments;
 pub mod context;
 pub mod error;
@@ -62,7 +59,7 @@ pub struct DatabaseConfig {
     pub data_dir: PathBuf,
     /// Whether to run migrations on startup
     pub auto_migrate: bool,
-    /// Whether to enable vector embeddings
+    /// Deprecated compatibility flag; local embeddings are no longer used.
     pub enable_embeddings: bool,
     /// Maximum number of connections in the pool (not used for embedded, but for future)
     pub max_connections: u32,
@@ -147,8 +144,6 @@ pub struct RitualDatabase {
     config: DatabaseConfig,
     /// Connection for general operations
     conn: Arc<RwLock<Connection>>,
-    /// Optional embedding service (lazy-initialized)
-    embedding_service: Arc<RwLock<Option<vector::EmbeddingService>>>,
 }
 
 impl RitualDatabase {
@@ -231,7 +226,6 @@ impl RitualDatabase {
             db,
             config: config.clone(),
             conn: Arc::new(RwLock::new(conn)),
-            embedding_service: Arc::new(RwLock::new(None)),
         };
         
         // Initialize schema
@@ -267,33 +261,6 @@ impl RitualDatabase {
     /// Get a mutable reference to the connection for write operations
     pub async fn connection_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, Connection> {
         self.conn.write().await
-    }
-    
-    /// Initialize the embedding service (lazy, call when needed)
-    /// When RITUAL_SKIP_LOCAL_EMBEDDINGS=1, skip model download + init entirely.
-    /// Chunks are still built and synced to the cloud for OpenAI embedding.
-    pub async fn init_embedding_service(&self) -> Result<()> {
-        if std::env::var("RITUAL_SKIP_LOCAL_EMBEDDINGS").unwrap_or_default() == "1" {
-            info!("Skipping local embedding service init (cloud-only mode)");
-            return Ok(());
-        }
-        let mut service = self.embedding_service.write().await;
-        if service.is_none() {
-            info!("Initializing embedding service...");
-            *service = Some(vector::EmbeddingService::new()?);
-            info!("Embedding service initialized");
-        }
-        Ok(())
-    }
-    
-    /// Get the embedding service if initialized
-    pub async fn embedding_service(&self) -> Option<tokio::sync::RwLockReadGuard<'_, Option<vector::EmbeddingService>>> {
-        let service = self.embedding_service.read().await;
-        if service.is_some() {
-            Some(service)
-        } else {
-            None
-        }
     }
     
     /// Get the database configuration
@@ -660,79 +627,6 @@ impl RitualDatabase {
     pub async fn mark_sync_failed(&self, queue_id: i64) -> Result<()> {
         let conn = self.conn.read().await;
         sync::SyncOps::new(&conn).mark_failed(queue_id).await
-    }
-    
-    // --------------------------------------------------------------------
-    // Vector/Embedding Operations
-    // --------------------------------------------------------------------
-    
-    /// Insert embedding for a frame
-    pub async fn insert_embedding(&self, frame_id: i64, embedding: &[f32]) -> Result<i64> {
-        let conn = self.conn.read().await;
-        vector::VectorOps::new(&conn).insert_embedding(frame_id, embedding).await
-    }
-    
-    /// Semantic search
-    pub async fn semantic_search(&self, query_embedding: &[f32], options: &SearchOptions) -> Result<Vec<SearchResult>> {
-        let conn = self.conn.read().await;
-        vector::VectorOps::new(&conn).semantic_search(query_embedding, options).await
-    }
-    
-    /// Get embedding stats
-    pub async fn get_embedding_stats(&self) -> Result<vector::EmbeddingStats> {
-        let conn = self.conn.read().await;
-        vector::VectorOps::new(&conn).get_embedding_stats().await
-    }
-    
-    /// High-level semantic search with text query
-    /// 
-    /// This combines embedding generation and vector search.
-    pub async fn search_semantic(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchResult>> {
-        // Get or initialize embedding service
-        let service_guard = self.embedding_service.read().await;
-        let service = service_guard.as_ref()
-            .ok_or_else(|| DatabaseError::Embedding("Embedding service not initialized. Call init_embedding_service() first.".to_string()))?;
-        
-        // Generate query embedding
-        let query_embedding = service.embed(query)?;
-        
-        // Perform search
-        drop(service_guard);  // Release the lock before the next await
-        self.semantic_search(&query_embedding, &options).await
-    }
-    
-    /// High-level hybrid search combining FTS and vector similarity
-    /// 
-    /// This is the recommended search method for best results:
-    /// - FTS provides fast, precise keyword matching
-    /// - Vector similarity provides semantic understanding
-    /// - Combined scoring provides the best of both
-    pub async fn search_hybrid(
-        &self,
-        query: &str,
-        options: SearchOptions,
-        fts_weight: f32,
-        vector_weight: f32,
-    ) -> Result<Vec<vector::HybridSearchResult>> {
-        // Get or initialize embedding service
-        let service_guard = self.embedding_service.read().await;
-        let service = service_guard.as_ref()
-            .ok_or_else(|| DatabaseError::Embedding("Embedding service not initialized. Call init_embedding_service() first.".to_string()))?;
-        
-        // Generate query embedding
-        let query_embedding = service.embed(query)?;
-        
-        // Perform hybrid search
-        drop(service_guard);  // Release the lock before the next await
-        
-        let conn = self.conn.read().await;
-        vector::VectorOps::new(&conn).hybrid_search(
-            query,
-            &query_embedding,
-            &options,
-            fts_weight,
-            vector_weight,
-        ).await
     }
     
     // --------------------------------------------------------------------

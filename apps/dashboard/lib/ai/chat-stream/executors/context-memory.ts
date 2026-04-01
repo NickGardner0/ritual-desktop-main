@@ -10,6 +10,8 @@ import {
   clampDaysBack,
   clampSearchLimit,
   compactScreenWarning,
+  getTimezoneYmd,
+  shiftYmd,
 } from './shared-api';
 import {
   inferScreenDaysBackFromQuery,
@@ -326,9 +328,6 @@ export async function executeGetActivitySummary(
   isScreenTimeSpentQueryFn?: (text: string) => boolean,
 ) {
   const safeDaysBack = clampDaysBack(params.daysBack ?? 1);
-  const remoteQueryLimit = 96;
-  const localResolveLimit = 48;
-  const localHydrateLimit = 64;
   const localCitationLimit = 36;
   const query = params.query || 'activity summary';
   console.log('📋 getActivitySummary called:', { query, daysBack: safeDaysBack });
@@ -403,147 +402,106 @@ export async function executeGetActivitySummary(
         });
       }
     } catch (error) {
-      console.warn('⚠️ Anchored recap bundle failed, falling back to broad overview path:', error);
+      console.warn('⚠️ Anchored recap bundle failed; returning explicit degraded recap:', error);
+      const degradedSummary = [
+        `**${recapAnchorDate}**`,
+        '',
+        'I could not assemble the full anchored-day recap bundle for that day, so this answer is degraded.',
+        'The recap pipeline failed before the deterministic workstream bundle was available.',
+        'Try again after checking Retrieval Health, or ask a narrower question about a specific app, meeting, or time block.',
+      ].join('\n');
+
+      return JSON.stringify({
+        success: true,
+        query,
+        anchor_date: recapAnchorDate,
+        intent_resolved: 'anchored_day_recap',
+        days_back: safeDaysBack,
+        start_date: recapAnchorDate,
+        end_date: recapAnchorDate,
+        retrieval_tier: 'day_recap_bundle',
+        story_plan: null,
+        citations: [],
+        citations_count: 0,
+        time_truth: null,
+        confidence: { level: 'low', score: 0.1, corroborating_chunks: 0 },
+        freshness: { status: 'unavailable' },
+        rich_activity_summary: degradedSummary,
+        calendar_style_summary: degradedSummary,
+        calendar_style_date: recapAnchorDate,
+        bundle: null,
+        workstreams: [],
+        health: {
+          overall_status: 'degraded_but_usable',
+          can_answer_anchored_day_recap: false,
+          primary_source_selected: 'none',
+          degradation_reasons: ['day_recap_bundle_failed'],
+        },
+        degraded: true,
+        degradation_notes: ['day_recap_bundle_failed'],
+        semantic_truth: null,
+        source: 'anchored_day_recap_bundle_degraded',
+      });
     }
   }
 
-  const calendarStyleSummaryPromise = (recapAnchorDate && buildCalendarStyleActivitySummaryFn)
-    ? buildCalendarStyleActivitySummaryFn(token, recapAnchorDate, timezone)
-    : Promise.resolve(null);
-
-  const buildLocalFallbackPayload = async () => {
-    let screenSearchContext = await resolveScreenSearchContext(
-      token,
-      {
-        query,
-        daysBack: safeDaysBack,
-        limit: localResolveLimit,
-      },
-      prefetchedScreenSearchContext,
-      isScreenTimeSpentQueryFn || (() => false),
-    );
-
-    if (screenSearchContext) {
-      const hasOnlyAggregateRows = (
-        screenSearchContext.results.length > 0
-        && screenSearchContext.results.every((row) => isActivityAggregateText(row.ocr_text))
-      );
-
-      if (screenSearchContext.results.length === 0 || hasOnlyAggregateRows) {
-        const localContext = await fetchLocalScreenSearchContext(token, {
-          query,
-          daysBack: safeDaysBack,
-          limit: localHydrateLimit,
-        });
-        if (localContext) {
-          const mergedResults = mergeScreenResults(localContext.results, screenSearchContext.results);
-          screenSearchContext = {
-            modeUsed: localContext.modeUsed !== 'none' ? localContext.modeUsed : screenSearchContext.modeUsed,
-            status: localContext.status !== 'unavailable' ? localContext.status : screenSearchContext.status,
-            retrievalTier: screenSearchContext.retrievalTier || localContext.retrievalTier,
-            results: mergedResults,
-            resolvedDaysBack: localContext.resolvedDaysBack ?? screenSearchContext.resolvedDaysBack,
-            startDate: localContext.startDate ?? screenSearchContext.startDate,
-            endDate: localContext.endDate ?? screenSearchContext.endDate,
-            warning: [screenSearchContext.warning, localContext.warning].filter(Boolean).join(' ').trim() || undefined,
-            freshness: screenSearchContext.freshness,
-            confidence: screenSearchContext.confidence,
-            citations: screenSearchContext.citations,
-            semanticTruth: screenSearchContext.semanticTruth,
-            pendingEmbeddings: screenSearchContext.pendingEmbeddings,
-            totalEmbeddings: screenSearchContext.totalEmbeddings,
-            workerRunning: screenSearchContext.workerRunning,
-          };
-        }
-      }
-    } else {
-      screenSearchContext = await fetchLocalScreenSearchContext(token, {
-        query,
-        daysBack: safeDaysBack,
-        limit: localHydrateLimit,
-      });
-    }
-
-    if (!screenSearchContext || !Array.isArray(screenSearchContext.results) || screenSearchContext.results.length === 0) {
-      return null;
-    }
-
-    const rankedResults = rerankScreenResultsByQuery(screenSearchContext.results, query);
-    const filteredResults = rankedResults
-      .filter((row) => !isActivityAggregateText(row.ocr_text))
-      .slice(0, localResolveLimit);
-    if (filteredResults.length === 0) {
-      return null;
-    }
-
-    const structuredEvidence = buildBroadOverviewEvidence(
-      filteredResults,
-      screenSearchContext.citations,
-      screenSearchContext.semanticTruth,
-    );
-    const citationsSource = (screenSearchContext.citations && screenSearchContext.citations.length > 0)
-      ? screenSearchContext.citations.slice(0, localCitationLimit).map((citation) => ({
-          app: citation.app_name || '',
-          title: citation.window_title || '',
-          text: (citation.snippet || '').slice(0, 300),
-          ts: citation.timestamp || 0,
-        }))
-      : filteredResults.slice(0, localCitationLimit).map((result) => ({
-          app: result.app_name || '',
-          title: result.window_title || '',
-          text: (result.ocr_text || '').slice(0, 300),
-          ts: result.timestamp || 0,
-        }));
-
-    return {
-      success: true,
-      query,
-      intent_resolved: 'broad_overview',
-      days_back: safeDaysBack,
-      start_date: screenSearchContext.startDate || null,
-      end_date: screenSearchContext.endDate || null,
-      retrieval_tier: screenSearchContext.retrievalTier || screenSearchContext.modeUsed || 'desktop_local',
-      story_plan: stripStoryPlanMeta(structuredEvidence.recap_outline || null),
-      citations: citationsSource,
-      citations_count: citationsSource.length,
-      time_truth: null,
-      confidence: screenSearchContext.confidence || null,
-      freshness: screenSearchContext.freshness || null,
-      warning: compactScreenWarning(screenSearchContext.warning),
-      source: 'desktop_local_fallback',
-    };
-  };
+  const calendarStyleSummaryPromise = Promise.resolve<string | null>(null);
 
   try {
+    const resolvedTimezone = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+    const rangeEndDate = getTimezoneYmd(new Date(), resolvedTimezone);
+    const rangeStartDate = shiftYmd(rangeEndDate, -(Math.max(safeDaysBack, 1) - 1));
+
     const [response, calendarStyleSummary] = await Promise.all([
-      fetchPythonApiPost('/api/memory/query', token, {
+      fetchPythonApiPost('/api/memory/recap/day', token, {
         query,
-        intent: 'broad_overview',
+        start_date: rangeStartDate,
+        end_date: rangeEndDate,
+        timezone: resolvedTimezone,
         days_back: safeDaysBack,
-        timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
-        group_by: 'app',
-        limit: remoteQueryLimit,
+        scope: 'range',
       }),
       calendarStyleSummaryPromise,
     ]);
 
-    const hasRemoteStoryPlan = Boolean(response?.semantic_truth?.story_plan);
+    const hasRemoteStoryPlan = Boolean(response?.semantic_truth?.story_plan || response?.bundle);
     const remoteCitations = Array.isArray(response?.citations) ? response.citations : [];
     if (!response || response.error || (!hasRemoteStoryPlan && remoteCitations.length === 0)) {
-      const localFallback = await buildLocalFallbackPayload();
-      if (localFallback) {
-        if (calendarStyleSummary) {
-          (localFallback as Record<string, unknown>).calendar_style_summary = calendarStyleSummary;
-          (localFallback as Record<string, unknown>).calendar_style_date = recapAnchorDate;
-        }
-        return JSON.stringify(localFallback);
-      }
-
+      const degradedSummary = [
+        `**${rangeStartDate} to ${rangeEndDate}**`,
+        '',
+        'I could not assemble a grounded cloud recap for this range.',
+        'Cloud retrieval did not return enough evidence for a reliable workstream summary.',
+        'Check Retrieval Health or ask about a narrower date, app, or project.',
+      ].join('\n');
       return JSON.stringify({
-        success: Boolean(calendarStyleSummary),
-        error: response?.error || 'Activity summary unavailable.',
-        calendar_style_summary: calendarStyleSummary || null,
+        success: true,
+        query,
+        intent_resolved: 'range_recap',
+        days_back: safeDaysBack,
+        start_date: rangeStartDate,
+        end_date: rangeEndDate,
+        retrieval_tier: 'range_recap_bundle',
+        story_plan: null,
+        citations: [],
+        citations_count: 0,
+        time_truth: null,
+        confidence: { level: 'low', score: 0.1, corroborating_chunks: 0 },
+        freshness: { status: 'unavailable' },
+        rich_activity_summary: degradedSummary,
+        calendar_style_summary: degradedSummary,
         calendar_style_date: recapAnchorDate,
+        bundle: null,
+        workstreams: [],
+        health: {
+          overall_status: 'degraded_but_usable',
+          can_answer_anchored_day_recap: false,
+          primary_source_selected: 'cloud_degraded',
+          degradation_reasons: ['range_recap_bundle_failed'],
+        },
+        degraded: true,
+        degradation_notes: ['range_recap_bundle_failed'],
+        source: 'range_recap_bundle_degraded',
       });
     }
 
@@ -579,7 +537,8 @@ export async function executeGetActivitySummary(
     return JSON.stringify({
       success: true,
       query: response.query || query,
-      intent_resolved: response.intent_resolved || 'broad_overview',
+      anchor_date: response.anchor_date || null,
+      intent_resolved: response.intent_resolved || 'range_recap',
       days_back: Number(response.days_back || safeDaysBack),
       start_date: response.start_date || null,
       end_date: response.end_date || null,
@@ -591,24 +550,46 @@ export async function executeGetActivitySummary(
       time_truth: response.time_truth || null,
       confidence: response.confidence || null,
       freshness: response.freshness || null,
-      rich_activity_summary: richActivitySummary || null,
-      calendar_style_summary: calendarStyleSummary || null,
-      calendar_style_date: recapAnchorDate,
+      rich_activity_summary: response.rich_activity_summary || richActivitySummary || null,
+      calendar_style_summary: response.calendar_style_summary || calendarStyleSummary || null,
+      calendar_style_date: response.calendar_style_date || recapAnchorDate,
+      bundle: response.bundle || null,
+      workstreams: Array.isArray(response.workstreams) ? response.workstreams : [],
+      health: response.health || null,
+      degraded: Boolean(response.degraded),
+      degradation_notes: Array.isArray(response.degradation_notes) ? response.degradation_notes : [],
+      source: response.source || 'range_recap_bundle',
     });
   } catch (error) {
     console.error('❌ getActivitySummary error:', error);
     const calendarStyleSummary = await calendarStyleSummaryPromise.catch(() => null);
+    const degradedSummary = [
+      `**${query}**`,
+      '',
+      'Cloud recap retrieval is currently unavailable.',
+      'This request did not fall back to local semantic search because chat is now cloud-first.',
+      'Check Retrieval Health or retry with a narrower query.',
+    ].join('\n');
     return JSON.stringify({
-      success: Boolean(calendarStyleSummary),
-      error: calendarStyleSummary ? undefined : 'Activity summary is currently unavailable.',
+      success: true,
+      error: undefined,
       details: String(error),
       query,
       intent_resolved: 'broad_overview',
       days_back: safeDaysBack,
       start_date: null,
       end_date: null,
-      calendar_style_summary: calendarStyleSummary || null,
+      rich_activity_summary: degradedSummary,
+      calendar_style_summary: calendarStyleSummary || degradedSummary,
       calendar_style_date: recapAnchorDate,
+      degraded: true,
+      degradation_notes: ['cloud_range_recap_unavailable'],
+      health: {
+        overall_status: 'degraded_but_usable',
+        can_answer_anchored_day_recap: false,
+        primary_source_selected: 'cloud_degraded',
+        degradation_reasons: ['cloud_range_recap_unavailable'],
+      },
     });
   }
 }

@@ -1,4 +1,4 @@
-"""Backfill cloud-memory chunks from local memory DB search_chunks."""
+"""Backfill cloud-memory chunks from local session_retrieval_docs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from services.memory_embedding_service import process_embedding_jobs_with_guard
 from services.memory_ingest_service import ingest_memory_chunks
-from services.watcher_service_local_db import get_local_memory_db_path_impl
+from services.watcher_service_local_db import get_local_activity_db_path_impl
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +26,6 @@ def _table_exists(cursor: sqlite3.Cursor, table_name: str) -> bool:
     return cursor.fetchone() is not None
 
 
-def _table_columns(cursor: sqlite3.Cursor, table_name: str) -> set[str]:
-    cursor.execute(f"PRAGMA table_info({table_name})")
-    rows = cursor.fetchall() or []
-    return {str(row[1]) for row in rows if len(row) >= 2}
-
-
 async def backfill_cloud_from_local_chunks(
     *,
     user_id: str,
@@ -41,7 +35,7 @@ async def backfill_cloud_from_local_chunks(
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
-    db_path = get_local_memory_db_path_impl()
+    db_path = get_local_activity_db_path_impl()
     safe_limit = max(1, min(int(limit or 5000), 20000))
     safe_batch_size = max(1, min(int(batch_size or 200), 500))
 
@@ -58,12 +52,10 @@ async def backfill_cloud_from_local_chunks(
         cursor.execute("PRAGMA query_only = ON")
 
         has_session_docs = _table_exists(cursor, "session_retrieval_docs")
-        has_search_chunks = _table_exists(cursor, "search_chunks")
-
-        if not has_session_docs and not has_search_chunks:
+        if not has_session_docs:
             return {
                 "success": False,
-                "error": "No context or OCR chunk tables found in local memory DB",
+                "error": "No session_retrieval_docs table found in local activity DB",
                 "accepted": 0,
                 "deduped": 0,
                 "failed": 0,
@@ -110,50 +102,6 @@ async def backfill_cloud_from_local_chunks(
             """
             cursor.execute(context_query, tuple([*params, safe_limit]))
             rows = cursor.fetchall() or []
-        if (not rows) and has_search_chunks:
-            columns = _table_columns(cursor, "search_chunks")
-            has_logical_chunk_id = "logical_chunk_id" in columns
-            has_content_hash = "content_hash" in columns
-            legacy_where = ["text_compact IS NOT NULL", "TRIM(text_compact) != ''"]
-            legacy_where.extend(where_parts)
-            logical_expr = (
-                "COALESCE(NULLIF(logical_chunk_id, ''), printf('local-search-chunk-%d', id)) AS logical_chunk_id"
-                if has_logical_chunk_id
-                else "printf('local-search-chunk-%d', id) AS logical_chunk_id"
-            )
-            content_hash_expr = (
-                "COALESCE(NULLIF(content_hash, ''), printf('legacy-%d-%d-%d', id, chunk_start_ts, chunk_end_ts)) AS content_hash"
-                if has_content_hash
-                else "printf('legacy-%d-%d-%d', id, chunk_start_ts, chunk_end_ts) AS content_hash"
-            )
-            query = f"""
-                SELECT
-                    id,
-                    COALESCE(device_id, '') AS device_id,
-                    COALESCE(user_id, '') AS chunk_user_id,
-                    {logical_expr},
-                    {content_hash_expr},
-                    chunk_start_ts,
-                    chunk_end_ts,
-                    COALESCE(app_name, '') AS app_name,
-                    COALESCE(window_title_norm, '') AS window_title,
-                    '' AS document_title,
-                    COALESCE(browser_domain, '') AS browser_domain,
-                    COALESCE(text_compact, '') AS raw_visible_text,
-                    COALESCE(text_compact, '') AS contextual_retrieval_text,
-                    COALESCE(quality_score, 0.0) AS capture_quality,
-                    COALESCE(context_version, 1) AS context_version,
-                    COALESCE(session_position, 0) AS session_position,
-                    COALESCE(session_chunk_count, 1) AS session_count,
-                    'legacy_ocr_chunk' AS source_kind,
-                    COALESCE(session_key, '') AS session_id
-                FROM search_chunks
-                WHERE {" AND ".join(legacy_where)}
-                ORDER BY chunk_end_ts DESC
-                LIMIT ?
-            """
-            cursor.execute(query, tuple([*params, safe_limit]))
-            rows = cursor.fetchall() or []
     finally:
         if conn is not None:
             conn.close()
@@ -172,11 +120,11 @@ async def backfill_cloud_from_local_chunks(
             logical_chunk_id = str(row["logical_chunk_id"] or "").strip()
             payload.append(
                 {
-                    "chunk_id": logical_chunk_id or f"local-search-chunk-{int(row['id'])}",
-                    "logical_chunk_id": logical_chunk_id or f"local-search-chunk-{int(row['id'])}",
+                    "chunk_id": logical_chunk_id or f"context-session-{int(row['id'])}",
+                    "logical_chunk_id": logical_chunk_id or f"context-session-{int(row['id'])}",
                     "chunk_start_ts": int(row["chunk_start_ts"] or 0),
                     "chunk_end_ts": int(row["chunk_end_ts"] or 0),
-                    "source_kind": str(row["source_kind"] or "legacy_ocr_chunk"),
+                    "source_kind": str(row["source_kind"] or "context_session"),
                     "session_id": str(row["session_id"] or ""),
                     "app_name": str(row["app_name"] or ""),
                     "window_title": str(row["window_title"] or ""),

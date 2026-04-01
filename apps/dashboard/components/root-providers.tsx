@@ -91,7 +91,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
     <OpenPanelProvider>
       <QueryProvider>
         <HabitsProvider>
-          {!isDesktopShell ? <MemoryCloudUploader /> : null}
+          {!isDesktopBootstrap ? <MemoryCloudUploader /> : null}
           {children}
         </HabitsProvider>
       </QueryProvider>

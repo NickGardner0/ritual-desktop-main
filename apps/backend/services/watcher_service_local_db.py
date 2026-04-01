@@ -131,21 +131,19 @@ def get_local_activity_db_path_impl() -> str:
 
 
 def get_local_memory_db_path_impl() -> str:
-    """Resolve the local memory DB path (OCR/chunks/embeddings/outbox)."""
+    """Resolve the local memory DB path (context fallback + upload outbox)."""
     home = os.environ.get("HOME") or str(Path.home())
     ritual_dir = os.path.join(home, ".ritual")
     resolved = _resolve_db_path(
         override_env="RITUAL_MEMORY_DB_PATH",
         preferred_path=os.path.join(ritual_dir, "memory.db"),
         fallback_path=os.path.join(ritual_dir, "ritual.db"),
-        required_table="search_chunks",
+        required_table="context_snapshots",
         legacy_candidates=[
             os.path.join(ritual_dir, "frames.db"),
             os.path.join(ritual_dir, "frames.db.migrated"),
         ],
     )
-    if os.path.exists(resolved) and _has_table(resolved, "context_snapshots"):
-        return resolved
     return resolved
 
 

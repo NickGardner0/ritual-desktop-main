@@ -73,6 +73,10 @@ def _legacy_ocr_fallback_enabled() -> bool:
     return _env_flag_enabled("RITUAL_ENABLE_LEGACY_OCR_FALLBACK", default=False)
 
 
+def _cloud_first_chat_enabled() -> bool:
+    return not _env_flag_enabled("RITUAL_DISABLE_CLOUD_FIRST_CHAT", default=False)
+
+
 def _prefer_explicit_local_context_db(path: str) -> bool:
     """Honor explicit local DB overrides in dev/test before shared backend replicas."""
     if not path:
@@ -2671,9 +2675,6 @@ def _compute_freshness(
     has_session_docs = _table_exists(cursor, "session_retrieval_docs")
     has_snapshots = _table_exists(cursor, "context_snapshots")
     has_frames = _table_exists(cursor, "ocr_frames")
-    has_chunks = _table_exists(cursor, "search_chunks")
-    has_chunk_embeddings = _table_exists(cursor, "chunk_embeddings")
-    has_ocr_embeddings = _table_exists(cursor, "ocr_embeddings")
     has_pipeline = _table_exists(cursor, "pipeline_watermarks")
     has_video_chunks = _table_exists(cursor, "video_chunks")
 
@@ -2706,11 +2707,7 @@ def _compute_freshness(
     if not last_capture_ts:
         last_capture_ts = last_ocr_frame_ts
 
-    last_chunk_built_ts = (
-        _max_value(cursor, "SELECT MAX(chunk_end_ts) FROM search_chunks")
-        if has_chunks
-        else None
-    )
+    last_chunk_built_ts = last_session_doc_ts
     last_context_ts = max(
         [ts for ts in [last_session_doc_ts, last_snapshot_ts] if ts is not None],
         default=None,
@@ -2719,57 +2716,6 @@ def _compute_freshness(
     last_chunk_embedded_ts: Optional[int] = None
     pending_chunks = 0
     oldest_pending_chunk_ts = None
-
-    if has_chunks and has_chunk_embeddings:
-        last_chunk_embedded_ts = _max_value(
-            cursor,
-            "SELECT MAX(updated_at) FROM chunk_embeddings WHERE status = 'ok'",
-        )
-        try:
-            cursor.execute(
-                """
-                SELECT COUNT(*), MIN(s.chunk_start_ts)
-                FROM search_chunks s
-                LEFT JOIN chunk_embeddings e ON e.chunk_id = s.id
-                WHERE e.chunk_id IS NULL OR COALESCE(e.status, 'pending') != 'ok'
-                """
-            )
-            row = cursor.fetchone()
-            if row:
-                pending_chunks = int(row[0] or 0)
-                oldest_pending_chunk_ts = int(row[1]) if row[1] is not None else None
-        except Exception:
-            pending_chunks = 0
-    elif has_frames and has_ocr_embeddings:
-        last_chunk_embedded_ts = _max_value(
-            cursor,
-            """
-            SELECT MAX(f.timestamp)
-            FROM ocr_embeddings e
-            JOIN ocr_frames f ON f.id = e.frame_id
-            WHERE COALESCE(e.status, 'ok') = 'ok'
-            """,
-        )
-        try:
-            cursor.execute(
-                """
-                SELECT COUNT(*), MIN(f.timestamp)
-                FROM ocr_frames f
-                LEFT JOIN ocr_embeddings e ON e.frame_id = f.id
-                WHERE (e.id IS NULL OR COALESCE(e.status, 'pending') != 'ok')
-                  AND (
-                    COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
-                    OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
-                    OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
-                  )
-                """
-            )
-            row = cursor.fetchone()
-            if row:
-                pending_chunks = int(row[0] or 0)
-                oldest_pending_chunk_ts = int(row[1]) if row[1] is not None else None
-        except Exception:
-            pending_chunks = 0
 
     source_mismatch = False
     source_mismatch_note = None
@@ -2839,7 +2785,7 @@ def _compute_freshness(
     time_intent = intent_normalized in {"time_spent", "broad_overview"}
 
     semantic_anchor_ts = max(
-        [ts for ts in [last_context_ts, last_ocr_frame_ts, last_chunk_built_ts] if ts is not None],
+        [ts for ts in [last_context_ts, last_ocr_frame_ts] if ts is not None],
         default=None,
     )
     time_anchor_ts = max(
@@ -2848,9 +2794,7 @@ def _compute_freshness(
     )
     overall_anchor_ts = max(
         [
-            ts
-            for ts in [last_capture_ts, last_activity_ts, last_context_ts, last_ocr_frame_ts, last_chunk_built_ts]
-            if ts is not None
+            ts for ts in [last_capture_ts, last_activity_ts, last_context_ts, last_ocr_frame_ts] if ts is not None
         ],
         default=None,
     )
@@ -2882,24 +2826,12 @@ def _compute_freshness(
     elif source_mismatch:
         status = "degraded_semantic"
         reasons.append("source_mismatch")
-    elif semantic_intent and ocr_lag is not None and ocr_lag > 3600 and (chunk_lag is None or chunk_lag > 3600):
-        status = "degraded_ocr"
-        reasons.append("ocr_and_chunk_lag_gt_1h")
-    elif semantic_intent and ocr_lag is not None and ocr_lag > 600 and (chunk_lag is None or chunk_lag > 600):
-        status = "degraded_ocr"
-        reasons.append("ocr_and_chunk_lag_gt_10m")
-    elif semantic_intent and (
-        (embedding_lag is not None and embedding_lag > 900)
-        or pending_chunks > 2000
-        or (semantic_anchor_lag is not None and semantic_anchor_lag > 300)
-    ):
+    elif semantic_intent and semantic_anchor_lag is not None and semantic_anchor_lag > 3600:
         status = "degraded_semantic"
-        if embedding_lag is not None and embedding_lag > 900:
-            reasons.append("embedding_lag_gt_15m")
-        if pending_chunks > 2000:
-            reasons.append("pending_chunks_gt_2000")
-        if semantic_anchor_lag is not None and semantic_anchor_lag > 300:
-            reasons.append("semantic_anchor_lag_gt_5m")
+        reasons.append("semantic_anchor_lag_gt_1h")
+    elif semantic_intent and semantic_anchor_lag is not None and semantic_anchor_lag > 300:
+        status = "degraded_semantic"
+        reasons.append("semantic_anchor_lag_gt_5m")
     elif time_intent and activity_lag is not None and activity_lag > 3600:
         status = "degraded_ocr"
         reasons.append("activity_lag_gt_1h")
@@ -2998,82 +2930,14 @@ def _compute_semantic_readiness(cursor, now_ms: int) -> Dict[str, Any]:
         except Exception:
             pass
 
-    has_chunks = _table_exists(cursor, "search_chunks")
-    has_chunk_embeddings = _table_exists(cursor, "chunk_embeddings")
-    if not has_chunks or not has_chunk_embeddings:
-        return {
-            "ready": False,
-            "coverage": 0.0,
-            "total_chunks": 0,
-            "embedded_chunks": 0,
-            "recent_unembedded": 0,
-            "reason": "semantic_chunk_tables_unavailable",
-            "tier": "lexical_fts",
-        }
-
-    total_chunks = 0
-    embedded_chunks = 0
-    recent_unembedded = 0
-    try:
-        cursor.execute("SELECT COUNT(*) FROM search_chunks")
-        row_total = cursor.fetchone()
-        total_chunks = int(row_total[0] or 0) if row_total else 0
-
-        cursor.execute("SELECT COUNT(*) FROM chunk_embeddings WHERE COALESCE(status, 'pending') = 'ok'")
-        row_embedded = cursor.fetchone()
-        embedded_chunks = int(row_embedded[0] or 0) if row_embedded else 0
-
-        recent_cutoff = now_ms - (60 * 60 * 1000)
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM search_chunks s
-            LEFT JOIN chunk_embeddings e ON e.chunk_id = s.id
-            WHERE s.chunk_end_ts >= ?
-              AND (e.chunk_id IS NULL OR COALESCE(e.status, 'pending') != 'ok')
-            """,
-            (recent_cutoff,),
-        )
-        row_recent = cursor.fetchone()
-        recent_unembedded = int(row_recent[0] or 0) if row_recent else 0
-    except Exception:
-        return {
-            "ready": False,
-            "coverage": 0.0,
-            "total_chunks": total_chunks,
-            "embedded_chunks": embedded_chunks,
-            "recent_unembedded": recent_unembedded,
-            "reason": "semantic_readiness_query_failed",
-            "tier": "lexical_fts",
-        }
-
-    coverage = float(embedded_chunks) / float(total_chunks) if total_chunks > 0 else 1.0
-    ready = coverage >= 0.90 and recent_unembedded < 5
-    # Avoid reporting semantic_frame when only a tiny fraction of chunks are embedded.
-    min_semantic_frame_coverage = 0.05
-    min_semantic_frame_chunks = 25
-    has_semantic_frame_coverage = (
-        embedded_chunks >= min_semantic_frame_chunks
-        and coverage >= min_semantic_frame_coverage
-    )
-    if ready:
-        tier = "semantic_full"
-        reason = "semantic_ready"
-    elif has_semantic_frame_coverage:
-        tier = "semantic_frame"
-        reason = "semantic_index_building"
-    else:
-        tier = "lexical_fts"
-        reason = "semantic_embeddings_unavailable"
-
     return {
-        "ready": bool(ready),
-        "coverage": round(coverage, 4),
-        "total_chunks": total_chunks,
-        "embedded_chunks": embedded_chunks,
-        "recent_unembedded": recent_unembedded,
-        "reason": reason,
-        "tier": tier,
+        "ready": False,
+        "coverage": 0.0,
+        "total_chunks": 0,
+        "embedded_chunks": 0,
+        "recent_unembedded": 0,
+        "reason": "session_context_unavailable",
+        "tier": "lexical_fts",
     }
 
 
@@ -3896,7 +3760,7 @@ async def query_memory_impl(
             )
         if should_include_semantic and (not cloud_mode) and semantic_readiness and not semantic_readiness.get("ready", False):
             warning_parts.append(
-                "Semantic index is still building; results may use lexical matching until chunk embeddings catch up."
+                "Cloud semantic context is unavailable; results may fall back to lexical matching until session docs sync."
             )
 
         time_truth: Optional[Dict[str, Any]] = None
@@ -3925,97 +3789,15 @@ async def query_memory_impl(
         semantic_allowed = cloud_mode or freshness.get("status") not in {"stale", "unavailable"}
         if should_include_semantic and semantic_allowed:
             if cloud_mode:
-                local_strong_signal = False
-                # Skip redundant local semantic search for broad_overview —
-                # go straight to Turbopuffer cloud which has higher-quality
-                # OpenAI embeddings and returns faster without the local overhead.
-                if resolved_intent == "broad_overview" and False:
-                    # Disabled: local semantic truth was redundant with cloud path
-                    pass
-                elif resolved_intent == "broad_overview_DISABLED":
-                    local_context_truth = await _load_semantic_truth(
-                        service=service,
-                        user_id=user_id,
-                        query=normalized_query,
-                        intent=resolved_intent,
-                        days_back=resolved_days,
-                        limit=safe_limit,
-                        start_ms=start_ms,
-                        end_ms=end_ms,
-                        allow_activity_fallback=False,
-                    )
-                    if local_context_truth.get("warning"):
-                        warning_parts.append(str(local_context_truth["warning"]))
-                    local_context_citations = local_context_truth.pop("citations", [])
-                    if local_context_citations:
-                        semantic_truth = local_context_truth
-                        citations = local_context_citations
-                        confidence = _derive_confidence(
-                            citations,
-                            topic_metrics=semantic_truth.get("topic_specificity"),
-                            intent=resolved_intent,
-                        )
-                        if semantic_truth.get("warning"):
-                            warning_parts.append(str(semantic_truth["warning"]))
-                        provider_path = {
-                            "retrieval": "local_context",
-                            "rerank": "none",
-                            "answer": "openai",
-                        }
-                        local_strong_signal = bool((semantic_truth.get("debug") or {}).get("strong_signal_short_circuit"))
-                else:
-                    local_context_truth = await _load_semantic_truth(
-                        service=service,
-                        user_id=user_id,
-                        query=normalized_query,
-                        intent=resolved_intent,
-                        days_back=resolved_days,
-                        limit=safe_limit,
-                        start_ms=start_ms,
-                        end_ms=end_ms,
-                        allow_activity_fallback=False,
-                    )
-                    if local_context_truth.get("warning"):
-                        warning_parts.append(str(local_context_truth["warning"]))
-                    local_context_citations = local_context_truth.pop("citations", [])
-                    if local_context_citations:
-                        semantic_truth = local_context_truth
-                        citations = local_context_citations
-                        confidence = _derive_confidence(
-                            citations,
-                            topic_metrics=semantic_truth.get("topic_specificity"),
-                            intent=resolved_intent,
-                        )
-                        provider_path = {
-                            "retrieval": "local_context",
-                            "rerank": "none",
-                            "answer": "openai",
-                        }
-                        local_strong_signal = bool((semantic_truth.get("debug") or {}).get("strong_signal_short_circuit"))
-
-                if local_strong_signal:
-                    warning_parts = [
-                        part
-                        for part in warning_parts
-                        if part != "Semantic retrieval is degraded; using lexical-first fallback where needed."
-                    ]
                 try:
-                    # Always call Turbopuffer for cloud vector retrieval — don't
-                    # short-circuit on local_strong_signal. The cloud path provides
-                    # vector-semantic results that complement the local lexical/recency
-                    # search, and Cohere reranking in the cloud path further improves
-                    # result quality. Skipping this wastes the Turbopuffer index.
-                    if False:  # was: local_strong_signal — no longer skip cloud
-                        cloud_result = {"enabled": False}
-                    else:
-                        cloud_result = await query_semantic_cloud(
-                            user_id=user_id,
-                            query=normalized_query,
-                            intent=resolved_intent,
-                            start_ms=start_ms,
-                            end_ms=end_ms,
-                            limit=safe_limit,
-                        )
+                    cloud_result = await query_semantic_cloud(
+                        user_id=user_id,
+                        query=normalized_query,
+                        intent=resolved_intent,
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        limit=safe_limit,
+                    )
                     auto_backfill_warning = await _auto_backfill_cloud_if_needed(
                         user_id=user_id,
                         start_ms=start_ms,
@@ -4030,48 +3812,7 @@ async def query_memory_impl(
                         ):
                             cloud_retrieval_debug = dict(cloud_semantic_truth.get("debug") or {})
                         cloud_citations = cloud_result.get("citations") or []
-                        if citations and cloud_citations:
-                            citations = _fuse_citations_rrf(
-                                primary=citations,
-                                secondary=cloud_citations,
-                                limit=max(20, safe_limit),
-                            )
-                            # Re-apply hard app filter after cloud fusion so app-scoped
-                            # queries (e.g. "What was I doing in Cursor?") don't get
-                            # diluted by unscoped cloud citations.
-                            _app_scope = _extract_requested_app_scope(normalized_query)
-                            if _app_scope and resolved_intent in {"semantic_lookup", "evidence_timeline"}:
-                                scoped = [c for c in citations if _result_matches_app_scope(c, _app_scope)]
-                                if scoped:
-                                    citations = scoped
-                            # For overview/recap queries, re-sort fused citations
-                            # chronologically so the LLM sees temporal flow for
-                            # cross-app project threading.
-                            if is_overview_query:
-                                citations.sort(key=lambda c: int(c.get("timestamp") or 0))
-
-                            semantic_truth = semantic_truth or cloud_semantic_truth
-                            if isinstance(semantic_truth, dict):
-                                semantic_truth["highlights"] = citations[: min(safe_limit, 12)]
-                                semantic_truth["result_count"] = len(citations)
-                                semantic_truth["mode_used"] = "local-context+cloud-hybrid"
-                                semantic_truth["status"] = "hybrid"
-                                semantic_truth["debug"] = (
-                                    cloud_semantic_truth.get("debug")
-                                    if isinstance(cloud_semantic_truth, dict)
-                                    else None
-                                )
-                            provider_path = cloud_result.get("provider_path")
-                            if not isinstance(provider_path, dict):
-                                provider_path = {}
-                            provider_path["retrieval"] = "local_context+turbopuffer"
-                            provider_path.setdefault("answer", "openai")
-                            confidence = _derive_confidence(
-                                citations,
-                                topic_metrics=(semantic_truth or {}).get("topic_specificity"),
-                                intent=resolved_intent,
-                            )
-                        elif cloud_citations:
+                        if cloud_citations:
                             semantic_truth = cloud_semantic_truth
                             citations = cloud_citations
                             confidence = cloud_result.get("confidence") or confidence
@@ -4082,8 +3823,8 @@ async def query_memory_impl(
                             provider_path = cloud_result.get("provider_path")
                         if not isinstance(provider_path, dict):
                             provider_path = {}
-                        if provider_path.get("retrieval") != "local_context+turbopuffer":
-                            provider_path["retrieval"] = "turbopuffer"
+                        provider_path["retrieval"] = "turbopuffer"
+                        provider_path["retrieval_mode"] = "cloud_primary" if citations else "cloud_degraded"
                         provider_path.setdefault("answer", "openai")
                         if citations:
                             warning_parts = [
@@ -4094,10 +3835,15 @@ async def query_memory_impl(
                         if semantic_truth and semantic_truth.get("warning"):
                             warning_parts.append(str(semantic_truth["warning"]))
 
-                        # When cloud returns zero grounded citations but
-                        # local OCR data exists, try the local hybrid bridge
-                        # as a secondary source (unless fail-closed).
-                        if not citations and not memory_fail_closed():
+                        cloud_index_health = cloud_result.get("index_health") or {}
+                        allow_local_fallback = (
+                            not _cloud_first_chat_enabled()
+                            or freshness.get("status") in {"stale", "unavailable", "degraded_ocr"}
+                            or int(cloud_index_health.get("pending_jobs") or 0) > 1000
+                            or int(cloud_index_health.get("embedding_lag_seconds") or 0) > 15 * 60
+                        )
+
+                        if not citations and allow_local_fallback and not memory_fail_closed():
                             try:
                                 local_fallback = await _load_semantic_truth(
                                     service=service,
@@ -4125,7 +3871,7 @@ async def query_memory_impl(
                                         semantic_truth = {}
                                     semantic_truth["highlights"] = citations[: min(safe_limit, 8)]
                                     semantic_truth["result_count"] = len(citations)
-                                    semantic_truth["mode_used"] = "cloud-hybrid+local-bridge-fallback"
+                                    semantic_truth["mode_used"] = "cloud-degraded+local-fallback"
                                     semantic_truth["status"] = "hybrid"
 
                                     confidence = _derive_confidence(
@@ -4135,10 +3881,10 @@ async def query_memory_impl(
                                     )
                                     if provider_path is None:
                                         provider_path = {}
-                                    existing_retrieval = str(provider_path.get("retrieval") or "turbopuffer")
-                                    provider_path["retrieval"] = f"{existing_retrieval}+local_bridge_fallback"
+                                    provider_path["retrieval"] = "local_fallback"
+                                    provider_path["retrieval_mode"] = "local_fallback"
                                     warning_parts.append(
-                                        "Cloud had no candidates; fused in local hybrid bridge evidence."
+                                        "Cloud retrieval was degraded; using explicit local fallback evidence."
                                     )
                             except Exception as local_exc:
                                 logger.debug("Local bridge fallback failed: %s", local_exc)
@@ -4175,11 +3921,12 @@ async def query_memory_impl(
                 except Exception as cloud_exc:
                     if citations:
                         warning_parts.append(
-                            f"Cloud semantic retrieval error; continuing with local grounded evidence: {cloud_exc}"
+                            f"Cloud semantic retrieval error; continuing with cloud-grounded evidence already assembled: {cloud_exc}"
                         )
                         if provider_path is None:
                             provider_path = {
-                                "retrieval": "local_context",
+                                "retrieval": "turbopuffer",
+                                "retrieval_mode": "cloud_primary",
                                 "rerank": "none",
                                 "answer": "openai",
                             }
@@ -4201,30 +3948,58 @@ async def query_memory_impl(
                         }
                         provider_path = {
                             "retrieval": "turbopuffer",
+                            "retrieval_mode": "cloud_degraded",
                             "rerank": "cohere|openai",
                             "answer": "openai",
                         }
                         warning_parts.append(f"Cloud semantic retrieval error: {cloud_exc}")
                     else:
-                        warning_parts.append(f"Cloud semantic retrieval error; falling back local path: {cloud_exc}")
-                        strict_semantic_intent = resolved_intent in {"semantic_lookup", "evidence_timeline"}
-                        semantic_truth = await _load_semantic_truth(
-                            service=service,
-                            user_id=user_id,
-                            query=normalized_query,
-                            intent=resolved_intent,
-                            days_back=resolved_days,
-                            limit=safe_limit,
-                            start_ms=start_ms,
-                            end_ms=end_ms,
-                            allow_activity_fallback=not strict_semantic_intent,
+                        allow_local_fallback = (
+                            not _cloud_first_chat_enabled()
+                            or freshness.get("status") in {"stale", "unavailable", "degraded_ocr"}
                         )
-                        citations = semantic_truth.pop("citations", [])
-                        confidence = _derive_confidence(
-                            citations,
-                            topic_metrics=semantic_truth.get("topic_specificity"),
-                            intent=resolved_intent,
-                        )
+                        if allow_local_fallback:
+                            warning_parts.append(f"Cloud semantic retrieval error; using explicit local fallback: {cloud_exc}")
+                            strict_semantic_intent = resolved_intent in {"semantic_lookup", "evidence_timeline"}
+                            semantic_truth = await _load_semantic_truth(
+                                service=service,
+                                user_id=user_id,
+                                query=normalized_query,
+                                intent=resolved_intent,
+                                days_back=resolved_days,
+                                limit=safe_limit,
+                                start_ms=start_ms,
+                                end_ms=end_ms,
+                                allow_activity_fallback=not strict_semantic_intent,
+                            )
+                            citations = semantic_truth.pop("citations", [])
+                            confidence = _derive_confidence(
+                                citations,
+                                topic_metrics=semantic_truth.get("topic_specificity"),
+                                intent=resolved_intent,
+                            )
+                            provider_path = {
+                                "retrieval": "local_fallback",
+                                "retrieval_mode": "local_fallback",
+                                "rerank": "none",
+                                "answer": "openai",
+                            }
+                        else:
+                            warning_parts.append(f"Cloud semantic retrieval error: {cloud_exc}")
+                            semantic_truth = {
+                                "query": normalized_query,
+                                "result_count": 0,
+                                "mode_used": "cloud-unavailable",
+                                "status": "unavailable",
+                                "highlights": [],
+                                "warning": "Cloud semantic retrieval is unavailable and local fallback is disabled in cloud-first mode.",
+                            }
+                            provider_path = {
+                                "retrieval": "turbopuffer",
+                                "retrieval_mode": "cloud_degraded",
+                                "rerank": "cohere|openai",
+                                "answer": "openai",
+                            }
             else:
                 strict_semantic_intent = resolved_intent in {"semantic_lookup", "evidence_timeline"}
                 semantic_truth = await _load_semantic_truth(
@@ -4246,6 +4021,12 @@ async def query_memory_impl(
                 )
                 if semantic_truth.get("warning"):
                     warning_parts.append(str(semantic_truth["warning"]))
+                provider_path = {
+                    "retrieval": "local_fallback",
+                    "retrieval_mode": "local_fallback",
+                    "rerank": "none",
+                    "answer": "openai",
+                }
         elif should_include_semantic:
             warning_parts.append(
                 "Semantic lookup blocked by freshness guard; returning activity-only context."

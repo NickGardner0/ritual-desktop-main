@@ -145,14 +145,17 @@ class MemoryQueryResponse(BaseModel):
 class DayRecapRequest(BaseModel):
     query: str
     anchor_date: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     timezone: Optional[str] = None
     days_back: Optional[int] = 1
+    scope: Optional[str] = None
 
 
 class DayRecapResponse(BaseModel):
     success: bool
     query: str
-    anchor_date: str
+    anchor_date: Optional[str] = None
     days_back: int
     rendered_summary: str
     rich_activity_summary: Optional[str] = None

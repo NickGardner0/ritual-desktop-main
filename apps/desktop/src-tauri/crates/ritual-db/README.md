@@ -113,30 +113,6 @@ async fn record_screen(db: &RitualDatabase) -> Result<(), Box<dyn std::error::Er
 }
 ```
 
-### Semantic Search
-
-```rust
-use ritual_db::{RitualDatabase, SearchOptions};
-
-async fn semantic_search(db: &RitualDatabase) -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize embedding service (downloads model on first use)
-    db.init_embedding_service().await?;
-    
-    // Search by meaning
-    let options = SearchOptions::new(10)
-        .with_time_range(start_ts, end_ts)
-        .with_min_relevance(0.5);
-    
-    let results = db.search_semantic("debugging authentication issues", options).await?;
-    
-    for result in results {
-        println!("Score: {:.2} - {}", result.relevance_score, result.frame.ocr_text);
-    }
-    
-    Ok(())
-}
-```
-
 ### Sync Queue
 
 ```rust
@@ -232,7 +208,6 @@ ritual-db/
 
 - `libsql` - Database engine with vector support
 - `rusqlite` - For reading legacy databases during migration
-- `fastembed` - Local embedding generation (all-MiniLM-L6-v2)
 - `tokio` - Async runtime
 - `serde` - Serialization
 - `chrono` - Date/time handling

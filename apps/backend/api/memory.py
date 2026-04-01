@@ -8,7 +8,6 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -22,7 +21,7 @@ from .watcher_common import (
     ScreenSearchResponse,
     get_current_user,
 )
-from services.day_recap_service import build_day_recap
+from services.day_recap_service import build_day_recap, build_range_recap
 from services.memory_backfill_service import backfill_cloud_from_local_chunks
 from services.memory_cloud_store import (
     get_memory_query_observability,
@@ -39,14 +38,12 @@ from services.memory_retention_service import run_memory_retention_once
 from services.memory_retention_service import reconcile_superseded_provider_docs
 from services.memory_turbopuffer_service import TurbopufferService
 from services.watcher_service import watcher_service
-from services.watcher_service_local_db import get_local_watcher_db_path_impl
+from services.watcher_service_local_db import (
+    get_local_activity_db_path_impl,
+    get_local_memory_db_path_impl,
+)
 from services.watcher_service_local_db import open_activity_connection_for_user
 from services.watcher_service_search import query_memory_impl
-from services.watcher_service_search_utils import (
-    get_local_bridge_status_impl,
-    get_local_hybrid_bridge_token_impl,
-    get_local_hybrid_bridge_url_impl,
-)
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 logger = logging.getLogger(__name__)
@@ -119,13 +116,13 @@ def _scalar(conn: sqlite3.Connection, query: str) -> Optional[int]:
 
 
 def _local_pipeline_snapshot(now_ms: int) -> dict:
-    db_path = get_local_watcher_db_path_impl()
+    activity_db_path = get_local_activity_db_path_impl()
+    memory_db_path = get_local_memory_db_path_impl()
     snapshot = {
-        "path": db_path,
-        "exists": os.path.exists(db_path),
-        "ocr_max_ts": None,
-        "chunk_max_ts": None,
-        "chunk_embedding_pending": None,
+        "path": activity_db_path,
+        "exists": os.path.exists(activity_db_path),
+        "session_doc_max_ts": None,
+        "snapshot_max_ts": None,
         "outbox_pending": None,
         "outbox_uploading": None,
         "outbox_failed": None,
@@ -133,45 +130,42 @@ def _local_pipeline_snapshot(now_ms: int) -> dict:
     if not snapshot["exists"]:
         return snapshot
 
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
+    conn = sqlite3.connect(f"file:{activity_db_path}?mode=ro", uri=True, timeout=2.0)
     try:
         conn.execute("PRAGMA query_only = ON")
-        if _table_exists(conn, "ocr_frames"):
-            snapshot["ocr_max_ts"] = _scalar(conn, "SELECT MAX(timestamp) FROM ocr_frames")
-        if _table_exists(conn, "search_chunks"):
-            snapshot["chunk_max_ts"] = _scalar(conn, "SELECT MAX(chunk_end_ts) FROM search_chunks")
-
-        if _table_exists(conn, "search_chunks") and _table_exists(conn, "chunk_embeddings"):
-            snapshot["chunk_embedding_pending"] = _scalar(
-                conn,
-                """
-                SELECT COUNT(*)
-                FROM search_chunks s
-                LEFT JOIN chunk_embeddings e ON e.chunk_id = s.id
-                WHERE e.chunk_id IS NULL OR COALESCE(e.status, 'pending') != 'ok'
-                """,
+        if _table_exists(conn, "session_retrieval_docs"):
+            snapshot["session_doc_max_ts"] = _scalar(
+                conn, "SELECT MAX(chunk_end_ts) FROM session_retrieval_docs"
             )
-
-        if _table_exists(conn, "memory_upload_outbox"):
-            snapshot["outbox_pending"] = _scalar(
-                conn,
-                "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'pending'",
-            )
-            snapshot["outbox_uploading"] = _scalar(
-                conn,
-                "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'uploading'",
-            )
-            snapshot["outbox_failed"] = _scalar(
-                conn,
-                "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'failed'",
-            )
+        if _table_exists(conn, "context_snapshots"):
+            snapshot["snapshot_max_ts"] = _scalar(conn, "SELECT MAX(ts) FROM context_snapshots")
     finally:
         conn.close()
 
-    snapshot["ocr_lag_seconds"] = _lag_seconds(now_ms, snapshot["ocr_max_ts"])
-    snapshot["chunk_lag_seconds"] = _lag_seconds(now_ms, snapshot["chunk_max_ts"])
-    snapshot["ocr_max_ts_iso_utc"] = _ts_to_iso_utc(snapshot["ocr_max_ts"])
-    snapshot["chunk_max_ts_iso_utc"] = _ts_to_iso_utc(snapshot["chunk_max_ts"])
+    if os.path.exists(memory_db_path):
+        outbox_conn = sqlite3.connect(f"file:{memory_db_path}?mode=ro", uri=True, timeout=2.0)
+        try:
+            outbox_conn.execute("PRAGMA query_only = ON")
+            if _table_exists(outbox_conn, "memory_upload_outbox"):
+                snapshot["outbox_pending"] = _scalar(
+                    outbox_conn,
+                    "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'pending'",
+                )
+                snapshot["outbox_uploading"] = _scalar(
+                    outbox_conn,
+                    "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'uploading'",
+                )
+                snapshot["outbox_failed"] = _scalar(
+                    outbox_conn,
+                    "SELECT COUNT(*) FROM memory_upload_outbox WHERE status = 'failed'",
+                )
+        finally:
+            outbox_conn.close()
+
+    snapshot["session_doc_lag_seconds"] = _lag_seconds(now_ms, snapshot["session_doc_max_ts"])
+    snapshot["snapshot_lag_seconds"] = _lag_seconds(now_ms, snapshot["snapshot_max_ts"])
+    snapshot["session_doc_max_ts_iso_utc"] = _ts_to_iso_utc(snapshot["session_doc_max_ts"])
+    snapshot["snapshot_max_ts_iso_utc"] = _ts_to_iso_utc(snapshot["snapshot_max_ts"])
     return snapshot
 
 
@@ -316,11 +310,22 @@ async def recap_day_memory(
 ):
     query = (request.query or "").strip()
     anchor_date = (request.anchor_date or "").strip()
+    start_date = (request.start_date or "").strip()
+    end_date = (request.end_date or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
-    if not anchor_date:
-        raise HTTPException(status_code=400, detail="anchor_date is required")
     try:
+        if start_date and end_date:
+            return await build_range_recap(
+                user_id=current_user["id"],
+                query=query,
+                start_date=start_date,
+                end_date=end_date,
+                timezone_name=request.timezone,
+                days_back=request.days_back or 1,
+            )
+        if not anchor_date:
+            raise HTTPException(status_code=400, detail="anchor_date is required")
         return await build_day_recap(
             user_id=current_user["id"],
             query=query,
@@ -591,48 +596,42 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
     index_health = get_memory_index_health()
     query_obs = get_memory_query_observability()
 
-    bridge_status = "unknown"
-    bridge_last_known = get_local_bridge_status_impl()
-    bridge_health_http_status: Optional[int] = None
-    bridge_url = get_local_hybrid_bridge_url_impl()
-    parsed_bridge = urlparse(bridge_url)
-    bridge_health_url = urlunparse(
-        (
-            parsed_bridge.scheme or "http",
-            parsed_bridge.netloc or "127.0.0.1:3031",
-            "/health",
-            "",
-            "",
-            "",
-        )
-    )
-    try:
-        import httpx as _httpx
-
-        bridge_token = get_local_hybrid_bridge_token_impl()
-
-        headers = {}
-        if bridge_token:
-            headers["X-Ritual-Bridge-Token"] = bridge_token
-        async with _httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(bridge_health_url, headers=headers)
-        bridge_health_http_status = int(resp.status_code)
-        bridge_status = "up" if resp.status_code == 200 else "down"
-    except Exception:
-        bridge_status = "down"
-
     latest_context_ts = activity_snapshot.get("latest_context_snapshots_ts")
     latest_session_doc_ts = activity_snapshot.get("latest_session_retrieval_docs_ts")
-    latest_search_chunks_ts = local_snapshot.get("chunk_max_ts")
     pending_outbox = int(local_snapshot.get("outbox_pending") or 0)
     cloud_freshness_lag = cloud_snapshot.get("cloud_lag_seconds")
-    search_chunk_lag = _lag_seconds(now_ms, latest_search_chunks_ts)
     session_doc_lag = _lag_seconds(now_ms, latest_session_doc_ts)
+    current_user_cloud_chunks = 0
+    current_user_embedded_chunks = 0
+    current_user_cloud_max_ts = None
+    if cloud_snapshot.get("exists"):
+        try:
+            conn = sqlite3.connect(f"file:{memory_cloud_db_path()}?mode=ro", uri=True, timeout=2.0)
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*),
+                    SUM(CASE WHEN embedding_status = 'ok' THEN 1 ELSE 0 END),
+                    MAX(chunk_end_ts)
+                FROM memory_chunks
+                WHERE user_id = ?
+                  AND deleted_at IS NULL
+                """,
+                (current_user["id"],),
+            ).fetchone()
+            if row:
+                current_user_cloud_chunks = int(row[0] or 0)
+                current_user_embedded_chunks = int(row[1] or 0)
+                current_user_cloud_max_ts = int(row[2]) if row[2] is not None else None
+            conn.close()
+        except Exception:
+            pass
     context_ready = bool(activity_snapshot.get("context_snapshot_count") or activity_snapshot.get("session_retrieval_doc_count"))
     semantic_ready = bool(
-        latest_search_chunks_ts
+        current_user_embedded_chunks > 0
         and latest_session_doc_ts
-        and abs(int(latest_search_chunks_ts) - int(latest_session_doc_ts)) <= 15 * 60 * 1000
+        and current_user_cloud_max_ts
+        and abs(int(current_user_cloud_max_ts) - int(latest_session_doc_ts)) <= 15 * 60 * 1000
         and pending_outbox <= 1000
     )
     watcher_ready = bool(activity_snapshot.get("context_snapshot_count"))
@@ -640,40 +639,35 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
     degradation_reasons: list[str] = []
     if not context_ready:
         degradation_reasons.append("local_context_empty")
-    if latest_search_chunks_ts and latest_session_doc_ts and abs(int(latest_search_chunks_ts) - int(latest_session_doc_ts)) > 15 * 60 * 1000:
-        degradation_reasons.append("local_semantic_lag")
+    if current_user_cloud_max_ts and latest_session_doc_ts and abs(int(current_user_cloud_max_ts) - int(latest_session_doc_ts)) > 15 * 60 * 1000:
+        degradation_reasons.append("cloud_semantic_lag")
     if pending_outbox > 1000:
         degradation_reasons.append("outbox_backlog")
     if cloud_freshness_lag is not None and int(cloud_freshness_lag) > 15 * 60:
         degradation_reasons.append("cloud_freshness_lag")
     can_answer_anchored_day_recap = context_ready or watcher_ready
+    catching_up = bool(
+        (cloud_freshness_lag is not None and cloud_freshness_lag > 5 * 60)
+        or (session_doc_lag is not None and session_doc_lag > 5 * 60)
+    )
     overall_status = "Healthy"
     if not can_answer_anchored_day_recap:
         overall_status = "Insufficient for recap"
+    elif catching_up and not degradation_reasons:
+        overall_status = "Catching up"
     elif degradation_reasons:
         overall_status = "Degraded but usable"
-    elif (search_chunk_lag or 0) > 0 or (session_doc_lag or 0) > 0:
-        overall_status = "Catching up"
 
     return {
         "local": local_snapshot,
         "activity": activity_snapshot,
         "cloud": cloud_snapshot,
         "index_health": index_health,
-        "bridge": {
-            "status": bridge_status,
-            "health_url": bridge_health_url,
-            "health_http_status": bridge_health_http_status,
-            "down_since_ms": bridge_last_known.get("down_since_ms"),
-            "down_for_seconds": bridge_last_known.get("down_for_seconds"),
-            "status_last_known_by_query_path": bridge_last_known.get("status"),
-        },
         "slo": slo,
         "query_observability": query_obs,
         "retrieval_health": {
             "latest_context_snapshots_ts": latest_context_ts,
             "latest_session_retrieval_docs_ts": latest_session_doc_ts,
-            "latest_search_chunks_ts": latest_search_chunks_ts,
             "memory_upload_outbox": {
                 "pending": pending_outbox,
                 "uploading": int(local_snapshot.get("outbox_uploading") or 0),
@@ -682,6 +676,11 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
             "cloud_embedding_freshness": {
                 "cloud_lag_seconds": cloud_freshness_lag,
                 "last_upsert_ts": cloud_snapshot.get("last_upsert_ts"),
+                "latest_cloud_chunk_ts": current_user_cloud_max_ts,
+            },
+            "cloud_index": {
+                "current_user_chunk_count": current_user_cloud_chunks,
+                "current_user_embedded_chunk_count": current_user_embedded_chunks,
             },
             "lane_readiness": {
                 "context_ready": context_ready,
@@ -692,7 +691,7 @@ async def memory_diagnostics(current_user=Depends(get_current_user)):
             "summary": {
                 "overall_status": overall_status,
                 "can_answer_anchored_day_recap": can_answer_anchored_day_recap,
-                "primary_source_selected": "hybrid_semantic+local_context" if semantic_ready else "local_context",
+                "primary_source_selected": "cloud_primary" if semantic_ready else "cloud_degraded",
                 "degradation_reasons": degradation_reasons,
             },
         },

@@ -433,12 +433,16 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     value={formatDebugTimestamp(retrievalHealth?.latest_session_retrieval_docs_ts)}
                   />
                   <RetrievalHealthRow
-                    label="Latest semantic chunk"
-                    value={formatDebugTimestamp(retrievalHealth?.latest_search_chunks_ts)}
+                    label="Latest cloud chunk"
+                    value={formatDebugTimestamp(retrievalHealth?.cloud_embedding_freshness?.latest_cloud_chunk_ts)}
                   />
                   <RetrievalHealthRow
                     label="Outbox backlog"
                     value={String(retrievalHealth?.memory_upload_outbox?.pending ?? 0)}
+                  />
+                  <RetrievalHealthRow
+                    label="Cloud embedded docs"
+                    value={`${String(retrievalHealth?.cloud_index?.current_user_embedded_chunk_count ?? 0)} / ${String(retrievalHealth?.cloud_index?.current_user_chunk_count ?? 0)}`}
                   />
                   <RetrievalHealthRow
                     label="Primary source"
@@ -446,7 +450,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                   />
                   <RetrievalHealthRow
                     label="Fail-open mode"
-                    value={retrievalHealth?.lane_readiness?.semantic_ready ? 'Normal hybrid' : 'Local context preferred'}
+                    value={retrievalHealth?.lane_readiness?.semantic_ready ? 'Cloud primary' : 'Cloud degraded'}
                   />
                   {Array.isArray(retrievalHealth?.summary?.degradation_reasons) && retrievalHealth.summary.degradation_reasons.length > 0 && (
                     <div className="pt-1">

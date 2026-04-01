@@ -3,7 +3,6 @@
 #![allow(unexpected_cfgs)]
 
 mod desktop_runtime;
-mod local_search_bridge;
 mod native_widget;
 #[cfg(feature = "native-recorder")]
 mod recorder;
@@ -941,6 +940,7 @@ fn main() {
       watcher::open_accessibility_settings,
       // Local activity queries (for detailed view with full URLs/titles)
       watcher::get_detailed_activity,
+      watcher::get_daily_summaries,
       // Real-time status
       watcher::get_watcher_extended_status,
       watcher::get_browser_extension_diagnostics,
@@ -987,26 +987,12 @@ fn main() {
       // Ritual Database commands (unified libSQL with vector search)
       ritual_database::init_ritual_database,
       ritual_database::get_ritual_db_stats,
-      ritual_database::init_embedding_service,
-      ritual_database::get_embedding_stats,
-      ritual_database::get_chunk_embedding_coverage,
-      ritual_database::ensure_embedding_pipeline_ready,
-      ritual_database::semantic_search,
       ritual_database::text_search,
-      ritual_database::hybrid_search,
-      ritual_database::process_embeddings,
-      ritual_database::backfill_chunk_embeddings,
-      ritual_database::start_chunk_embedding_backfill,
-      ritual_database::get_chunk_embedding_backfill_status,
       ritual_database::check_migration_status,
       ritual_database::seed_memory_upload_outbox,
       ritual_database::get_memory_upload_outbox_stats,
       ritual_database::claim_memory_upload_outbox_batch,
       ritual_database::ack_memory_upload_outbox_batch,
-      // Embedding worker commands
-      ritual_database::start_embedding_worker,
-      ritual_database::stop_embedding_worker,
-      ritual_database::is_embedding_worker_running,
     ])
     .system_tray(system_tray)
     .on_system_tray_event(|_app, event| match event {
@@ -1195,43 +1181,7 @@ fn main() {
           if let Err(e) = ritual_database::log_startup_pipeline_snapshot() {
             eprintln!("⚠️ Failed to log startup pipeline snapshot: {}", e);
           }
-          if env_flag_enabled("RITUAL_ENABLE_LOCAL_SEMANTIC_SEARCH") {
-            if let Err(e) = local_search_bridge::start_local_search_bridge() {
-              eprintln!("⚠️ Failed to start local search bridge: {}", e);
-            }
-            ritual_database::auto_start_embedding_worker();
-          } else {
-            println!("⏭️ Local semantic search bridge disabled (cloud-only chat mode)");
-          }
-
-          if env_flag_enabled("RITUAL_ENABLE_LOCAL_SEMANTIC_SEARCH")
-            && env_flag_enabled("RITUAL_ENABLE_STARTUP_BACKFILL")
-          {
-              std::thread::spawn(|| {
-                match ritual_database::ensure_embedding_pipeline_ready() {
-                  Ok(status) => {
-                  println!(
-                    "[Ritual][startup] ensure_embedding_pipeline_ready initialized={} frame_pending={} chunk_pending={} worker_running={} worker_started={}",
-                    status.initialized,
-                    status.frames_without_embeddings,
-                    status.pending_chunks,
-                    status.worker_running,
-                    status.worker_started
-                  );
-                  if let Some(init_error) = status.init_error {
-                    eprintln!("[Ritual][startup] embedding init warning: {}", init_error);
-                  }
-                }
-                Err(e) => {
-                  eprintln!("[Ritual][startup] ensure_embedding_pipeline_ready failed: {}", e);
-                }
-              }
-              });
-          } else {
-            println!(
-              "[Ritual][startup] local semantic startup backfill disabled; cloud-only chat stays on backend memory retrieval"
-            );
-          }
+          println!("⏭️ Local semantic bridge and local embedding startup disabled in cloud-first mode");
         },
         Err(e) => println!("⚠️ Ritual database init deferred: {}", e),
       }
