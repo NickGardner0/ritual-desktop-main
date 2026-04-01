@@ -2,7 +2,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { X, LayoutDashboard } from 'lucide-react';
+import { X, LayoutDashboard, GripVertical } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -90,10 +90,12 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
+  const [isHovered, setIsHovered] = React.useState(false);
   const {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -111,13 +113,28 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${
-        isDragging ? 'shadow-lg bg-[#F3F3F3] cursor-grabbing opacity-90' : ''
+      onPointerEnter={() => setIsHovered(true)}
+      onPointerLeave={() => setIsHovered(false)}
+      onPointerCancel={() => setIsHovered(false)}
+      className={`w-full max-w-2xl flex justify-between items-center gap-3 h-8 px-1 bg-white ${
+        isHovered ? 'bg-[#F7F7F7]' : ''
+      } ${
+        isDragging ? 'shadow-lg bg-[#F3F3F3] opacity-90' : ''
       }`}
     >
-      <div className="flex items-center min-w-0 gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          type="button"
+          aria-label={`Reorder ${displayName}`}
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-gray-300 transition-colors ${
+            isHovered || isDragging ? 'text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing' : 'text-transparent'
+          }`}
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
         <span className="flex items-center justify-center w-5 h-5 flex-shrink-0 self-center -translate-y-px">
           {habit.icon ? (
             /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
@@ -147,7 +164,9 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
         <button
           onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
           disabled={isDeleting}
-          className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50"
+          className={`p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50 ${
+            isHovered || isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0'
+          }`}
           title="Delete habit"
         >
           {isDeleting ? (

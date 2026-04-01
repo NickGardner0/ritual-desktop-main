@@ -41,13 +41,13 @@ export function MetricsInitialSection({
       {cardGrid}
 
       {shouldShowTopRail ? (
-        <div className="mx-auto mt-8 w-full max-w-[920px]">
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_310px] xl:items-start">
+        <div className="mx-auto mt-6 w-full max-w-[960px]">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
             <div className="min-w-0">
               {showInsights ? <InsightCardsGrid compact /> : null}
             </div>
             {showBarLists && habitBarItems.length > 0 ? (
-              <div className="min-w-0 xl:max-w-[310px]">
+              <div className="min-w-0 lg:max-w-[280px]">
                 <VercelBarListCard
                   tabs={[
                     { id: 'habits', label: 'Habits' },
@@ -70,7 +70,7 @@ export function MetricsInitialSection({
       ) : null}
 
       {showBarLists ? (
-        <div className="mx-auto mt-6 w-full max-w-[920px]">
+        <div className="mx-auto mt-5 w-full max-w-[960px]">
           <div className="grid grid-cols-1 gap-[6px]">
             <ComputerTimeBarList activeRange={barListRange} onRangeChange={onBarListRangeChange} />
           </div>
