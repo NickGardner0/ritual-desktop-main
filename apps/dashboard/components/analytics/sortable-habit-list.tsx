@@ -90,7 +90,6 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
-  const [isHovered, setIsHovered] = React.useState(false);
   const {
     attributes,
     listeners,
@@ -114,13 +113,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       style={style}
       {...attributes}
       {...listeners}
-      onPointerEnter={() => setIsHovered(true)}
-      onPointerLeave={() => setIsHovered(false)}
-      onPointerCancel={() => setIsHovered(false)}
-      onPointerUp={() => setIsHovered(false)}
-      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 bg-white cursor-grab active:cursor-grabbing ${
-        isHovered ? 'bg-[#F7F7F7]' : ''
-      } ${
+      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${
         isDragging ? 'shadow-lg bg-[#F3F3F3] opacity-90' : ''
       }`}
     >
@@ -155,7 +148,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
           onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
           disabled={isDeleting}
           className={`p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50 ${
-            isHovered || isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0'
+            isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
           title="Delete habit"
         >

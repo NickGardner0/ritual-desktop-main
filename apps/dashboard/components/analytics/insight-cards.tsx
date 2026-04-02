@@ -62,7 +62,7 @@ interface InsightCardsGridProps {
 
 export function InsightCardsGrid({ onCardClick, compact = false }: InsightCardsGridProps) {
   return (
-    <div className={`w-full ${compact ? 'max-w-none' : 'max-w-[708px]'}`}>
+    <div className={`w-full ${compact ? 'max-w-[520px]' : 'max-w-[708px]'}`}>
       {/* Section header */}
       <div className={compact ? 'mb-2' : 'mb-3'}>
         <h3 className={`${compact ? 'text-[14px]' : 'text-[15px]'} font-medium tracking-[-0.3px] text-[#27251E]`}>
@@ -73,14 +73,14 @@ export function InsightCardsGrid({ onCardClick, compact = false }: InsightCardsG
         </p>
       </div>
 
-      <div className={`grid grid-cols-2 ${compact ? 'gap-1' : 'gap-[6px]'} sm:grid-cols-3`}>
+      <div className={`grid grid-cols-2 ${compact ? 'gap-[6px]' : 'gap-[6px]'} sm:grid-cols-3`}>
         {INSIGHT_CARDS.map((card) => (
           <button
             key={card.title}
             type="button"
             onClick={() => onCardClick?.({ title: card.title, description: card.description })}
             className={`group flex cursor-pointer flex-col justify-between overflow-hidden rounded-sm border border-[rgba(39,37,30,0.08)] bg-white text-left duration-200 ease-out hover:border-[rgba(39,37,30,0.13)] hover:bg-[rgba(39,37,30,0.015)] hover:shadow-[0_1px_6px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)] ${
-              compact ? 'h-[90px] px-2.5 py-2' : 'h-[124px] px-4 py-4'
+              compact ? 'h-[118px] px-2.5 py-3' : 'h-[124px] px-4 py-4'
             }`}
             style={{ transition: 'border-color 200ms ease-out, background-color 200ms ease-out, box-shadow 200ms ease-out' }}
           >
@@ -92,7 +92,7 @@ export function InsightCardsGrid({ onCardClick, compact = false }: InsightCardsG
                 {card.title}
               </span>
               <span className={`mt-1 block tracking-[-0.18px] text-[rgba(39,37,30,0.62)] ${
-                compact ? 'text-[9.5px] leading-[11px]' : 'text-[11px] leading-[14px]'
+                compact ? 'text-[9.5px] leading-[12px]' : 'text-[11px] leading-[14px]'
               }`}>
                 {card.description}
               </span>

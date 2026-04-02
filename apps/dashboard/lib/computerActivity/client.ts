@@ -67,8 +67,8 @@ export interface AggregatedComputerStatsResponse {
   domains: TopDomainResponseRow[]
 }
 
-const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 6000
-const DESKTOP_DAILY_TIMEOUT_MS = 8000
+const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 65000
+const DESKTOP_DAILY_TIMEOUT_MS = 65000
 const SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS = 2
 const summaryCache = new Map<string, ComputerSummaryResponse>()
 const dailyCache = new Map<string, ComputerDailyResponseRow[]>()

@@ -6,14 +6,29 @@ import json
 import logging
 import re
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime
+from types import SimpleNamespace
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
 from database.models import UserDB
-from services.sendblue_service import send_onboarding_welcome
 
 logger = logging.getLogger(__name__)
+
+_USER_SAFE_COLUMNS = (
+    UserDB.id,
+    UserDB.email,
+    UserDB.full_name,
+    UserDB.phone_number,
+    UserDB.age_bracket,
+    UserDB.gender,
+    UserDB.country,
+    UserDB.tracking_interests,
+    UserDB.wearable_devices,
+    UserDB.onboarding_completed,
+    UserDB.created_at,
+    UserDB.updated_at,
+)
 
 
 def _normalize_phone_number(phone_number: Optional[str]) -> Optional[str]:
@@ -45,6 +60,24 @@ def _normalize_phone_number(phone_number: Optional[str]) -> Optional[str]:
 
 class UserService:
     """Service class for user operations"""
+
+    @staticmethod
+    def _row_to_user_projection(row) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=row[0],
+            email=row[1],
+            full_name=row[2],
+            phone_number=row[3],
+            age_bracket=row[4],
+            gender=row[5],
+            country=row[6],
+            tracking_interests=row[7],
+            wearable_devices=row[8],
+            onboarding_completed=row[9],
+            created_at=row[10],
+            updated_at=row[11],
+            sms_welcome_sent_at=None,
+        )
     
     async def get_user_profile(self, user_id: str) -> Optional[UserDB]:
         """
@@ -53,9 +86,10 @@ class UserService:
         async with get_db_session() as session:
             try:
                 result = await session.execute(
-                    select(UserDB).where(UserDB.id == user_id)
+                    select(*_USER_SAFE_COLUMNS).where(UserDB.id == user_id)
                 )
-                user = result.scalar_one_or_none()
+                row = result.first()
+                user = self._row_to_user_projection(row) if row else None
                 return user
             except SQLAlchemyError as e:
                 logger.error(f"❌ Database error getting user profile: {str(e)}")
@@ -79,9 +113,10 @@ class UserService:
             try:
                 # Check if user exists
                 result = await session.execute(
-                    select(UserDB).where(UserDB.id == user_id)
+                    select(*_USER_SAFE_COLUMNS).where(UserDB.id == user_id)
                 )
-                user = result.scalar_one_or_none()
+                row = result.first()
+                user = self._row_to_user_projection(row) if row else None
                 
                 if not user:
                     logger.error(f"❌ User not found: {user_id}")
@@ -111,34 +146,12 @@ class UserService:
                 
                 # Fetch updated user
                 result = await session.execute(
-                    select(UserDB).where(UserDB.id == user_id)
+                    select(*_USER_SAFE_COLUMNS).where(UserDB.id == user_id)
                 )
-                updated_user = result.scalar_one()
-
-                effective_phone_number = normalized_phone_number or updated_user.phone_number
-                should_send_welcome = (
-                    bool(effective_phone_number)
-                    and updated_user.sms_welcome_sent_at is None
-                )
-
-                if should_send_welcome:
-                    try:
-                        welcome_sent = await send_onboarding_welcome(
-                            effective_phone_number,
-                            updated_user.full_name,
-                        )
-                        if welcome_sent:
-                            sent_at = datetime.now(timezone.utc)
-                            await session.execute(
-                                update(UserDB)
-                                .where(UserDB.id == user_id)
-                                .values(sms_welcome_sent_at=sent_at)
-                            )
-                            await session.commit()
-                            updated_user.sms_welcome_sent_at = sent_at
-                            logger.info("✅ Sent onboarding welcome SMS to user: %s", user_id)
-                    except Exception as welcome_error:
-                        logger.warning("⚠️ Failed to send onboarding welcome SMS: %s", welcome_error)
+                row = result.first()
+                updated_user = self._row_to_user_projection(row) if row else None
+                if updated_user is None:
+                    raise Exception(f"User not found with ID: {user_id}")
                 
                 logger.info(f"✅ Successfully updated onboarding for user: {user_id}")
                 return updated_user
@@ -158,9 +171,10 @@ class UserService:
                     candidates.append(normalized_phone)
 
                 result = await session.execute(
-                    select(UserDB).where(UserDB.phone_number.in_(candidates))
+                    select(*_USER_SAFE_COLUMNS).where(UserDB.phone_number.in_(candidates))
                 )
-                user = result.scalar_one_or_none()
+                row = result.first()
+                user = self._row_to_user_projection(row) if row else None
                 if user:
                     return user
 
@@ -168,9 +182,10 @@ class UserService:
                     return None
 
                 result = await session.execute(
-                    select(UserDB).where(UserDB.phone_number.is_not(None))
+                    select(*_USER_SAFE_COLUMNS).where(UserDB.phone_number.is_not(None))
                 )
-                for candidate in result.scalars():
+                for row in result.fetchall():
+                    candidate = self._row_to_user_projection(row)
                     if _normalize_phone_number(candidate.phone_number) == normalized_phone:
                         return candidate
                 return None
@@ -187,9 +202,10 @@ class UserService:
             try:
                 # Check if user exists
                 result = await session.execute(
-                    select(UserDB).where(UserDB.id == user_id)
+                    select(*_USER_SAFE_COLUMNS).where(UserDB.id == user_id)
                 )
-                user = result.scalar_one_or_none()
+                row = result.first()
+                user = self._row_to_user_projection(row) if row else None
                 
                 if user:
                     # Update email if it's the fallback format and we have a real email
@@ -208,7 +224,8 @@ class UserService:
                             .values(**updates)
                         )
                         await session.commit()
-                        await session.refresh(user)
+                        for key, value in updates.items():
+                            setattr(user, key, value)
                     logger.info(f"✅ User already exists: {user.email}")
                     return user
                 
