@@ -221,7 +221,7 @@ export interface SortableHabitListProps {
   deletingHabit: string | null;
 }
 
-export function SortableHabitList({
+function SortableHabitListInner({
   habits,
   onReorder,
   getHabitMetricDisplay,
@@ -289,5 +289,7 @@ export function SortableHabitList({
     </DndContext>
   );
 }
+
+export const SortableHabitList = React.memo(SortableHabitListInner);
 
 export default SortableHabitList;

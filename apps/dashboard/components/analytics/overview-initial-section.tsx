@@ -66,7 +66,7 @@ interface OverviewInitialSectionProps extends SortableHabitListProps {
   onShowImportModal: () => void;
 }
 
-export function OverviewInitialSection({
+function OverviewInitialSectionInner({
   hideControls,
   isDesktopShell,
   habits,
@@ -173,5 +173,7 @@ export function OverviewInitialSection({
     </>
   );
 }
+
+export const OverviewInitialSection = React.memo(OverviewInitialSectionInner);
 
 export default OverviewInitialSection;

@@ -53,6 +53,7 @@ interface ComputerSummaryState {
 
 const OVERVIEW_STATS_CACHE_VERSION = 'v3';
 const OVERVIEW_STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+const EMPTY_OVERVIEW_LOGS: any[] = [];
 
 function readOverviewStatsCache(cacheKey: string | null): Record<string, HabitStats> {
   if (typeof window === 'undefined' || !cacheKey) return {};
@@ -231,6 +232,11 @@ export function OverviewView({
   const displayLogs = useMemo(() => {
     return [...habitLogs, ...optimisticLogs];
   }, [habitLogs, optimisticLogs]);
+
+  const scrubberDisplayLogs = useMemo(
+    () => (isDesktopShell ? EMPTY_OVERVIEW_LOGS : displayLogs),
+    [displayLogs, isDesktopShell],
+  );
 
   const getLogLocalDate = useCallback((log: { date?: string; completed_at?: string }) => {
     if (log.completed_at) {
@@ -985,6 +991,14 @@ export function OverviewView({
     setHabitToDelete(null);
   }, []);
 
+  const handleOpenSelectionModal = useCallback(() => {
+    setShowSelectionModal(true);
+  }, []);
+
+  const handleOpenImportModal = useCallback(() => {
+    setShowImportModal(true);
+  }, []);
+
   const handleDeleteHabit = async (habitId: string | null) => {
     if (!habitId) {
       setHabitToDelete(null);
@@ -1017,14 +1031,14 @@ export function OverviewView({
         isDesktopShell={isDesktopShell}
         habits={habits}
         orderedHabits={orderedHabits}
-        displayLogs={displayLogs}
+        displayLogs={scrubberDisplayLogs}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         scrubberSelectedDate={scrubberSelectedDate}
         onScrubberHover={handleScrubberHover}
         onScrubberSelect={handleScrubberSelect}
-        onShowSelectionModal={() => setShowSelectionModal(true)}
-        onShowImportModal={() => setShowImportModal(true)}
+        onShowSelectionModal={handleOpenSelectionModal}
+        onShowImportModal={handleOpenImportModal}
         onReorder={handleReorder}
         getHabitMetricDisplay={getHabitMetricDisplayStable}
         getHabitMetricClassName={getHabitMetricClassName}
