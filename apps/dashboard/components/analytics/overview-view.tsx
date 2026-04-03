@@ -641,15 +641,6 @@ export function OverviewView({
           setComputerActivityDaily(existingRows)
         }
 
-        if (isDesktopShell) {
-          stopTimer({
-            success: true,
-            mode: 'summary-only-desktop',
-            total_active_ms: Number(summary.total_active_ms || 0),
-          });
-          return;
-        }
-
         deferredDailyTimer = window.setTimeout(async () => {
           if (controller.signal.aborted) return
           try {
@@ -682,19 +673,21 @@ export function OverviewView({
             }
             perfInfo('overview-view', 'deferred-computer-daily-loaded', {
               row_count: normalizedRows.length,
+              is_desktop: isDesktopShell,
             })
           } catch (dailyError) {
             if (!controller.signal.aborted) {
               perfError('overview-view', 'deferred-computer-daily-failed', {
                 error: dailyError instanceof Error ? dailyError.message : String(dailyError),
+                is_desktop: isDesktopShell,
               })
             }
           }
-        }, 800)
+        }, isDesktopShell ? 1200 : 800)
 
         stopTimer({
           success: true,
-          mode: 'summary-first',
+          mode: isDesktopShell ? 'summary-first-desktop' : 'summary-first',
           total_active_ms: Number(summary.total_active_ms || 0),
         });
       } catch (error) {
