@@ -269,10 +269,9 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const { data: habitsData } = useQuery({
     queryKey: ['habits', userId],
     queryFn: async () => {
-      const token = await getToken();
-      const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-      const res = await fetch(`${backendUrl}/api/habits`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch('/api/habits', {
+        cache: 'no-store',
+        credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to fetch habits');
       return res.json();

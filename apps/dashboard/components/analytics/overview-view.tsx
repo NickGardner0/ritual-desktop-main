@@ -774,25 +774,28 @@ export function OverviewView({
 
   // Initialize ordered habits
   useEffect(() => {
-    if (habits.length > 0) {
-      const savedOrder = localStorage.getItem(`habit-order-${user?.id}`);
-      if (savedOrder) {
-        try {
-          const orderArray: string[] = JSON.parse(savedOrder);
-          const sorted = [...habits].sort((a, b) => {
-            const aIndex = orderArray.indexOf(a.id || '');
-            const bIndex = orderArray.indexOf(b.id || '');
-            if (aIndex === -1) return 1;
-            if (bIndex === -1) return -1;
-            return aIndex - bIndex;
-          });
-          setOrderedHabits(sorted);
-        } catch (e) {
-          setOrderedHabits(habits);
-        }
-      } else {
+    if (habits.length === 0) {
+      setOrderedHabits([]);
+      return;
+    }
+
+    const savedOrder = localStorage.getItem(`habit-order-${user?.id}`);
+    if (savedOrder) {
+      try {
+        const orderArray: string[] = JSON.parse(savedOrder);
+        const sorted = [...habits].sort((a, b) => {
+          const aIndex = orderArray.indexOf(a.id || '');
+          const bIndex = orderArray.indexOf(b.id || '');
+          if (aIndex === -1) return 1;
+          if (bIndex === -1) return -1;
+          return aIndex - bIndex;
+        });
+        setOrderedHabits(sorted);
+      } catch (e) {
         setOrderedHabits(habits);
       }
+    } else {
+      setOrderedHabits(habits);
     }
   }, [habits, user?.id]);
 

@@ -19,6 +19,8 @@ import type { Habit, HabitLog } from '@/contexts/HabitsContext';
 import { useAnalytics } from '@/lib/analytics';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const LOCAL_HABITS_API = '/api/habits';
+const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 
 /**
  * Fetch with automatic retry on 401/403 using a fresh token.
@@ -83,7 +85,6 @@ export const habitLogKeys = {
  */
 export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
-  const { getToken } = useAuth();
 
   return useQuery({
     queryKey: habitKeys.list(user?.id || 'anonymous'),
@@ -92,10 +93,10 @@ export function useHabitsQuery() {
 
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress); }
 
-      const response = await fetchWithAuthRetry(
-        `${PYTHON_API_BASE}/api/habits`,
-        getToken
-      );
+      const response = await fetch(LOCAL_HABITS_API, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch habits: ${response.status}`);
@@ -115,7 +116,6 @@ export function useHabitsQuery() {
  */
 export function useHabitLogsQuery() {
   const { user, isLoaded } = useUser();
-  const { getToken } = useAuth();
 
   return useQuery({
     queryKey: habitLogKeys.list(user?.id || 'anonymous'),
@@ -124,10 +124,10 @@ export function useHabitLogsQuery() {
 
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habit logs...'); }
 
-      const response = await fetchWithAuthRetry(
-        `${PYTHON_API_BASE}/api/habit-logs`,
-        getToken
-      );
+      const response = await fetch(LOCAL_HABIT_LOGS_API, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch habit logs: ${response.status}`);
