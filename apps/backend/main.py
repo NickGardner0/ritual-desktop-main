@@ -50,6 +50,10 @@ if SENTRY_DSN:
         integrations=[FastApiIntegration(transaction_style="endpoint")],
     )
     logger.info("Sentry backend monitoring enabled")
+    if os.getenv("SENTRY_BACKEND_SMOKE_TEST", "0").lower() in {"1", "true", "yes", "on"}:
+        sentry_sdk.set_tag("runtime", "backend")
+        sentry_sdk.set_tag("surface", "fastapi")
+        sentry_sdk.capture_message("Sentry smoke test: backend", level="info")
 
 # Import our services
 from services.habits_service import HabitsService

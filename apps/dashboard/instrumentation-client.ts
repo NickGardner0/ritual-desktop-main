@@ -17,6 +17,47 @@ function getDesktopVersion(): string | null {
   return match?.[1] ?? null;
 }
 
+function isSmokeTestEnabled(currentRuntime: 'desktop' | 'web'): boolean {
+  if (currentRuntime === 'desktop') {
+    return process.env.NEXT_PUBLIC_SENTRY_SMOKE_TEST_DESKTOP === '1';
+  }
+  return process.env.NEXT_PUBLIC_SENTRY_SMOKE_TEST_WEB === '1';
+}
+
+function emitSmokeTestEvent(currentRuntime: 'desktop' | 'web') {
+  if (typeof window === 'undefined' || !isSmokeTestEnabled(currentRuntime)) return;
+
+  const sessionKey = `ritual-sentry-smoke:${currentRuntime}`;
+  try {
+    if (window.sessionStorage.getItem(sessionKey) === '1') {
+      return;
+    }
+    window.sessionStorage.setItem(sessionKey, '1');
+  } catch {
+    // Ignore storage failures and continue attempting the smoke event.
+  }
+
+  const desktopVersion = getDesktopVersion();
+  window.setTimeout(() => {
+    Sentry.captureMessage(`Sentry smoke test: ${currentRuntime}`, {
+      level: 'info',
+      tags: {
+        runtime: currentRuntime,
+        surface: currentRuntime === 'desktop' ? 'desktop-webview' : 'web-client',
+        smoke_test: 'true',
+        ...(desktopVersion ? { desktop_version: desktopVersion } : {}),
+      },
+      extra: {
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+      },
+    });
+
+    void Sentry.flush(2000).catch(() => {
+      // Non-fatal; the event may still be sent by the transport later.
+    });
+  }, 0);
+}
+
 const runtime = isDesktopRuntime() ? 'desktop' : 'web';
 const SENTRY_DSN = runtime === 'desktop'
   ? process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DSN?.trim()
@@ -95,4 +136,6 @@ if (SENTRY_DSN) {
       return event;
     },
   });
+
+  emitSmokeTestEvent(runtime);
 }
