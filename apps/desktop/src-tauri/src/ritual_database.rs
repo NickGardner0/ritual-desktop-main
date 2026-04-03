@@ -13,13 +13,10 @@ use once_cell::sync::Lazy;
 use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
-use ritual_db::{
-    blocking::BlockingDatabase,
-    DatabaseConfig, RitualDatabase,
-};
+use ritual_db::{blocking::BlockingDatabase, DatabaseConfig, RitualDatabase};
 
 macro_rules! db_info {
     ($($arg:tt)*) => {
@@ -49,6 +46,38 @@ pub(crate) static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
         .build()
         .expect("Failed to create tokio runtime")
 });
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DatabaseConnectionState {
+    Uninitialized,
+    ReadyLocal,
+    ReadyReplica,
+    DegradedLocal,
+    FailedTransient,
+    Reloading,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseHandleRuntimeState {
+    pub status: DatabaseConnectionState,
+    pub db_path: String,
+    pub last_error: Option<String>,
+    pub replica_fail_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseRuntimeStateSnapshot {
+    pub memory: DatabaseHandleRuntimeState,
+    pub activity: DatabaseHandleRuntimeState,
+    pub turso_sync_configured: bool,
+    pub turso_circuit_breaker_active: bool,
+    pub activity_db_reloads: u64,
+    pub replica_failures: u64,
+    pub circuit_breaker_trips: u64,
+}
 
 #[derive(Debug, Clone)]
 struct ActiveIdentity {
@@ -98,6 +127,476 @@ fn get_activity_db_path() -> PathBuf {
     get_ritual_dir().join("activity.db")
 }
 
+fn normalize_db_command_origin(origin: Option<&str>, fallback: &str) -> String {
+    origin
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn log_db_command(command: &str, origin: &str, details: &str) {
+    if details.is_empty() {
+        db_info!("📥 command={} origin={}", command, origin);
+    } else {
+        db_info!("📥 command={} origin={} {}", command, origin, details);
+    }
+}
+
+impl Default for DatabaseRuntimeStateSnapshot {
+    fn default() -> Self {
+        Self {
+            memory: DatabaseHandleRuntimeState {
+                status: DatabaseConnectionState::Uninitialized,
+                db_path: get_memory_db_path().display().to_string(),
+                last_error: None,
+                replica_fail_reason: None,
+            },
+            activity: DatabaseHandleRuntimeState {
+                status: DatabaseConnectionState::Uninitialized,
+                db_path: get_activity_db_path().display().to_string(),
+                last_error: None,
+                replica_fail_reason: None,
+            },
+            turso_sync_configured: false,
+            turso_circuit_breaker_active: false,
+            activity_db_reloads: 0,
+            replica_failures: 0,
+            circuit_breaker_trips: 0,
+        }
+    }
+}
+
+static DB_RUNTIME_STATE: Lazy<Mutex<DatabaseRuntimeStateSnapshot>> =
+    Lazy::new(|| Mutex::new(DatabaseRuntimeStateSnapshot::default()));
+
+fn turso_sync_env_configured() -> bool {
+    std::env::var("TURSO_SYNC_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .is_some()
+        && std::env::var("TURSO_AUTH_TOKEN")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .is_some()
+}
+
+fn mutate_runtime_state<F>(mutator: F)
+where
+    F: FnOnce(&mut DatabaseRuntimeStateSnapshot),
+{
+    let mut guard = DB_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous = guard.clone();
+    mutator(&mut guard);
+    let current = guard.clone();
+    drop(guard);
+
+    if previous.memory != current.memory {
+        db_info!(
+            "🧠 memory.db state -> {:?} error={:?}",
+            current.memory.status,
+            current.memory.last_error
+        );
+    }
+
+    if previous.activity != current.activity {
+        db_info!(
+            "📓 activity.db state -> {:?} error={:?} replica_fail_reason={:?}",
+            current.activity.status,
+            current.activity.last_error,
+            current.activity.replica_fail_reason
+        );
+    }
+
+    if previous.turso_circuit_breaker_active != current.turso_circuit_breaker_active {
+        db_info!(
+            "🛑 activity.db Turso circuit breaker -> active={} reason={:?}",
+            current.turso_circuit_breaker_active,
+            current.activity.replica_fail_reason
+        );
+    }
+}
+
+fn set_memory_runtime_state(status: DatabaseConnectionState, last_error: Option<String>) {
+    mutate_runtime_state(|state| {
+        state.turso_sync_configured = turso_sync_env_configured();
+        state.memory.status = status;
+        state.memory.last_error = last_error;
+        state.memory.replica_fail_reason = None;
+    });
+}
+
+fn set_activity_runtime_state(
+    status: DatabaseConnectionState,
+    last_error: Option<String>,
+    replica_fail_reason: Option<String>,
+) {
+    mutate_runtime_state(|state| {
+        state.turso_sync_configured = turso_sync_env_configured();
+        state.activity.status = status;
+        state.activity.last_error = last_error;
+        state.activity.replica_fail_reason = replica_fail_reason;
+    });
+}
+
+fn set_activity_circuit_breaker(active: bool, reason: Option<String>) {
+    mutate_runtime_state(|state| {
+        state.turso_sync_configured = turso_sync_env_configured();
+        if active && !state.turso_circuit_breaker_active {
+            state.circuit_breaker_trips = state.circuit_breaker_trips.saturating_add(1);
+        }
+        state.turso_circuit_breaker_active = active;
+        if reason.is_some() {
+            state.activity.replica_fail_reason = reason;
+        } else if !active {
+            state.activity.replica_fail_reason = None;
+        }
+    });
+}
+
+fn increment_activity_reload_metric() {
+    mutate_runtime_state(|state| {
+        state.activity_db_reloads = state.activity_db_reloads.saturating_add(1);
+    });
+}
+
+fn increment_replica_failure_metric() {
+    mutate_runtime_state(|state| {
+        state.replica_failures = state.replica_failures.saturating_add(1);
+    });
+}
+
+fn activity_circuit_breaker_active() -> bool {
+    DB_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .turso_circuit_breaker_active
+}
+
+pub fn database_runtime_state_snapshot() -> DatabaseRuntimeStateSnapshot {
+    DB_RUNTIME_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+pub fn reset_activity_replica_circuit_breaker() {
+    set_activity_circuit_breaker(false, None);
+}
+
+const REPLICA_BOOTSTRAP_DEFERRED_REASON: &str = "replica_bootstrap_deferred";
+
+fn classify_replica_failure(error: &str) -> &'static str {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("unauthorized") {
+        "unauthorized"
+    } else if normalized.contains("metadata file does not")
+        || normalized.contains("db file does not")
+    {
+        "invalid_local_replica_state"
+    } else if normalized.contains("sync error") {
+        "sync_error"
+    } else {
+        "replica_open_failed"
+    }
+}
+
+fn activity_replica_info_path() -> PathBuf {
+    PathBuf::from(format!("{}-info", get_activity_db_path().display()))
+}
+
+pub fn should_defer_activity_replica_bootstrap() -> bool {
+    turso_sync_env_configured()
+        && !activity_circuit_breaker_active()
+        && !activity_replica_info_path().exists()
+}
+
+pub fn defer_activity_replica_for_session() {
+    set_activity_circuit_breaker(true, Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()));
+    set_activity_runtime_state(
+        DatabaseConnectionState::DegradedLocal,
+        None,
+        Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()),
+    );
+}
+
+#[derive(Debug, Clone)]
+struct QuarantinedReplicaArtifact {
+    original: PathBuf,
+    quarantined: PathBuf,
+}
+
+fn activity_replica_artifact_paths() -> Vec<PathBuf> {
+    let db_path = get_activity_db_path();
+    let db_path_string = db_path.display().to_string();
+
+    vec![
+        db_path,
+        PathBuf::from(format!("{db_path_string}-shm")),
+        PathBuf::from(format!("{db_path_string}-wal")),
+        PathBuf::from(format!("{db_path_string}-info")),
+    ]
+}
+
+fn quarantine_invalid_activity_replica_state() -> Result<Vec<QuarantinedReplicaArtifact>, String> {
+    let ritual_dir = get_ritual_dir();
+    let quarantine_dir = ritual_dir.join("quarantine").join(format!(
+        "activity-replica-{}",
+        Utc::now().timestamp_millis()
+    ));
+    let artifact_paths = activity_replica_artifact_paths();
+    let existing_paths: Vec<PathBuf> = artifact_paths
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect();
+
+    if existing_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    std::fs::create_dir_all(&quarantine_dir).map_err(|e| {
+        format!(
+            "Failed to create activity replica quarantine dir {}: {}",
+            quarantine_dir.display(),
+            e
+        )
+    })?;
+
+    let mut quarantined = Vec::with_capacity(existing_paths.len());
+    for original in existing_paths {
+        let file_name = original.file_name().ok_or_else(|| {
+            format!(
+                "Failed to determine file name for activity replica artifact {}",
+                original.display()
+            )
+        })?;
+        let target = quarantine_dir.join(file_name);
+        std::fs::rename(&original, &target).map_err(|e| {
+            format!(
+                "Failed to quarantine activity replica artifact {} -> {}: {}",
+                original.display(),
+                target.display(),
+                e
+            )
+        })?;
+        quarantined.push(QuarantinedReplicaArtifact {
+            original,
+            quarantined: target,
+        });
+    }
+
+    db_info!(
+        "🧹 Quarantined {} activity replica artifact(s) at {}",
+        quarantined.len(),
+        quarantine_dir.display()
+    );
+
+    Ok(quarantined)
+}
+
+fn restore_quarantined_activity_replica_state(
+    quarantined: &[QuarantinedReplicaArtifact],
+) -> Result<(), String> {
+    for artifact in quarantined.iter().rev() {
+        if !artifact.quarantined.exists() {
+            continue;
+        }
+
+        if artifact.original.exists() {
+            if artifact.original.is_dir() {
+                std::fs::remove_dir_all(&artifact.original).map_err(|e| {
+                    format!(
+                        "Failed to remove restored activity replica dir {}: {}",
+                        artifact.original.display(),
+                        e
+                    )
+                })?;
+            } else {
+                std::fs::remove_file(&artifact.original).map_err(|e| {
+                    format!(
+                        "Failed to remove restored activity replica file {}: {}",
+                        artifact.original.display(),
+                        e
+                    )
+                })?;
+            }
+        }
+
+        std::fs::rename(&artifact.quarantined, &artifact.original).map_err(|e| {
+            format!(
+                "Failed to restore activity replica artifact {} -> {}: {}",
+                artifact.quarantined.display(),
+                artifact.original.display(),
+                e
+            )
+        })?;
+    }
+
+    if let Some(parent) = quarantined
+        .first()
+        .and_then(|artifact| artifact.quarantined.parent())
+    {
+        let _ = std::fs::remove_dir(parent);
+    }
+
+    db_info!(
+        "↩️ Restored {} quarantined activity replica artifact(s) for local fallback",
+        quarantined.len()
+    );
+
+    Ok(())
+}
+
+async fn open_memory_database() -> Result<RitualDatabase, String> {
+    let memory_config = DatabaseConfig::with_path(get_memory_db_path());
+    RitualDatabase::open(&memory_config).await.map_err(|e| {
+        db_error!("❌ Failed to initialize memory database: {}", e);
+        format!("Failed to initialize memory database: {}", e)
+    })
+}
+
+async fn open_local_activity_database(
+    status: DatabaseConnectionState,
+    last_error: Option<String>,
+    fail_reason: Option<String>,
+) -> Result<
+    (
+        RitualDatabase,
+        DatabaseConnectionState,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
+    let local_config = DatabaseConfig::with_path(get_activity_db_path());
+    let db = RitualDatabase::open(&local_config).await.map_err(|e| {
+        db_error!("❌ Failed to initialize local activity database: {}", e);
+        format!("Failed to initialize local activity database: {}", e)
+    })?;
+
+    Ok((db, status, last_error, fail_reason))
+}
+
+async fn open_activity_database_with_fallback() -> Result<
+    (
+        RitualDatabase,
+        DatabaseConnectionState,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
+    let sync_configured = turso_sync_env_configured();
+    let circuit_broken = activity_circuit_breaker_active();
+
+    if !sync_configured || circuit_broken {
+        let status = if circuit_broken {
+            DatabaseConnectionState::DegradedLocal
+        } else {
+            DatabaseConnectionState::ReadyLocal
+        };
+        let reason = if circuit_broken {
+            database_runtime_state_snapshot()
+                .activity
+                .replica_fail_reason
+        } else {
+            None
+        };
+        return open_local_activity_database(status, None, reason).await;
+    }
+
+    if should_defer_activity_replica_bootstrap() {
+        db_info!(
+            "⏭️ Deferring activity replica bootstrap for this session because activity.db-info is missing"
+        );
+        set_activity_circuit_breaker(true, Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()));
+        return open_local_activity_database(
+            DatabaseConnectionState::DegradedLocal,
+            None,
+            Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()),
+        )
+        .await;
+    }
+
+    let activity_config = DatabaseConfig::with_turso_sync(
+        get_activity_db_path(),
+        std::env::var("TURSO_SYNC_URL").unwrap_or_default(),
+        std::env::var("TURSO_AUTH_TOKEN").unwrap_or_default(),
+    );
+
+    match RitualDatabase::open(&activity_config).await {
+        Ok(db) => Ok((db, DatabaseConnectionState::ReadyReplica, None, None)),
+        Err(replica_error) => {
+            let initial_replica_error = replica_error.to_string();
+            let mut replica_error = initial_replica_error.clone();
+            let mut fail_reason = classify_replica_failure(&replica_error).to_string();
+            increment_replica_failure_metric();
+
+            if fail_reason == "invalid_local_replica_state" {
+                db_info!(
+                    "🧹 Attempting one-time activity replica recovery by quarantining inconsistent local files"
+                );
+
+                let quarantined = quarantine_invalid_activity_replica_state()?;
+                if !quarantined.is_empty() {
+                    match RitualDatabase::open(&activity_config).await {
+                        Ok(db) => {
+                            db_info!(
+                                "✅ Activity replica recovered after quarantining inconsistent local state"
+                            );
+                            return Ok((db, DatabaseConnectionState::ReadyReplica, None, None));
+                        }
+                        Err(retry_error) => {
+                            let retry_error = retry_error.to_string();
+                            let retry_fail_reason =
+                                classify_replica_failure(&retry_error).to_string();
+
+                            if let Err(restore_error) =
+                                restore_quarantined_activity_replica_state(&quarantined)
+                            {
+                                replica_error = format!(
+                                    "{}; retry after quarantine failed: {}; restore failed: {}",
+                                    initial_replica_error, retry_error, restore_error
+                                );
+                            } else {
+                                replica_error = format!(
+                                    "{}; retry after quarantine failed: {}",
+                                    initial_replica_error, retry_error
+                                );
+                            }
+
+                            fail_reason = retry_fail_reason;
+                        }
+                    }
+                }
+            }
+
+            set_activity_circuit_breaker(true, Some(fail_reason.clone()));
+            db_error!(
+                "❌ Failed to initialize activity replica; falling back to local-only mode: {}",
+                replica_error
+            );
+
+            let local_result = open_local_activity_database(
+                DatabaseConnectionState::DegradedLocal,
+                Some(replica_error),
+                Some(fail_reason),
+            )
+            .await;
+
+            local_result.map_err(|local_error| {
+                db_error!(
+                    "❌ Local-only activity fallback also failed: {}",
+                    local_error
+                );
+                local_error
+            })
+        }
+    }
+}
+
 fn initialize_schema_in_blocking_thread(
     db_path: PathBuf,
     label: &'static str,
@@ -109,26 +608,6 @@ fn initialize_schema_in_blocking_thread(
         .join()
         .map_err(|_| format!("{label} schema init thread panicked"))?
         .map_err(|e| format!("Failed to initialize {label} schema: {e}"))
-}
-
-fn activity_database_config_from_env() -> DatabaseConfig {
-    match (
-        std::env::var("TURSO_SYNC_URL")
-            .ok()
-            .filter(|s| !s.is_empty()),
-        std::env::var("TURSO_AUTH_TOKEN")
-            .ok()
-            .filter(|s| !s.is_empty()),
-    ) {
-        (Some(url), Some(token)) => {
-            db_info!("🔄 Turso sync enabled for activity.db → {}", url);
-            DatabaseConfig::with_turso_sync(get_activity_db_path(), url, token)
-        }
-        _ => {
-            db_info!("📂 Activity DB: local-only mode (no TURSO_SYNC_URL set)");
-            DatabaseConfig::with_path(get_activity_db_path())
-        }
-    }
 }
 
 fn table_exists_in_schema(
@@ -171,13 +650,13 @@ fn ensure_split_local_databases() -> Result<(), String> {
     let memory_db = get_memory_db_path();
     let marker_path = ritual_dir.join(".split_db_migration_v1.done");
 
-    // Ensure both split DBs have the expected schema before any copy.
-    initialize_schema_in_blocking_thread(activity_db.clone(), "activity")?;
-    initialize_schema_in_blocking_thread(memory_db.clone(), "memory")?;
-
     if !legacy_db.exists() || marker_path.exists() {
         return Ok(());
     }
+
+    // Only bootstrap split-db schema when performing the one-time legacy migration.
+    initialize_schema_in_blocking_thread(activity_db.clone(), "activity")?;
+    initialize_schema_in_blocking_thread(memory_db.clone(), "memory")?;
 
     db_info!(
         "🔄 Migrating legacy local database {} into split files ({}, {})",
@@ -280,9 +759,10 @@ fn ensure_split_local_databases() -> Result<(), String> {
 }
 
 /// Initialize the ritual database (call once at app startup)
-pub fn initialize_database() -> Result<(), String> {
+pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
+    let origin = normalize_db_command_origin(Some(origin), "native:initialize_database");
     if let Err(err) = ensure_split_local_databases() {
-        db_error!("⚠️ Split DB preparation failed: {}", err);
+        db_error!("⚠️ Split DB preparation failed origin={}: {}", origin, err);
     }
 
     RUNTIME.block_on(async {
@@ -290,70 +770,94 @@ pub fn initialize_database() -> Result<(), String> {
         let mut activity_guard = ACTIVITY_DB.write().await;
 
         if memory_guard.is_some() && activity_guard.is_some() {
+            db_info!(
+                "⏭️ initialize_database skipped origin={} memory_ready=true activity_ready=true",
+                origin
+            );
             return Ok(()); // Already initialized
         }
 
-        let memory_config = DatabaseConfig::with_path(get_memory_db_path());
-
-        // Activity DB supports optional Turso cloud sync via env vars.
-        // When set, the local activity.db becomes an embedded replica that
-        // auto-syncs to Turso cloud, making screen data available to the
-        // Railway production backend.
-        let activity_config = activity_database_config_from_env();
-
-        let memory_db = RitualDatabase::open(&memory_config).await.map_err(|e| {
-            db_error!("❌ Failed to initialize memory database: {}", e);
-            format!("Failed to initialize memory database: {}", e)
-        })?;
-
-        let activity_db = RitualDatabase::open(&activity_config).await.map_err(|e| {
-            db_error!("❌ Failed to initialize activity database: {}", e);
-            format!("Failed to initialize activity database: {}", e)
-        })?;
-
         db_info!(
-            "✅ Memory database initialized at {:?}",
-            memory_config.db_path
-        );
-        db_info!(
-            "✅ Activity database initialized at {:?}",
-            activity_config.db_path
+            "🚀 initialize_database origin={} memory_ready={} activity_ready={}",
+            origin,
+            memory_guard.is_some(),
+            activity_guard.is_some()
         );
 
-        *memory_guard = Some(memory_db);
-        *activity_guard = Some(activity_db);
+        if memory_guard.is_none() {
+            set_memory_runtime_state(DatabaseConnectionState::Reloading, None);
+            db_info!("📂 Opening live memory.db handle origin={}", origin);
+            let memory_db = open_memory_database().await?;
+            *memory_guard = Some(memory_db);
+            set_memory_runtime_state(DatabaseConnectionState::ReadyLocal, None);
+            db_info!(
+                "✅ Memory database initialized at {:?}",
+                get_memory_db_path()
+            );
+        }
+
+        if activity_guard.is_none() {
+            set_activity_runtime_state(DatabaseConnectionState::Reloading, None, None);
+            db_info!("📂 Opening live activity.db handle origin={}", origin);
+            let (activity_db, status, fallback_error, fail_reason) =
+                open_activity_database_with_fallback().await?;
+            *activity_guard = Some(activity_db);
+            set_activity_runtime_state(status, fallback_error, fail_reason);
+            db_info!(
+                "✅ Activity database initialized at {:?}",
+                get_activity_db_path()
+            );
+        }
+
         Ok(())
     })
 }
 
-pub async fn reload_activity_database_async() -> Result<(), String> {
+pub async fn reload_activity_database_async_with_origin(origin: &str) -> Result<(), String> {
+    let origin = normalize_db_command_origin(Some(origin), "native:reload_activity_database");
     if let Err(err) = ensure_split_local_databases() {
         db_error!(
-            "⚠️ Split DB preparation failed before activity reload: {}",
+            "⚠️ Split DB preparation failed before activity reload origin={}: {}",
+            origin,
             err
         );
     }
 
-    let activity_config = activity_database_config_from_env();
-    let activity_db = RitualDatabase::open(&activity_config).await.map_err(|e| {
-        db_error!("❌ Failed to reload activity database: {}", e);
-        format!("Failed to reload activity database: {}", e)
-    })?;
+    db_info!("🔄 reload_activity_database origin={}", origin);
+    let previous_state = database_runtime_state_snapshot().activity.clone();
+    set_activity_runtime_state(DatabaseConnectionState::Reloading, None, None);
+    db_info!("📂 Opening live activity.db handle origin={}", origin);
+
+    let reload_result = open_activity_database_with_fallback().await;
+    let (activity_db, status, fallback_error, fail_reason) = match reload_result {
+        Ok(result) => result,
+        Err(error) => {
+            mutate_runtime_state(|state| {
+                state.activity = DatabaseHandleRuntimeState {
+                    last_error: Some(error.clone()),
+                    ..previous_state.clone()
+                };
+            });
+            return Err(error);
+        }
+    };
 
     let mut activity_guard = ACTIVITY_DB.write().await;
     let previous = activity_guard.take();
     *activity_guard = Some(activity_db);
     drop(previous);
 
+    increment_activity_reload_metric();
+    set_activity_runtime_state(status, fallback_error, fail_reason);
     db_info!(
         "✅ Activity database reloaded at {:?}",
-        activity_config.db_path
+        get_activity_db_path()
     );
     Ok(())
 }
 
-pub fn reload_activity_database() -> Result<(), String> {
-    RUNTIME.block_on(reload_activity_database_async())
+pub fn reload_activity_database_with_origin(origin: &str) -> Result<(), String> {
+    RUNTIME.block_on(reload_activity_database_async_with_origin(origin))
 }
 
 /// Get database or return error
@@ -388,8 +892,11 @@ fn require_db_ref<'a>(db: Option<&'a RitualDatabase>) -> Result<&'a RitualDataba
 
 /// Initialize the Ritual database
 #[tauri::command]
-pub fn init_ritual_database() -> Result<String, String> {
-    initialize_database()?;
+pub fn init_ritual_database(origin: Option<String>) -> Result<String, String> {
+    let origin =
+        normalize_db_command_origin(origin.as_deref(), "tauri:init_ritual_database:unknown");
+    log_db_command("init_ritual_database", &origin, "");
+    initialize_database_with_origin(&format!("command:{origin}"))?;
     Ok("Database initialized successfully".to_string())
 }
 
@@ -606,14 +1113,24 @@ pub struct MemoryUploadOutboxAckResult {
 #[tauri::command]
 pub fn seed_memory_upload_outbox(
     limit: Option<usize>,
+    origin: Option<String>,
 ) -> Result<MemoryUploadOutboxSeedResult, String> {
     RUNTIME.block_on(async {
+        let origin = normalize_db_command_origin(
+            origin.as_deref(),
+            "tauri:seed_memory_upload_outbox:unknown",
+        );
         let guard = get_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
         let now = Utc::now().timestamp_millis();
         let fresh_cutoff = now.saturating_sub(2 * 60 * 60 * 1000);
         let safe_limit = limit.unwrap_or(500).clamp(1, 10_000) as i64;
+        log_db_command(
+            "seed_memory_upload_outbox",
+            &origin,
+            &format!("limit={safe_limit}"),
+        );
         let active_identity = resolve_active_identity().ok_or_else(|| {
             "Cannot seed memory upload outbox without an active Ritual user/device identity."
                 .to_string()
@@ -753,8 +1270,15 @@ pub fn seed_memory_upload_outbox(
 
 /// Get upload outbox health/status for UI and diagnostics.
 #[tauri::command]
-pub fn get_memory_upload_outbox_stats() -> Result<MemoryUploadOutboxStats, String> {
+pub fn get_memory_upload_outbox_stats(
+    origin: Option<String>,
+) -> Result<MemoryUploadOutboxStats, String> {
     RUNTIME.block_on(async {
+        let origin = normalize_db_command_origin(
+            origin.as_deref(),
+            "tauri:get_memory_upload_outbox_stats:unknown",
+        );
+        log_db_command("get_memory_upload_outbox_stats", &origin, "");
         let guard = get_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
@@ -799,8 +1323,13 @@ pub fn get_memory_upload_outbox_stats() -> Result<MemoryUploadOutboxStats, Strin
 #[tauri::command]
 pub fn claim_memory_upload_outbox_batch(
     limit: Option<usize>,
+    origin: Option<String>,
 ) -> Result<Vec<MemoryUploadOutboxItem>, String> {
     RUNTIME.block_on(async {
+        let origin = normalize_db_command_origin(
+            origin.as_deref(),
+            "tauri:claim_memory_upload_outbox_batch:unknown",
+        );
         let guard = get_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
@@ -808,6 +1337,11 @@ pub fn claim_memory_upload_outbox_batch(
         let stale_uploading_cutoff = now.saturating_sub(5 * 60 * 1000);
         let reclaim_next_retry_at = now.saturating_add(15_000);
         let safe_limit = limit.unwrap_or(100).clamp(1, 1000);
+        log_db_command(
+            "claim_memory_upload_outbox_batch",
+            &origin,
+            &format!("limit={safe_limit}"),
+        );
 
         // Recover rows left in uploading by interrupted desktop sessions/network failures.
         let _ = conn
@@ -924,8 +1458,18 @@ pub fn ack_memory_upload_outbox_batch(
     ids: Vec<i64>,
     success: bool,
     error_message: Option<String>,
+    origin: Option<String>,
 ) -> Result<MemoryUploadOutboxAckResult, String> {
     RUNTIME.block_on(async {
+        let origin = normalize_db_command_origin(
+            origin.as_deref(),
+            "tauri:ack_memory_upload_outbox_batch:unknown",
+        );
+        log_db_command(
+            "ack_memory_upload_outbox_batch",
+            &origin,
+            &format!("success={} ids={}", success, ids.len()),
+        );
         if ids.is_empty() {
             return Ok(MemoryUploadOutboxAckResult {
                 updated: 0,

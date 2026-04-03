@@ -1,6 +1,7 @@
 'use client'
 
 import { invoke } from '@tauri-apps/api/tauri'
+import { buildDesktopCommandOrigin, desktopHasCapability } from '@/lib/desktop-runtime'
 
 const LOCAL_BRIDGE_BASE = 'http://127.0.0.1:3031'
 
@@ -41,6 +42,10 @@ export function isDbNotInitializedError(error: unknown): boolean {
     message.includes('database not initialized') &&
     message.includes('initialize_database')
   )
+}
+
+async function desktopOwnsDbLifecycle(): Promise<boolean> {
+  return desktopHasCapability('desktop-runtime-state-v1')
 }
 
 function hasTauriIpcBridge(): boolean {
@@ -96,14 +101,24 @@ export async function invokeDetailedActivityWithInitRetry(params: {
     end_ts: params.endTs,
     limit: params.limit,
   }
+  const detailedActivityOrigin = buildDesktopCommandOrigin('tauri-activity:get_detailed_activity')
+  const nativeDbLifecycle = await desktopOwnsDbLifecycle()
 
   try {
-    return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', camelParams)
+    return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
+      ...camelParams,
+      origin: detailedActivityOrigin,
+    })
   } catch (error) {
-    if (isDbNotInitializedError(error)) {
-      await invoke<string>('init_ritual_database')
+    if (!nativeDbLifecycle && isDbNotInitializedError(error)) {
+      await invoke<string>('init_ritual_database', {
+        origin: buildDesktopCommandOrigin('tauri-activity:init_ritual_database:detailed'),
+      })
       try {
-        return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', camelParams)
+        return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
+          ...camelParams,
+          origin: detailedActivityOrigin,
+        })
       } catch (retryError) {
         if (!isDbNotInitializedError(retryError)) {
           throw retryError
@@ -112,7 +127,10 @@ export async function invokeDetailedActivityWithInitRetry(params: {
     }
 
     try {
-      return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', snakeParams)
+      return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
+        ...snakeParams,
+        origin: detailedActivityOrigin,
+      })
     } catch (snakeError) {
       throw snakeError
     }
@@ -140,14 +158,24 @@ export async function invokeDailySummariesWithInitRetry(
 
   const camelParams = { startDate, endDate }
   const snakeParams = { start_date: startDate, end_date: endDate }
+  const dailySummariesOrigin = buildDesktopCommandOrigin('tauri-activity:get_daily_summaries')
+  const nativeDbLifecycle = await desktopOwnsDbLifecycle()
 
   try {
-    return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', camelParams)
+    return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
+      ...camelParams,
+      origin: dailySummariesOrigin,
+    })
   } catch (error) {
-    if (isDbNotInitializedError(error)) {
-      await invoke<string>('init_ritual_database')
+    if (!nativeDbLifecycle && isDbNotInitializedError(error)) {
+      await invoke<string>('init_ritual_database', {
+        origin: buildDesktopCommandOrigin('tauri-activity:init_ritual_database:daily-summaries'),
+      })
       try {
-        return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', camelParams)
+        return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
+          ...camelParams,
+          origin: dailySummariesOrigin,
+        })
       } catch (retryError) {
         if (!isDbNotInitializedError(retryError)) {
           throw retryError
@@ -156,7 +184,10 @@ export async function invokeDailySummariesWithInitRetry(
     }
 
     try {
-      return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', snakeParams)
+      return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
+        ...snakeParams,
+        origin: dailySummariesOrigin,
+      })
     } catch (snakeError) {
       throw snakeError
     }

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
 import { DesktopUpdater } from '@/components/desktop-updater';
+import { buildDesktopCommandOrigin, desktopHasCapability, desktopSetAuthToken } from '@/lib/desktop-runtime';
 import { isTauri } from '@/lib/tauri-utils';
 import { habitLogKeys } from '@/hooks/use-habits-query';
 
@@ -16,6 +17,8 @@ interface RuntimeBridgeSignalsResponse {
   token_refresh_request?: number;
   dashboard_refresh_trigger?: number;
 }
+
+type DesktopBridgeMode = 'probing' | 'native' | 'legacy';
 
 type TauriInvoke = typeof import('@tauri-apps/api/tauri').invoke;
 let tauriInvokePromise: Promise<TauriInvoke> | null = null;
@@ -34,68 +37,16 @@ interface TursoSyncConfigResponse {
   database_name: string;
 }
 
-function WatcherConfigReconciler() {
-  const { isLoaded, user } = useUser();
-  const lastUserIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!isTauri() || !isLoaded || !user?.id) return;
-    if (lastUserIdRef.current === user.id) return;
-    lastUserIdRef.current = user.id;
-
-    void (async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        const updated = await invoke<boolean>('reconcile_watcher_config_user_cmd', {
-          userId: user.id,
-        });
-        if (updated) {
-          console.log(`✅ Reconciled watcher config to current user ${user.id}`);
-        }
-      } catch (error) {
-        console.error('Failed to reconcile watcher config user:', error);
-      }
-    })();
-  }, [isLoaded, user?.id]);
-
-  return null;
-}
-
-function RecorderConfigReconciler() {
-  const { isLoaded, user } = useUser();
-  const lastUserIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!isTauri() || !isLoaded || !user?.id) return;
-    if (lastUserIdRef.current === user.id) return;
-    lastUserIdRef.current = user.id;
-
-    void (async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        const updated = await invoke<boolean>('reconcile_recorder_config_user_cmd', {
-          userId: user.id,
-        });
-        if (updated) {
-          console.log(`✅ Reconciled recorder config to current user ${user.id}`);
-        }
-      } catch (error) {
-        console.error('Failed to reconcile recorder config user:', error);
-      }
-    })();
-  }, [isLoaded, user?.id]);
-
-  return null;
-}
-
 function RuntimeSyncBridge() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
   const pathname = usePathname();
+  const [bridgeMode, setBridgeMode] = useState<DesktopBridgeMode>('probing');
   const lastTokenRefreshCheckRef = useRef(0);
   const lastDashboardRefreshRef = useRef(0);
   const lastProfileSyncKeyRef = useRef<string | null>(null);
+  const lastLegacyReconciledUserRef = useRef<string | null>(null);
   const lastTursoSyncConfigRef = useRef<TursoSyncConfigResponse | null>(null);
   const lastTursoSyncRefreshRef = useRef(0);
   const nextTursoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,6 +57,23 @@ function RuntimeSyncBridge() {
   const runtimeBridgePollMs = pathname === '/dashboard'
     ? DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS
     : DESKTOP_RUNTIME_BRIDGE_POLL_MS;
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      const hasNativeBridge = await desktopHasCapability('desktop-auth-handoff-v1');
+      if (!cancelled) {
+        setBridgeMode(hasNativeBridge ? 'native' : 'legacy');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauri() || !user?.id) return;
@@ -153,36 +121,58 @@ function RuntimeSyncBridge() {
   ]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri() || bridgeMode === 'probing') return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
 
-    const writeToken = async () => {
+    const syncAuthToken = async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
         const token = await getToken();
-        if (!cancelled && token) {
-          await invoke('write_auth_token_to_file', { token });
+        if (!token || cancelled) return;
+
+        if (bridgeMode === 'native') {
+          await desktopSetAuthToken({
+            token,
+            userId: user?.id ?? null,
+            backendBase: PYTHON_API_BASE,
+          });
+          return;
+        }
+
+        const { invoke } = await import('@tauri-apps/api/tauri');
+        await invoke('write_auth_token_to_file', {
+          token,
+          origin: buildDesktopCommandOrigin('desktop-runtime-bridge:write_auth_token_to_file'),
+        });
+
+        if (user?.id && lastLegacyReconciledUserRef.current !== user.id) {
+          lastLegacyReconciledUserRef.current = user.id;
+          await Promise.all([
+            invoke<boolean>('reconcile_watcher_config_user_cmd', { userId: user.id }).catch(() => false),
+            invoke<boolean>('reconcile_recorder_config_user_cmd', { userId: user.id }).catch(() => false),
+          ]);
         }
       } catch {
-        // Ignore when not available yet.
+        // Ignore until the native client/backend are ready.
       }
     };
 
-    void writeToken();
-    interval = setInterval(() => {
-      void writeToken();
-    }, 5 * 60_000);
+    void syncAuthToken();
+    if (bridgeMode === 'legacy') {
+      interval = setInterval(() => {
+        void syncAuthToken();
+      }, 5 * 60_000);
+    }
 
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [getToken]);
+  }, [bridgeMode, getToken, user?.id]);
 
   useEffect(() => {
-    if (!isTauri() || !user?.id) return;
+    if (!isTauri() || !user?.id || bridgeMode !== 'legacy') return;
 
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -249,6 +239,7 @@ function RuntimeSyncBridge() {
           authToken: config.auth_token,
           expiresAt: config.expires_at,
           databaseName: config.database_name,
+          origin: buildDesktopCommandOrigin('desktop-runtime-bridge:write_turso_sync_config'),
         });
 
         lastTursoSyncConfigRef.current = config;
@@ -269,10 +260,10 @@ function RuntimeSyncBridge() {
       clearScheduledRefresh();
       if (interval) clearInterval(interval);
     };
-  }, [getToken, user?.id]);
+  }, [bridgeMode, getToken, user?.id]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri() || bridgeMode !== 'legacy') return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
@@ -309,7 +300,10 @@ function RuntimeSyncBridge() {
           lastTokenRefreshCheckRef.current = tokenRefreshTimestamp;
           const token = await getToken();
           if (!cancelled && token) {
-            await invoke('write_auth_token_to_file', { token });
+            await invoke('write_auth_token_to_file', {
+              token,
+              origin: buildDesktopCommandOrigin('desktop-runtime-bridge:token-refresh-request'),
+            });
           }
         }
 
@@ -356,7 +350,53 @@ function RuntimeSyncBridge() {
       }
       window.removeEventListener('focus', handleVisibilityRefresh);
     };
-  }, [getToken, queryClient, runtimeBridgePollMs, user?.id]);
+  }, [bridgeMode, getToken, queryClient, runtimeBridgePollMs, user?.id]);
+
+  useEffect(() => {
+    if (!isTauri() || bridgeMode !== 'native') return;
+
+    let cancelled = false;
+    let unlistenRefresh: (() => void) | null = null;
+    let unlistenToken: (() => void) | null = null;
+
+    const handleDashboardRefresh = async () => {
+      const userId = user?.id || 'anonymous';
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
+      ]);
+    };
+
+    const handleTokenRefresh = async () => {
+      const token = await getToken();
+      if (!token || cancelled) return;
+
+      await desktopSetAuthToken({
+        token,
+        userId: user?.id ?? null,
+        backendBase: PYTHON_API_BASE,
+      });
+    };
+
+    void import('@tauri-apps/api/event')
+      .then(async ({ listen }) => {
+        unlistenRefresh = await listen('desktop://dashboard-refresh', () => {
+          void handleDashboardRefresh();
+        });
+        unlistenToken = await listen('desktop://token-refresh-needed', () => {
+          void handleTokenRefresh();
+        });
+      })
+      .catch((error) => {
+        console.warn('Desktop runtime event bridge unavailable:', error);
+      });
+
+    return () => {
+      cancelled = true;
+      if (unlistenRefresh) unlistenRefresh();
+      if (unlistenToken) unlistenToken();
+    };
+  }, [bridgeMode, getToken, queryClient, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -511,8 +551,6 @@ export function DesktopRuntimeBridge() {
   return (
     <>
       <DesktopUpdater />
-      <WatcherConfigReconciler />
-      <RecorderConfigReconciler />
       <RuntimeSyncBridge />
     </>
   );

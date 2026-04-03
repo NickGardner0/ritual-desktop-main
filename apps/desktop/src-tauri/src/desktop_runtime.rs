@@ -1,7 +1,10 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::env;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use tauri::api::dialog::blocking::{ask, message};
 use tauri::{AppHandle, Manager, Runtime};
 use tracing::{instrument, warn};
@@ -10,7 +13,14 @@ const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
     "native-updater-v1",
     "native-startup-update-fallback-v1",
+    "desktop-runtime-state-v1",
+    "desktop-auth-handoff-v1",
+    "desktop-runtime-events-v1",
 ];
+
+pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
+pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
+pub const RUNTIME_STATE_CHANGED_EVENT: &str = "desktop://runtime-state-changed";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,11 +42,56 @@ pub struct DesktopRuntimeInfo {
     pub pending_update: Option<PendingUpdateManifest>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopAuthRuntimeState {
+    pub token_ready: bool,
+    pub user_id: Option<String>,
+    pub backend_base: Option<String>,
+    pub last_updated_at_ms: Option<i64>,
+    pub last_turso_sync_at_ms: Option<i64>,
+    pub turso_refresh_scheduled_for_ms: Option<i64>,
+    pub last_turso_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopRuntimeState {
+    pub auth: DesktopAuthRuntimeState,
+    pub database: crate::ritual_database::DatabaseRuntimeStateSnapshot,
+    pub watcher: crate::watcher::WatcherLifecycleSnapshot,
+    pub memory_cloud_upload_allowed: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct DesktopAuthState {
+    token: Option<String>,
+    user_id: Option<String>,
+    backend_base: Option<String>,
+    last_updated_at_ms: Option<i64>,
+    last_turso_sync_at_ms: Option<i64>,
+    turso_refresh_scheduled_for_ms: Option<i64>,
+    last_turso_error: Option<String>,
+}
+
 pub struct DesktopShellState {
-    frontend_ready: std::sync::Mutex<bool>,
-    update_check_in_progress: std::sync::Mutex<bool>,
-    pending_update: std::sync::Mutex<Option<PendingUpdateManifest>>,
+    frontend_ready: Mutex<bool>,
+    update_check_in_progress: Mutex<bool>,
+    pending_update: Mutex<Option<PendingUpdateManifest>>,
+    auth_state: Mutex<DesktopAuthState>,
+    auth_generation: AtomicU64,
+}
+
+impl Default for DesktopShellState {
+    fn default() -> Self {
+        Self {
+            frontend_ready: Mutex::new(false),
+            update_check_in_progress: Mutex::new(false),
+            pending_update: Mutex::new(None),
+            auth_state: Mutex::new(DesktopAuthState::default()),
+            auth_generation: AtomicU64::new(0),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -44,6 +99,14 @@ enum UpdateCheckOrigin {
     Startup,
     Frontend,
     Tray,
+}
+
+#[derive(Debug, Deserialize)]
+struct TursoSyncConfigResponse {
+    sync_url: String,
+    auth_token: String,
+    expires_at: String,
+    database_name: String,
 }
 
 fn read_nonempty_env(name: &str) -> Option<String> {
@@ -71,8 +134,15 @@ fn configured_ritual_env() -> String {
 
 fn build_runtime_info<R: Runtime>(app: &AppHandle<R>) -> DesktopRuntimeInfo {
     let state = app.state::<DesktopShellState>();
-    let frontend_ready = *state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let pending_update = state.pending_update.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    let frontend_ready = *state
+        .frontend_ready
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pending_update = state
+        .pending_update
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
 
     DesktopRuntimeInfo {
         version: app.package_info().version.to_string(),
@@ -90,7 +160,10 @@ fn build_runtime_info<R: Runtime>(app: &AppHandle<R>) -> DesktopRuntimeInfo {
 
 fn begin_update_check<R: Runtime>(app: &AppHandle<R>) -> bool {
     let state = app.state::<DesktopShellState>();
-    let mut in_progress = state.update_check_in_progress.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut in_progress = state
+        .update_check_in_progress
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if *in_progress {
         return false;
     }
@@ -101,20 +174,156 @@ fn begin_update_check<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 fn end_update_check<R: Runtime>(app: &AppHandle<R>) {
     let state = app.state::<DesktopShellState>();
-    let mut in_progress = state.update_check_in_progress.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut in_progress = state
+        .update_check_in_progress
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     *in_progress = false;
 }
 
 fn set_pending_update<R: Runtime>(app: &AppHandle<R>, update: Option<PendingUpdateManifest>) {
     let state = app.state::<DesktopShellState>();
-    let mut pending = state.pending_update.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut pending = state
+        .pending_update
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     *pending = update;
 }
 
 fn frontend_is_ready<R: Runtime>(app: &AppHandle<R>) -> bool {
     let state = app.state::<DesktopShellState>();
-    let ready = *state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let ready = *state
+        .frontend_ready
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     ready
+}
+
+fn normalize_backend_base(value: Option<String>) -> Option<String> {
+    value
+        .map(|item| item.trim().trim_end_matches('/').to_string())
+        .filter(|item| !item.is_empty())
+}
+
+fn read_auth_state<R: Runtime>(app: &AppHandle<R>) -> DesktopAuthState {
+    app.state::<DesktopShellState>()
+        .auth_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+fn update_auth_state<R: Runtime, F>(app: &AppHandle<R>, mutator: F)
+where
+    F: FnOnce(&mut DesktopAuthState),
+{
+    let state = app.state::<DesktopShellState>();
+    let mut auth_state = state
+        .auth_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    mutator(&mut auth_state);
+}
+
+fn build_auth_runtime_state<R: Runtime>(app: &AppHandle<R>) -> DesktopAuthRuntimeState {
+    let auth_state = read_auth_state(app);
+    DesktopAuthRuntimeState {
+        token_ready: auth_state
+            .token
+            .as_ref()
+            .map(|token| !token.trim().is_empty())
+            .unwrap_or(false),
+        user_id: auth_state.user_id,
+        backend_base: auth_state.backend_base,
+        last_updated_at_ms: auth_state.last_updated_at_ms,
+        last_turso_sync_at_ms: auth_state.last_turso_sync_at_ms,
+        turso_refresh_scheduled_for_ms: auth_state.turso_refresh_scheduled_for_ms,
+        last_turso_error: auth_state.last_turso_error,
+    }
+}
+
+fn request_token_refresh<R: Runtime>(app: &AppHandle<R>) {
+    let _ = app.emit_all(
+        TOKEN_REFRESH_NEEDED_EVENT,
+        Utc::now().timestamp_millis() as f64,
+    );
+}
+
+async fn build_runtime_state<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<DesktopRuntimeState, String> {
+    let auth = build_auth_runtime_state(app);
+    let database = crate::ritual_database::database_runtime_state_snapshot();
+    let watcher = crate::watcher::get_watcher_lifecycle_snapshot().await;
+
+    let memory_ready = matches!(
+        database.memory.status,
+        crate::ritual_database::DatabaseConnectionState::ReadyLocal
+            | crate::ritual_database::DatabaseConnectionState::ReadyReplica
+    );
+    let activity_ready_for_upload = matches!(
+        database.activity.status,
+        crate::ritual_database::DatabaseConnectionState::ReadyLocal
+            | crate::ritual_database::DatabaseConnectionState::ReadyReplica
+    );
+    let memory_cloud_upload_allowed =
+        auth.token_ready && auth.user_id.is_some() && memory_ready && activity_ready_for_upload;
+
+    Ok(DesktopRuntimeState {
+        auth,
+        database,
+        watcher,
+        memory_cloud_upload_allowed,
+    })
+}
+
+pub fn emit_runtime_state_changed<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        match build_runtime_state(&app).await {
+            Ok(runtime_state) => {
+                let _ = app.emit_all(RUNTIME_STATE_CHANGED_EVENT, runtime_state);
+            }
+            Err(error) => {
+                warn!(error = %error, "Failed to emit desktop runtime state change");
+            }
+        }
+    });
+}
+
+fn read_runtime_signal_timestamp(file_name: &str) -> f64 {
+    use std::fs;
+
+    let target_file = std::env::temp_dir().join(file_name);
+    match fs::read_to_string(target_file) {
+        Ok(contents) => contents.trim().parse::<f64>().unwrap_or(0.0),
+        Err(_) => 0.0,
+    }
+}
+
+pub fn register_runtime_signal_monitor<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let mut last_token_refresh_request = 0.0_f64;
+        let mut last_dashboard_refresh = 0.0_f64;
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+
+            let token_refresh_request =
+                read_runtime_signal_timestamp("ritual_refresh_token_request.txt");
+            if token_refresh_request > 0.0 && token_refresh_request != last_token_refresh_request {
+                last_token_refresh_request = token_refresh_request;
+                let _ = app.emit_all(TOKEN_REFRESH_NEEDED_EVENT, token_refresh_request);
+            }
+
+            let dashboard_refresh = read_runtime_signal_timestamp("ritual_timer_updated.txt");
+            if dashboard_refresh > 0.0 && dashboard_refresh != last_dashboard_refresh {
+                last_dashboard_refresh = dashboard_refresh;
+                let _ = app.emit_all(DASHBOARD_REFRESH_EVENT, dashboard_refresh);
+            }
+        }
+    });
 }
 
 async fn show_native_message<R: Runtime>(title: String, body: String) {
@@ -290,6 +499,160 @@ async fn run_update_check<R: Runtime + 'static>(
     result
 }
 
+fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
+    let trimmed_user_id = user_id.trim();
+    if trimmed_user_id.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(mut watcher_config) = crate::watcher::get_saved_watcher_config() {
+        if watcher_config.user_id != trimmed_user_id {
+            watcher_config.user_id = trimmed_user_id.to_string();
+            crate::watcher::save_watcher_config(&watcher_config)?;
+
+            if crate::watcher::check_accessibility_permission() {
+                if let Err(error) = crate::watcher::start_watcher_sync(watcher_config) {
+                    warn!(error = %error, "Failed restarting watcher after auth handoff reconciliation");
+                }
+            }
+        }
+    }
+
+    if let Some(mut recorder_config) = crate::recorder::read_recorder_config() {
+        if recorder_config.user_id != trimmed_user_id {
+            recorder_config.user_id = trimmed_user_id.to_string();
+            crate::recorder::save_recorder_config_cmd(recorder_config)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn fetch_turso_sync_config(
+    auth_token: String,
+    backend_base: String,
+) -> Result<TursoSyncConfigResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|error| format!("Failed to create Turso config client: {error}"))?;
+
+        let url = format!("{backend_base}/api/user/turso-sync-config");
+        let response = client
+            .get(url)
+            .bearer_auth(auth_token)
+            .send()
+            .map_err(|error| format!("Failed to fetch Turso sync config: {error}"))?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Turso sync config request failed with HTTP {}",
+                response.status()
+            ));
+        }
+
+        let body = response
+            .text()
+            .map_err(|error| format!("Failed to read Turso sync config response: {error}"))?;
+
+        serde_json::from_str::<TursoSyncConfigResponse>(&body)
+            .map_err(|error| format!("Failed to parse Turso sync config response: {error}"))
+    })
+    .await
+    .map_err(|error| format!("Turso config fetch task failed: {error}"))?
+}
+
+fn schedule_turso_config_refresh<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    generation: u64,
+    expires_at: &str,
+) {
+    let Ok(expires_at) = DateTime::parse_from_rfc3339(expires_at) else {
+        update_auth_state(&app, |state| {
+            state.turso_refresh_scheduled_for_ms = None;
+        });
+        return;
+    };
+
+    let refresh_at = expires_at.with_timezone(&Utc) - chrono::Duration::minutes(30);
+    let now = Utc::now();
+    let delay = (refresh_at - now)
+        .to_std()
+        .unwrap_or_else(|_| Duration::from_secs(0));
+
+    update_auth_state(&app, |state| {
+        state.turso_refresh_scheduled_for_ms = Some(refresh_at.timestamp_millis());
+    });
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(delay).await;
+        let current_generation = app
+            .state::<DesktopShellState>()
+            .auth_generation
+            .load(Ordering::SeqCst);
+        if current_generation != generation {
+            return;
+        }
+
+        if let Err(error) = refresh_turso_sync_config(app.clone(), generation).await {
+            warn!(error = %error, "Scheduled Turso sync refresh failed");
+        }
+    });
+}
+
+async fn refresh_turso_sync_config<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    generation: u64,
+) -> Result<(), String> {
+    let auth_state = read_auth_state(&app);
+    let auth_token = auth_state
+        .token
+        .clone()
+        .ok_or_else(|| "Auth token is not available for Turso sync refresh".to_string())?;
+    let backend_base = auth_state
+        .backend_base
+        .clone()
+        .ok_or_else(|| "Backend base URL is not available for Turso sync refresh".to_string())?;
+
+    match fetch_turso_sync_config(auth_token, backend_base).await {
+        Ok(response) => {
+            let config = crate::native_widget::TursoSyncConfig {
+                sync_url: response.sync_url.trim().to_string(),
+                auth_token: response.auth_token.trim().to_string(),
+                expires_at: response.expires_at.trim().to_string(),
+                database_name: response.database_name.trim().to_string(),
+            };
+            crate::native_widget::apply_turso_sync_config_internal(
+                config.clone(),
+                Some("desktop_runtime:refresh_turso_sync_config"),
+            )
+            .await?;
+
+            update_auth_state(&app, |state| {
+                state.last_turso_sync_at_ms = Some(Utc::now().timestamp_millis());
+                state.last_turso_error = None;
+            });
+            schedule_turso_config_refresh(app.clone(), generation, &config.expires_at);
+            emit_runtime_state_changed(app.clone());
+            Ok(())
+        }
+        Err(error) => {
+            update_auth_state(&app, |state| {
+                state.last_turso_error = Some(error.clone());
+            });
+
+            let lowered = error.to_ascii_lowercase();
+            if lowered.contains("http 401") || lowered.contains("http 403") {
+                request_token_refresh(&app);
+            }
+
+            emit_runtime_state_changed(app.clone());
+            Err(error)
+        }
+    }
+}
+
 pub fn register_startup_update_check<R: Runtime + 'static>(app: AppHandle<R>) {
     let env = configured_ritual_env();
     if !matches!(env.as_str(), "production" | "prod") {
@@ -322,7 +685,10 @@ pub fn get_desktop_runtime_info<R: Runtime>(app: AppHandle<R>) -> DesktopRuntime
 #[instrument(skip(app))]
 pub fn desktop_frontend_ready<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeInfo {
     let state = app.state::<DesktopShellState>();
-    let mut frontend_ready = state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut frontend_ready = state
+        .frontend_ready
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     *frontend_ready = true;
     drop(frontend_ready);
 
@@ -342,4 +708,62 @@ pub async fn desktop_manual_update_check<R: Runtime + 'static>(
 #[instrument(skip(app))]
 pub async fn desktop_install_update<R: Runtime + 'static>(app: AppHandle<R>) -> Result<(), String> {
     install_latest_update(app).await
+}
+
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn get_desktop_runtime_state<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<DesktopRuntimeState, String> {
+    build_runtime_state(&app).await
+}
+
+#[tauri::command]
+#[instrument(skip(app, token), fields(user_id = user_id.as_deref().unwrap_or(""), backend_base = backend_base.as_deref().unwrap_or("")))]
+pub async fn desktop_set_auth_token<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    token: String,
+    user_id: Option<String>,
+    backend_base: Option<String>,
+) -> Result<DesktopRuntimeState, String> {
+    let trimmed_token = token.trim().to_string();
+    if trimmed_token.is_empty() {
+        return Err("Auth token is required".to_string());
+    }
+
+    let normalized_user_id = user_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let normalized_backend_base = normalize_backend_base(backend_base);
+    let generation = app
+        .state::<DesktopShellState>()
+        .auth_generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+
+    crate::native_widget::write_auth_token_to_disk(&trimmed_token)?;
+
+    update_auth_state(&app, |state| {
+        state.token = Some(trimmed_token.clone());
+        state.user_id = normalized_user_id.clone();
+        state.backend_base = normalized_backend_base
+            .clone()
+            .or_else(|| state.backend_base.clone());
+        state.last_updated_at_ms = Some(Utc::now().timestamp_millis());
+        state.last_turso_error = None;
+    });
+
+    if let Some(user_id) = normalized_user_id.as_deref() {
+        reconcile_native_user_configs(user_id)?;
+    }
+
+    if normalized_backend_base.is_some() {
+        if let Err(error) = refresh_turso_sync_config(app.clone(), generation).await {
+            warn!(error = %error, "Desktop Turso sync refresh failed after auth handoff");
+        }
+    }
+
+    let runtime_state = build_runtime_state(&app).await?;
+    let _ = app.emit_all(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());
+    Ok(runtime_state)
 }

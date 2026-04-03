@@ -3,7 +3,6 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::info;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_log::LogTracer;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 static LOG_GUARD: OnceCell<WorkerGuard> = OnceCell::new();
@@ -27,14 +26,10 @@ pub fn init_desktop_observability() -> Result<(), String> {
     let file_appender = tracing_appender::rolling::daily(&log_dir, "ritual-desktop.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new("info,hyper=warn,reqwest=warn,tao=warn,wry=warn")
-    });
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,hyper=warn,reqwest=warn,tao=warn,wry=warn"));
 
-    let stderr_layer = fmt::layer()
-        .with_target(true)
-        .with_ansi(true)
-        .compact();
+    let stderr_layer = fmt::layer().with_target(true).with_ansi(true).compact();
 
     let file_layer = fmt::layer()
         .with_writer(file_writer)
@@ -45,13 +40,12 @@ pub fn init_desktop_observability() -> Result<(), String> {
         .with_line_number(true)
         .compact();
 
-    LogTracer::init().map_err(|error| format!("Failed to install LogTracer: {error}"))?;
-
-    tracing_subscriber::registry()
+    let subscriber = tracing_subscriber::registry()
         .with(env_filter)
         .with(stderr_layer)
-        .with(file_layer)
-        .try_init()
+        .with(file_layer);
+
+    tracing::subscriber::set_global_default(subscriber)
         .map_err(|error| format!("Failed to initialize tracing subscriber: {error}"))?;
 
     let _ = LOG_GUARD.set(guard);

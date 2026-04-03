@@ -10,6 +10,7 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -27,6 +28,9 @@ static WATCHER_PROCESS: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(Non
 
 /// Stored device ID from the most recent watcher start
 static DEVICE_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+static WATCHER_LAST_STARTED_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
+static WATCHER_LAST_RESTART_REASON: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+static WATCHER_RESTART_COUNT: AtomicU64 = AtomicU64::new(0);
 
 fn apply_turso_sync_env(command: &mut Command) {
     if let Ok(sync_url) = std::env::var("TURSO_SYNC_URL") {
@@ -71,9 +75,13 @@ fn get_device_id_or_config() -> Option<String> {
     }
 }
 
+fn watcher_config_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not resolve home directory".to_string())?;
+    Ok(home.join(".ritual").join("watcher_config.json"))
+}
+
 fn load_saved_watcher_config() -> Option<WatcherConfig> {
-    let home = dirs::home_dir()?;
-    let config_path = home.join(".ritual").join("watcher_config.json");
+    let config_path = watcher_config_path().ok()?;
     if !config_path.exists() {
         return None;
     }
@@ -84,6 +92,29 @@ fn load_saved_watcher_config() -> Option<WatcherConfig> {
 
 pub fn get_saved_watcher_config() -> Option<WatcherConfig> {
     load_saved_watcher_config()
+}
+
+pub fn save_watcher_config(config: &WatcherConfig) -> Result<(), String> {
+    let config_path = watcher_config_path()?;
+    if let Some(parent) = config_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let json = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    std::fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
+    watcher_info!("💾 Watcher config saved for auto-start");
+    Ok(())
+}
+
+pub fn clear_watcher_config() -> Result<(), String> {
+    let config_path = watcher_config_path()?;
+    if config_path.exists() {
+        std::fs::remove_file(&config_path)
+            .map_err(|e| format!("Failed to remove config: {}", e))?;
+    }
+    Ok(())
 }
 
 /// Watcher configuration
@@ -130,6 +161,30 @@ pub struct WatcherStatus {
     pub is_running: bool,
     pub pid: Option<u32>,
     pub device_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WatcherLifecycleState {
+    DisabledByUser,
+    DisabledNoPermission,
+    Starting,
+    Running,
+    Unhealthy,
+    Backoff,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatcherLifecycleSnapshot {
+    pub state: WatcherLifecycleState,
+    pub is_running: bool,
+    pub pid: Option<u32>,
+    pub device_id: Option<String>,
+    pub accessibility_granted: bool,
+    pub seconds_since_heartbeat: Option<i64>,
+    pub restart_count: u64,
+    pub last_restart_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -542,7 +597,10 @@ fn ensure_external_watcher_binary() {
                 let source_mtime = source_meta.modified().ok();
                 let target_mtime = target_meta.modified().ok();
                 source_meta.len() != target_meta.len()
-                    || source_mtime.zip(target_mtime).map(|(s, t)| s > t).unwrap_or(false)
+                    || source_mtime
+                        .zip(target_mtime)
+                        .map(|(s, t)| s > t)
+                        .unwrap_or(false)
             }
             (Ok(_), Err(_)) => true,
             _ => false,
@@ -774,10 +832,7 @@ fn list_watcher_pids_for_device(device_id: &str) -> Vec<u32> {
         return Vec::new();
     }
 
-    let Ok(output) = Command::new("ps")
-        .args(["-axo", "pid=,command="])
-        .output()
-    else {
+    let Ok(output) = Command::new("ps").args(["-axo", "pid=,command="]).output() else {
         return Vec::new();
     };
 
@@ -791,7 +846,10 @@ fn list_watcher_pids_for_device(device_id: &str) -> Vec<u32> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.is_empty() || !trimmed.contains("ritual-watcher") || !trimmed.contains(&device_flag) {
+            if trimmed.is_empty()
+                || !trimmed.contains("ritual-watcher")
+                || !trimmed.contains(&device_flag)
+            {
                 return None;
             }
 
@@ -811,7 +869,10 @@ fn cleanup_existing_watcher_processes(device_id: &str, context: &str) {
     {
         let pids = list_watcher_pids_for_device(device_id);
         if pids.is_empty() {
-            watcher_info!("🧹 {}: no existing watcher processes found for device", context);
+            watcher_info!(
+                "🧹 {}: no existing watcher processes found for device",
+                context
+            );
             return;
         }
 
@@ -846,6 +907,9 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
     // Store device_id for later query use
     if let Ok(mut guard) = DEVICE_ID.lock() {
         *guard = Some(config.device_id.clone());
+    }
+    if let Ok(mut guard) = WATCHER_LAST_STARTED_AT.lock() {
+        *guard = Some(Instant::now());
     }
 
     // Clear our stored handle
@@ -927,6 +991,9 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     // Store device_id for later query use
     if let Ok(mut guard) = DEVICE_ID.lock() {
         *guard = Some(config.device_id.clone());
+    }
+    if let Ok(mut guard) = WATCHER_LAST_STARTED_AT.lock() {
+        *guard = Some(Instant::now());
     }
 
     // Clear our stored handle
@@ -1063,6 +1130,58 @@ pub async fn get_watcher_status() -> WatcherStatus {
     }
 }
 
+pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
+    let saved_config = load_saved_watcher_config();
+    let accessibility_granted = check_accessibility_permission();
+    let basic_status = get_watcher_status().await;
+    let extended_status = get_watcher_extended_status().await.ok();
+    let diagnostics = get_browser_extension_diagnostics().await.ok();
+    let seconds_since_heartbeat = extended_status
+        .as_ref()
+        .and_then(|status| status.seconds_since_heartbeat);
+    let watcher_reachable = diagnostics
+        .as_ref()
+        .map(|diag| diag.watcher_reachable)
+        .unwrap_or(basic_status.is_running);
+    let heartbeat_stale = seconds_since_heartbeat
+        .map(|seconds| seconds > 60)
+        .unwrap_or(false);
+    let recently_started = WATCHER_LAST_STARTED_AT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .map(|started_at| started_at.elapsed() < Duration::from_secs(20))
+        .unwrap_or(false);
+    let last_restart_reason = WATCHER_LAST_RESTART_REASON
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+
+    let state = if saved_config.is_none() {
+        WatcherLifecycleState::DisabledByUser
+    } else if !accessibility_granted {
+        WatcherLifecycleState::DisabledNoPermission
+    } else if basic_status.is_running && recently_started && !heartbeat_stale {
+        WatcherLifecycleState::Starting
+    } else if basic_status.is_running && watcher_reachable && !heartbeat_stale {
+        WatcherLifecycleState::Running
+    } else if basic_status.is_running {
+        WatcherLifecycleState::Unhealthy
+    } else {
+        WatcherLifecycleState::Backoff
+    };
+
+    WatcherLifecycleSnapshot {
+        state,
+        is_running: basic_status.is_running,
+        pid: basic_status.pid,
+        device_id: basic_status.device_id,
+        accessibility_granted,
+        seconds_since_heartbeat,
+        restart_count: WATCHER_RESTART_COUNT.load(Ordering::Relaxed),
+        last_restart_reason,
+    }
+}
+
 /// Open System Preferences to Accessibility settings
 #[tauri::command]
 pub fn open_accessibility_settings() -> Result<(), String> {
@@ -1087,9 +1206,15 @@ pub async fn get_detailed_activity(
     start_ts: i64,
     end_ts: i64,
     limit: Option<i64>,
+    origin: Option<String>,
 ) -> Result<DetailedActivityResponse, String> {
     let started_at = Instant::now();
     let device_id = get_device_id_or_config().unwrap_or_default();
+    let origin = origin
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("tauri:get_detailed_activity:unknown");
 
     let guard = get_activity_db().await?;
     let db = require_db(guard.as_ref())?;
@@ -1132,7 +1257,8 @@ pub async fn get_detailed_activity(
     let summary = build_range_summary(&all_events, start_ts, end_ts);
 
     watcher_info!(
-        "get_detailed_activity start_ts={} end_ts={} limit={:?} total_events={} clipped_events={} apps={} domains={} duration_ms={}",
+        "get_detailed_activity origin={} start_ts={} end_ts={} limit={:?} total_events={} clipped_events={} apps={} domains={} duration_ms={}",
+        origin,
         start_ts,
         end_ts,
         limit,
@@ -1174,11 +1300,17 @@ pub struct DailySummary {
 pub async fn get_daily_summaries(
     start_date: String,
     end_date: String,
+    origin: Option<String>,
 ) -> Result<Vec<DailySummary>, String> {
     let started_at = Instant::now();
     use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
 
     let device_id = get_device_id_or_config().unwrap_or_default();
+    let origin = origin
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("tauri:get_daily_summaries:unknown");
     let start =
         NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(|_| "Invalid start_date")?;
     let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|_| "Invalid end_date")?;
@@ -1238,7 +1370,8 @@ pub async fn get_daily_summaries(
     }
 
     watcher_info!(
-        "get_daily_summaries start_date={} end_date={} source_events={} row_count={} duration_ms={}",
+        "get_daily_summaries origin={} start_date={} end_date={} source_events={} row_count={} duration_ms={}",
+        origin,
         start_date,
         end_date,
         all_events.len(),
@@ -1704,6 +1837,14 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
 #[tauri::command]
 #[instrument(fields(max_stale_seconds = max_stale_seconds))]
 pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result<bool, String> {
+    if load_saved_watcher_config().is_none() {
+        return Ok(false);
+    }
+
+    if !check_accessibility_permission() {
+        return Ok(false);
+    }
+
     let status = get_watcher_extended_status().await?;
     let diagnostics = get_browser_extension_diagnostics().await.ok();
     let watcher_reachable = diagnostics
@@ -1737,6 +1878,14 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
         if let Some(config) = load_saved_watcher_config() {
+            let restart_reason = format!(
+                "heartbeat_stale={} context_stale={} watcher_reachable={}",
+                heartbeat_stale, context_stale, watcher_reachable
+            );
+            WATCHER_RESTART_COUNT.fetch_add(1, Ordering::Relaxed);
+            if let Ok(mut guard) = WATCHER_LAST_RESTART_REASON.lock() {
+                *guard = Some(restart_reason);
+            }
             match start_watcher_sync(config) {
                 Ok(_) => {
                     watcher_info!("✅ Watcher auto-restarted after health-check failure");

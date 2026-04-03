@@ -16,6 +16,67 @@ export type DesktopRuntimeInfo = {
   pendingUpdate?: UpdateManifest | null;
 };
 
+export type DesktopDatabaseStateKind =
+  | 'uninitialized'
+  | 'ready_local'
+  | 'ready_replica'
+  | 'degraded_local'
+  | 'failed_transient'
+  | 'reloading';
+
+export type DesktopDatabaseHandleState = {
+  status: DesktopDatabaseStateKind;
+  dbPath: string;
+  lastError?: string | null;
+  replicaFailReason?: string | null;
+};
+
+export type DesktopDatabaseRuntimeState = {
+  memory: DesktopDatabaseHandleState;
+  activity: DesktopDatabaseHandleState;
+  tursoSyncConfigured: boolean;
+  tursoCircuitBreakerActive: boolean;
+  activityDbReloads: number;
+  replicaFailures: number;
+  circuitBreakerTrips: number;
+};
+
+export type DesktopWatcherLifecycleState =
+  | 'disabled_by_user'
+  | 'disabled_no_permission'
+  | 'starting'
+  | 'running'
+  | 'unhealthy'
+  | 'backoff';
+
+export type DesktopWatcherRuntimeState = {
+  state: DesktopWatcherLifecycleState;
+  isRunning: boolean;
+  pid?: number | null;
+  deviceId?: string | null;
+  accessibilityGranted: boolean;
+  secondsSinceHeartbeat?: number | null;
+  restartCount: number;
+  lastRestartReason?: string | null;
+};
+
+export type DesktopAuthRuntimeState = {
+  tokenReady: boolean;
+  userId?: string | null;
+  backendBase?: string | null;
+  lastUpdatedAtMs?: number | null;
+  lastTursoSyncAtMs?: number | null;
+  tursoRefreshScheduledForMs?: number | null;
+  lastTursoError?: string | null;
+};
+
+export type DesktopRuntimeState = {
+  auth: DesktopAuthRuntimeState;
+  database: DesktopDatabaseRuntimeState;
+  watcher: DesktopWatcherRuntimeState;
+  memoryCloudUploadAllowed: boolean;
+};
+
 export type DesktopCompatibilityIssue =
   | {
       kind: 'version';
@@ -33,6 +94,8 @@ type DesktopCompatibilityRequirements = {
   minVersion: string | null;
   requiredCapabilities: string[];
 };
+
+let runtimeInfoPromise: Promise<DesktopRuntimeInfo | null> | null = null;
 
 function normalizeVersion(version: string): number[] {
   return version
@@ -113,6 +176,22 @@ async function invokeDesktopCommand<T>(command: string): Promise<T> {
   return invoke<T>(command);
 }
 
+export function buildDesktopCommandOrigin(scope: string): string {
+  const trimmedScope = scope.trim() || 'unknown';
+  if (typeof window === 'undefined') {
+    return trimmedScope;
+  }
+
+  const path = window.location.pathname || '/';
+  const search = window.location.search || '';
+  const suffix = `${path}${search}`;
+  return `${trimmedScope}@${suffix}`.slice(0, 180);
+}
+
+export function clearDesktopRuntimeInfoCache(): void {
+  runtimeInfoPromise = null;
+}
+
 export async function desktopFrontendReady(): Promise<DesktopRuntimeInfo | null> {
   if (!isTauri()) return null;
 
@@ -127,10 +206,51 @@ export async function desktopFrontendReady(): Promise<DesktopRuntimeInfo | null>
 export async function getDesktopRuntimeInfo(): Promise<DesktopRuntimeInfo | null> {
   if (!isTauri()) return null;
 
+  if (runtimeInfoPromise) {
+    return runtimeInfoPromise;
+  }
+
+  runtimeInfoPromise = invokeDesktopCommand<DesktopRuntimeInfo>('get_desktop_runtime_info')
+    .catch((error) => {
+      console.warn('Desktop runtime info unavailable:', error);
+      return null;
+    });
+
+  return runtimeInfoPromise;
+}
+
+export async function desktopHasCapability(capability: string): Promise<boolean> {
+  const runtimeInfo = await getDesktopRuntimeInfo();
+  return Boolean(runtimeInfo?.capabilities.includes(capability));
+}
+
+export async function getDesktopRuntimeState(): Promise<DesktopRuntimeState | null> {
+  if (!isTauri()) return null;
+
   try {
-    return await invokeDesktopCommand<DesktopRuntimeInfo>('get_desktop_runtime_info');
+    return await invokeDesktopCommand<DesktopRuntimeState>('get_desktop_runtime_state');
   } catch (error) {
-    console.warn('Desktop runtime info unavailable:', error);
+    console.warn('Desktop runtime state unavailable:', error);
+    return null;
+  }
+}
+
+export async function desktopSetAuthToken(input: {
+  token: string;
+  userId?: string | null;
+  backendBase?: string | null;
+}): Promise<DesktopRuntimeState | null> {
+  if (!isTauri()) return null;
+
+  const { invoke } = await import('@tauri-apps/api/tauri');
+  try {
+    return await invoke<DesktopRuntimeState>('desktop_set_auth_token', {
+      token: input.token,
+      userId: input.userId ?? null,
+      backendBase: input.backendBase ?? null,
+    });
+  } catch (error) {
+    console.warn('Desktop auth handoff unavailable:', error);
     return null;
   }
 }

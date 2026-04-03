@@ -12,6 +12,7 @@ extern "C" {
     fn stop_speech_recognition() -> bool;
 }
 
+use crate::watcher;
 use std::time::Instant;
 use tracing::instrument;
 
@@ -40,7 +41,7 @@ pub struct NativeSpeechState {
     pub timestamp: f64,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct TursoSyncConfig {
     pub sync_url: String,
     pub auth_token: String,
@@ -54,6 +55,14 @@ pub struct TursoSyncConfig {
 pub struct RuntimeBridgeSignals {
     pub token_refresh_request: f64,
     pub dashboard_refresh_trigger: f64,
+}
+
+fn normalize_widget_command_origin(origin: Option<&str>, fallback: &str) -> String {
+    origin
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 #[cfg(target_os = "macos")]
@@ -104,38 +113,103 @@ pub fn load_turso_sync_config() -> Result<Option<TursoSyncConfig>, String> {
     Ok(Some(config))
 }
 
-#[tauri::command]
-#[instrument(skip(auth_token), fields(sync_url = %sync_url, expires_at = %expires_at, database_name = %database_name))]
-pub async fn write_turso_sync_config(
-    sync_url: String,
-    auth_token: String,
-    expires_at: String,
-    database_name: String,
-) -> Result<String, String> {
-    let started_at = Instant::now();
-    nw_info!("🔄 Applying Turso sync config...");
-
-    use crate::watcher;
+fn persist_turso_sync_config_file(config: &TursoSyncConfig) -> Result<std::path::PathBuf, String> {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    let config = TursoSyncConfig {
-        sync_url: sync_url.trim().to_string(),
-        auth_token: auth_token.trim().to_string(),
-        expires_at: expires_at.trim().to_string(),
-        database_name: database_name.trim().to_string(),
-    };
-
-    if config.sync_url.is_empty()
-        || config.auth_token.is_empty()
-        || config.expires_at.is_empty()
-        || config.database_name.is_empty()
-    {
-        return Err(
-            "Turso sync config requires sync_url, auth_token, expires_at, and database_name"
-                .to_string(),
-        );
+    let config_file = turso_sync_config_path()?;
+    if let Some(parent) = config_file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create Turso config directory: {e}"))?;
     }
+
+    let contents = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize Turso sync config: {e}"))?;
+    fs::write(&config_file, contents)
+        .map_err(|e| format!("Failed to write Turso sync config: {e}"))?;
+
+    let mut perms = fs::metadata(&config_file)
+        .map_err(|e| format!("Failed to read Turso config metadata: {e}"))?
+        .permissions();
+    perms.set_mode(0o600);
+    fs::set_permissions(&config_file, perms)
+        .map_err(|e| format!("Failed to set Turso config permissions: {e}"))?;
+
+    Ok(config_file)
+}
+
+fn clear_turso_sync_config_file() -> Result<(), String> {
+    use std::fs;
+
+    let config_file = turso_sync_config_path()?;
+    if config_file.exists() {
+        fs::remove_file(config_file)
+            .map_err(|e| format!("Failed to remove Turso sync config: {e}"))?;
+    }
+    Ok(())
+}
+
+fn apply_turso_env(config: Option<&TursoSyncConfig>) {
+    if let Some(config) = config {
+        std::env::set_var("TURSO_SYNC_URL", &config.sync_url);
+        std::env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
+        std::env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
+        std::env::set_var("TURSO_DATABASE_NAME", &config.database_name);
+    } else {
+        std::env::remove_var("TURSO_SYNC_URL");
+        std::env::remove_var("TURSO_AUTH_TOKEN");
+        std::env::remove_var("TURSO_SYNC_EXPIRES_AT");
+        std::env::remove_var("TURSO_DATABASE_NAME");
+    }
+}
+
+fn restore_env(entries: &[(&str, Option<String>)]) {
+    for (key, value) in entries {
+        if let Some(value) = value {
+            std::env::set_var(key, value);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+}
+
+async fn reload_activity_database_blocking(origin: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        crate::ritual_database::reload_activity_database_with_origin(&origin)
+    })
+    .await
+    .map_err(|e| format!("Failed to join activity database reload task: {e}"))?
+}
+
+async fn rollback_turso_config(
+    origin: &str,
+    previous_config: &Option<TursoSyncConfig>,
+    previous_env: &[(&str, Option<String>)],
+    watcher_restart_config: &Option<watcher::WatcherConfig>,
+) -> Result<(), String> {
+    if let Some(config) = previous_config {
+        let _ = persist_turso_sync_config_file(config)?;
+        apply_turso_env(Some(config));
+    } else {
+        clear_turso_sync_config_file()?;
+        restore_env(previous_env);
+    }
+
+    reload_activity_database_blocking(format!("{origin}:rollback")).await?;
+
+    if let Some(config) = watcher_restart_config.clone() {
+        watcher::start_watcher(config).await?;
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn apply_turso_sync_config_internal(
+    config: TursoSyncConfig,
+    origin: Option<&str>,
+) -> Result<std::path::PathBuf, String> {
+    use crate::watcher;
+    let origin = normalize_widget_command_origin(origin, "native_widget:apply_turso_sync_config");
 
     let previous_config = load_turso_sync_config()?;
     let previous_env = [
@@ -165,6 +239,38 @@ pub async fn write_turso_sync_config(
         ),
     ];
 
+    let config_file = persist_turso_sync_config_file(&config)?;
+    apply_turso_env(Some(&config));
+
+    let runtime_state = crate::ritual_database::database_runtime_state_snapshot();
+    let runtime_initialized = !matches!(
+        runtime_state.memory.status,
+        crate::ritual_database::DatabaseConnectionState::Uninitialized
+            | crate::ritual_database::DatabaseConnectionState::Reloading
+    ) && !matches!(
+        runtime_state.activity.status,
+        crate::ritual_database::DatabaseConnectionState::Uninitialized
+            | crate::ritual_database::DatabaseConnectionState::Reloading
+    );
+
+    if previous_config.as_ref() == Some(&config) && runtime_initialized {
+        nw_info!(
+            "⏭️ Skipping identical Turso sync config apply origin={} activity_status={:?}",
+            origin,
+            runtime_state.activity.status
+        );
+        return Ok(config_file);
+    }
+
+    if crate::ritual_database::should_defer_activity_replica_bootstrap() {
+        nw_info!(
+            "⏭️ Deferring Turso replica bootstrap for this session; keeping local activity DB active origin={}",
+            origin
+        );
+        crate::ritual_database::defer_activity_replica_for_session();
+        return Ok(config_file);
+    }
+
     let watcher_status = watcher::get_watcher_status().await;
     let watcher_restart_config = if watcher_status.is_running {
         Some(watcher::get_saved_watcher_config().ok_or_else(|| {
@@ -174,99 +280,13 @@ pub async fn write_turso_sync_config(
         None
     };
 
-    let config_file = turso_sync_config_path()?;
-    if let Some(parent) = config_file.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create Turso config directory: {e}"))?;
-    }
-
-    fn persist_turso_sync_config(
-        config_file: &std::path::Path,
-        config: &TursoSyncConfig,
-    ) -> Result<(), String> {
-        let contents = serde_json::to_string_pretty(config)
-            .map_err(|e| format!("Failed to serialize Turso sync config: {e}"))?;
-        fs::write(config_file, contents)
-            .map_err(|e| format!("Failed to write Turso sync config: {e}"))?;
-
-        let mut perms = fs::metadata(config_file)
-            .map_err(|e| format!("Failed to read Turso config metadata: {e}"))?
-            .permissions();
-        perms.set_mode(0o600);
-        fs::set_permissions(config_file, perms)
-            .map_err(|e| format!("Failed to set Turso config permissions: {e}"))?;
-        Ok(())
-    }
-
-    fn clear_turso_sync_config(config_file: &std::path::Path) -> Result<(), String> {
-        if config_file.exists() {
-            fs::remove_file(config_file)
-                .map_err(|e| format!("Failed to remove Turso sync config: {e}"))?;
-        }
-        Ok(())
-    }
-
-    fn apply_turso_env(config: Option<&TursoSyncConfig>) {
-        if let Some(config) = config {
-            std::env::set_var("TURSO_SYNC_URL", &config.sync_url);
-            std::env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
-            std::env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
-            std::env::set_var("TURSO_DATABASE_NAME", &config.database_name);
-        } else {
-            std::env::remove_var("TURSO_SYNC_URL");
-            std::env::remove_var("TURSO_AUTH_TOKEN");
-            std::env::remove_var("TURSO_SYNC_EXPIRES_AT");
-            std::env::remove_var("TURSO_DATABASE_NAME");
-        }
-    }
-
-    fn restore_env(entries: &[(&str, Option<String>)]) {
-        for (key, value) in entries {
-            if let Some(value) = value {
-                std::env::set_var(key, value);
-            } else {
-                std::env::remove_var(key);
-            }
-        }
-    }
-
-    async fn reload_activity_database_blocking() -> Result<(), String> {
-        tokio::task::spawn_blocking(crate::ritual_database::reload_activity_database)
-            .await
-            .map_err(|e| format!("Failed to join activity database reload task: {e}"))?
-    }
-
-    async fn rollback_turso_config(
-        config_file: &std::path::Path,
-        previous_config: &Option<TursoSyncConfig>,
-        previous_env: &[(&str, Option<String>)],
-        watcher_restart_config: &Option<watcher::WatcherConfig>,
-    ) -> Result<(), String> {
-        if let Some(config) = previous_config {
-            persist_turso_sync_config(config_file, config)?;
-            apply_turso_env(Some(config));
-        } else {
-            clear_turso_sync_config(config_file)?;
-            restore_env(previous_env);
-        }
-
-        reload_activity_database_blocking().await?;
-
-        if let Some(config) = watcher_restart_config.clone() {
-            watcher::start_watcher(config).await?;
-        }
-
-        Ok(())
-    }
-
     if watcher_restart_config.is_some() {
         watcher::stop_watcher().await?;
     }
 
     let apply_result: Result<(), String> = async {
-        persist_turso_sync_config(&config_file, &config)?;
-        apply_turso_env(Some(&config));
-        reload_activity_database_blocking().await?;
+        crate::ritual_database::reset_activity_replica_circuit_breaker();
+        reload_activity_database_blocking(format!("{origin}:reload_activity_database")).await?;
 
         if let Some(saved_config) = watcher_restart_config.clone() {
             watcher::start_watcher(saved_config).await?;
@@ -279,7 +299,7 @@ pub async fn write_turso_sync_config(
     if let Err(error) = apply_result {
         nw_error!("❌ Failed to apply Turso sync config: {}", error);
         if let Err(rollback_error) = rollback_turso_config(
-            &config_file,
+            &origin,
             &previous_config,
             &previous_env,
             &watcher_restart_config,
@@ -295,7 +315,69 @@ pub async fn write_turso_sync_config(
         ));
     }
 
-    nw_info!("✅ Turso sync config written to: {:?}", config_file);
+    Ok(config_file)
+}
+
+pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf, String> {
+    use dirs::home_dir;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let token_dir = home_dir()
+        .ok_or_else(|| "Failed to resolve home directory".to_string())?
+        .join(".ritual");
+    fs::create_dir_all(&token_dir).map_err(|e| format!("Failed to create token directory: {e}"))?;
+    let token_file = token_dir.join("auth_token.txt");
+
+    fs::write(&token_file, token).map_err(|e| format!("Failed to write token file: {e}"))?;
+    let mut perms = fs::metadata(&token_file)
+        .map_err(|e| format!("Failed to read token file metadata: {e}"))?
+        .permissions();
+    perms.set_mode(0o600);
+    fs::set_permissions(&token_file, perms)
+        .map_err(|e| format!("Failed to set token file permissions: {e}"))?;
+
+    Ok(token_file)
+}
+
+#[tauri::command]
+#[instrument(skip(auth_token), fields(sync_url = %sync_url, expires_at = %expires_at, database_name = %database_name))]
+pub async fn write_turso_sync_config(
+    sync_url: String,
+    auth_token: String,
+    expires_at: String,
+    database_name: String,
+    origin: Option<String>,
+) -> Result<String, String> {
+    let started_at = Instant::now();
+    let origin =
+        normalize_widget_command_origin(origin.as_deref(), "tauri:write_turso_sync_config:unknown");
+    nw_info!("🔄 Applying Turso sync config origin={}...", origin);
+
+    let config = TursoSyncConfig {
+        sync_url: sync_url.trim().to_string(),
+        auth_token: auth_token.trim().to_string(),
+        expires_at: expires_at.trim().to_string(),
+        database_name: database_name.trim().to_string(),
+    };
+
+    if config.sync_url.is_empty()
+        || config.auth_token.is_empty()
+        || config.expires_at.is_empty()
+        || config.database_name.is_empty()
+    {
+        return Err(
+            "Turso sync config requires sync_url, auth_token, expires_at, and database_name"
+                .to_string(),
+        );
+    }
+    let config_file = apply_turso_sync_config_internal(config, Some(&origin)).await?;
+
+    nw_info!(
+        "✅ Turso sync config written to: {:?} origin={}",
+        config_file,
+        origin
+    );
     nw_info!(
         "⏱️ Turso sync config command completed in {}ms",
         started_at.elapsed().as_millis()
@@ -318,29 +400,26 @@ fn read_swift_json_string(ptr: *mut std::os::raw::c_char) -> Result<String, Stri
 
 #[tauri::command]
 #[instrument(skip(token), fields(token_length = token.len()))]
-pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
+pub async fn write_auth_token_to_file(
+    token: String,
+    origin: Option<String>,
+) -> Result<String, String> {
     let started_at = Instant::now();
-    nw_info!("🔐 Writing auth token to file for desktop runtime...");
-
-    use dirs::home_dir;
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-
-    let token_dir = home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())?
-        .join(".ritual");
-    fs::create_dir_all(&token_dir).map_err(|e| format!("Failed to create token directory: {e}"))?;
-    let token_file = token_dir.join("auth_token.txt");
-
-    match fs::write(&token_file, &token) {
-        Ok(_) => {
-            let mut perms = fs::metadata(&token_file)
-                .map_err(|e| format!("Failed to read token file metadata: {e}"))?
-                .permissions();
-            perms.set_mode(0o600);
-            fs::set_permissions(&token_file, perms)
-                .map_err(|e| format!("Failed to set token file permissions: {e}"))?;
-            nw_info!("✅ Auth token written to: {:?}", token_file);
+    let origin = normalize_widget_command_origin(
+        origin.as_deref(),
+        "tauri:write_auth_token_to_file:unknown",
+    );
+    nw_info!(
+        "🔐 Writing auth token to file for desktop runtime origin={}...",
+        origin
+    );
+    match write_auth_token_to_disk(&token) {
+        Ok(token_file) => {
+            nw_info!(
+                "✅ Auth token written to: {:?} origin={}",
+                token_file,
+                origin
+            );
             nw_info!(
                 "🔐 Token preview: {}...",
                 &token[..std::cmp::min(20, token.len())]
@@ -353,7 +432,7 @@ pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
         }
         Err(e) => {
             nw_error!("❌ Failed to write token file: {}", e);
-            Err(format!("Failed to write token file: {}", e))
+            Err(e)
         }
     }
 }
@@ -361,7 +440,10 @@ pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
 #[tauri::command]
 #[instrument]
 pub async fn check_dashboard_refresh_trigger() -> Result<f64, String> {
-    Ok(read_runtime_bridge_timestamp_file("ritual_timer_updated.txt", false))
+    Ok(read_runtime_bridge_timestamp_file(
+        "ritual_timer_updated.txt",
+        false,
+    ))
 }
 
 #[tauri::command]
@@ -481,7 +563,10 @@ pub async fn check_native_speech_recognition_permission() -> Result<bool, String
 
         unsafe {
             let has_permission = check_speech_recognition_permission();
-            nw_info!("🎤 Current speech recognition permission: {}", has_permission);
+            nw_info!(
+                "🎤 Current speech recognition permission: {}",
+                has_permission
+            );
             Ok(has_permission)
         }
     }

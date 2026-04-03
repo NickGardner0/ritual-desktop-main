@@ -2,8 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unexpected_cfgs)]
 
-mod desktop_runtime;
 mod desktop_observability;
+mod desktop_runtime;
 mod native_widget;
 #[cfg(feature = "native-recorder")]
 mod recorder;
@@ -16,8 +16,6 @@ mod watcher;
 use crate::recorder_disabled as recorder;
 
 use std::env;
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
@@ -201,9 +199,9 @@ fn desktop_shell_window_url() -> Result<tauri::WindowUrl, std::io::Error> {
     if should_use_local_shell_window() {
         Ok(tauri::WindowUrl::App("index.html".into()))
     } else {
-        let shell_external_url = DESKTOP_SHELL_DEV_URL
-            .parse()
-            .map_err(|error| std::io::Error::other(format!("Invalid desktop shell dev URL: {error}")))?;
+        let shell_external_url = DESKTOP_SHELL_DEV_URL.parse().map_err(|error| {
+            std::io::Error::other(format!("Invalid desktop shell dev URL: {error}"))
+        })?;
         Ok(tauri::WindowUrl::External(shell_external_url))
     }
 }
@@ -748,44 +746,16 @@ fn show_main_window(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
-/// Get the path to the watcher config file
-fn get_watcher_config_path() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".ritual/watcher_config.json")
-    } else {
-        PathBuf::from("./watcher_config.json")
-    }
-}
-
 /// Read saved watcher config for auto-start
 fn read_watcher_config() -> Option<watcher::WatcherConfig> {
-    let config_path = get_watcher_config_path();
-    if config_path.exists() {
-        if let Ok(contents) = fs::read_to_string(&config_path) {
-            if let Ok(config) = serde_json::from_str::<watcher::WatcherConfig>(&contents) {
-                return Some(config);
-            }
-        }
-    }
-    None
+    watcher::get_saved_watcher_config()
 }
 
 /// Save watcher config for auto-start (called from frontend)
 #[tauri::command]
 #[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
 fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String> {
-    let config_path = get_watcher_config_path();
-
-    // Ensure directory exists
-    if let Some(parent) = config_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    let json = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-
-    fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
-
+    watcher::save_watcher_config(&config)?;
     info!("Watcher config saved for auto-start");
     Ok(())
 }
@@ -794,11 +764,8 @@ fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String>
 #[tauri::command]
 #[instrument]
 fn clear_watcher_config_cmd() -> Result<(), String> {
-    let config_path = get_watcher_config_path();
-    if config_path.exists() {
-        fs::remove_file(&config_path).map_err(|e| format!("Failed to remove config: {}", e))?;
-        info!("Watcher config cleared (auto-start disabled)");
-    }
+    watcher::clear_watcher_config()?;
+    info!("Watcher config cleared (auto-start disabled)");
     Ok(())
 }
 
@@ -829,7 +796,10 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     if watcher::check_accessibility_permission() {
         match watcher::start_watcher_sync(config) {
             Ok(status) => {
-                info!(pid = status.pid, "Watcher restarted after config reconciliation");
+                info!(
+                    pid = status.pid,
+                    "Watcher restarted after config reconciliation"
+                );
             }
             Err(error) => {
                 warn!(error = %error, "Failed restarting watcher after config reconciliation");
@@ -876,9 +846,7 @@ fn main() {
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
-    let tray_menu = SystemTrayMenu::new()
-        .add_item(check_updates)
-        .add_item(quit);
+    let tray_menu = SystemTrayMenu::new().add_item(check_updates).add_item(quit);
 
     let system_tray = SystemTray::new().with_menu(tray_menu);
 
@@ -954,6 +922,8 @@ fn main() {
       check_desktop_hosted_app_reachable,
       // Desktop runtime / updater commands
       desktop_runtime::get_desktop_runtime_info,
+      desktop_runtime::get_desktop_runtime_state,
+      desktop_runtime::desktop_set_auth_token,
       desktop_runtime::desktop_frontend_ready,
       desktop_runtime::desktop_manual_update_check,
       desktop_runtime::desktop_install_update,
@@ -999,9 +969,10 @@ fn main() {
     })
     .setup(|app| {
       let setup_started_at = Instant::now();
+      desktop_runtime::register_runtime_signal_monitor(app.handle());
       // Handle deep link URLs (ritual://)
       let handle = app.handle();
-      
+
       // Get the app URL based on environment (Midday pattern)
       let ritual_env = configured_ritual_env();
       let app_origin = get_app_url();
@@ -1016,7 +987,7 @@ fn main() {
         info!("Transparency probe mode enabled");
         app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
       }
-      
+
       let window = if let Some(window) = app.get_window("main") {
         window
       } else {
@@ -1119,7 +1090,7 @@ fn main() {
         let window_clone = window.clone();
         std::thread::spawn(move || {
           std::thread::sleep(std::time::Duration::from_secs(10));
-          
+
           // Check if window is still hidden
           if let Ok(is_visible) = window_clone.is_visible() {
             if !is_visible {
@@ -1136,11 +1107,11 @@ fn main() {
         duration_ms = persisted_sync_started_at.elapsed().as_millis() as u64,
         "Loaded persisted Turso sync config"
       );
-      
+
       // Initialize Ritual Database (unified libSQL with vector search)
       // This also handles migration from legacy databases
       let db_init_started_at = Instant::now();
-      match ritual_database::initialize_database() {
+      match ritual_database::initialize_database_with_origin("startup") {
         Ok(()) => {
           info!(
             duration_ms = db_init_started_at.elapsed().as_millis() as u64,
@@ -1157,12 +1128,12 @@ fn main() {
           "Ritual database init deferred"
         ),
       }
-      
+
       // Auto-start Ritual Watcher if previously enabled
       if let Some(config) = read_watcher_config() {
         let watcher_start_started_at = Instant::now();
         info!(device_id = %config.device_id, user_id = %config.user_id, "Auto-starting Ritual Watcher");
-        
+
         // Check accessibility permission first
         if watcher::check_accessibility_permission() {
           // Start watcher synchronously (it spawns its own process)
@@ -1203,7 +1174,7 @@ fn main() {
           }
         }
       });
-      
+
       // Recorder remains available, but context capture is now the default active path.
       let recorder_autostart_enabled = matches!(
         std::env::var("RITUAL_ENABLE_RECORDER_AUTOSTART")
@@ -1242,13 +1213,15 @@ fn main() {
       } else {
         info!("Recorder auto-start disabled; using watcher-owned context capture as the default path");
       }
-      
+
+      desktop_runtime::emit_runtime_state_changed(app.handle());
+
       #[cfg(target_os = "macos")]
       {
         app.listen_global("open-url", move |event| {
           if let Some(payload) = event.payload() {
             info!(payload = payload, "Deep link received");
-            
+
             // Forward the deep link to the hosted frontend.
             if let Some(window) = handle.get_window("main") {
               let _ = window.show();
@@ -1273,7 +1246,7 @@ fn main() {
         duration_ms = setup_started_at.elapsed().as_millis() as u64,
         "Desktop setup completed"
       );
-      
+
       Ok(())
     })
     .build(tauri::generate_context!())

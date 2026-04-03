@@ -2,6 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs';
 import { useEffect, useRef } from 'react';
+import { buildDesktopCommandOrigin, desktopHasCapability, getDesktopRuntimeState } from '@/lib/desktop-runtime';
 import { isTauri } from '@/lib/tauri-utils';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -183,26 +184,45 @@ export function MemoryCloudUploader() {
     const ackBatch = async (ids: number[], success: boolean, errorMessage?: string) => {
       if (ids.length === 0) return;
       const { invoke } = await import('@tauri-apps/api/tauri');
-      const invokeWithDbInitRetry = async <T,>(command: string, args?: Record<string, unknown>) => {
+      const nativeDbLifecycle = await desktopHasCapability('desktop-runtime-state-v1');
+      const invokeWithDbInitRetry = async <T,>(
+        command: string,
+        args: Record<string, unknown> | undefined,
+        originScope: string,
+      ) => {
+        const origin = buildDesktopCommandOrigin(`memory-cloud-uploader:${originScope}`);
         try {
-          return await invoke<T>(command, args);
+          return await invoke<T>(command, {
+            ...(args ?? {}),
+            origin,
+          });
         } catch (error) {
+          if (nativeDbLifecycle) throw error;
           const message = String((error as { message?: unknown })?.message ?? error ?? '').toLowerCase();
           const needsDbInit =
             command !== 'init_ritual_database' &&
             message.includes('database not initialized') &&
             message.includes('initialize_database');
           if (!needsDbInit) throw error;
-          await invoke<string>('init_ritual_database');
-          return await invoke<T>(command, args);
+          await invoke<string>('init_ritual_database', {
+            origin: buildDesktopCommandOrigin(`memory-cloud-uploader:init_ritual_database:${originScope}`),
+          });
+          return await invoke<T>(command, {
+            ...(args ?? {}),
+            origin,
+          });
         }
       };
 
-      await invokeWithDbInitRetry('ack_memory_upload_outbox_batch', {
-        ids,
-        success,
-        errorMessage: errorMessage ?? null,
-      });
+      await invokeWithDbInitRetry(
+        'ack_memory_upload_outbox_batch',
+        {
+          ids,
+          success,
+          errorMessage: errorMessage ?? null,
+        },
+        'ack_memory_upload_outbox_batch',
+      );
     };
 
     const runCycle = async () => {
@@ -228,34 +248,65 @@ export function MemoryCloudUploader() {
         }
 
         const { invoke } = await import('@tauri-apps/api/tauri');
-        const invokeWithDbInitRetry = async <T,>(command: string, args?: Record<string, unknown>) => {
+        const nativeDbLifecycle = await desktopHasCapability('desktop-runtime-state-v1');
+        if (nativeDbLifecycle) {
+          const runtimeState = await getDesktopRuntimeState();
+          if (runtimeState && !runtimeState.memoryCloudUploadAllowed) {
+            scheduleNext(IDLE_INTERVAL_MS);
+            return;
+          }
+        }
+
+        const invokeWithDbInitRetry = async <T,>(
+          command: string,
+          args: Record<string, unknown> | undefined,
+          originScope: string,
+        ) => {
+          const origin = buildDesktopCommandOrigin(`memory-cloud-uploader:${originScope}`);
           try {
-            return await invoke<T>(command, args);
+            return await invoke<T>(command, {
+              ...(args ?? {}),
+              origin,
+            });
           } catch (error) {
+            if (nativeDbLifecycle) throw error;
             const message = String((error as { message?: unknown })?.message ?? error ?? '').toLowerCase();
             const needsDbInit =
               command !== 'init_ritual_database' &&
               message.includes('database not initialized') &&
               message.includes('initialize_database');
             if (!needsDbInit) throw error;
-            await invoke<string>('init_ritual_database');
-            return await invoke<T>(command, args);
+            await invoke<string>('init_ritual_database', {
+              origin: buildDesktopCommandOrigin(`memory-cloud-uploader:init_ritual_database:${originScope}`),
+            });
+            return await invoke<T>(command, {
+              ...(args ?? {}),
+              origin,
+            });
           }
         };
 
         let seeded = 0;
         try {
-          const seedResult = await invokeWithDbInitRetry<MemoryUploadOutboxSeedResult>('seed_memory_upload_outbox', {
-            limit: SEED_SCAN_LIMIT,
-          });
+          const seedResult = await invokeWithDbInitRetry<MemoryUploadOutboxSeedResult>(
+            'seed_memory_upload_outbox',
+            {
+              limit: SEED_SCAN_LIMIT,
+            },
+            'seed_memory_upload_outbox',
+          );
           seeded = Number(seedResult?.inserted || 0);
         } catch (error) {
           console.warn('Memory cloud uploader: seed outbox failed', error);
         }
 
-        const claimed = await invokeWithDbInitRetry<MemoryUploadOutboxItem[]>('claim_memory_upload_outbox_batch', {
-          limit: CLAIM_BATCH_LIMIT,
-        });
+        const claimed = await invokeWithDbInitRetry<MemoryUploadOutboxItem[]>(
+          'claim_memory_upload_outbox_batch',
+          {
+            limit: CLAIM_BATCH_LIMIT,
+          },
+          'claim_memory_upload_outbox_batch',
+        );
         if (!claimed || claimed.length === 0) {
           scheduleNext(seeded > 0 ? BUSY_INTERVAL_MS : IDLE_INTERVAL_MS);
           return;
