@@ -1,5 +1,6 @@
 import { QueryClient, dehydrate } from '@tanstack/react-query';
 import { subDays } from 'date-fns';
+import * as Sentry from '@sentry/nextjs';
 import {
   getAnalyticsSummary,
   getAuthenticatedUserId,
@@ -237,30 +238,60 @@ function buildDerivedInitialData(
 export async function loadDashboardInitialData(
   searchParams?: Promise<DashboardSearchParams> | DashboardSearchParams,
 ): Promise<DashboardInitialData> {
-  const resolvedSearchParams = searchParams instanceof Promise
-    ? await searchParams
-    : searchParams;
-  const initialViewMode = resolveInitialViewMode(resolvedSearchParams);
-  const queryClient = new QueryClient();
-  const userId = await getAuthenticatedUserId();
+  return Sentry.startSpan(
+    {
+      name: 'dashboard.load_initial_data',
+      op: 'function.nextjs',
+    },
+    async () => {
+      const resolvedSearchParams = searchParams instanceof Promise
+        ? await searchParams
+        : searchParams;
+      const initialViewMode = resolveInitialViewMode(resolvedSearchParams);
+      const queryClient = new QueryClient();
+      const userId = await getAuthenticatedUserId();
 
-  const [habits, habitLogs, analyticsSummary] = await Promise.all([
-    getHabits(),
-    getHabitLogs(),
-    getAnalyticsSummary(1095).catch(() => null),
-  ]);
+      const [habits, habitLogs, analyticsSummary] = await Sentry.startSpan(
+        {
+          name: 'dashboard.fetch_initial_queries',
+          op: 'ui.load',
+          attributes: {
+            initial_view_mode: initialViewMode,
+          },
+        },
+        async () => Promise.all([
+          getHabits(),
+          getHabitLogs(),
+          getAnalyticsSummary(1095).catch(() => null),
+        ]),
+      );
 
-  queryClient.setQueryData(['habits', 'list', userId], habits);
-  if (habitLogs.length > 0) {
-    queryClient.setQueryData(['habit-logs', 'list', userId], habitLogs);
-  }
-  if (analyticsSummary) {
-    queryClient.setQueryData(['analytics-summary', userId], analyticsSummary);
-  }
+      queryClient.setQueryData(['habits', 'list', userId], habits);
+      if (habitLogs.length > 0) {
+        queryClient.setQueryData(['habit-logs', 'list', userId], habitLogs);
+      }
+      if (analyticsSummary) {
+        queryClient.setQueryData(['analytics-summary', userId], analyticsSummary);
+      }
 
-  return {
-    dehydratedState: dehydrate(queryClient),
-    initialViewMode,
-    derived: buildDerivedInitialData(habits, habitLogs),
-  };
+      const derived = Sentry.startSpan(
+        {
+          name: 'dashboard.build_derived_initial_data',
+          op: 'ui.compute',
+          attributes: {
+            habit_count: habits.length,
+            habit_log_count: habitLogs.length,
+            initial_view_mode: initialViewMode,
+          },
+        },
+        () => buildDerivedInitialData(habits, habitLogs),
+      );
+
+      return {
+        dehydratedState: dehydrate(queryClient),
+        initialViewMode,
+        derived,
+      };
+    },
+  );
 }

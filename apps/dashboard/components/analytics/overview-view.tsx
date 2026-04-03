@@ -11,6 +11,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format, startOfDay, endOfDay, subDays } from 'date-fns';
+import * as Sentry from '@sentry/nextjs';
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -171,6 +172,10 @@ export function OverviewView({
   initialOverviewStats,
 }: OverviewViewProps) {
   const isDesktopShell = typeof window !== 'undefined' && isTauri();
+  const desktopPerfDebug = isDesktopShell && (
+    process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DEBUG_PERF === '1'
+    || process.env.NEXT_PUBLIC_SENTRY_SMOKE_TEST_DESKTOP === '1'
+  );
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
   const { isLoaded, getToken } = useAuth();
   const {
@@ -239,6 +244,24 @@ export function OverviewView({
     return `ritual:overview-computer:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
   }, [user?.id]);
 
+  const traceSyncComputation = useCallback(<T,>(
+    name: string,
+    attributes: Record<string, string | number | boolean>,
+    fn: () => T,
+  ): T => {
+    if (!desktopPerfDebug) {
+      return fn();
+    }
+    return Sentry.startSpan(
+      {
+        name,
+        op: 'ui.compute',
+        attributes,
+      },
+      fn,
+    );
+  }, [desktopPerfDebug]);
+
   const bootstrappedCachedStats = useMemo(
     () => (dateRange?.from ? {} : readOverviewStatsCache(overviewStatsCacheKey)),
     [dateRange?.from, overviewStatsCacheKey],
@@ -301,6 +324,17 @@ export function OverviewView({
       is_tauri: typeof window !== 'undefined' ? isTauri() : false,
       has_date_range: Boolean(dateRange?.from),
     });
+    if (desktopPerfDebug) {
+      Sentry.addBreadcrumb({
+        category: 'overview.lifecycle',
+        level: 'info',
+        message: 'OverviewView mounted',
+        data: {
+          has_date_range: Boolean(dateRange?.from),
+          is_desktop_shell: isDesktopShell,
+        },
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -370,7 +404,18 @@ export function OverviewView({
           params.daysBack = 1095;
         }
 
-        const result = await analyticsApi.getHabitStats(token, params);
+        const result = await Sentry.startSpan(
+          {
+            name: 'overview.fetch_habit_stats',
+            op: 'ui.load',
+            attributes: {
+              habit_count: habits.length,
+              has_date_range: Boolean(dateRange?.from),
+              days_back: params.daysBack ?? 0,
+            },
+          },
+          async () => analyticsApi.getHabitStats(token, params),
+        );
 
         if (result.success && result.habits) {
           const statsMap: Record<string, HabitStats> = {};
@@ -434,10 +479,21 @@ export function OverviewView({
         if (dateRange?.from) {
           startDate = format(dateRange.from, 'yyyy-MM-dd');
           endDate = format(dateRange.to ?? dateRange.from, 'yyyy-MM-dd');
-          const rows = await getComputerTimeDaily({
-            startDate,
-            endDate,
-          });
+          const rows = await Sentry.startSpan(
+            {
+              name: 'overview.fetch_computer_time_daily',
+              op: 'ui.load',
+              attributes: {
+                start_date: startDate,
+                end_date: endDate,
+                mode: 'range',
+              },
+            },
+            async () => getComputerTimeDaily({
+              startDate,
+              endDate,
+            }),
+          );
           if (controller.signal.aborted) return;
           const normalizedRows = Array.isArray(rows) ? rows : [];
           const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0);
@@ -483,10 +539,21 @@ export function OverviewView({
           endDate = format(now, 'yyyy-MM-dd');
         }
 
-        const summary = await getComputerTimeSummary({
-          startDate,
-          endDate,
-        });
+        const summary = await Sentry.startSpan(
+          {
+            name: 'overview.fetch_computer_time_summary',
+            op: 'ui.load',
+            attributes: {
+              start_date: startDate,
+              end_date: endDate,
+              mode: dateRange?.from ? 'range' : 'all-time',
+            },
+          },
+          async () => getComputerTimeSummary({
+            startDate,
+            endDate,
+          }),
+        );
         if (controller.signal.aborted) return;
         setComputerActivitySummary({
           total_active_ms: Number(summary.total_active_ms || 0),
@@ -516,7 +583,18 @@ export function OverviewView({
         deferredDailyTimer = window.setTimeout(async () => {
           if (controller.signal.aborted) return
           try {
-            const rows = await getComputerTimeDaily({ startDate, endDate })
+            const rows = await Sentry.startSpan(
+              {
+                name: 'overview.fetch_computer_time_daily_deferred',
+                op: 'ui.load',
+                attributes: {
+                  start_date: startDate,
+                  end_date: endDate,
+                  mode: 'deferred-all-time',
+                },
+              },
+              async () => getComputerTimeDaily({ startDate, endDate }),
+            )
             if (controller.signal.aborted) return
             const normalizedRows = Array.isArray(rows) ? rows : []
             const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0)
@@ -598,7 +676,24 @@ export function OverviewView({
       stats_count: Object.keys(effectiveCachedStats).length,
       computer_rows: effectiveComputerActivityDaily.length,
     });
+    if (desktopPerfDebug) {
+      Sentry.captureMessage('Overview first usable paint', {
+        level: 'info',
+        tags: {
+          runtime: 'desktop',
+          surface: 'desktop-overview',
+          perf_debug: 'true',
+        },
+        extra: {
+          duration_ms: Number((end - mountTimeRef.current).toFixed(2)),
+          habit_count: habits.length,
+          stats_count: Object.keys(effectiveCachedStats).length,
+          computer_rows: effectiveComputerActivityDaily.length,
+        },
+      });
+    }
   }, [
+    desktopPerfDebug,
     computerActivityResolved,
     effectiveCachedStats,
     effectiveComputerActivityDaily,
@@ -706,37 +801,46 @@ export function OverviewView({
   }, []);
 
   const filteredMetricLogEntries = useMemo<MetricLogEntry[]>(() => {
-    const rangeStart = dateRange?.from ? startOfDay(dateRange.from) : null;
-    const rangeEnd = dateRange?.from ? endOfDay(dateRange.to ?? dateRange.from) : null;
+    return traceSyncComputation(
+      'overview.compute.filtered_metric_log_entries',
+      {
+        display_log_count: displayLogs.length,
+        has_date_range: Boolean(dateRange?.from),
+      },
+      () => {
+        const rangeStart = dateRange?.from ? startOfDay(dateRange.from) : null;
+        const rangeEnd = dateRange?.from ? endOfDay(dateRange.to ?? dateRange.from) : null;
 
-    return displayLogs.reduce<MetricLogEntry[]>((entries, log) => {
-      const habitId = typeof log.habit_id === 'string' ? log.habit_id : '';
-      const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
+        return displayLogs.reduce<MetricLogEntry[]>((entries, log) => {
+          const habitId = typeof log.habit_id === 'string' ? log.habit_id : '';
+          const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
 
-      if (!habitId || !isCompleted) {
-        return entries;
-      }
+          if (!habitId || !isCompleted) {
+            return entries;
+          }
 
-      const localDate = getLogLocalDate(log);
+          const localDate = getLogLocalDate(log);
 
-      if (rangeStart && rangeEnd) {
-        if (!localDate) return entries;
-        const logDate = parseISO(localDate);
-        if (Number.isNaN(logDate.getTime())) return entries;
-        if (!isWithinInterval(logDate, { start: rangeStart, end: rangeEnd })) {
+          if (rangeStart && rangeEnd) {
+            if (!localDate) return entries;
+            const logDate = parseISO(localDate);
+            if (Number.isNaN(logDate.getTime())) return entries;
+            if (!isWithinInterval(logDate, { start: rangeStart, end: rangeEnd })) {
+              return entries;
+            }
+          }
+
+          entries.push({
+            habitId,
+            localDate,
+            amount: typeof log.amount === 'number' && Number.isFinite(log.amount) ? log.amount : null,
+            duration: typeof log.duration === 'number' && Number.isFinite(log.duration) ? log.duration : null,
+          });
           return entries;
-        }
-      }
-
-      entries.push({
-        habitId,
-        localDate,
-        amount: typeof log.amount === 'number' && Number.isFinite(log.amount) ? log.amount : null,
-        duration: typeof log.duration === 'number' && Number.isFinite(log.duration) ? log.duration : null,
-      });
-      return entries;
-    }, []);
-  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), displayLogs, getLogLocalDate]);
+        }, []);
+      },
+    );
+  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), displayLogs, getLogLocalDate, traceSyncComputation]);
 
   const metricEntriesByHabitId = useMemo(() => {
     const grouped = new Map<string, MetricLogEntry[]>();
@@ -764,31 +868,40 @@ export function OverviewView({
   }, [effectiveComputerActivityDaily]);
 
   const habitMetricDataById = useMemo(() => {
-    const next = new Map<string, HabitMetricData>();
-    const habitsForMetrics = orderedHabits.length > 0 ? orderedHabits : habits;
+    return traceSyncComputation(
+      'overview.compute.habit_metric_data_map',
+      {
+        ordered_habit_count: orderedHabits.length,
+        habit_count: habits.length,
+        metric_entry_count: filteredMetricLogEntries.length,
+        computer_row_count: effectiveComputerActivityDaily.length,
+      },
+      () => {
+        const next = new Map<string, HabitMetricData>();
+        const habitsForMetrics = orderedHabits.length > 0 ? orderedHabits : habits;
 
-    const buildLocalMetricData = (habit: Habit, entries: MetricLogEntry[]): HabitMetricData => {
-      const unitLabel = habit.unit_type || 'sessions';
-      const unitLower = unitLabel.toLowerCase();
-      const isHourBased = unitLower.includes('hour');
-      const isMinuteBased = unitLower.includes('minute');
-      const useMaxPerDay = isSleepLikeHabit(habit);
+        const buildLocalMetricData = (habit: Habit, entries: MetricLogEntry[]): HabitMetricData => {
+          const unitLabel = habit.unit_type || 'sessions';
+          const unitLower = unitLabel.toLowerCase();
+          const isHourBased = unitLower.includes('hour');
+          const isMinuteBased = unitLower.includes('minute');
+          const useMaxPerDay = isSleepLikeHabit(habit);
 
-      if (entries.length === 0) {
-        const zeroDisplay = formatMetricDisplay(0, unitLabel);
-        return {
-          display: zeroDisplay,
-          stats: {
-            unitLabel,
-            sumFormatted: zeroDisplay,
-            avgFormatted: zeroDisplay,
-            minFormatted: zeroDisplay,
-            maxFormatted: zeroDisplay,
-            stdDevFormatted: zeroDisplay,
-            daysWithData: 0,
-          },
-        };
-      }
+          if (entries.length === 0) {
+            const zeroDisplay = formatMetricDisplay(0, unitLabel);
+            return {
+              display: zeroDisplay,
+              stats: {
+                unitLabel,
+                sumFormatted: zeroDisplay,
+                avgFormatted: zeroDisplay,
+                minFormatted: zeroDisplay,
+                maxFormatted: zeroDisplay,
+                stdDevFormatted: zeroDisplay,
+                daysWithData: 0,
+              },
+            };
+          }
 
       let totalValue = 0;
       const dailyValues = new Map<string, number>();
@@ -849,9 +962,9 @@ export function OverviewView({
       };
     };
 
-    for (const habit of habitsForMetrics) {
-      const habitId = habit.id || '';
-      if (!habitId) continue;
+        for (const habit of habitsForMetrics) {
+          const habitId = habit.id || '';
+          if (!habitId) continue;
 
       if (isComputerHabitName(habit.name)) {
         const rows = effectiveComputerActivityDaily;
@@ -918,10 +1031,12 @@ export function OverviewView({
         continue;
       }
 
-      next.set(habitId, buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []));
-    }
+          next.set(habitId, buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []));
+        }
 
-    return next;
+        return next;
+      },
+    );
   }, [
     habits,
     orderedHabits,
@@ -932,6 +1047,7 @@ export function OverviewView({
     formatHabitStatNumber,
     isSleepLikeHabit,
     metricEntriesByHabitId,
+    traceSyncComputation,
   ]);
 
   const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {

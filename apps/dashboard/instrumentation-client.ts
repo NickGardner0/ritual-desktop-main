@@ -58,7 +58,66 @@ function emitSmokeTestEvent(currentRuntime: 'desktop' | 'web') {
   }, 0);
 }
 
+function installDesktopPerformanceDebugging(currentRuntime: 'desktop' | 'web', enabled: boolean) {
+  if (typeof window === 'undefined' || currentRuntime !== 'desktop' || !enabled) return;
+
+  const installKey = '__ritual_sentry_desktop_perf_debug_installed__';
+  const globalWindow = window as unknown as Window & Record<string, unknown>;
+  if (globalWindow[installKey]) return;
+  globalWindow[installKey] = true;
+
+  if (typeof PerformanceObserver === 'undefined') return;
+
+  try {
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        const duration = Number(entry.duration || 0);
+        if (!Number.isFinite(duration) || duration < 120) continue;
+
+        Sentry.addBreadcrumb({
+          category: 'desktop.performance.longtask',
+          level: duration >= 500 ? 'warning' : 'info',
+          message: `Desktop long task detected (${duration.toFixed(1)}ms)`,
+          data: {
+            duration_ms: Number(duration.toFixed(1)),
+            entry_name: entry.name,
+            entry_type: entry.entryType,
+            path: window.location.pathname,
+          },
+        });
+
+        if (duration >= 500) {
+          Sentry.captureMessage('Desktop long task detected', {
+            level: 'warning',
+            tags: {
+              runtime: 'desktop',
+              surface: 'desktop-webview',
+              perf_debug: 'true',
+            },
+            extra: {
+              duration_ms: Number(duration.toFixed(1)),
+              entry_name: entry.name,
+              entry_type: entry.entryType,
+              path: window.location.pathname,
+            },
+          });
+        }
+      }
+    });
+
+    observer.observe({ entryTypes: ['longtask'] });
+  } catch {
+    // Long task observer is not available in all runtimes.
+  }
+}
+
 const runtime = isDesktopRuntime() ? 'desktop' : 'web';
+const forceDesktopPerfSampling =
+  runtime === 'desktop' &&
+  (
+    process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DEBUG_PERF === '1'
+    || process.env.NEXT_PUBLIC_SENTRY_SMOKE_TEST_DESKTOP === '1'
+  );
 const SENTRY_DSN = runtime === 'desktop'
   ? process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DSN?.trim()
     || process.env.NEXT_PUBLIC_SENTRY_WEB_DSN?.trim()
@@ -86,7 +145,7 @@ if (SENTRY_DSN) {
     release,
 
     // Adjust this value in production, or use tracesSampler for greater control
-    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+    tracesSampleRate: forceDesktopPerfSampling ? 1.0 : (process.env.NODE_ENV === 'production' ? 0.1 : 1.0),
 
     // Setting this option to true will print useful information to the console while you're setting up Sentry.
     debug: false,
@@ -95,7 +154,7 @@ if (SENTRY_DSN) {
 
     // This sets the sample rate to be 10%. You may want this to be 100% while
     // in development and sample at a lower rate in production
-    replaysSessionSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 0.0,
+    replaysSessionSampleRate: forceDesktopPerfSampling ? 1.0 : (process.env.NODE_ENV === 'production' ? 0.1 : 0.0),
 
     // You can remove this option if you're not planning to use the Sentry Session Replay feature:
     integrations: [
@@ -138,4 +197,5 @@ if (SENTRY_DSN) {
   });
 
   emitSmokeTestEvent(runtime);
+  installDesktopPerformanceDebugging(runtime, forceDesktopPerfSampling);
 }
