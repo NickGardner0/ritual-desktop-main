@@ -4,13 +4,45 @@
 
 import * as Sentry from "@sentry/nextjs";
 
-const SENTRY_DSN = process.env.NEXT_PUBLIC_SENTRY_DSN;
+function isDesktopRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  return Boolean(w.__TAURI__ || w.__TAURI_IPC__ || userAgent.includes('RitualDesktop/'));
+}
+
+function getDesktopVersion(): string | null {
+  if (typeof navigator === 'undefined') return null;
+  const match = navigator.userAgent.match(/RitualDesktop\/([0-9A-Za-z.\-_]+)/);
+  return match?.[1] ?? null;
+}
+
+const runtime = isDesktopRuntime() ? 'desktop' : 'web';
+const SENTRY_DSN = runtime === 'desktop'
+  ? process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DSN?.trim()
+    || process.env.NEXT_PUBLIC_SENTRY_WEB_DSN?.trim()
+    || process.env.NEXT_PUBLIC_SENTRY_DSN?.trim()
+  : process.env.NEXT_PUBLIC_SENTRY_WEB_DSN?.trim()
+    || process.env.NEXT_PUBLIC_SENTRY_DSN?.trim()
+    || process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DSN?.trim();
+
+const environment =
+  process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT?.trim()
+  || process.env.VERCEL_ENV?.trim()
+  || process.env.NODE_ENV;
+
+const release =
+  process.env.NEXT_PUBLIC_SENTRY_RELEASE?.trim()
+  || process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.trim()
+  || undefined;
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
 
 if (SENTRY_DSN) {
   Sentry.init({
     dsn: SENTRY_DSN,
+    environment,
+    release,
 
     // Adjust this value in production, or use tracesSampler for greater control
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
@@ -32,6 +64,14 @@ if (SENTRY_DSN) {
         blockAllMedia: true,
       }),
     ],
+
+    initialScope: {
+      tags: {
+        runtime,
+        surface: runtime === 'desktop' ? 'desktop-webview' : 'web-client',
+        ...(getDesktopVersion() ? { desktop_version: getDesktopVersion() as string } : {}),
+      },
+    },
 
     // Filter out some common errors
     ignoreErrors: [

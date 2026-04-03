@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 # Load environment variables FIRST before importing services
 # .env.development overrides .env for local dev (Clerk dev keys, etc.)
@@ -30,6 +32,24 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("watchfiles.main").setLevel(logging.WARNING)
+
+SENTRY_DSN = os.getenv("SENTRY_BACKEND_DSN") or os.getenv("SENTRY_DSN")
+SENTRY_ENVIRONMENT = (
+    os.getenv("SENTRY_ENVIRONMENT")
+    or os.getenv("RAILWAY_ENVIRONMENT")
+    or ("development" if os.getenv("DEBUG", "false").lower() == "true" else "production")
+)
+SENTRY_RELEASE = os.getenv("SENTRY_RELEASE") or os.getenv("RAILWAY_GIT_COMMIT_SHA")
+
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=SENTRY_ENVIRONMENT,
+        release=SENTRY_RELEASE,
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        integrations=[FastApiIntegration(transaction_style="endpoint")],
+    )
+    logger.info("Sentry backend monitoring enabled")
 
 # Import our services
 from services.habits_service import HabitsService

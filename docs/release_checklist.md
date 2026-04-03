@@ -52,7 +52,10 @@
 
 ### Other Services
 - [ ] `OPENAI_API_KEY` has production quota
-- [ ] `SENTRY_DSN` points to production project
+- [ ] `NEXT_PUBLIC_SENTRY_WEB_DSN` points to the production web project
+- [ ] `NEXT_PUBLIC_SENTRY_DESKTOP_DSN` points to the production desktop project
+- [ ] `SENTRY_WEB_DSN` points to the production web project
+- [ ] `SENTRY_BACKEND_DSN` points to the production backend project
 - [ ] `OPENPANEL_CLIENT_ID` set
 
 ---

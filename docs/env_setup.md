@@ -44,7 +44,11 @@ NEXT_PUBLIC_WHOOP_REDIRECT_URI=http://localhost:3000/api/integrations/whoop/call
 # ============================
 # Observability (Optional)
 # ============================
-SENTRY_DSN=
+NEXT_PUBLIC_SENTRY_WEB_DSN=
+NEXT_PUBLIC_SENTRY_DESKTOP_DSN=
+SENTRY_WEB_DSN=
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=
+NEXT_PUBLIC_SENTRY_RELEASE=
 OPENPANEL_CLIENT_ID=
 
 # ============================
@@ -107,6 +111,13 @@ CORS_ORIGINS=http://localhost:3000,https://localhost:3000,tauri://localhost
 # Generate with:
 # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 TOKEN_ENCRYPTION_KEY=
+
+# ============================
+# Observability (Optional)
+# ============================
+SENTRY_BACKEND_DSN=
+SENTRY_ENVIRONMENT=
+SENTRY_RELEASE=
 ```
 
 ---
