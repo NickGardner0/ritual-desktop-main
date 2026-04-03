@@ -155,6 +155,31 @@ function readOverviewComputerCache(cacheKey: string | null): ComputerDailyRow[] 
   }
 }
 
+function readOverviewComputerSummaryCache(cacheKey: string | null): ComputerSummaryState | null {
+  if (typeof window === 'undefined' || !cacheKey) return null;
+
+  try {
+    const raw = window.localStorage.getItem(`${cacheKey}:summary`);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as {
+      timestamp?: number;
+      summary?: ComputerSummaryState | null;
+    };
+
+    if (!parsed?.summary) return null;
+    if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
+      window.localStorage.removeItem(`${cacheKey}:summary`);
+      return null;
+    }
+
+    return parsed.summary;
+  } catch (cacheError) {
+    console.warn('Failed to restore overview computer summary cache:', cacheError);
+    return null;
+  }
+}
+
 interface OverviewViewProps {
   // Optional: Allow passing in external filter state for standalone use
   externalDateRange?: DateRange | undefined;
@@ -272,6 +297,11 @@ export function OverviewView({
     [dateRange?.from, overviewComputerCacheKey],
   );
 
+  const bootstrappedComputerActivitySummary = useMemo(
+    () => (dateRange?.from ? null : readOverviewComputerSummaryCache(overviewComputerCacheKey)),
+    [dateRange?.from, overviewComputerCacheKey],
+  );
+
   const effectiveCachedStats = useMemo(() => {
     if (statsResolved || Object.keys(cachedStats).length > 0) {
       return cachedStats;
@@ -367,6 +397,18 @@ export function OverviewView({
       lastGoodComputerActivityRef.current = bootstrappedComputerActivityDaily;
     }
   }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from, overviewComputerCacheKey]);
+
+  useEffect(() => {
+    if (dateRange?.from) return;
+    if (computerActivitySummary) return;
+    if (bootstrappedComputerActivitySummary) {
+      perfInfo('overview-view', 'restore-computer-summary-cache', {
+        cache_key: overviewComputerCacheKey,
+        total_active_ms: Number(bootstrappedComputerActivitySummary.total_active_ms || 0),
+      });
+      setComputerActivitySummary(bootstrappedComputerActivitySummary);
+    }
+  }, [bootstrappedComputerActivitySummary, computerActivitySummary, dateRange?.from, overviewComputerCacheKey]);
 
   // Fetch stats from Python analytics API
   useEffect(() => {
@@ -539,6 +581,21 @@ export function OverviewView({
           endDate = format(now, 'yyyy-MM-dd');
         }
 
+        if (isDesktopShell) {
+          const hasComputerHabit = habits.some((habit) => isComputerHabitName(habit.name));
+          if (!dateRange?.from && hasComputerHabit) {
+            if (bootstrappedComputerActivitySummary) {
+              setComputerActivitySummary(bootstrappedComputerActivitySummary);
+            }
+            stopTimer({
+              success: true,
+              mode: 'summary-skipped-desktop-overview',
+              used_cached_summary: Boolean(bootstrappedComputerActivitySummary),
+            });
+            return;
+          }
+        }
+
         const summary = await Sentry.startSpan(
           {
             name: 'overview.fetch_computer_time_summary',
@@ -562,6 +619,22 @@ export function OverviewView({
           days_tracked: Number(summary.days_tracked || 0),
           avg_daily_hours: Number(summary.avg_daily_hours || 0),
         })
+
+        if (typeof window !== 'undefined' && overviewComputerCacheKey) {
+          window.localStorage.setItem(
+            `${overviewComputerCacheKey}:summary`,
+            JSON.stringify({
+              timestamp: Date.now(),
+              summary: {
+                total_active_ms: Number(summary.total_active_ms || 0),
+                total_hours: Number(summary.total_hours || 0),
+                total_events: Number(summary.total_events || 0),
+                days_tracked: Number(summary.days_tracked || 0),
+                avg_daily_hours: Number(summary.avg_daily_hours || 0),
+              },
+            }),
+          );
+        }
 
         const existingRows =
           lastGoodComputerActivityRef.current.length > 0
@@ -661,7 +734,7 @@ export function OverviewView({
         clearInterval(refreshTimer);
       }
     };
-  }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), isDesktopShell, overviewComputerCacheKey, userLoaded, isSignedIn, user]);
+  }, [bootstrappedComputerActivityDaily, bootstrappedComputerActivitySummary, computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), habits, isDesktopShell, overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   useEffect(() => {
     if (firstUsablePaintLoggedRef.current) return;

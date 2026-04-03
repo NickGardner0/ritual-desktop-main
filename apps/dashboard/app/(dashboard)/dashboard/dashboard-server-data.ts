@@ -248,6 +248,7 @@ export async function loadDashboardInitialData(
         ? await searchParams
         : searchParams;
       const initialViewMode = resolveInitialViewMode(resolvedSearchParams);
+      const shouldPreloadMetrics = initialViewMode === 'metrics';
       const queryClient = new QueryClient();
       const userId = await getAuthenticatedUserId();
 
@@ -262,7 +263,9 @@ export async function loadDashboardInitialData(
         async () => Promise.all([
           getHabits(),
           getHabitLogs(),
-          getAnalyticsSummary(1095).catch(() => null),
+          shouldPreloadMetrics
+            ? getAnalyticsSummary(1095).catch(() => null)
+            : Promise.resolve(null),
         ]),
       );
 
@@ -282,9 +285,34 @@ export async function loadDashboardInitialData(
             habit_count: habits.length,
             habit_log_count: habitLogs.length,
             initial_view_mode: initialViewMode,
+            preload_metrics: shouldPreloadMetrics,
           },
         },
-        () => buildDerivedInitialData(habits, habitLogs),
+        () => {
+          if (shouldPreloadMetrics) {
+            return buildDerivedInitialData(habits, habitLogs);
+          }
+
+          const logsByHabit = new Map<string, HabitLogLike[]>();
+          for (const log of habitLogs) {
+            if (!log.habit_id) continue;
+            const habitId = String(log.habit_id);
+            const existing = logsByHabit.get(habitId);
+            if (existing) {
+              existing.push(log);
+            } else {
+              logsByHabit.set(habitId, [log]);
+            }
+          }
+
+          return {
+            overviewStats: buildOverviewStats(habits, logsByHabit),
+            metricsAnalyticsData: {},
+            metricsSummaryMetrics: {},
+            metricsBarListAnalyticsData: {},
+            metricsBarListSummaryMetrics: {},
+          };
+        },
       );
 
       return {
