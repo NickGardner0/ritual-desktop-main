@@ -612,7 +612,7 @@ export function OverviewView({
       }
       fetchHabits();
       fetchHabitLogs();
-    }, 8_000);
+    }, 30_000);
 
     return () => clearInterval(retryTimer);
   }, [user, isBackendUnavailable, fetchHabits, fetchHabitLogs]);
@@ -790,6 +790,20 @@ export function OverviewView({
     scrubberHoveredDate,
   ]);
 
+  // Keep a ref to the latest getHabitMetricDisplay so we can call it from a
+  // stable function reference that never changes identity. This prevents
+  // React.memo on SortableHabitItem from being defeated every time
+  // displayLogs/effectiveCachedStats change (which create a new useCallback ref).
+  const getHabitMetricDisplayRef = useRef(getHabitMetricDisplay);
+  getHabitMetricDisplayRef.current = getHabitMetricDisplay;
+
+  const getHabitMetricDisplayStable = useCallback(
+    (habit: Habit, previewValue?: number | null): string => {
+      return getHabitMetricDisplayRef.current(habit, previewValue);
+    },
+    [],
+  );
+
   const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
 
   const formatHabitStatNumber = useCallback((n: number) => {
@@ -946,6 +960,14 @@ export function OverviewView({
     return getLocalHabitStats(habit);
   }, [computerActivitySummary, effectiveCachedStats, effectiveComputerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
 
+  const getHabitMetricStatsRef = useRef(getHabitMetricStats);
+  getHabitMetricStatsRef.current = getHabitMetricStats;
+
+  const getHabitMetricStatsStable = useCallback(
+    (habit: Habit) => getHabitMetricStatsRef.current(habit),
+    [],
+  );
+
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {
       await fetchHabits();
@@ -1004,13 +1026,13 @@ export function OverviewView({
         onShowSelectionModal={() => setShowSelectionModal(true)}
         onShowImportModal={() => setShowImportModal(true)}
         onReorder={handleReorder}
-        getHabitMetricDisplay={getHabitMetricDisplay}
+        getHabitMetricDisplay={getHabitMetricDisplayStable}
         getHabitMetricClassName={getHabitMetricClassName}
         scrubberHoveredDate={scrubberHoveredDate}
         scrubberHoveredValues={scrubberHoveredValues}
         activeTooltip={activeTooltip}
         setActiveTooltip={setActiveTooltip}
-        getHabitMetricStats={getHabitMetricStats}
+        getHabitMetricStats={getHabitMetricStatsStable}
         confirmDelete={confirmDelete}
         deletingHabit={deletingHabit}
       />
@@ -1047,7 +1069,7 @@ export function OverviewView({
           <div className="text-sm font-normal mb-2 text-center max-w-xl leading-tight" style={{ fontWeight: 400, color: '#9C9C9D' }}>
             Ritual is your hub for personal insights, understanding
             <br />
-            behavioral trends, and getting a holistic view of your life.
+            behavioral trends, and getting a quantified view of your life.
           </div>
           <button
             onClick={() => setShowSelectionModal(true)}
