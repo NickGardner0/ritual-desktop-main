@@ -3,6 +3,7 @@
 #![allow(unexpected_cfgs)]
 
 mod desktop_runtime;
+mod desktop_observability;
 mod native_widget;
 #[cfg(feature = "native-recorder")]
 mod recorder;
@@ -18,7 +19,9 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
+use tracing::{info, instrument, warn};
 
 // ============================================================================
 // AUTHENTICATION NOTE:
@@ -734,6 +737,7 @@ fn sidebar_get_main_state(
 
 /// Show the main window (called from frontend when React is ready)
 #[tauri::command]
+#[instrument(skip(window))]
 fn show_main_window(window: tauri::Window) -> Result<(), String> {
     window
         .show()
@@ -768,6 +772,7 @@ fn read_watcher_config() -> Option<watcher::WatcherConfig> {
 
 /// Save watcher config for auto-start (called from frontend)
 #[tauri::command]
+#[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
 fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String> {
     let config_path = get_watcher_config_path();
 
@@ -781,22 +786,24 @@ fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String>
 
     fs::write(&config_path, json).map_err(|e| format!("Failed to write config: {}", e))?;
 
-    println!("💾 Watcher config saved for auto-start");
+    info!("Watcher config saved for auto-start");
     Ok(())
 }
 
 /// Clear watcher config (disable auto-start) (called from frontend)
 #[tauri::command]
+#[instrument]
 fn clear_watcher_config_cmd() -> Result<(), String> {
     let config_path = get_watcher_config_path();
     if config_path.exists() {
         fs::remove_file(&config_path).map_err(|e| format!("Failed to remove config: {}", e))?;
-        println!("🗑️ Watcher config cleared (auto-start disabled)");
+        info!("Watcher config cleared (auto-start disabled)");
     }
     Ok(())
 }
 
 #[tauri::command]
+#[instrument(fields(user_id = %user_id))]
 fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     let trimmed_user_id = user_id.trim();
     if trimmed_user_id.is_empty() {
@@ -811,9 +818,10 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
         return Ok(false);
     }
 
-    println!(
-        "🔁 Reconciling watcher config user from {} to {}",
-        config.user_id, trimmed_user_id
+    info!(
+        previous_user_id = %config.user_id,
+        new_user_id = %trimmed_user_id,
+        "Reconciling watcher config user"
     );
     config.user_id = trimmed_user_id.to_string();
     save_watcher_config_cmd(config.clone())?;
@@ -821,13 +829,10 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     if watcher::check_accessibility_permission() {
         match watcher::start_watcher_sync(config) {
             Ok(status) => {
-                println!(
-                    "✅ Watcher restarted after config reconciliation (PID: {:?})",
-                    status.pid
-                );
+                info!(pid = status.pid, "Watcher restarted after config reconciliation");
             }
             Err(error) => {
-                println!("⚠️ Failed restarting watcher after config reconciliation: {}", error);
+                warn!(error = %error, "Failed restarting watcher after config reconciliation");
             }
         }
     }
@@ -836,6 +841,7 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+#[instrument(fields(user_id = %user_id))]
 fn reconcile_recorder_config_user_cmd(user_id: String) -> Result<bool, String> {
     let trimmed_user_id = user_id.trim();
     if trimmed_user_id.is_empty() {
@@ -850,9 +856,10 @@ fn reconcile_recorder_config_user_cmd(user_id: String) -> Result<bool, String> {
         return Ok(false);
     }
 
-    println!(
-        "🔁 Reconciling recorder config user from {} to {}",
-        config.user_id, trimmed_user_id
+    info!(
+        previous_user_id = %config.user_id,
+        new_user_id = %trimmed_user_id,
+        "Reconciling recorder config user"
     );
     config.user_id = trimmed_user_id.to_string();
     recorder::save_recorder_config_cmd(config)?;
@@ -860,6 +867,13 @@ fn reconcile_recorder_config_user_cmd(user_id: String) -> Result<bool, String> {
 }
 
 fn main() {
+    if let Err(error) = desktop_observability::init_desktop_observability() {
+        eprintln!("Failed to initialize desktop observability: {error}");
+    }
+
+    let startup_started_at = Instant::now();
+    info!("Starting Ritual desktop app");
+
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
     let tray_menu = SystemTrayMenu::new()
@@ -971,7 +985,7 @@ fn main() {
             std::process::exit(0);
           }
           "check_updates" => {
-            println!("⬇️ Check for updates requested from system tray");
+            info!("Check for updates requested from system tray");
             if let Some(window) = _app.get_window("main") {
               let _ = window.show();
               let _ = window.set_focus();
@@ -984,6 +998,7 @@ fn main() {
       _ => {}
     })
     .setup(|app| {
+      let setup_started_at = Instant::now();
       // Handle deep link URLs (ritual://)
       let handle = app.handle();
       
@@ -998,8 +1013,7 @@ fn main() {
         app_url = with_query_param(&app_url, "ritual_main_glass=1");
       }
       if transparency_probe {
-        println!("🧪 Transparency probe mode enabled (RITUAL_TRANSPARENCY_PROBE=1)");
-        println!("🧪 Probe checklist: transparent window + clear NSWindow + guarded WKWebView clear pass + vibrancy material");
+        info!("Transparency probe mode enabled");
         app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
       }
       
@@ -1039,11 +1053,11 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
           if main_glass_enabled {
-            println!("🪟 Main window glass enabled");
+            info!("Main window glass enabled");
             configure_macos_window_transparency(&window);
             configure_macos_webview_transparency(&window);
           } else {
-            println!("🪟 Main window glass disabled for stable production rendering");
+            info!("Main window glass disabled for stable production rendering");
           }
 
           let detached_sidebar_enabled = !transparency_probe
@@ -1058,7 +1072,7 @@ fn main() {
           sidebar_state.set_width(70.0);
 
           if detached_sidebar_enabled {
-            println!("✅ Detached sidebar mode enabled (two-window)");
+            info!("Detached sidebar mode enabled");
             let _ = ensure_detached_sidebar_window(&app.handle(), &app_url, sidebar_state.get_width());
             let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
@@ -1109,45 +1123,67 @@ fn main() {
           // Check if window is still hidden
           if let Ok(is_visible) = window_clone.is_visible() {
             if !is_visible {
-              println!("⏰ Fallback timer: showing window after 10s");
+              info!("Fallback timer showing main window after 10s");
               let _ = window_clone.show();
               let _ = window_clone.set_focus();
             }
           }
         });
       }
+      let persisted_sync_started_at = Instant::now();
       load_persisted_turso_sync_config();
+      info!(
+        duration_ms = persisted_sync_started_at.elapsed().as_millis() as u64,
+        "Loaded persisted Turso sync config"
+      );
       
       // Initialize Ritual Database (unified libSQL with vector search)
       // This also handles migration from legacy databases
+      let db_init_started_at = Instant::now();
       match ritual_database::initialize_database() {
         Ok(()) => {
-          println!("✅ Ritual unified database ready");
+          info!(
+            duration_ms = db_init_started_at.elapsed().as_millis() as u64,
+            "Ritual unified database ready"
+          );
           if let Err(e) = ritual_database::log_startup_pipeline_snapshot() {
-            eprintln!("⚠️ Failed to log startup pipeline snapshot: {}", e);
+            warn!(error = %e, "Failed to log startup pipeline snapshot");
           }
-          println!("⏭️ Local semantic bridge and local embedding startup disabled in cloud-first mode");
+          info!("Local semantic bridge and local embedding startup disabled in cloud-first mode");
         },
-        Err(e) => println!("⚠️ Ritual database init deferred: {}", e),
+        Err(e) => warn!(
+          error = %e,
+          duration_ms = db_init_started_at.elapsed().as_millis() as u64,
+          "Ritual database init deferred"
+        ),
       }
       
       // Auto-start Ritual Watcher if previously enabled
       if let Some(config) = read_watcher_config() {
-        println!("🔄 Auto-starting Ritual Watcher...");
+        let watcher_start_started_at = Instant::now();
+        info!(device_id = %config.device_id, user_id = %config.user_id, "Auto-starting Ritual Watcher");
         
         // Check accessibility permission first
         if watcher::check_accessibility_permission() {
           // Start watcher synchronously (it spawns its own process)
           match watcher::start_watcher_sync(config) {
             Ok(status) => {
-              println!("✅ Watcher auto-started successfully (PID: {:?})", status.pid);
+              info!(
+                pid = status.pid,
+                duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                "Watcher auto-started successfully"
+              );
             }
             Err(e) => {
-              println!("⚠️ Failed to auto-start watcher: {}", e);
+              warn!(
+                error = %e,
+                duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                "Failed to auto-start watcher"
+              );
             }
           }
         } else {
-          println!("⚠️ Watcher auto-start skipped: accessibility permission not granted");
+          warn!("Watcher auto-start skipped: accessibility permission not granted");
         }
       }
 
@@ -1161,9 +1197,9 @@ fn main() {
         loop {
           interval.tick().await;
           match watcher::check_and_restart_watcher_if_hung(60).await {
-            Ok(true) => println!("🔄 Background watcher watchdog restarted Ritual Watcher"),
+            Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
             Ok(false) => {}
-            Err(e) => eprintln!("⚠️ Background watcher watchdog check failed: {}", e),
+            Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
           }
         }
       });
@@ -1178,31 +1214,40 @@ fn main() {
       );
       if recorder_autostart_enabled {
         if let Some(config) = recorder::read_recorder_config() {
-          println!("🔄 Auto-starting Ritual Recorder...");
+          let recorder_start_started_at = Instant::now();
+          info!(device_id = %config.device_id, user_id = %config.user_id, "Auto-starting Ritual Recorder");
 
           // Check screen recording permission first
           if recorder::check_screen_recording_permission() {
             match recorder::start_recorder_sync(config) {
               Ok(status) => {
-                println!("✅ Recorder auto-started successfully (PID: {:?})", status.pid);
+                info!(
+                  pid = status.pid,
+                  duration_ms = recorder_start_started_at.elapsed().as_millis() as u64,
+                  "Recorder auto-started successfully"
+                );
               }
               Err(e) => {
-                println!("⚠️ Failed to auto-start recorder: {}", e);
+                warn!(
+                  error = %e,
+                  duration_ms = recorder_start_started_at.elapsed().as_millis() as u64,
+                  "Failed to auto-start recorder"
+                );
               }
             }
           } else {
-            println!("⚠️ Recorder auto-start skipped: screen recording permission not granted");
+            warn!("Recorder auto-start skipped: screen recording permission not granted");
           }
         }
       } else {
-        println!("ℹ️ Recorder auto-start disabled; using watcher-owned context capture as the default path");
+        info!("Recorder auto-start disabled; using watcher-owned context capture as the default path");
       }
       
       #[cfg(target_os = "macos")]
       {
         app.listen_global("open-url", move |event| {
           if let Some(payload) = event.payload() {
-            println!("🔗 Deep link received: {}", payload);
+            info!(payload = payload, "Deep link received");
             
             // Forward the deep link to the hosted frontend.
             if let Some(window) = handle.get_window("main") {
@@ -1224,6 +1269,10 @@ fn main() {
       }
 
       desktop_runtime::register_startup_update_check(app.handle());
+      info!(
+        duration_ms = setup_started_at.elapsed().as_millis() as u64,
+        "Desktop setup completed"
+      );
       
       Ok(())
     })
@@ -1235,4 +1284,9 @@ fn main() {
       }
       _ => {}
     });
+
+    info!(
+        duration_ms = startup_started_at.elapsed().as_millis() as u64,
+        "Ritual desktop event loop exited"
+    );
 }

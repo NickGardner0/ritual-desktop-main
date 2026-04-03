@@ -12,6 +12,9 @@ extern "C" {
     fn stop_speech_recognition() -> bool;
 }
 
+use std::time::Instant;
+use tracing::instrument;
+
 macro_rules! nw_info {
     ($($arg:tt)*) => {
         log::info!("[NATIVE_WIDGET] {}", format!($($arg)*))
@@ -102,12 +105,14 @@ pub fn load_turso_sync_config() -> Result<Option<TursoSyncConfig>, String> {
 }
 
 #[tauri::command]
+#[instrument(skip(auth_token), fields(sync_url = %sync_url, expires_at = %expires_at, database_name = %database_name))]
 pub async fn write_turso_sync_config(
     sync_url: String,
     auth_token: String,
     expires_at: String,
     database_name: String,
 ) -> Result<String, String> {
+    let started_at = Instant::now();
     nw_info!("🔄 Applying Turso sync config...");
 
     use crate::watcher;
@@ -291,6 +296,10 @@ pub async fn write_turso_sync_config(
     }
 
     nw_info!("✅ Turso sync config written to: {:?}", config_file);
+    nw_info!(
+        "⏱️ Turso sync config command completed in {}ms",
+        started_at.elapsed().as_millis()
+    );
     Ok(format!("Turso sync config written to: {:?}", config_file))
 }
 
@@ -308,7 +317,9 @@ fn read_swift_json_string(ptr: *mut std::os::raw::c_char) -> Result<String, Stri
 }
 
 #[tauri::command]
+#[instrument(skip(token), fields(token_length = token.len()))]
 pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
+    let started_at = Instant::now();
     nw_info!("🔐 Writing auth token to file for desktop runtime...");
 
     use dirs::home_dir;
@@ -334,6 +345,10 @@ pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
                 "🔐 Token preview: {}...",
                 &token[..std::cmp::min(20, token.len())]
             );
+            nw_info!(
+                "⏱️ Auth token write command completed in {}ms",
+                started_at.elapsed().as_millis()
+            );
             Ok(format!("Token written to: {:?}", token_file))
         }
         Err(e) => {
@@ -344,11 +359,13 @@ pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+#[instrument]
 pub async fn check_dashboard_refresh_trigger() -> Result<f64, String> {
     Ok(read_runtime_bridge_timestamp_file("ritual_timer_updated.txt", false))
 }
 
 #[tauri::command]
+#[instrument]
 pub async fn check_token_refresh_request() -> Result<f64, String> {
     Ok(read_runtime_bridge_timestamp_file(
         "ritual_refresh_token_request.txt",
@@ -357,6 +374,7 @@ pub async fn check_token_refresh_request() -> Result<f64, String> {
 }
 
 #[tauri::command]
+#[instrument]
 pub async fn check_runtime_bridge_signals() -> Result<RuntimeBridgeSignals, String> {
     Ok(RuntimeBridgeSignals {
         token_refresh_request: read_runtime_bridge_timestamp_file(

@@ -33,6 +33,10 @@ base64 = "0.21"
 tiny_http = "0.12"
 rand = "0.8"
 log = "0.4"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 urlencoding = "2.1"
 
 # Legacy database (still used by recorder.rs - watcher.rs has been migrated to ritual-db)

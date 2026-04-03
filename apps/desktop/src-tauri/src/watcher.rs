@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::ritual_database::{get_activity_db, ACTIVITY_DB};
+use tracing::instrument;
 
 macro_rules! watcher_info {
     ($($arg:tt)*) => {
@@ -830,7 +831,9 @@ fn cleanup_existing_watcher_processes(device_id: &str, context: &str) {
 
 /// Start the ritual-watcher sidecar
 #[tauri::command]
+#[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
 pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, String> {
+    let started_at = Instant::now();
     watcher_info!("🚀 Starting Ritual Watcher...");
     watcher_info!("   Device ID: {}", config.device_id);
     watcher_info!("   Title Mode: {}", config.title_mode);
@@ -896,6 +899,11 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
         *guard = Some(child);
     }
 
+    watcher_info!(
+        "⏱️ start_watcher completed in {}ms",
+        started_at.elapsed().as_millis()
+    );
+
     Ok(WatcherStatus {
         is_running: true,
         pid: Some(pid),
@@ -904,7 +912,9 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
 }
 
 /// Start the ritual-watcher sidecar (synchronous version for auto-start)
+#[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
 pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String> {
+    let started_at = Instant::now();
     watcher_info!("🚀 Starting Ritual Watcher (sync)...");
     watcher_info!("   Device ID: {}", config.device_id);
     watcher_info!("   Title Mode: {}", config.title_mode);
@@ -969,6 +979,11 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
         *guard = Some(child);
     }
 
+    watcher_info!(
+        "⏱️ start_watcher_sync completed in {}ms",
+        started_at.elapsed().as_millis()
+    );
+
     Ok(WatcherStatus {
         is_running: true,
         pid: Some(pid),
@@ -978,6 +993,7 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
 
 /// Stop the ritual-watcher sidecar
 #[tauri::command]
+#[instrument]
 pub async fn stop_watcher() -> Result<WatcherStatus, String> {
     watcher_info!("🛑 Stopping Ritual Watcher...");
 
@@ -1013,6 +1029,7 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
 
 /// Get the current status of the watcher
 #[tauri::command]
+#[instrument]
 pub async fn get_watcher_status() -> WatcherStatus {
     let managed_pid = {
         let mut guard = WATCHER_PROCESS
@@ -1251,6 +1268,7 @@ pub struct WatcherExtendedStatus {
 
 /// Get extended watcher status including real-time info
 #[tauri::command]
+#[instrument]
 pub async fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, String> {
     let (is_running, pid) = {
         let mut process_guard = WATCHER_PROCESS.lock().map_err(|e| e.to_string())?;
@@ -1684,6 +1702,7 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
 /// Check watcher health and auto-restart if hung
 /// Returns true if watcher was restarted, false if it was healthy
 #[tauri::command]
+#[instrument(fields(max_stale_seconds = max_stale_seconds))]
 pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result<bool, String> {
     let status = get_watcher_extended_status().await?;
     let diagnostics = get_browser_extension_diagnostics().await.ok();

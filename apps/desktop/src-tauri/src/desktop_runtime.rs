@@ -1,9 +1,10 @@
 use std::env;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::api::dialog::blocking::{ask, message};
 use tauri::{AppHandle, Manager, Runtime};
+use tracing::{instrument, warn};
 
 const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
@@ -215,10 +216,12 @@ fn schedule_startup_fallback_prompt<R: Runtime + 'static>(
     });
 }
 
+#[instrument(skip(app), fields(origin = ?origin))]
 async fn run_update_check<R: Runtime + 'static>(
     app: AppHandle<R>,
     origin: UpdateCheckOrigin,
 ) -> Result<(), String> {
+    let started_at = Instant::now();
     if !app.config().tauri.updater.active {
         return Err("Ritual desktop updater is disabled in this build.".to_string());
     }
@@ -279,6 +282,10 @@ async fn run_update_check<R: Runtime + 'static>(
     }
     .await;
 
+    log::info!(
+        "[DESKTOP_RUNTIME] run_update_check completed in {}ms",
+        started_at.elapsed().as_millis()
+    );
     end_update_check(&app);
     result
 }
@@ -292,7 +299,7 @@ pub fn register_startup_update_check<R: Runtime + 'static>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(6)).await;
         if let Err(error) = run_update_check(app.clone(), UpdateCheckOrigin::Startup).await {
-            eprintln!("Desktop startup update check failed: {error}");
+            warn!(error = %error, "Desktop startup update check failed");
         }
     });
 }
@@ -306,11 +313,13 @@ pub fn tray_check_for_updates<R: Runtime + 'static>(app: AppHandle<R>) {
 }
 
 #[tauri::command]
+#[instrument(skip(app))]
 pub fn get_desktop_runtime_info<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeInfo {
     build_runtime_info(&app)
 }
 
 #[tauri::command]
+#[instrument(skip(app))]
 pub fn desktop_frontend_ready<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeInfo {
     let state = app.state::<DesktopShellState>();
     let mut frontend_ready = state.frontend_ready.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -321,6 +330,7 @@ pub fn desktop_frontend_ready<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeIn
 }
 
 #[tauri::command]
+#[instrument(skip(app))]
 pub async fn desktop_manual_update_check<R: Runtime + 'static>(
     app: AppHandle<R>,
 ) -> Result<DesktopRuntimeInfo, String> {
@@ -329,6 +339,7 @@ pub async fn desktop_manual_update_check<R: Runtime + 'static>(
 }
 
 #[tauri::command]
+#[instrument(skip(app))]
 pub async fn desktop_install_update<R: Runtime + 'static>(app: AppHandle<R>) -> Result<(), String> {
     install_latest_update(app).await
 }
