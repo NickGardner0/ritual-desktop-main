@@ -10,6 +10,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 _LEGACY_INT_QUALITY_SCORE_NAMESPACES: set[str] = set()
+_LEGACY_LEXICAL_RANK_NAMESPACES: set[str] = set()
 
 
 def _env(name: str, default: str = "") -> str:
@@ -244,6 +245,16 @@ class TurbopufferService:
             ],
         ]
 
+    def _supports_weighted_lexical_rank(self, namespace: str) -> bool:
+        return namespace not in _LEGACY_LEXICAL_RANK_NAMESPACES
+
+    def _is_weighted_lexical_schema_miss(self, body: str) -> bool:
+        text = (body or "").lower()
+        return (
+            "does not exist in namespace" in text
+            and ("fts_document_title" in text or "fts_window_title" in text or "fts_document_path" in text or "fts_parent_context" in text or "fts_browser_domain" in text or "fts_app_name" in text)
+        )
+
     def _build_multi_query_payload(
         self,
         *,
@@ -393,12 +404,13 @@ class TurbopufferService:
             "session_count",
             "context_version",
         ]
+        weighted_lexical = self._supports_weighted_lexical_rank(namespace)
         payload_multi, list_meta = self._build_multi_query_payload(
             top_k=top_k,
             include=include,
             filters=filters,
             retrieval_queries=retrieval_queries,
-            weighted_lexical=True,
+            weighted_lexical=weighted_lexical,
         )
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
@@ -408,11 +420,18 @@ class TurbopufferService:
                 json=payload_multi,
             )
             if resp2.status_code >= 400:
-                logger.warning(
-                    "Weighted Turbopuffer lexical query failed for namespace %s, retrying with legacy lexical rank: %s",
-                    namespace,
-                    resp2.text[:240],
-                )
+                if weighted_lexical and self._is_weighted_lexical_schema_miss(resp2.text):
+                    _LEGACY_LEXICAL_RANK_NAMESPACES.add(namespace)
+                    logger.warning(
+                        "Turbopuffer namespace %s is missing weighted lexical FTS attrs; caching legacy lexical rank fallback for this process.",
+                        namespace,
+                    )
+                elif weighted_lexical:
+                    logger.warning(
+                        "Weighted Turbopuffer lexical query failed for namespace %s, retrying with legacy lexical rank: %s",
+                        namespace,
+                        resp2.text[:240],
+                    )
                 payload_multi, list_meta = self._build_multi_query_payload(
                     top_k=top_k,
                     include=include,

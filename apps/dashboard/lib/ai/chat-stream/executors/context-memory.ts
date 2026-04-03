@@ -371,7 +371,7 @@ export async function executeGetActivitySummary(
           timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
           days_back: safeDaysBack,
         },
-        { timeoutMs: 12_000 },
+        { timeoutMs: 25_000 },
       );
       if (recapResponse?.success) {
         return JSON.stringify({
