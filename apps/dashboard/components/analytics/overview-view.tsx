@@ -587,12 +587,9 @@ export function OverviewView({
             if (bootstrappedComputerActivitySummary) {
               setComputerActivitySummary(bootstrappedComputerActivitySummary);
             }
-            stopTimer({
-              success: true,
-              mode: 'summary-skipped-desktop-overview',
+            perfInfo('overview-view', 'computer-summary-bootstrap-used', {
               used_cached_summary: Boolean(bootstrappedComputerActivitySummary),
             });
-            return;
           }
         }
 

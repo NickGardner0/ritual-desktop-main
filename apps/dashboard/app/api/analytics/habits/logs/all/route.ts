@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { subDays, format } from 'date-fns';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
 /**
  * GET /api/analytics/habits/logs/all
  * 
@@ -206,7 +209,7 @@ export async function GET(request: NextRequest) {
       };
     };
 
-    const backendLogsPromise = (async () => {
+    const fetchBackendLogs = async () => {
       const response = await fetch(`${backendUrl}/api/habit-logs`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -222,12 +225,12 @@ export async function GET(request: NextRequest) {
       const data = await response.json();
       const rawLogs = Array.isArray(data) ? data : data.logs || data.data || [];
       return rawLogs;
-    })();
+    };
 
     if (!tinybirdToken) {
       const [habitsMap, backendLogs] = await Promise.all([
         habitsMapPromise,
-        backendLogsPromise,
+        fetchBackendLogs(),
       ]);
 
       let logs = backendLogs.map((log: any) => normalizeLog(log, habitsMap));
@@ -333,52 +336,44 @@ export async function GET(request: NextRequest) {
     // Fetch from Tinybird habit_logs_time_range pipe
     const tinybirdUrl = `${tinybirdHost}/v0/pipes/habit_logs_time_range.json?${tinybirdParams.toString()}`;
 
-    const tinybirdResponsePromise = fetch(tinybirdUrl, {
-      headers: {
-        'Authorization': `Bearer ${tinybirdToken}`,
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(15000),
-    });
-
-    const [habitsMap, backendLogs, tinybirdResponse] = await Promise.all([
+    const [habitsMap, tinybirdResponse] = await Promise.all([
       habitsMapPromise,
-      backendLogsPromise.catch((error) => {
-        console.warn('Failed to fetch backend logs for merge:', error);
-        return [];
-      }),
-      tinybirdResponsePromise.catch((error) => {
+      fetch(tinybirdUrl, {
+        headers: {
+          'Authorization': `Bearer ${tinybirdToken}`,
+        },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
+      }).catch((error) => {
         console.warn('Failed to fetch Tinybird logs:', error);
         return null;
       }),
     ]);
 
     let logs: any[] = [];
+    let tinybirdSucceeded = false;
 
     if (tinybirdResponse?.ok) {
       const result = await tinybirdResponse.json();
       logs = (result.data || []).map((log: any) => normalizeLog(log, habitsMap));
+      tinybirdSucceeded = true;
     } else if (tinybirdResponse) {
       const errorText = await tinybirdResponse.text();
       console.error('Tinybird API error:', errorText);
     }
 
-    const normalizedBackendLogs = backendLogs.map((log: any) => normalizeLog(log, habitsMap));
-    const mergedById = new Map<string, any>();
-
-    for (const log of logs) {
-      if (log?.id) {
-        mergedById.set(log.id, log);
-      }
+    // Avoid fetching and merging the entire backend history on the hot path.
+    // That extra fetch scales with total account size and can keep the logs page
+    // in a pending state for a long time in production. Tinybird already powers
+    // the paginated query path; fall back to backend logs only when analytics
+    // data is unavailable for the requested range.
+    if (!tinybirdSucceeded) {
+      const backendLogs = await fetchBackendLogs().catch((error) => {
+        console.warn('Failed to fetch backend logs for fallback:', error);
+        return [];
+      });
+      logs = backendLogs.map((log: any) => normalizeLog(log, habitsMap));
     }
-
-    for (const log of normalizedBackendLogs) {
-      if (!log?.id) continue;
-      const existing = mergedById.get(log.id);
-      mergedById.set(log.id, existing ? { ...existing, ...log } : log);
-    }
-
-    logs = Array.from(mergedById.values());
 
     // Apply client-side filters
     if (q) {

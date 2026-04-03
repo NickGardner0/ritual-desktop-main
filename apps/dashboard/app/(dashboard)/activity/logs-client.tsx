@@ -304,6 +304,8 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const {
     data: infiniteData,
     isLoading,
+    isError,
+    error,
     isFetching,
     isFetchingNextPage,
     hasNextPage,
@@ -311,13 +313,34 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     refetch,
   } = useInfiniteQuery({
     queryKey: ['habit-logs', userId, filterParamsKey],
-    queryFn: async ({ pageParam = 0 }) => {
+    queryFn: async ({ pageParam = 0, signal }) => {
       const params = new URLSearchParams(filterParamsKey);
       params.set('limit', String(LOGS_PAGE_SIZE));
       params.set('offset', String(pageParam));
-      const res = await fetch(`/api/analytics/habits/logs/all?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to fetch logs');
-      return res.json();
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+      const abortFromQuery = () => controller.abort();
+      signal?.addEventListener('abort', abortFromQuery, { once: true });
+
+      try {
+        const res = await fetch(`/api/analytics/habits/logs/all?${params.toString()}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const message = await res.text().catch(() => '');
+          throw new Error(message || 'Failed to fetch logs');
+        }
+        return res.json();
+      } catch (fetchError) {
+        if (controller.signal.aborted && !signal?.aborted) {
+          throw new Error('Logs request timed out');
+        }
+        throw fetchError;
+      } finally {
+        window.clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', abortFromQuery);
+      }
     },
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
@@ -329,6 +352,8 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     },
     enabled: !!userId,
     staleTime: 30 * 1000,
+    retry: 1,
+    refetchOnWindowFocus: false,
   });
 
   // Flatten infinite pages into a single data shape for compatibility
@@ -470,6 +495,9 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
 
   const scopedLogs = logs;
   const logsMeta = logsData?.meta || {};
+  const logsQueryError = isError
+    ? (error instanceof Error ? error.message : 'Failed to load logs')
+    : null;
 
   // Extract unique categories from habits
   const categories = useMemo(() => {
@@ -770,27 +798,58 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
         </div>
       )}
 
+      {logsQueryError ? (
+        <div className="px-6 pb-4">
+          <div className="flex items-center justify-between gap-3 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <span>{logsQueryError}</span>
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="shrink-0 border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-800 hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex-1 overflow-hidden px-6">
-        <HabitLogsDataTable
-          logs={scopedLogs}
-          rowSelection={sanitizedRowSelection}
-          onRowSelectionChange={setRowSelection}
-          columnVisibility={columnVisibility}
-          sortColumn={sortColumn}
-          sortDirection={sortDirection}
-          onSort={handleSort}
-          hasFilters={hasScopedFilters}
-          totals={totals}
-          isLoading={isLoading || (isFetching && !isFetchingNextPage)}
-          availableSources={sources}
-          onQuickEdit={handleQuickEdit}
-          updatingLogIds={updatingLogIds}
-          density={density}
-          onRowClick={setDetailLog}
-          onLoadMore={() => fetchNextPage()}
-          hasMore={hasNextPage}
-          isFetchingMore={isFetchingNextPage}
-        />
+        {logsQueryError && scopedLogs.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-4">
+            <div className="max-w-md border border-red-200 bg-red-50 px-6 py-5 text-center">
+              <div className="mb-2 text-base font-medium text-red-900">Couldn&apos;t load your logs</div>
+              <div className="mb-4 text-sm text-red-800">{logsQueryError}</div>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-900 hover:bg-red-100"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : (
+          <HabitLogsDataTable
+            logs={scopedLogs}
+            rowSelection={sanitizedRowSelection}
+            onRowSelectionChange={setRowSelection}
+            columnVisibility={columnVisibility}
+            sortColumn={sortColumn}
+            sortDirection={sortDirection}
+            onSort={handleSort}
+            hasFilters={hasScopedFilters}
+            totals={totals}
+            isLoading={isLoading || (isFetching && !isFetchingNextPage)}
+            availableSources={sources}
+            onQuickEdit={handleQuickEdit}
+            updatingLogIds={updatingLogIds}
+            density={density}
+            onRowClick={setDetailLog}
+            onLoadMore={() => fetchNextPage()}
+            hasMore={hasNextPage}
+            isFetchingMore={isFetchingNextPage}
+          />
+        )}
       </div>
 
       <LogDetailPanel
