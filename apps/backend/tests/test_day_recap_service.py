@@ -126,6 +126,9 @@ def test_render_day_recap_preserves_chronology_and_notes():
             source_evidence_ids=["1"],
             confidence=0.9,
             narrative_priority=1.0,
+            evidence_grade="strong_support",
+            claim_strength="high",
+            direct_evidence_count=2,
             sentences=["You were coding against `watcher.rs`.", "Strong evidence pointed to updating watcher startup logic."],
         ),
         RecapWorkstream(
@@ -137,6 +140,9 @@ def test_render_day_recap_preserves_chronology_and_notes():
             source_evidence_ids=["2"],
             confidence=0.8,
             narrative_priority=0.9,
+            evidence_grade="strong_support",
+            claim_strength="medium",
+            direct_evidence_count=1,
             sentences=["You spent this block in meeting-related work around Weekly sync."],
         ),
     ]
@@ -152,3 +158,34 @@ def test_render_day_recap_preserves_chronology_and_notes():
     assert "**2026-04-01**" in rendered
     assert rendered.index("watcher.rs changes") < rendered.index("Weekly sync")
     assert "Recap quality notes" in rendered
+
+
+def test_render_day_recap_uses_sparse_bundle_sections_when_no_workstreams():
+    rendered = render_day_recap(
+        anchor_date="2026-04-02",
+        timezone_name="UTC",
+        workstreams=[],
+        degradation_notes=["Cloud semantic retrieval was sparse."],
+        bundle={
+            "top_apps": [
+                {"app_name": "Cursor", "hours": 2.25},
+                {"app_name": "Google Chrome", "hours": 1.0},
+            ],
+            "top_domains": [
+                {"domain": "github.com", "minutes": 34.0},
+            ],
+            "git_commits": [
+                {"repo": "ritual-desktop-main", "message": "stabilize recap retrieval"},
+            ],
+            "calendar_events": [
+                {"title": "Team sync", "start_time": "10:00 AM", "end_time": "10:30 AM"},
+            ],
+        },
+    )
+
+    assert "I found only thin evidence for that day" in rendered
+    assert "Likely focus areas" in rendered
+    assert "Cursor (2.25 hours)" in rendered
+    assert "github.com (34.0 minutes)" in rendered
+    assert "ritual-desktop-main: stabilize recap retrieval" in rendered
+    assert "10:00 AM - 10:30 AM: Team sync" in rendered

@@ -606,6 +606,76 @@ def _format_time_range(start_ts: int, end_ts: int, timezone_name: Optional[str])
     return f"{start_label} - {end_label}"
 
 
+def _render_sparse_evidence_sections(bundle: Dict[str, Any]) -> List[str]:
+    output: List[str] = []
+
+    top_apps = [item for item in (bundle.get("top_apps") or []) if isinstance(item, dict)]
+    if top_apps:
+        output.append("**Likely focus areas**")
+        for item in top_apps[:4]:
+            app_name = _clip(item.get("app_name") or "Unknown app", 80)
+            hours = float(item.get("hours") or 0.0)
+            total_events = int(item.get("total_events") or 0)
+            if hours > 0:
+                output.append(f"- {app_name} ({hours:.2f} hours)")
+            elif total_events > 0:
+                output.append(f"- {app_name} ({total_events} activity events)")
+            else:
+                output.append(f"- {app_name}")
+        output.append("")
+
+    top_domains = [item for item in (bundle.get("top_domains") or []) if isinstance(item, dict)]
+    if top_domains:
+        output.append("**Top sites checked**")
+        for item in top_domains[:4]:
+            domain = _clip(item.get("domain") or "Unknown domain", 80)
+            minutes = float(item.get("minutes") or 0.0)
+            if minutes > 0:
+                output.append(f"- {domain} ({minutes:.1f} minutes)")
+            else:
+                output.append(f"- {domain}")
+        output.append("")
+
+    git_commits = [item for item in (bundle.get("git_commits") or []) if isinstance(item, dict)]
+    if git_commits:
+        output.append("**Git activity**")
+        for commit in git_commits[:4]:
+            repo = _clip(commit.get("repo") or "repo", 40)
+            message = _clip(commit.get("message") or "commit", 100)
+            output.append(f"- {repo}: {message}")
+        output.append("")
+
+    calendar_events = [item for item in (bundle.get("calendar_events") or []) if isinstance(item, dict)]
+    if calendar_events:
+        output.append("**Meetings & schedule context**")
+        for event in calendar_events[:4]:
+            title = _clip(event.get("title") or "Untitled", 80)
+            start_time = str(event.get("start_time") or "").strip()
+            end_time = str(event.get("end_time") or "").strip()
+            if start_time or end_time:
+                output.append(f"- {start_time} - {end_time}: {title}".strip())
+            else:
+                output.append(f"- {title}")
+        output.append("")
+
+    screen_evidence = [item for item in (bundle.get("screen_evidence") or []) if isinstance(item, dict)]
+    if not output and screen_evidence:
+        output.append("**Observed activity**")
+        for item in screen_evidence[:4]:
+            app_name = _clip(item.get("app_name") or "Unknown app", 40)
+            title = _clip(item.get("window_title") or item.get("document_path") or "", 90)
+            snippet = _clip(item.get("semantic_summary") or item.get("snippet") or "", 120)
+            if title:
+                output.append(f"- {app_name}: {title}")
+            elif snippet:
+                output.append(f"- {app_name}: {snippet}")
+            else:
+                output.append(f"- {app_name}")
+        output.append("")
+
+    return output
+
+
 def render_day_recap(
     *,
     anchor_date: str,
@@ -618,7 +688,9 @@ def render_day_recap(
         note = "I found only thin evidence for that day, so this recap is low confidence."
         if degradation_notes:
             note = f"{note} {' '.join(degradation_notes[:2])}"
-        return f"**{anchor_date}**\n\n{note}"
+        output: List[str] = [f"**{anchor_date}**", "", note, ""]
+        output.extend(_render_sparse_evidence_sections(bundle))
+        return "\n".join(line for line in output if line is not None).strip()
 
     output: List[str] = [f"**{anchor_date}**", ""]
     for workstream in workstreams:
