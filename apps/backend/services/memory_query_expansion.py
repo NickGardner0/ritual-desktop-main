@@ -7,7 +7,7 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Literal, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 
 ExpandedQueryType = Literal["original", "lex", "vec", "hyde"]
@@ -93,10 +93,72 @@ def _hyde_eval_gate_enabled() -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def _profile_values(query_profile: Optional[Dict[str, Any]], key: str, limit: int) -> List[str]:
+    if not isinstance(query_profile, dict):
+        return []
+    values = query_profile.get(key)
+    if not isinstance(values, list):
+        return []
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = " ".join(str(value or "").split()).strip()
+        lowered = text.lower()
+        if not text or lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(text)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
+def _route_specific_variants(
+    *,
+    normalized_query: str,
+    intent: str,
+    query_profile: Optional[Dict[str, Any]],
+) -> tuple[List[str], List[str]]:
+    intent_key = (intent or "auto").strip().lower()
+    document_refs = _profile_values(query_profile, "document_refs", 3)
+    artifact_refs = _profile_values(query_profile, "artifact_refs", 3)
+    entity_refs = _profile_values(query_profile, "entity_refs", 4)
+    task_phrases = _profile_values(query_profile, "task_phrases", 3)
+
+    lexical_variants: List[str] = []
+    semantic_variants: List[str] = []
+
+    if intent_key in {"semantic_lookup", "evidence_timeline", "broad_overview"}:
+        if document_refs:
+            lexical_variants.append(" ".join(document_refs[:3]))
+        if artifact_refs:
+            lexical_variants.append(" ".join(artifact_refs[:3]))
+        if task_phrases:
+            semantic_variants.extend(task_phrases[:2])
+        if entity_refs:
+            semantic_variants.append(" ".join(entity_refs[:3]))
+
+    if intent_key == "time_spent" and entity_refs:
+        lexical_variants.append(" ".join(entity_refs[:3]))
+
+    if intent_key == "broad_overview" and not semantic_variants:
+        broad_hint = " ".join(
+            value
+            for value in [*entity_refs[:2], *task_phrases[:2]]
+            if value
+        ).strip()
+        if broad_hint and broad_hint.lower() != normalized_query.lower():
+            semantic_variants.append(broad_hint)
+
+    return lexical_variants[:2], semantic_variants[:2]
+
+
 def expand_memory_query(
     query: str,
     *,
     include_hyde: bool = False,
+    intent: str = "auto",
+    query_profile: Optional[Dict[str, Any]] = None,
 ) -> List[ExpandedMemoryQuery]:
     normalized_query = " ".join((query or "").split()).strip()
     tokens = _tokenize(normalized_query)
@@ -135,6 +197,22 @@ def expand_memory_query(
 
     if _looks_semantic_or_broad(normalized_query, tokens) and len(semantic_variants) < 2:
         semantic_variants.append(normalized_query)
+
+    route_lexical, route_semantic = _route_specific_variants(
+        normalized_query=normalized_query,
+        intent=intent,
+        query_profile=query_profile,
+    )
+    for candidate in route_lexical:
+        normalized = " ".join(str(candidate).strip().split())
+        if normalized and normalized.lower() not in seen_lexical:
+            lexical_variants.append(normalized)
+            seen_lexical.add(normalized.lower())
+    for candidate in route_semantic:
+        normalized = " ".join(str(candidate).strip().split())
+        if normalized and normalized.lower() not in seen_semantic:
+            semantic_variants.append(normalized)
+            seen_semantic.add(normalized.lower())
 
     expanded: List[ExpandedMemoryQuery] = [
         ExpandedMemoryQuery(type="original", text=normalized_query, weight=2.0),

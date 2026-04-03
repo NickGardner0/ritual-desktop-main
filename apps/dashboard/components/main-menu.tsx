@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
-import { useAuth } from "@clerk/nextjs";
 import dynamic from 'next/dynamic';
 
 const SettingsModal = dynamic(
@@ -172,8 +171,7 @@ const Item = ({
   onToggle,
   onSelect,
   onSettingsClick,
-  onTimerClick,
-}: ItemProps & { onSettingsClick?: () => void; onTimerClick?: () => void }) => {
+}: ItemProps & { onSettingsClick?: () => void }) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
@@ -205,9 +203,6 @@ const Item = ({
     if (item.path === "/settings") {
       e.preventDefault();
       onSettingsClick?.();
-    } else if (item.path === "/timer") {
-      e.preventDefault();
-      onTimerClick?.();
     } else {
       // Let the Link handle navigation naturally
       // Just call onSelect for any sidebar collapse behavior
@@ -315,8 +310,7 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   const router = useRouter();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | 'voice-logging' | undefined>(undefined);
-  const { getToken } = useAuth();
+  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | undefined>(undefined);
 
   // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
   useEffect(() => {
@@ -324,8 +318,7 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
     if (
       view === 'account' ||
       view === 'computer-tracking' ||
-      view === 'apple-health' ||
-      view === 'voice-logging'
+      view === 'apple-health'
     ) {
       setSettingsInitialView(view);
       setShowSettingsModal(true);
@@ -340,55 +333,6 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   useEffect(() => {
     setExpandedItem(null);
   }, [isExpanded]);
-
-  // Open native Swift timer widget
-  const openNativeTimer = async () => {
-    console.log('🖱️ Timer menu clicked - creating native Swift timer widget');
-    
-    if (typeof window !== 'undefined') {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        
-        // Get Clerk JWT token for authentication
-        const token = await getToken();
-        
-        if (token) {
-          console.log('🔐 Writing auth token for Swift widget...');
-          await invoke('write_auth_token_to_file', { token });
-        }
-        
-        await invoke('create_native_timer_widget');
-        console.log('✅ Native Swift timer widget created successfully!');
-        
-      } catch (error) {
-        console.error('❌ Failed to create native Swift timer widget:', error);
-        // Fallback to Tauri widget
-        try {
-          const { WebviewWindow } = await import('@tauri-apps/api/window');
-          
-          const windowLabel = `timer-widget-${Date.now()}`;
-          const trackerWindow = new WebviewWindow(windowLabel, {
-            url: '/widget',
-            width: 320,
-            height: 50,
-            alwaysOnTop: true,
-            decorations: false,
-            resizable: false,
-            skipTaskbar: true,
-            center: true,
-            title: 'Focus Timer',
-            transparent: true,
-          });
-          
-          trackerWindow.once('tauri://created', function () {
-            console.log('✅ Fallback Tauri timer widget created successfully!');
-          });
-        } catch (fallbackError) {
-          console.error('❌ Fallback also failed:', fallbackError);
-        }
-      }
-    }
-  };
 
   return (
     <div className="mt-6 w-full">
@@ -414,7 +358,6 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
                 }}
                 onSelect={onSelect}
                 onSettingsClick={() => setShowSettingsModal(true)}
-                onTimerClick={openNativeTimer}
               />
             );
           })}

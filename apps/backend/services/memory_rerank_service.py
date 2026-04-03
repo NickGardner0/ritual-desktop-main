@@ -85,8 +85,16 @@ def _candidate_doc_text(item: Dict[str, Any]) -> str:
         [
             str(item.get("app_name") or ""),
             str(item.get("window_title") or ""),
+            str(item.get("document_title") or ""),
+            str(item.get("document_path") or ""),
             str(item.get("browser_domain") or ""),
-            str(item.get("contextual_text_compact") or item.get("text_compact") or ""),
+            str(item.get("parent_context") or ""),
+            str(
+                item.get("contextual_retrieval_text")
+                or item.get("contextual_text_compact")
+                or item.get("text_compact")
+                or ""
+            ),
         ]
     ).strip()
 
@@ -183,6 +191,11 @@ async def rerank_candidates(
             "cache_hits": 0,
             "cache_misses": 0,
             "deduped_candidates": 0,
+            "cache_hit": False,
+            "fallback_reason": "no_candidates",
+            "cohere_attempted": False,
+            "openai_attempted": False,
+            "cohere_circuit_open": False,
         }
 
     clipped_top_n = max(1, min(top_n, len(candidates)))
@@ -190,6 +203,10 @@ async def rerank_candidates(
     rerank_start = time.time()
     rerank_provider_tried = "cohere"
     rerank_query = f"{rerank_intent}\n\n{query}".strip() if rerank_intent else query
+    fallback_reason = "none"
+    cohere_attempted = False
+    openai_attempted = False
+    cohere_circuit_open = _cohere_circuit_is_open()
 
     deduped_candidates: List[Dict[str, Any]] = []
     cached_items: List[Tuple[int, float]] = []
@@ -239,11 +256,17 @@ async def rerank_candidates(
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
             "deduped_candidates": len(deduped_candidates),
+            "cache_hit": True,
+            "fallback_reason": "cache_satisfied",
+            "cohere_attempted": False,
+            "openai_attempted": False,
+            "cohere_circuit_open": cohere_circuit_open,
         }
 
     cohere_impl_patched = getattr(_cohere_rerank, "__module__", __name__) != __name__
-    if not _cohere_circuit_is_open() or cohere_impl_patched:
+    if not cohere_circuit_open or cohere_impl_patched:
         try:
+            cohere_attempted = True
             ranked = await _cohere_rerank(
                 query=rerank_query,
                 candidates=uncached_candidates or deduped_candidates,
@@ -296,16 +319,25 @@ async def rerank_candidates(
                     "cache_hits": cache_hits,
                     "cache_misses": cache_misses,
                     "deduped_candidates": len(deduped_candidates),
+                    "cache_hit": cache_hits > 0,
+                    "fallback_reason": "none",
+                    "cohere_attempted": cohere_attempted,
+                    "openai_attempted": openai_attempted,
+                    "cohere_circuit_open": cohere_circuit_open,
                 }
         except Exception as exc:
-            if "not configured" not in str(exc).lower():
+            error_text = str(exc).lower()
+            fallback_reason = "cohere_not_configured" if "not configured" in error_text else "cohere_error"
+            if "not configured" not in error_text:
                 _cohere_record_failure()
             logger.warning("Cohere rerank failed, falling back to OpenAI: %s", exc)
     else:
+        fallback_reason = "cohere_circuit_open"
         logger.info("Cohere circuit breaker open, skipping to OpenAI rerank")
 
     rerank_provider_tried = "openai"
     try:
+        openai_attempted = True
         ranked = await _openai_rerank(
             query=rerank_query,
             candidates=uncached_candidates or deduped_candidates,
@@ -350,15 +382,22 @@ async def rerank_candidates(
             resolved.sort(key=lambda pair: pair[1], reverse=True)
             latency = int((time.time() - rerank_start) * 1000)
             return {
-                "provider": "openai",
+                "provider": "openai_fallback",
                 "items": resolved[:clipped_top_n],
                 "rerank_attempted": True,
                 "rerank_latency_ms": latency,
                 "cache_hits": cache_hits,
                 "cache_misses": cache_misses,
                 "deduped_candidates": len(deduped_candidates),
+                "cache_hit": cache_hits > 0,
+                "fallback_reason": fallback_reason,
+                "cohere_attempted": cohere_attempted,
+                "openai_attempted": openai_attempted,
+                "cohere_circuit_open": cohere_circuit_open,
             }
     except Exception as exc:
+        if fallback_reason == "none":
+            fallback_reason = "openai_error"
         logger.warning("OpenAI rerank failed, using first-stage ranking: %s", exc)
 
     latency = int((time.time() - rerank_start) * 1000)
@@ -383,4 +422,9 @@ async def rerank_candidates(
         "cache_hits": cache_hits,
         "cache_misses": cache_misses,
         "deduped_candidates": len(deduped_candidates),
+        "cache_hit": cache_hits > 0,
+        "fallback_reason": fallback_reason,
+        "cohere_attempted": cohere_attempted,
+        "openai_attempted": openai_attempted,
+        "cohere_circuit_open": cohere_circuit_open,
     }

@@ -92,7 +92,7 @@ fi
 node scripts/write-tauri-production-config.mjs >/dev/null
 
 signing_identity="$(
-  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); process.stdout.write((cfg.tauri?.bundle?.macOS?.signingIdentity || '').trim())"
+  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${BASE_CONFIG_PATH}','utf8')); process.stdout.write((cfg.tauri?.bundle?.macOS?.signingIdentity || '').trim())"
 )"
 updater_endpoint="$(
   node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); process.stdout.write(String(cfg.tauri?.updater?.endpoints?.[0] || ''))"

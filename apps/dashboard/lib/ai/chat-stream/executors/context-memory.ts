@@ -555,6 +555,8 @@ export async function executeGetActivitySummary(
       calendar_style_date: response.calendar_style_date || recapAnchorDate,
       bundle: response.bundle || null,
       workstreams: Array.isArray(response.workstreams) ? response.workstreams : [],
+      retrieval_debug: response.retrieval_debug || null,
+      provider_path: response.provider_path || null,
       health: response.health || null,
       degraded: Boolean(response.degraded),
       degradation_notes: Array.isArray(response.degradation_notes) ? response.degradation_notes : [],

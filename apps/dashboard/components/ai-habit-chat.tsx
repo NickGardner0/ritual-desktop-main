@@ -13,7 +13,6 @@ import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '
 import { isTauri } from '@/lib/tauri-utils';
 import {
   clearNativeDesktopSpeechState,
-  ensureNativeDesktopVoicePermissions,
   formatNativeSpeechError,
   getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
@@ -154,6 +153,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const nativeVoiceAutoStopRef = useRef<number | null>(null);
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
   const nativeVoiceTimestampRef = useRef(0);
+  const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
 
   const { habits, habitLogs } = useHabits();
   const { user } = useUser();
@@ -699,7 +699,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   useEffect(() => {
     return () => {
       clearNativeVoiceTimers();
-      void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+      if (voiceInputModeRef.current === 'native') {
+        void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+      }
     };
   }, [clearNativeVoiceTimers]);
 
@@ -707,8 +709,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     setError(null);
     setIsProcessingVoice(false);
     await resetNativeVoiceSession();
-    await ensureNativeDesktopVoicePermissions();
     await startNativeDesktopSpeechRecognition();
+    voiceInputModeRef.current = 'native';
     setIsListening(true);
 
     nativeVoicePollRef.current = window.setInterval(() => {
@@ -774,12 +776,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         await startNativeVoiceRecognition();
         return;
       } catch (nativeError) {
-        console.warn('Native desktop speech recognition failed:', nativeError);
         await resetNativeVoiceSession().catch(() => undefined);
         setIsListening(false);
         setIsProcessingVoice(false);
-        setError(formatNativeSpeechError(getNativeSpeechErrorMessage(nativeError)));
-        return;
+        voiceInputModeRef.current = null;
       }
     }
 
@@ -787,6 +787,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
+      voiceInputModeRef.current = 'browser';
       setAudioStream(stream);
 
       let mimeType = '';
@@ -854,6 +855,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       (window as any).__autoStopTimer = autoStopTimer;
 
     } catch (err: any) {
+      voiceInputModeRef.current = null;
       const nativeMessage = getNativeSpeechErrorMessage(err);
       setError(
         err?.name === 'NotAllowedError'
@@ -866,7 +868,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   };
 
   const stopVoiceRecording = () => {
-    if (isTauri()) {
+    if (voiceInputModeRef.current === 'native') {
       if (nativeVoiceAutoStopRef.current) {
         clearTimeout(nativeVoiceAutoStopRef.current);
         nativeVoiceAutoStopRef.current = null;
@@ -887,6 +889,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           nativeVoiceFinalizeTimeoutRef.current = window.setTimeout(() => {
             void resetNativeVoiceSession();
             setIsProcessingVoice(false);
+            voiceInputModeRef.current = null;
             setError('No speech detected. Please try again.');
           }, 1500);
         });
@@ -897,6 +900,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     const autoStopTimer = (window as any).__autoStopTimer;
     if (autoStopTimer) clearTimeout(autoStopTimer);
     if (mediaRecorder?.state === 'recording') mediaRecorder.stop();
+    voiceInputModeRef.current = null;
     if (audioStream) {
       audioStream.getTracks().forEach(track => track.stop());
       setAudioStream(null);
@@ -1639,7 +1643,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   <button
                     type="button"
                     className={cn(
-                      "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                      "w-8 h-8 flex items-center justify-center transition-all duration-200 bg-transparent hover:bg-transparent",
                       isListening || isProcessingVoice
                         ? "text-gray-900"
                         : "text-gray-600 hover:text-gray-800"

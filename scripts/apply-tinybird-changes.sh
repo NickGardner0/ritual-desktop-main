@@ -27,12 +27,6 @@ cp apps/dashboard/app/\(dashboard\)/dashboard/page-exact-layout.tsx apps/dashboa
 echo "✅ Using original AI chat component with Tinybird integration..."
 # No need to copy anything - original component already works with Tinybird
 
-# 4. Rebuild native timer with direct Tinybird write
-echo "🔨 Rebuilding native timer with direct Tinybird write..."
-pushd apps/desktop/src-tauri >/dev/null
-bash native-timer/build_widget.sh
-popd >/dev/null
-
 echo "✅ Migration complete! Restart your app with 'npm run dev' to see the changes."
 echo ""
 echo "📝 Note: If you encounter any issues, you can restore original files from: $BACKUP_DIR"

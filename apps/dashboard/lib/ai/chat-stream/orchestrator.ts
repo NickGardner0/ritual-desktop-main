@@ -38,13 +38,13 @@ import type { WeeklyOverviewPayload } from './narrative';
 
 // Query classifiers & system prompt
 import {
+  classifyRetrievalRoute,
   isComprehensiveWeeklyRecapQuery,
   isDailyOverviewQuery,
   isMonthlyOverviewQuery,
   isExplicitLastWeekQuery,
   isScreenTimeSpentQuery,
   isBroadScreenOverviewQuery,
-  isContextMemoryRecapQuery,
   resolveWeeklyOverviewParamsFromQuery,
   getOverviewTitleFromQuery,
   chooseScreenSearchQuery,
@@ -444,10 +444,13 @@ async function dispatchToolCall(
                 : [],
               citations: Array.isArray(parsed.citations) ? parsed.citations : [],
               citations_count: parsed.citations_count,
+              workstreams: Array.isArray(parsed.workstreams) ? parsed.workstreams : [],
               time_truth: parsed.time_truth || null,
               confidence: parsed.confidence || null,
               freshness: parsed.freshness || null,
               calendar_style_summary: parsed.calendar_style_summary || null,
+              retrieval_debug: parsed.retrieval_debug || null,
+              provider_path: parsed.provider_path || null,
             });
           }
         } catch (e) { console.warn('⚠️ Activity summary trim error:', e); }
@@ -660,15 +663,16 @@ export async function handleChatStreamPost(req: NextRequest) {
       isVoiceMode,
     });
     const latestUserContent = latestUserMessage?.content || '';
-    const forceScreenTimeBreakdown = isScreenTimeSpentQuery(latestUserContent);
-    const forceContextRecap = !forceScreenTimeBreakdown && isContextMemoryRecapQuery(latestUserContent);
-    const forceDailyOverview = isDailyOverviewQuery(latestUserContent);
-    const forceMonthlyOverview = !forceDailyOverview && isMonthlyOverviewQuery(latestUserContent);
+    const retrievalRoute = classifyRetrievalRoute(latestUserContent);
+    const forceScreenTimeBreakdown = retrievalRoute === 'time_breakdown';
+    const forceContextRecap = retrievalRoute === 'anchored_day_recap' || retrievalRoute === 'range_recap';
+    const forceDailyOverview = retrievalRoute === 'habit_metrics' && isDailyOverviewQuery(latestUserContent);
+    const forceMonthlyOverview = retrievalRoute === 'habit_metrics' && !forceDailyOverview && isMonthlyOverviewQuery(latestUserContent);
     const forceWeeklyOverview =
-      !forceContextRecap &&
-      !forceDailyOverview &&
-      !forceMonthlyOverview &&
-      isComprehensiveWeeklyRecapQuery(latestUserContent);
+      retrievalRoute === 'habit_metrics'
+      && !forceDailyOverview
+      && !forceMonthlyOverview
+      && isComprehensiveWeeklyRecapQuery(latestUserContent);
     const forcedToolName = forceScreenTimeBreakdown
       ? 'getComputerTimeSpentBreakdown'
       : forceContextRecap
@@ -682,7 +686,7 @@ export async function handleChatStreamPost(req: NextRequest) {
             : null;
     const weeklyOverviewQueryParams = resolveWeeklyOverviewParamsFromQuery(latestUserContent, timezone);
     const strictThisWeekForWeeklyOverview = weeklyOverviewQueryParams.strictThisWeek;
-    console.log(`⏱️ [${elapsed(t0)}] Auth + classify done | forced=${forcedToolName || 'none'} voice=${isVoiceMode}`);
+    console.log(`⏱️ [${elapsed(t0)}] Auth + classify done | route=${retrievalRoute} forced=${forcedToolName || 'none'} voice=${isVoiceMode}`);
 
     // Fast path: for deterministic recap tools in text mode, skip OpenAI and
     // render directly from the tool payload so routing and structure stay stable.

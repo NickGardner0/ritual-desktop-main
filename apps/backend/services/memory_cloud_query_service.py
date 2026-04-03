@@ -289,8 +289,10 @@ def _candidate_haystack(candidate: Dict[str, Any]) -> str:
             str(candidate.get("app_name") or ""),
             str(candidate.get("window_title") or ""),
             str(candidate.get("document_title") or ""),
+            str(candidate.get("document_path") or ""),
             str(candidate.get("browser_domain") or ""),
             str(candidate.get("parent_context") or ""),
+            str(candidate.get("contextual_retrieval_text") or ""),
             _citation_source_text(candidate),
         ]
     ).lower()
@@ -394,10 +396,46 @@ def _rrf_fuse(
 
 def _build_query_budgets(intent: str) -> Dict[str, int]:
     if intent == "broad_overview":
-        return {"lane_top_k": 192, "candidate_limit": 128, "final_limit": 64}
+        return {
+            "lane_top_k": 220,
+            "candidate_limit": 144,
+            "final_limit": 72,
+            "min_rerank_candidates": 4,
+        }
     if intent == "semantic_lookup":
-        return {"lane_top_k": 40, "candidate_limit": 20, "final_limit": 12}
-    return {"lane_top_k": 50, "candidate_limit": 30, "final_limit": 16}
+        return {
+            "lane_top_k": 48,
+            "candidate_limit": 24,
+            "final_limit": 12,
+            "min_rerank_candidates": 2,
+        }
+    return {
+        "lane_top_k": 64,
+        "candidate_limit": 36,
+        "final_limit": 18,
+        "min_rerank_candidates": 3,
+    }
+
+
+def _select_vector_rank_mode(
+    *,
+    intent: str,
+    query_profile: Dict[str, Any],
+    start_ms: int,
+    end_ms: int,
+) -> str:
+    window_ms = max(0, int(end_ms) - int(start_ms))
+    narrow_window = window_ms <= 36 * 60 * 60 * 1000
+    has_specific_refs = any(
+        query_profile.get(key)
+        for key in ("document_refs", "artifact_refs", "entity_refs", "task_phrases")
+    )
+    if narrow_window and (
+        intent in {"semantic_lookup", "evidence_timeline"}
+        or has_specific_refs
+    ):
+        return "kNN"
+    return "ANN"
 
 
 def _query_memory_chunk_lexical_lists(
@@ -788,9 +826,17 @@ async def query_semantic_cloud(
         query_profile = build_query_semantic_profile(query)
         broad_overview = intent == "broad_overview"
         budgets = _build_query_budgets(intent)
+        vector_rank_mode = _select_vector_rank_mode(
+            intent=intent,
+            query_profile=query_profile,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
         expanded_queries = expand_memory_query(
             query,
             include_hyde=False,
+            intent=intent,
+            query_profile=query_profile,
         )
         vector_texts = sorted(
             {
@@ -829,6 +875,7 @@ async def query_semantic_cloud(
             }
             if query_type in {"original", "vec", "hyde"} and query_text in query_vectors:
                 retrieval_query["vector"] = query_vectors[query_text]
+                retrieval_query["vector_rank_mode"] = vector_rank_mode
             retrieval_queries.append(retrieval_query)
 
         tp = TurbopufferService()
@@ -878,8 +925,18 @@ async def query_semantic_cloud(
         rerank_cache_hits = 0
         rerank_cache_misses = 0
         rerank_deduped_candidates = 0
+        rerank_fallback_reason = "none"
+        rerank_cohere_attempted = False
+        rerank_openai_attempted = False
+        rerank_cohere_circuit_open = False
         ranked_rows: List[Dict[str, Any]] = []
-        if strong_signal:
+        if rerank_input_count < int(budgets.get("min_rerank_candidates") or 1):
+            rerank_provider = "skipped"
+            rerank_fallback_reason = "insufficient_candidates"
+            ranked_rows = rerank_input
+        elif strong_signal and not broad_overview:
+            rerank_provider = "skipped"
+            rerank_fallback_reason = "strong_signal_short_circuit"
             ranked_rows = rerank_input
         else:
             rerank_result = await rerank_candidates(
@@ -896,6 +953,10 @@ async def query_semantic_cloud(
             rerank_cache_hits = int(rerank_result.get("cache_hits") or 0) if isinstance(rerank_result, dict) else 0
             rerank_cache_misses = int(rerank_result.get("cache_misses") or 0) if isinstance(rerank_result, dict) else 0
             rerank_deduped_candidates = int(rerank_result.get("deduped_candidates") or 0) if isinstance(rerank_result, dict) else 0
+            rerank_fallback_reason = str(rerank_result.get("fallback_reason") or "none") if isinstance(rerank_result, dict) else "none"
+            rerank_cohere_attempted = bool(rerank_result.get("cohere_attempted")) if isinstance(rerank_result, dict) else False
+            rerank_openai_attempted = bool(rerank_result.get("openai_attempted")) if isinstance(rerank_result, dict) else False
+            rerank_cohere_circuit_open = bool(rerank_result.get("cohere_circuit_open")) if isinstance(rerank_result, dict) else False
             if isinstance(rerank_items, list) and rerank_items:
                 for item in rerank_items:
                     if not isinstance(item, (list, tuple)) or len(item) != 2:
@@ -909,7 +970,7 @@ async def query_semantic_cloud(
                     ranked_rows.append(row)
             else:
                 ranked_rows = rerank_input
-        if strong_signal:
+        if rerank_provider == "skipped":
             rerank_items_count = 0
 
         final_rows = (
@@ -962,7 +1023,15 @@ async def query_semantic_cloud(
         observed_rerank_provider = str(rerank_provider or "none")
         observed_citations = len(citations)
         observed_grounded = observed_citations > 0
+        lexical_rank_strategies = sorted(
+            {
+                str(item.get("rank_strategy") or "").strip()
+                for item in ranked_lists
+                if str(item.get("source") or "") == "fts" and str(item.get("rank_strategy") or "").strip()
+            }
+        )
         debug_payload = {
+            "query_intent": intent,
             "embed_attempted": embed_attempted,
             "embed_succeeded": embed_succeeded,
             "embed_error": embed_error,
@@ -979,6 +1048,7 @@ async def query_semantic_cloud(
             "context_version_mix": context_version_mix,
             "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=semantic_summary+contextual_retrieval_text",
             "rerank_provider": rerank_provider or "none",
+            "rerank_fallback_reason": rerank_fallback_reason,
             "query_vector_present": bool(query_vectors),
             "db_lexical_fallback": used_db_lexical_fallback,
             "query_window_start": start_ms,
@@ -987,12 +1057,16 @@ async def query_semantic_cloud(
             "cloud_pending_in_window": cloud_pending_in_window,
             "rerank_attempted": rerank_attempted,
             "rerank_latency_ms": rerank_latency_ms,
+            "rerank_cohere_attempted": rerank_cohere_attempted,
+            "rerank_openai_attempted": rerank_openai_attempted,
+            "rerank_cohere_circuit_open": rerank_cohere_circuit_open,
             "retrieval_lists": [
                 {
                     "source": item.get("source"),
                     "query_type": item.get("query_type"),
                     "query_text": item.get("query_text"),
                     "weight": item.get("weight"),
+                    "rank_strategy": item.get("rank_strategy"),
                     "result_count": len(item.get("items") or []),
                 }
                 for item in ranked_lists
@@ -1005,6 +1079,10 @@ async def query_semantic_cloud(
             "rerank_deduped_candidates": rerank_deduped_candidates,
             "rerank_candidates_considered": len(rerank_input),
             "candidate_limit_applied": budgets["candidate_limit"],
+            "min_rerank_candidates": budgets.get("min_rerank_candidates"),
+            "vector_rank_mode": vector_rank_mode,
+            "lexical_rank_strategy": ",".join(lexical_rank_strategies) if lexical_rank_strategies else "unknown",
+            "query_budget_profile": budgets,
             "expanded_queries": expanded_queries,
         }
 
@@ -1019,15 +1097,16 @@ async def query_semantic_cloud(
         }
         logger.info(
             "memory.cloud query lexical_only=%s embed_ok=%s candidates_raw=%s candidates_active=%s "
-            "db_lexical_fallback=%s rerank_provider=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
+            "db_lexical_fallback=%s rerank_provider=%s rerank_fallback_reason=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
             "final_evidence=%s distinct_sessions=%s distinct_apps=%s distinct_domains=%s distinct_buckets=%s "
-            "citations=%s tier=%s cloud_max_embedded_ts=%s cloud_pending_in_window=%s",
+            "citations=%s tier=%s vector_mode=%s lexical_strategy=%s cloud_max_embedded_ts=%s cloud_pending_in_window=%s",
             lexical_only,
             embed_succeeded,
             candidate_count_raw,
             candidate_count_active,
             used_db_lexical_fallback,
             rerank_provider or "none",
+            rerank_fallback_reason,
             rerank_items_count,
             rerank_attempted,
             rerank_latency_ms,
@@ -1038,6 +1117,8 @@ async def query_semantic_cloud(
             distinct_time_buckets,
             len(citations),
             retrieval_tier,
+            vector_rank_mode,
+            debug_payload.get("lexical_rank_strategy"),
             cloud_max_embedded_ts,
             cloud_pending_in_window,
         )
@@ -1051,6 +1132,8 @@ async def query_semantic_cloud(
             "provider_path": {
                 "retrieval": "memory_cloud_db" if used_db_lexical_fallback else "turbopuffer",
                 "rerank": rerank_provider or "none",
+                "rerank_fallback_reason": rerank_fallback_reason,
+                "vector_rank_mode": vector_rank_mode,
                 "answer": "openai",
             },
             "index_health": index_health,

@@ -282,7 +282,7 @@ async def query_memory(
         logger.info(
             "memory.query resolved intent=%s tier=%s mode=%s citations=%s provider=%s "
             "fallback_reason=%s freshness_status=%s pending_chunks=%s embedding_lag_seconds=%s "
-            "cloud_candidates=%s rerank_provider=%s embed_ok=%s",
+            "cloud_candidates=%s rerank_provider=%s rerank_attempted=%s rerank_reason=%s vector_mode=%s embed_ok=%s",
             result.get("intent_resolved"),
             result.get("retrieval_tier"),
             result.get("answer_mode"),
@@ -294,6 +294,9 @@ async def query_memory(
             freshness.get("embedding_lag_seconds"),
             semantic_debug.get("candidate_count_active"),
             semantic_debug.get("rerank_provider"),
+            semantic_debug.get("rerank_attempted"),
+            semantic_debug.get("rerank_fallback_reason"),
+            semantic_debug.get("vector_rank_mode"),
             semantic_debug.get("embed_succeeded"),
         )
         return result

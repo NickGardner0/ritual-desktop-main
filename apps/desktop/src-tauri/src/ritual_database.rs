@@ -98,6 +98,19 @@ fn get_activity_db_path() -> PathBuf {
     get_ritual_dir().join("activity.db")
 }
 
+fn initialize_schema_in_blocking_thread(
+    db_path: PathBuf,
+    label: &'static str,
+) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name(format!("ritual-db-init-{label}"))
+        .spawn(move || BlockingDatabase::open_with_path(&db_path).map(|_| ()))
+        .map_err(|e| format!("Failed to spawn {label} schema init thread: {e}"))?
+        .join()
+        .map_err(|_| format!("{label} schema init thread panicked"))?
+        .map_err(|e| format!("Failed to initialize {label} schema: {e}"))
+}
+
 fn activity_database_config_from_env() -> DatabaseConfig {
     match (
         std::env::var("TURSO_SYNC_URL")
@@ -159,10 +172,8 @@ fn ensure_split_local_databases() -> Result<(), String> {
     let marker_path = ritual_dir.join(".split_db_migration_v1.done");
 
     // Ensure both split DBs have the expected schema before any copy.
-    BlockingDatabase::open_with_path(&activity_db)
-        .map_err(|e| format!("Failed to initialize activity.db schema: {}", e))?;
-    BlockingDatabase::open_with_path(&memory_db)
-        .map_err(|e| format!("Failed to initialize memory.db schema: {}", e))?;
+    initialize_schema_in_blocking_thread(activity_db.clone(), "activity")?;
+    initialize_schema_in_blocking_thread(memory_db.clone(), "memory")?;
 
     if !legacy_db.exists() || marker_path.exists() {
         return Ok(());
@@ -315,7 +326,7 @@ pub fn initialize_database() -> Result<(), String> {
     })
 }
 
-pub fn reload_activity_database() -> Result<(), String> {
+pub async fn reload_activity_database_async() -> Result<(), String> {
     if let Err(err) = ensure_split_local_databases() {
         db_error!(
             "⚠️ Split DB preparation failed before activity reload: {}",
@@ -323,24 +334,26 @@ pub fn reload_activity_database() -> Result<(), String> {
         );
     }
 
-    RUNTIME.block_on(async {
-        let activity_config = activity_database_config_from_env();
-        let activity_db = RitualDatabase::open(&activity_config).await.map_err(|e| {
-            db_error!("❌ Failed to reload activity database: {}", e);
-            format!("Failed to reload activity database: {}", e)
-        })?;
+    let activity_config = activity_database_config_from_env();
+    let activity_db = RitualDatabase::open(&activity_config).await.map_err(|e| {
+        db_error!("❌ Failed to reload activity database: {}", e);
+        format!("Failed to reload activity database: {}", e)
+    })?;
 
-        let mut activity_guard = ACTIVITY_DB.write().await;
-        let previous = activity_guard.take();
-        *activity_guard = Some(activity_db);
-        drop(previous);
+    let mut activity_guard = ACTIVITY_DB.write().await;
+    let previous = activity_guard.take();
+    *activity_guard = Some(activity_db);
+    drop(previous);
 
-        db_info!(
-            "✅ Activity database reloaded at {:?}",
-            activity_config.db_path
-        );
-        Ok(())
-    })
+    db_info!(
+        "✅ Activity database reloaded at {:?}",
+        activity_config.db_path
+    );
+    Ok(())
+}
+
+pub fn reload_activity_database() -> Result<(), String> {
+    RUNTIME.block_on(reload_activity_database_async())
 }
 
 /// Get database or return error

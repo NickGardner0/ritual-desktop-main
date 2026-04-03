@@ -59,6 +59,8 @@ class NormalizedEvidence:
     semantic_summary: str = ""
     raw_text: str = ""
     confidence: float = 0.0
+    evidence_grade: str = "passive_presence"
+    claim_strength: str = "low"
     entity_tokens: set[str] = field(default_factory=set)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -73,6 +75,9 @@ class RecapWorkstream:
     source_evidence_ids: List[str]
     confidence: float
     narrative_priority: float
+    evidence_grade: str
+    claim_strength: str
+    direct_evidence_count: int
     sentences: List[str]
 
 
@@ -226,6 +231,102 @@ def _classification_score(kind: str, evidence: NormalizedEvidence) -> float:
     return sum(weight for needle, weight in rules.get(kind, []) if needle in haystack)
 
 
+def _looks_low_signal_ui(*values: str) -> bool:
+    haystack = " ".join(str(value or "") for value in values).lower()
+    if not haystack.strip():
+        return True
+    ui_markers = (
+        "privacy & security",
+        "system settings",
+        "search",
+        "notifications",
+        "users & groups",
+        "menu bar",
+        "displays",
+        "wallpaper",
+        "open system settings",
+        "allow applications below",
+        "settings",
+    )
+    return any(marker in haystack for marker in ui_markers)
+
+
+def _grade_evidence(evidence: NormalizedEvidence) -> Tuple[str, str]:
+    haystack = " ".join(
+        [
+            evidence.app,
+            evidence.domain,
+            evidence.title,
+            evidence.document_path,
+            evidence.semantic_summary,
+            evidence.raw_text,
+            str(evidence.metadata.get("message") or ""),
+        ]
+    ).lower()
+
+    if evidence.source == "git_commit":
+        return "direct_action", "high"
+
+    if evidence.document_path and (
+        evidence.app.lower() in {"cursor", "codex", "terminal", "warp", "iterm2"}
+        or re.search(r"\.(rs|py|ts|tsx|js|jsx|md|json|toml|sql|swift)\b", evidence.document_path, re.IGNORECASE)
+    ):
+        return "direct_action", "high"
+
+    direct_markers = (
+        "commit",
+        "git push",
+        "git commit",
+        "cargo ",
+        "npm ",
+        "pnpm ",
+        "pytest",
+        "traceback",
+        "error:",
+        "fixed ",
+        "fix ",
+        "implemented",
+        "refactor",
+        "schema",
+        "migration",
+        "build ",
+        "patched ",
+    )
+    if any(marker in haystack for marker in direct_markers):
+        return "direct_action", "high"
+
+    if _looks_low_signal_ui(evidence.title, evidence.raw_text, evidence.semantic_summary):
+        return "low_signal_ui", "low"
+
+    if (evidence.semantic_summary or evidence.raw_text) and float(evidence.confidence or 0.0) >= 0.55:
+        return "strong_support", "medium"
+
+    if evidence.domain or evidence.title or evidence.app:
+        return "passive_presence", "low"
+
+    return "low_signal_ui", "low"
+
+
+def _annotate_evidence(evidence: NormalizedEvidence) -> NormalizedEvidence:
+    evidence_grade, claim_strength = _grade_evidence(evidence)
+    evidence.evidence_grade = evidence_grade
+    evidence.claim_strength = claim_strength
+    return evidence
+
+
+def _summarize_evidence_strength(evidence_rows: Sequence[NormalizedEvidence]) -> Tuple[str, str, int]:
+    direct_count = sum(1 for item in evidence_rows if item.evidence_grade == "direct_action")
+    strong_count = sum(1 for item in evidence_rows if item.evidence_grade == "strong_support")
+    if direct_count > 0:
+        claim_strength = "high" if direct_count >= 2 else "medium"
+        return "direct_action", claim_strength, direct_count
+    if strong_count > 0:
+        return "strong_support", "medium", 0
+    if any(item.evidence_grade == "passive_presence" for item in evidence_rows):
+        return "passive_presence", "low", 0
+    return "low_signal_ui", "low", 0
+
+
 def _classify_workstream(evidence_rows: Sequence[NormalizedEvidence], calendar_overlap: bool = False) -> str:
     if calendar_overlap:
         return "meeting"
@@ -272,8 +373,12 @@ def _summarize_workstream(kind: str, evidence_rows: Sequence[NormalizedEvidence]
     files = list(dict.fromkeys(_extract_file_label(e.document_path) for e in evidence_rows if e.document_path))[:4]
     commit_messages = list(dict.fromkeys(_clip(e.metadata.get("message"), 120) for e in evidence_rows if e.source == "git_commit" and e.metadata.get("message")))[:2]
     sentences: List[str] = []
+    evidence_grade, _, _ = _summarize_evidence_strength(evidence_rows)
 
-    if kind == "meeting":
+    if evidence_grade in {"passive_presence", "low_signal_ui"}:
+        target = _pick_primary_title(evidence_rows)
+        sentences.append(f"You briefly checked context related to {_clip(target, 100)} rather than doing strongly evidenced work there.")
+    elif kind == "meeting":
         title = _pick_primary_title(evidence_rows)
         sentences.append(f"You spent this block in meeting-related work around {_clip(title, 100)}.")
     elif kind == "coding":
@@ -380,6 +485,7 @@ def build_recap_workstreams(
         supporting_entities = list(dict.fromkeys(entity for entity in flattened_entities if entity))[:8]
         confidence = max(0.1, min(1.0, sum(max(item.confidence, 0.1) for item in cluster) / max(len(cluster), 1)))
         narrative_priority = confidence + min(len(cluster), 6) * 0.08
+        evidence_grade, claim_strength, direct_evidence_count = _summarize_evidence_strength(cluster)
         workstreams.append(
             RecapWorkstream(
                 kind=kind,
@@ -390,6 +496,9 @@ def build_recap_workstreams(
                 source_evidence_ids=[item.evidence_id for item in cluster],
                 confidence=round(confidence, 3),
                 narrative_priority=round(narrative_priority, 3),
+                evidence_grade=evidence_grade,
+                claim_strength=claim_strength,
+                direct_evidence_count=direct_evidence_count,
                 sentences=_summarize_workstream(kind, cluster),
             )
         )
@@ -415,6 +524,9 @@ def build_recap_workstreams(
             source_evidence_ids=other_ids,
             confidence=round(sum(item.confidence for item in leftovers) / max(len(leftovers), 1), 3),
             narrative_priority=0.1,
+            evidence_grade="passive_presence",
+            claim_strength="low",
+            direct_evidence_count=0,
             sentences=other_sentences,
         )
     )
@@ -474,6 +586,9 @@ def _augment_workstreams_with_usage_hints(
                 source_evidence_ids=workstream.source_evidence_ids,
                 confidence=workstream.confidence,
                 narrative_priority=workstream.narrative_priority,
+                evidence_grade=workstream.evidence_grade,
+                claim_strength=workstream.claim_strength,
+                direct_evidence_count=workstream.direct_evidence_count,
                 sentences=sentences[:4],
             )
         )
@@ -544,6 +659,8 @@ def _bundle_citation(evidence: NormalizedEvidence) -> Dict[str, Any]:
         "document_path": evidence.document_path,
         "snippet": _clip(evidence.raw_text or evidence.semantic_summary, 200),
         "confidence": evidence.confidence,
+        "evidence_grade": evidence.evidence_grade,
+        "claim_strength": evidence.claim_strength,
     }
 
 
@@ -718,7 +835,7 @@ def _normalize_snapshot_row(row: sqlite3.Row) -> NormalizedEvidence:
         evidence.semantic_summary,
         evidence.raw_text,
     )
-    return evidence
+    return _annotate_evidence(evidence)
 
 
 def _normalize_session_doc_row(row: sqlite3.Row) -> NormalizedEvidence:
@@ -747,7 +864,7 @@ def _normalize_session_doc_row(row: sqlite3.Row) -> NormalizedEvidence:
         evidence.semantic_summary,
         evidence.raw_text,
     )
-    return evidence
+    return _annotate_evidence(evidence)
 
 
 async def _fetch_context_lanes(user_id: str, start_ms: int, end_ms: int) -> Dict[str, Any]:
@@ -920,7 +1037,7 @@ def _normalize_git_commit(commit: Dict[str, Any]) -> NormalizedEvidence:
         metadata=commit,
     )
     evidence.entity_tokens = _normalize_tokens(evidence.title, evidence.semantic_summary)
-    return evidence
+    return _annotate_evidence(evidence)
 
 
 async def build_day_recap(
@@ -1014,7 +1131,15 @@ async def build_day_recap(
         except Exception:
             continue
 
-    semantic_citations = list(semantic_payload.get("citations") or []) if isinstance(semantic_payload, dict) else []
+    semantic_citations = [
+        {
+            **citation,
+            "evidence_grade": citation.get("evidence_grade") or "strong_support",
+            "claim_strength": citation.get("claim_strength") or "medium",
+        }
+        for citation in (list(semantic_payload.get("citations") or []) if isinstance(semantic_payload, dict) else [])
+        if isinstance(citation, dict)
+    ]
     semantic_story_plan = ((semantic_payload or {}).get("semantic_truth") or {}).get("story_plan") if isinstance(semantic_payload, dict) else None
     semantic_freshness = (semantic_payload or {}).get("freshness") if isinstance(semantic_payload, dict) else {}
     semantic_stale = bool(
@@ -1094,6 +1219,9 @@ async def build_day_recap(
             "source_evidence_ids": item.source_evidence_ids,
             "confidence": item.confidence,
             "narrative_priority": item.narrative_priority,
+            "evidence_grade": item.evidence_grade,
+            "claim_strength": item.claim_strength,
+            "direct_evidence_count": item.direct_evidence_count,
             "sentences": item.sentences,
         }
         for item in workstreams
@@ -1143,6 +1271,8 @@ async def build_day_recap(
         "calendar_style_date": anchor_date,
         "bundle": bundle,
         "workstreams": workstream_dicts,
+        "retrieval_debug": (semantic_payload or {}).get("retrieval_debug") if isinstance(semantic_payload, dict) else None,
+        "provider_path": (semantic_payload or {}).get("provider_path") if isinstance(semantic_payload, dict) else None,
         "health": health,
         "degraded": overall_status != "healthy",
         "degradation_notes": degradation_reasons,
@@ -1259,7 +1389,15 @@ async def build_range_recap(
         except Exception:
             continue
 
-    semantic_citations = list(semantic_payload.get("citations") or []) if isinstance(semantic_payload, dict) else []
+    semantic_citations = [
+        {
+            **citation,
+            "evidence_grade": citation.get("evidence_grade") or "strong_support",
+            "claim_strength": citation.get("claim_strength") or "medium",
+        }
+        for citation in (list(semantic_payload.get("citations") or []) if isinstance(semantic_payload, dict) else [])
+        if isinstance(citation, dict)
+    ]
     semantic_story_plan = ((semantic_payload or {}).get("semantic_truth") or {}).get("story_plan") if isinstance(semantic_payload, dict) else None
     semantic_freshness = (semantic_payload or {}).get("freshness") if isinstance(semantic_payload, dict) else {}
     semantic_stale = bool(
@@ -1340,6 +1478,9 @@ async def build_range_recap(
             "source_evidence_ids": item.source_evidence_ids,
             "confidence": item.confidence,
             "narrative_priority": item.narrative_priority,
+            "evidence_grade": item.evidence_grade,
+            "claim_strength": item.claim_strength,
+            "direct_evidence_count": item.direct_evidence_count,
             "sentences": item.sentences,
         }
         for item in workstreams
@@ -1389,6 +1530,8 @@ async def build_range_recap(
         "calendar_style_date": end_date,
         "bundle": bundle,
         "workstreams": workstream_dicts,
+        "retrieval_debug": (semantic_payload or {}).get("retrieval_debug") if isinstance(semantic_payload, dict) else None,
+        "provider_path": (semantic_payload or {}).get("provider_path") if isinstance(semantic_payload, dict) else None,
         "health": health,
         "degraded": overall_status != "healthy",
         "degradation_notes": degradation_reasons,

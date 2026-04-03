@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "Ritual",
-    "version": "0.1.7"
+    "version": "0.1.8"
   },
   "tauri": {
     "macOSPrivateApi": true,
@@ -108,7 +108,7 @@
       "identifier": "com.ritual.desktop",
       "longDescription": "",
       "macOS": {
-        "entitlements": "src-tauri/entitlements.plist",
+        "entitlements": "entitlements.plist",
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,

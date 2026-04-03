@@ -2200,17 +2200,12 @@ export function MetricsView({
           ))}
         </div>
       ) : !hasRenderableMetricCards ? (
-        <div className="mx-auto w-full max-w-[920px] rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-6 py-16 text-center">
+        <div className="mx-auto w-full max-w-[920px] px-6 py-16 text-center">
           <div className="max-w-sm mx-auto">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-              <svg className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-              </svg>
+            <div className="text-xl mb-2 text-center" style={{ fontWeight: 500 }}>No metrics yet</div>
+            <div className="text-sm font-normal leading-tight text-center" style={{ fontWeight: 400, color: '#9C9C9D' }}>
+              Start tracking anything from the Overview tab<br />to see your analytics and trends here.
             </div>
-            <p className="text-[15px] font-medium text-gray-900 mb-1.5">No metrics yet</p>
-            <p className="text-[13px] leading-relaxed text-gray-500">
-              Start tracking habits from the Overview tab to see your analytics and trends here.
-            </p>
           </div>
         </div>
       ) : selectedHabits.length > 0 || availableHabits.length > 0 || Boolean(computerActivityCard) ? (

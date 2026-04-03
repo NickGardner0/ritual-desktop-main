@@ -151,8 +151,8 @@ def main() -> None:
     ritual_icon_dir = repo_root / "apps/desktop/ritual-icon"
     tauri_icons_dir = repo_root / "apps/desktop/src-tauri/icons"
     ios_icon_dir = repo_root / "apps/ios-companion/Resources/Assets.xcassets/AppIcon.appiconset"
-    eclipse_svg_black = repo_root / "apps/desktop/src-tauri/native-timer/Resources/eclipse.svg"
-    eclipse_svg_white = repo_root / "apps/desktop/src-tauri/native-timer/Resources/eclipse_white.svg"
+    eclipse_svg_black = repo_root / "apps/desktop/ritual-icon/assets/eclipse.svg"
+    eclipse_svg_white = repo_root / "apps/desktop/ritual-icon/assets/eclipse_white.svg"
 
     desktop_master = build_desktop_master(eclipse_svg_white, size=1024)
     ios_master = build_ios_master(eclipse_svg_white, size=1024)

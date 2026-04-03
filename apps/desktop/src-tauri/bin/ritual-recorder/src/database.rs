@@ -356,7 +356,7 @@ pub fn get_current_activity_from_watcher(
 ) -> anyhow::Result<Option<ActivityContext>> {
     // Open a fresh connection to get current activity
     // This is used by the recorder to correlate frames with watcher activity
-    let db = BlockingDatabase::open_with_path(watcher_db_path)
+    let db = BlockingDatabase::open_activity_db_with_env(watcher_db_path)
         .map_err(|e| anyhow::anyhow!("Failed to open database: {}", e))?;
 
     db.get_current_activity()

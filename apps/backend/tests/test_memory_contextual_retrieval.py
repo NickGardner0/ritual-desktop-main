@@ -13,12 +13,48 @@ from services.memory_cloud_query_service import (
     _build_recap_diversity_metrics,
     _select_diverse_recap_evidence,
 )
+from services.day_recap_service import NormalizedEvidence, build_recap_workstreams
 from services.memory_story_service import build_story_plan, detect_story_renderer_kind
 from services.watcher_service_search import query_memory_impl, search_context_memory_impl
 
 
 class _DummyWatcherService:
     pass
+
+
+def _normalized_evidence(
+    *,
+    evidence_id: str,
+    source: str,
+    start_ts: int,
+    end_ts: int,
+    app: str = "",
+    title: str = "",
+    raw_text: str = "",
+    semantic_summary: str = "",
+    document_path: str = "",
+    confidence: float = 0.0,
+    evidence_grade: str = "passive_presence",
+    claim_strength: str = "low",
+    entity_tokens: set[str] | None = None,
+    metadata: dict | None = None,
+) -> NormalizedEvidence:
+    return NormalizedEvidence(
+        evidence_id=evidence_id,
+        source=source,
+        start_ts=start_ts,
+        end_ts=end_ts,
+        app=app,
+        title=title,
+        raw_text=raw_text,
+        semantic_summary=semantic_summary,
+        document_path=document_path,
+        confidence=confidence,
+        evidence_grade=evidence_grade,
+        claim_strength=claim_strength,
+        entity_tokens=entity_tokens or set(),
+        metadata=metadata or {},
+    )
 
 
 def _create_activity_db(path: str, now_ms: int) -> None:
@@ -222,6 +258,45 @@ def _create_context_memory_db(path: str, now_ms: int) -> None:
 
 
 class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
+    def test_build_recap_workstreams_preserves_direct_action_grading(self):
+        now_ms = int(time.time() * 1000)
+        evidence_rows = [
+            _normalized_evidence(
+                evidence_id="git:1",
+                source="git_commit",
+                start_ts=now_ms - 90_000,
+                end_ts=now_ms - 90_000,
+                app="git",
+                title="ritual-desktop-main",
+                raw_text="Fix microphone entitlement for native voice mode",
+                semantic_summary="Fix microphone entitlement for native voice mode",
+                confidence=0.92,
+                evidence_grade="direct_action",
+                claim_strength="high",
+                entity_tokens={"voice", "microphone", "entitlement"},
+                metadata={"message": "Fix microphone entitlement for native voice mode"},
+            ),
+            _normalized_evidence(
+                evidence_id="snap:1",
+                source="context_snapshot",
+                start_ts=now_ms - 75_000,
+                end_ts=now_ms - 75_000,
+                app="System Settings",
+                title="Privacy & Security > Microphone",
+                raw_text="Allow the applications below to access your microphone",
+                confidence=0.25,
+                evidence_grade="low_signal_ui",
+                claim_strength="low",
+                entity_tokens={"microphone", "settings"},
+            ),
+        ]
+
+        workstreams = build_recap_workstreams(evidence_rows, [])
+        self.assertEqual(len(workstreams), 1)
+        self.assertEqual(workstreams[0].evidence_grade, "direct_action")
+        self.assertGreaterEqual(workstreams[0].direct_evidence_count, 1)
+        self.assertIn(workstreams[0].claim_strength, {"medium", "high"})
+
     def test_detect_story_renderer_prefers_app_drilldown_over_daypart(self):
         renderer = detect_story_renderer_kind(
             "What was I doing in Cursor this morning?",
@@ -968,6 +1043,10 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
                         "candidate_count_active": 165,
                         "rerank_input_count": 60,
                         "rerank_items_count": 60,
+                        "rerank_provider": "cohere",
+                        "rerank_attempted": True,
+                        "rerank_fallback_reason": "none",
+                        "rerank_latency_ms": 42,
                         "final_evidence_count": 20,
                         "distinct_sessions": 6,
                         "distinct_apps": 4,
@@ -975,6 +1054,8 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
                         "distinct_time_buckets": 5,
                         "context_version_mix": {"3": 20},
                         "raw_vs_contextual_source": "rerank=contextual_text_compact,citations=raw_text_compact",
+                        "vector_rank_mode": "ANN",
+                        "lexical_rank_strategy": "bm25_weighted",
                     },
                 },
                 "citations": [
@@ -1001,6 +1082,7 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
                 "provider_path": {
                     "retrieval": "turbopuffer",
                     "rerank": "cohere",
+                    "vector_rank_mode": "ANN",
                     "answer": "openai",
                 },
             }
@@ -1047,6 +1129,11 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["recap_debug"]["distinct_time_buckets"], 5)
         self.assertEqual(result["recap_debug"]["candidate_count_raw"], 168)
         self.assertEqual(result["recap_debug"]["candidate_count_active"], 165)
+        self.assertEqual(result["recap_debug"]["rerank_provider"], "cohere")
+        self.assertTrue(result["recap_debug"]["rerank_attempted"])
+        self.assertEqual(result["recap_debug"]["rerank_fallback_reason"], "none")
+        self.assertEqual(result["recap_debug"]["vector_rank_mode"], "ANN")
+        self.assertEqual(result["recap_debug"]["lexical_rank_strategy"], "bm25_weighted")
         self.assertIsInstance((result.get("semantic_truth") or {}).get("recap_outline"), dict)
         self.assertIsInstance((result.get("semantic_truth") or {}).get("story_plan"), dict)
         self.assertIsInstance((result.get("semantic_truth") or {}).get("renderer"), dict)

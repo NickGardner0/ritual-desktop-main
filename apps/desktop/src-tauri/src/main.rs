@@ -859,47 +859,10 @@ fn reconcile_recorder_config_user_cmd(user_id: String) -> Result<bool, String> {
     Ok(true)
 }
 
-fn get_voice_settings_path() -> std::path::PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join(".ritual")
-        .join("voice_settings.json")
-}
-
-#[tauri::command]
-fn get_voice_hotkey() -> Result<String, String> {
-    let path = get_voice_settings_path();
-    if !path.exists() {
-        return Ok("cmd_shift_l".to_string());
-    }
-    let contents =
-        fs::read_to_string(&path).map_err(|e| format!("Failed to read voice settings: {}", e))?;
-    let json: serde_json::Value = serde_json::from_str(&contents)
-        .map_err(|e| format!("Failed to parse voice settings: {}", e))?;
-    Ok(json["hotkey"].as_str().unwrap_or("cmd_shift_l").to_string())
-}
-
-#[tauri::command]
-fn set_voice_hotkey(hotkey: String) -> Result<(), String> {
-    let path = get_voice_settings_path();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let json = serde_json::json!({ "hotkey": hotkey });
-    let contents = serde_json::to_string_pretty(&json)
-        .map_err(|e| format!("Failed to serialize voice settings: {}", e))?;
-    fs::write(&path, contents).map_err(|e| format!("Failed to write voice settings: {}", e))?;
-    println!("🎙️ Voice hotkey updated to: {}", hotkey);
-    Ok(())
-}
-
 fn main() {
-    // Create system tray menu with native timer widget access
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
-    let show_widget = CustomMenuItem::new("show_widget".to_string(), "Show Focus Timer");
     let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
     let tray_menu = SystemTrayMenu::new()
-        .add_item(show_widget)
         .add_item(check_updates)
         .add_item(quit);
 
@@ -916,11 +879,10 @@ fn main() {
       sidebar_set_width,
       sidebar_navigate,
       sidebar_get_main_state,
-      // Native widget commands
-      native_widget::create_native_timer_widget,
-      native_widget::close_native_timer_widget,
+      // Desktop runtime bridge commands
       native_widget::write_auth_token_to_file,
       native_widget::write_turso_sync_config,
+      native_widget::check_runtime_bridge_signals,
       native_widget::check_dashboard_refresh_trigger,
       native_widget::check_token_refresh_request,
       native_widget::show_native_microphone_permission_dialog,
@@ -954,9 +916,6 @@ fn main() {
       clear_watcher_config_cmd,
       reconcile_watcher_config_user_cmd,
       reconcile_recorder_config_user_cmd,
-      // Voice hotkey settings
-      get_voice_hotkey,
-      set_voice_hotkey,
       // Ritual Recorder commands for legacy OCR surfaces (disabled by default)
       recorder::check_screen_recording_permission,
       recorder::request_screen_recording_permission,
@@ -1001,18 +960,15 @@ fn main() {
         size: _,
         ..
       } => {
-        // Create native Swift timer widget from system tray
-        println!("🖱️ System tray clicked - creating native Swift timer widget");
-        native_widget::create_native_timer_widget();
+        if let Some(window) = _app.get_window("main") {
+          let _ = window.show();
+          let _ = window.set_focus();
+        }
       }
       SystemTrayEvent::MenuItemClick { id, .. } => {
         match id.as_str() {
           "quit" => {
             std::process::exit(0);
-          }
-          "show_widget" => {
-            println!("📱 Show widget menu clicked");
-            native_widget::create_native_timer_widget();
           }
           "check_updates" => {
             println!("⬇️ Check for updates requested from system tray");
@@ -1160,17 +1116,6 @@ fn main() {
           }
         });
       }
-
-      #[cfg(target_os = "macos")]
-      {
-        if env_flag_enabled("RITUAL_DISABLE_NOTCH_AUTOSTART") {
-          println!("⏭️ Native notch auto-start disabled (RITUAL_DISABLE_NOTCH_AUTOSTART=1)");
-        } else {
-          println!("🔄 Auto-starting native notch widget (forcing refresh)...");
-          native_widget::restart_native_timer_widget();
-        }
-      }
-
       load_persisted_turso_sync_config();
       
       // Initialize Ritual Database (unified libSQL with vector search)

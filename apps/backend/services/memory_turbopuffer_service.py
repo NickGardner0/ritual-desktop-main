@@ -100,6 +100,30 @@ class TurbopufferService:
                     "type": "string",
                     "full_text_search": True,
                 },
+                "fts_app_name": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
+                "fts_window_title": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
+                "fts_document_title": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
+                "fts_browser_domain": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
+                "fts_parent_context": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
+                "fts_document_path": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
                 "raw_text_compact": {"type": "string"},
                 "chunk_start_ts": {"type": "int"},
                 "chunk_end_ts": {"type": "int"},
@@ -113,7 +137,10 @@ class TurbopufferService:
                 "app_name": {"type": "string"},
                 "window_title": {"type": "string"},
                 "document_title": {"type": "string"},
-                "document_path": {"type": "string"},
+                "document_path": {
+                    "type": "string",
+                    "full_text_search": True,
+                },
                 "browser_domain": {"type": "string"},
                 "ax_richness_score": {"type": "float"},
                 "content_hash": {"type": "string"},
@@ -128,6 +155,12 @@ class TurbopufferService:
                 "parent_context": {"type": "string"},
             }
             row_attrs = dict(attributes)
+            row_attrs.setdefault("fts_app_name", str(attributes.get("app_name") or ""))
+            row_attrs.setdefault("fts_window_title", str(attributes.get("window_title") or ""))
+            row_attrs.setdefault("fts_document_title", str(attributes.get("document_title") or ""))
+            row_attrs.setdefault("fts_document_path", str(attributes.get("document_path") or ""))
+            row_attrs.setdefault("fts_browser_domain", str(attributes.get("browser_domain") or ""))
+            row_attrs.setdefault("fts_parent_context", str(attributes.get("parent_context") or ""))
             if include_qs:
                 schema["quality_score"] = {"type": "float"}
             else:
@@ -194,6 +227,120 @@ class TurbopufferService:
                 response.text[:200],
             )
 
+    def _legacy_lexical_rank(self, query_text: str) -> List[Any]:
+        return ["contextual_text_compact", "BM25", query_text]
+
+    def _weighted_lexical_rank(self, query_text: str) -> List[Any]:
+        return [
+            "Sum",
+            [
+                ["Product", 2.2, ["contextual_text_compact", "BM25", query_text]],
+                ["Product", 1.8, ["fts_document_title", "BM25", query_text]],
+                ["Product", 1.6, ["fts_document_path", "BM25", query_text]],
+                ["Product", 1.4, ["fts_window_title", "BM25", query_text]],
+                ["Product", 1.0, ["fts_parent_context", "BM25", query_text]],
+                ["Product", 0.8, ["fts_browser_domain", "BM25", query_text]],
+                ["Product", 0.4, ["fts_app_name", "BM25", query_text]],
+            ],
+        ]
+
+    def _build_multi_query_payload(
+        self,
+        *,
+        top_k: int,
+        include: List[str],
+        filters: List[Any],
+        retrieval_queries: List[Dict[str, Any]],
+        weighted_lexical: bool,
+    ) -> tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        payload_multi: Dict[str, Any] = {
+            "consistency": {"level": "strong"},
+            "queries": [],
+        }
+        list_meta: List[Dict[str, Any]] = []
+
+        for retrieval_query in retrieval_queries:
+            query_type = str(retrieval_query.get("type") or "original").strip().lower()
+            query_text = str(retrieval_query.get("text") or "").strip()
+            query_weight = float(retrieval_query.get("weight") or 1.0)
+            query_vector = retrieval_query.get("vector")
+            vector_rank_mode = str(retrieval_query.get("vector_rank_mode") or "ANN").strip()
+            rank_by: Optional[List[Any]] = None
+            source = "fts"
+            rank_strategy = "bm25_weighted" if weighted_lexical else "bm25_legacy"
+
+            if query_type in {"vec", "hyde"} and isinstance(query_vector, list) and query_vector:
+                source = "vec"
+                rank_strategy = f"vector_{vector_rank_mode.lower()}"
+                rank_by = ["vector", vector_rank_mode, query_vector]
+            elif query_type == "original":
+                payload_multi["queries"].append(
+                    {
+                        "top_k": int(top_k),
+                        "include_attributes": include,
+                        "filters": filters,
+                        "rank_by": (
+                            self._weighted_lexical_rank(query_text)
+                            if weighted_lexical
+                            else self._legacy_lexical_rank(query_text)
+                        ),
+                    }
+                )
+                list_meta.append(
+                    {
+                        "source": "fts",
+                        "query_type": query_type,
+                        "query_text": query_text,
+                        "weight": query_weight,
+                        "rank_strategy": rank_strategy,
+                    }
+                )
+                if isinstance(query_vector, list) and query_vector:
+                    payload_multi["queries"].append(
+                        {
+                            "top_k": int(top_k),
+                            "include_attributes": include,
+                            "filters": filters,
+                            "rank_by": ["vector", vector_rank_mode, query_vector],
+                        }
+                    )
+                    list_meta.append(
+                        {
+                            "source": "vec",
+                            "query_type": query_type,
+                            "query_text": query_text,
+                            "weight": query_weight,
+                            "rank_strategy": f"vector_{vector_rank_mode.lower()}",
+                        }
+                    )
+                continue
+            else:
+                rank_by = (
+                    self._weighted_lexical_rank(query_text)
+                    if weighted_lexical
+                    else self._legacy_lexical_rank(query_text)
+                )
+            if rank_by is None:
+                continue
+            payload_multi["queries"].append(
+                {
+                    "top_k": int(top_k),
+                    "include_attributes": include,
+                    "filters": filters,
+                    "rank_by": rank_by,
+                }
+            )
+            list_meta.append(
+                {
+                    "source": source,
+                    "query_type": query_type,
+                    "query_text": query_text,
+                    "weight": query_weight,
+                    "rank_strategy": rank_strategy,
+                }
+            )
+        return payload_multi, list_meta
+
     async def hybrid_candidates(
         self,
         user_id: str,
@@ -228,6 +375,7 @@ class TurbopufferService:
             "app_name",
             "window_title",
             "document_title",
+            "document_path",
             "browser_domain",
             "text_compact",
             "raw_text_compact",
@@ -245,74 +393,13 @@ class TurbopufferService:
             "session_count",
             "context_version",
         ]
-
-        payload_multi = {"queries": []}
-        list_meta: List[Dict[str, Any]] = []
-        for retrieval_query in retrieval_queries:
-            query_type = str(retrieval_query.get("type") or "original").strip().lower()
-            query_text = str(retrieval_query.get("text") or "").strip()
-            query_weight = float(retrieval_query.get("weight") or 1.0)
-            query_vector = retrieval_query.get("vector")
-            rank_by: Optional[List[Any]] = None
-            source = "fts"
-            if query_type in {"vec", "hyde"} and isinstance(query_vector, list) and query_vector:
-                source = "vec"
-                rank_by = ["vector", "ANN", query_vector]
-            elif query_type == "original":
-                payload_multi["queries"].append(
-                    {
-                        "top_k": int(top_k),
-                        "include_attributes": include,
-                        "filters": filters,
-                        "rank_by": ["contextual_text_compact", "BM25", query_text],
-                    }
-                )
-                list_meta.append(
-                    {
-                        "source": "fts",
-                        "query_type": query_type,
-                        "query_text": query_text,
-                        "weight": query_weight,
-                    }
-                )
-                if isinstance(query_vector, list) and query_vector:
-                    payload_multi["queries"].append(
-                        {
-                            "top_k": int(top_k),
-                            "include_attributes": include,
-                            "filters": filters,
-                            "rank_by": ["vector", "ANN", query_vector],
-                        }
-                    )
-                    list_meta.append(
-                        {
-                            "source": "vec",
-                            "query_type": query_type,
-                            "query_text": query_text,
-                            "weight": query_weight,
-                        }
-                    )
-                continue
-            else:
-                rank_by = ["contextual_text_compact", "BM25", query_text]
-            if rank_by is None:
-                continue
-            payload_multi["queries"].append(
-                {
-                    "top_k": int(top_k),
-                    "include_attributes": include,
-                    "filters": filters,
-                    "rank_by": rank_by,
-                }
-            )
-            list_meta.append(
-                {
-                    "source": source,
-                    "query_type": query_type,
-                    "query_text": query_text,
-                    "weight": query_weight,
-                }
-            )
+        payload_multi, list_meta = self._build_multi_query_payload(
+            top_k=top_k,
+            include=include,
+            filters=filters,
+            retrieval_queries=retrieval_queries,
+            weighted_lexical=True,
+        )
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             resp2 = await client.post(
@@ -320,6 +407,24 @@ class TurbopufferService:
                 headers=self._headers(),
                 json=payload_multi,
             )
+            if resp2.status_code >= 400:
+                logger.warning(
+                    "Weighted Turbopuffer lexical query failed for namespace %s, retrying with legacy lexical rank: %s",
+                    namespace,
+                    resp2.text[:240],
+                )
+                payload_multi, list_meta = self._build_multi_query_payload(
+                    top_k=top_k,
+                    include=include,
+                    filters=filters,
+                    retrieval_queries=retrieval_queries,
+                    weighted_lexical=False,
+                )
+                resp2 = await client.post(
+                    f"{self.base_url}/v2/namespaces/{namespace}/query",
+                    headers=self._headers(),
+                    json=payload_multi,
+                )
             if resp2.status_code >= 400:
                 raise RuntimeError(
                     f"Turbopuffer query failed: status={resp2.status_code} body={resp2.text[:240]}"
@@ -385,6 +490,7 @@ class TurbopufferService:
                         "query_type": meta.get("query_type") or "original",
                         "query_text": meta.get("query_text") or "",
                         "query_weight": float(meta.get("weight") or 1.0),
+                        "rank_strategy": meta.get("rank_strategy") or "",
                         "chunk_id": attrs.get("chunk_id"),
                         "logical_chunk_id": attrs.get("logical_chunk_id"),
                         "chunk_start_ts": attrs.get("chunk_start_ts"),
@@ -394,6 +500,7 @@ class TurbopufferService:
                         "app_name": attrs.get("app_name"),
                         "window_title": attrs.get("window_title"),
                         "document_title": attrs.get("document_title"),
+                        "document_path": attrs.get("document_path"),
                         "browser_domain": attrs.get("browser_domain"),
                         "text_compact": attrs.get("text_compact"),
                         "raw_text_compact": attrs.get("raw_text_compact"),

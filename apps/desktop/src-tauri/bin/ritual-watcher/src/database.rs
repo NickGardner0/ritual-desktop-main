@@ -65,7 +65,7 @@ impl WatcherDatabase {
     pub fn new(path: &str) -> std::result::Result<Self, String> {
         info!("Opening Ritual database: {}", path);
 
-        let db = BlockingDatabase::open_with_path(path)
+        let db = BlockingDatabase::open_activity_db_with_env(path)
             .map_err(|e| format!("Failed to open database: {}", e))?;
 
         Ok(Self { db })

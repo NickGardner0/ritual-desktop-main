@@ -16,6 +16,14 @@ import {
   parseExplicitRecapAnchorDate,
 } from './narrative';
 
+export type RetrievalRoute =
+  | 'anchored_day_recap'
+  | 'range_recap'
+  | 'specific_lookup'
+  | 'time_breakdown'
+  | 'habit_metrics'
+  | 'generic_chat';
+
 // ---------------------------------------------------------------------------
 // Core intent classifiers
 // ---------------------------------------------------------------------------
@@ -24,19 +32,7 @@ export function isContextMemoryRecapQuery(text: string): boolean {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return false;
 
-  const specificLookupPatterns = [
-    'what was i doing in ',
-    'what did i do in ',
-    'what was i working on in ',
-    'what was i debugging in ',
-    'when did i ',
-    'find when i ',
-    'show me when ',
-    'what apps did i use at ',
-    'what was i looking at in ',
-  ];
-
-  if (specificLookupPatterns.some((pattern) => normalized.includes(pattern))) {
+  if (isSpecificContextLookupQuery(normalized)) {
     return false;
   }
 
@@ -79,6 +75,23 @@ export function isContextMemoryRecapQuery(text: string): boolean {
     || /\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)\b/.test(normalized);
 
   return hasWorkVerb && hasContextTarget && !scopedQuery;
+}
+
+export function isSpecificContextLookupQuery(text: string): boolean {
+  const normalized = (text || '').toLowerCase().trim();
+  if (!normalized) return false;
+  const specificLookupPatterns = [
+    'what was i doing in ',
+    'what did i do in ',
+    'what was i working on in ',
+    'what was i debugging in ',
+    'when did i ',
+    'find when i ',
+    'show me when ',
+    'what apps did i use at ',
+    'what was i looking at in ',
+  ];
+  return specificLookupPatterns.some((pattern) => normalized.includes(pattern));
 }
 
 export function isComprehensiveWeeklyRecapQuery(text: string): boolean {
@@ -214,6 +227,27 @@ export function isBroadScreenOverviewQuery(text: string): boolean {
     'screen overview',
   ];
   return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+export function classifyRetrievalRoute(text: string): RetrievalRoute {
+  const normalized = (text || '').toLowerCase().trim();
+  if (!normalized) return 'generic_chat';
+
+  if (isScreenTimeSpentQuery(normalized)) return 'time_breakdown';
+  if (isSpecificContextLookupQuery(normalized)) return 'specific_lookup';
+  if (isDailyOverviewQuery(normalized) || isMonthlyOverviewQuery(normalized) || isComprehensiveWeeklyRecapQuery(normalized)) {
+    return 'habit_metrics';
+  }
+  if (isContextMemoryRecapQuery(normalized)) {
+    if (
+      parseExplicitRecapAnchorDate(normalized) !== null
+      || /\b(today|yesterday|this morning|this afternoon|this evening|tonight|last night)\b/.test(normalized)
+    ) {
+      return 'anchored_day_recap';
+    }
+    return 'range_recap';
+  }
+  return 'generic_chat';
 }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
     <false/>
     
     <!-- Allow microphone access for voice recognition -->
-    <key>com.apple.security.device.microphone</key>
+    <key>com.apple.security.device.audio-input</key>
     <true/>
     
     <!-- Allow network access for API calls -->

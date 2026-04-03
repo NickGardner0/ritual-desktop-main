@@ -47,6 +47,34 @@ pub struct TursoSyncConfig {
     pub database_name: String,
 }
 
+#[derive(serde::Serialize)]
+pub struct RuntimeBridgeSignals {
+    pub token_refresh_request: f64,
+    pub dashboard_refresh_trigger: f64,
+}
+
+#[cfg(target_os = "macos")]
+const BUNDLED_VOICE_REQUIRED_ERROR: &str = "native-voice-requires-bundled-app";
+
+#[cfg(target_os = "macos")]
+fn ensure_bundled_voice_runtime() -> Result<(), String> {
+    let executable_path = std::env::current_exe()
+        .map_err(|error| format!("Failed to resolve current executable path: {error}"))?;
+    let executable_path_str = executable_path.to_string_lossy();
+    let is_bundled_app = executable_path_str.contains(".app/Contents/MacOS/");
+
+    if is_bundled_app {
+        return Ok(());
+    }
+
+    nw_warn!(
+        "Blocking native voice API access outside a bundled app: {}",
+        executable_path.display()
+    );
+
+    Err(BUNDLED_VOICE_REQUIRED_ERROR.to_string())
+}
+
 fn turso_sync_config_path() -> Result<std::path::PathBuf, String> {
     dirs::home_dir()
         .ok_or_else(|| "Failed to resolve home directory".to_string())
@@ -82,7 +110,7 @@ pub async fn write_turso_sync_config(
 ) -> Result<String, String> {
     nw_info!("🔄 Applying Turso sync config...");
 
-    use crate::{ritual_database, watcher};
+    use crate::watcher;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
@@ -197,6 +225,12 @@ pub async fn write_turso_sync_config(
         }
     }
 
+    async fn reload_activity_database_blocking() -> Result<(), String> {
+        tokio::task::spawn_blocking(crate::ritual_database::reload_activity_database)
+            .await
+            .map_err(|e| format!("Failed to join activity database reload task: {e}"))?
+    }
+
     async fn rollback_turso_config(
         config_file: &std::path::Path,
         previous_config: &Option<TursoSyncConfig>,
@@ -211,7 +245,7 @@ pub async fn write_turso_sync_config(
             restore_env(previous_env);
         }
 
-        ritual_database::reload_activity_database()?;
+        reload_activity_database_blocking().await?;
 
         if let Some(config) = watcher_restart_config.clone() {
             watcher::start_watcher(config).await?;
@@ -227,7 +261,7 @@ pub async fn write_turso_sync_config(
     let apply_result: Result<(), String> = async {
         persist_turso_sync_config(&config_file, &config)?;
         apply_turso_env(Some(&config));
-        ritual_database::reload_activity_database()?;
+        reload_activity_database_blocking().await?;
 
         if let Some(saved_config) = watcher_restart_config.clone() {
             watcher::start_watcher(saved_config).await?;
@@ -273,311 +307,9 @@ fn read_swift_json_string(ptr: *mut std::os::raw::c_char) -> Result<String, Stri
     Ok(value)
 }
 
-fn native_widget_process_running() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-
-        match Command::new("pgrep")
-            .args(["-x", "NativeTimerWidget"])
-            .output()
-        {
-            Ok(output) => output.status.success() && !output.stdout.is_empty(),
-            Err(e) => {
-                nw_warn!(
-                    "⚠️ Could not check NativeTimerWidget process state via pgrep: {}",
-                    e
-                );
-                false
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
-}
-
-fn terminate_native_widget_processes() {
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-        use std::time::Duration;
-
-        match Command::new("pkill")
-            .args(["-x", "NativeTimerWidget"])
-            .status()
-        {
-            Ok(status) => {
-                if status.success() {
-                    nw_info!("🛑 Terminated existing NativeTimerWidget process");
-                }
-            }
-            Err(e) => {
-                nw_warn!("⚠️ Could not terminate NativeTimerWidget via pkill: {}", e);
-            }
-        }
-
-        std::thread::sleep(Duration::from_millis(140));
-    }
-}
-
-fn build_native_timer_widget_if_possible() {
-    use std::path::Path;
-    use std::process::Command;
-
-    // Locate build script for both possible CWDs.
-    let script_candidates = [
-        Path::new("native-timer/build_widget.sh").to_path_buf(),
-        Path::new("src-tauri/native-timer/build_widget.sh").to_path_buf(),
-    ];
-    let script_path = script_candidates.iter().find(|p| p.exists()).cloned();
-
-    if let Some(script) = script_path {
-        let _ = Command::new("bash")
-            .arg("-c")
-            .arg(format!(
-                "chmod +x '{}' && '{}'",
-                script.display(),
-                script.display()
-            ))
-            .status();
-    } else {
-        nw_error!("❌ Could not find build script 'native-timer/build_widget.sh'.");
-    }
-}
-
-fn native_widget_needs_rebuild(exec_path: &std::path::Path) -> bool {
-    use std::fs;
-    use std::path::Path;
-
-    let binary_metadata = match fs::metadata(exec_path) {
-        Ok(metadata) => metadata,
-        Err(_) => return true,
-    };
-
-    let binary_modified = match binary_metadata.modified() {
-        Ok(mtime) => mtime,
-        Err(_) => return true,
-    };
-
-    // Candidate Swift source paths depending on current working directory.
-    let source_candidates = [
-        Path::new("native-timer/Package.swift"),
-        Path::new("native-timer/TimerWidgetApp.swift"),
-        Path::new("native-timer/MicrophonePermission.swift"),
-        Path::new("native-timer/SpeechRecognition.swift"),
-        Path::new("native-timer/Notch/NotchController.swift"),
-        Path::new("native-timer/Notch/NotchTimerView.swift"),
-        Path::new("native-timer/Notch/NotchHabitPicker.swift"),
-        Path::new("native-timer/Notch/NotchVoiceViews.swift"),
-        Path::new("native-timer/Stores/TimerSessionStore.swift"),
-        Path::new("native-timer/Hotkeys/ModifierEventTap.swift"),
-        Path::new("native-timer/Hotkeys/GlobalHotkey.swift"),
-        Path::new("native-timer/Permissions/AccessibilityPermission.swift"),
-        Path::new("native-timer/Speech/SpeechEngine.swift"),
-        Path::new("native-timer/Speech/VoicePermissions.swift"),
-        Path::new("src-tauri/native-timer/Package.swift"),
-        Path::new("src-tauri/native-timer/TimerWidgetApp.swift"),
-        Path::new("src-tauri/native-timer/MicrophonePermission.swift"),
-        Path::new("src-tauri/native-timer/SpeechRecognition.swift"),
-        Path::new("src-tauri/native-timer/Notch/NotchController.swift"),
-        Path::new("src-tauri/native-timer/Notch/NotchTimerView.swift"),
-        Path::new("src-tauri/native-timer/Notch/NotchHabitPicker.swift"),
-        Path::new("src-tauri/native-timer/Notch/NotchVoiceViews.swift"),
-        Path::new("src-tauri/native-timer/Stores/TimerSessionStore.swift"),
-        Path::new("src-tauri/native-timer/Hotkeys/ModifierEventTap.swift"),
-        Path::new("src-tauri/native-timer/Hotkeys/GlobalHotkey.swift"),
-        Path::new("src-tauri/native-timer/Permissions/AccessibilityPermission.swift"),
-        Path::new("src-tauri/native-timer/Speech/SpeechEngine.swift"),
-        Path::new("src-tauri/native-timer/Speech/VoicePermissions.swift"),
-    ];
-
-    for source in source_candidates {
-        if !source.exists() {
-            continue;
-        }
-
-        match fs::metadata(source).and_then(|metadata| metadata.modified()) {
-            Ok(source_modified) => {
-                if source_modified > binary_modified {
-                    nw_info!(
-                        "🔨 Native widget rebuild required: {:?} is newer than binary",
-                        source
-                    );
-                    return true;
-                }
-            }
-            Err(_) => return true,
-        }
-    }
-
-    false
-}
-
-fn launch_native_timer_widget(force_restart: bool) {
-    use std::path::{Path, PathBuf};
-    use std::process::Command;
-
-    nw_info!("🚀 Creating native Swift timer widget...");
-
-    if force_restart {
-        terminate_native_widget_processes();
-    } else if native_widget_process_running() {
-        nw_info!("ℹ️ Native Swift timer widget already running; skipping duplicate launch");
-        return;
-    }
-
-    // Prefer the .app bundle launched via `open` so macOS Launch Services
-    // registers the bundle identity (required for permission dialogs to
-    // list the app in System Settings).  Fall back to the bare binary.
-    let app_bundle_candidates: [PathBuf; 2] = [
-        Path::new("src-tauri/target/release/NativeTimerWidget.app").to_path_buf(),
-        Path::new("target/release/NativeTimerWidget.app").to_path_buf(),
-    ];
-    let bare_candidates: [PathBuf; 2] = [
-        Path::new("src-tauri/target/release/NativeTimerWidget").to_path_buf(),
-        Path::new("target/release/NativeTimerWidget").to_path_buf(),
-    ];
-
-    let parent_pid = std::process::id().to_string();
-
-    let find_app_bundle =
-        || -> Option<PathBuf> { app_bundle_candidates.iter().find(|p| p.exists()).cloned() };
-    let find_bare = || -> Option<PathBuf> { bare_candidates.iter().find(|p| p.exists()).cloned() };
-    let find_any_binary = || -> Option<PathBuf> {
-        // For rebuild-check we need the actual binary, not the .app dir
-        let bin_inside_app: Vec<PathBuf> = app_bundle_candidates
-            .iter()
-            .map(|p| p.join("Contents/MacOS/NativeTimerWidget"))
-            .collect();
-        bin_inside_app
-            .iter()
-            .find(|p| p.exists())
-            .cloned()
-            .or_else(|| bare_candidates.iter().find(|p| p.exists()).cloned())
-    };
-
-    nw_info!(
-        "🔍 Current working directory: {:?}",
-        std::env::current_dir().unwrap_or_default()
-    );
-
-    // Check if a build exists; if not, or if stale, rebuild.
-    match find_any_binary() {
-        None => {
-            nw_info!(
-                "⚠️ Native widget executable not found. Attempting to build via build_widget.sh..."
-            );
-            build_native_timer_widget_if_possible();
-        }
-        Some(bin) => {
-            if native_widget_needs_rebuild(&bin) {
-                nw_info!("🔄 Rebuilding native widget to pick up latest Swift changes...");
-                build_native_timer_widget_if_possible();
-            }
-        }
-    }
-
-    // Launch: prefer .app bundle via `open` (absolute path required), fall back to bare binary.
-    if let Some(bundle_path) = find_app_bundle() {
-        let abs_bundle = std::fs::canonicalize(&bundle_path).unwrap_or(bundle_path);
-        let bundle_str = abs_bundle.to_string_lossy().to_string();
-        nw_info!("🔍 Launching widget via `open -n -a {}`", bundle_str);
-        match Command::new("open")
-            .args([
-                "-n",
-                "-a",
-                &bundle_str,
-                "--args",
-                &format!("--parent-pid={}", parent_pid),
-            ])
-            .output()
-        {
-            Ok(output) if output.status.success() => {
-                nw_info!("✅ Native Swift timer widget launched successfully!");
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                nw_info!("⚠️ `open` exited with {}: {}", output.status, stderr.trim());
-                nw_info!("⚠️ Falling back to direct binary exec");
-                launch_bare_binary(find_bare(), &parent_pid);
-            }
-            Err(e) => {
-                nw_info!("⚠️ `open` failed ({}), falling back to direct exec", e);
-                launch_bare_binary(find_bare(), &parent_pid);
-            }
-        }
-    } else if let Some(bare_path) = find_bare() {
-        nw_info!(
-            "🔍 No .app bundle found, using bare binary: {:?}",
-            bare_path
-        );
-        launch_bare_binary(Some(bare_path), &parent_pid);
-    } else {
-        nw_error!("❌ No widget executable found. Trying build + retry...");
-        build_native_timer_widget_if_possible();
-        if let Some(bundle_path) = find_app_bundle() {
-            let abs_bundle = std::fs::canonicalize(&bundle_path).unwrap_or(bundle_path);
-            let bundle_str = abs_bundle.to_string_lossy().to_string();
-            let _ = Command::new("open")
-                .args([
-                    "-n",
-                    "-a",
-                    &bundle_str,
-                    "--args",
-                    &format!("--parent-pid={}", parent_pid),
-                ])
-                .output();
-        } else {
-            launch_bare_binary(find_bare(), &parent_pid);
-        }
-    }
-}
-
-fn launch_bare_binary(path: Option<std::path::PathBuf>, parent_pid: &str) {
-    use std::process::Command;
-
-    match path {
-        Some(p) => {
-            nw_info!("🔍 Using bare widget binary at: {:?}", p);
-            match Command::new(&p)
-                .env("RITUAL_PARENT_PID", parent_pid)
-                .spawn()
-            {
-                Ok(_) => nw_info!("✅ Native Swift timer widget launched (bare binary)!"),
-                Err(e) => {
-                    nw_error!("❌ Failed to launch native Swift widget: {}", e);
-                    nw_info!("🔄 If the problem persists, try: 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
-                }
-            }
-        }
-        None => {
-            nw_error!("❌ Failed to locate or build the native widget executable.");
-            nw_info!("🔄 Ensure Xcode Command Line Tools are installed and run 'bash native-timer/build_widget.sh' from 'src-tauri/'.");
-        }
-    }
-}
-
-#[tauri::command]
-pub fn create_native_timer_widget() {
-    launch_native_timer_widget(false);
-}
-
-pub fn restart_native_timer_widget() {
-    launch_native_timer_widget(true);
-}
-
-#[tauri::command]
-pub fn close_native_timer_widget() {
-    nw_info!("🔴 Close native Swift timer widget requested (disabled)");
-    // TODO: Add close function to Swift and call it here
-}
-
 #[tauri::command]
 pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
-    nw_info!("🔐 Writing auth token to file for native widget...");
+    nw_info!("🔐 Writing auth token to file for desktop runtime...");
 
     use dirs::home_dir;
     use std::fs;
@@ -613,43 +345,49 @@ pub async fn write_auth_token_to_file(token: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn check_dashboard_refresh_trigger() -> Result<f64, String> {
-    use std::env;
-    use std::fs;
-
-    let temp_dir = env::temp_dir();
-    let trigger_file = temp_dir.join("ritual_timer_updated.txt");
-
-    match fs::read_to_string(&trigger_file) {
-        Ok(timestamp_str) => {
-            match timestamp_str.trim().parse::<f64>() {
-                Ok(timestamp) => Ok(timestamp),
-                Err(_) => Ok(0.0), // Invalid timestamp, return 0
-            }
-        }
-        Err(_) => Ok(0.0), // File doesn't exist or can't be read, return 0
-    }
+    Ok(read_runtime_bridge_timestamp_file("ritual_timer_updated.txt", false))
 }
 
 #[tauri::command]
 pub async fn check_token_refresh_request() -> Result<f64, String> {
+    Ok(read_runtime_bridge_timestamp_file(
+        "ritual_refresh_token_request.txt",
+        true,
+    ))
+}
+
+#[tauri::command]
+pub async fn check_runtime_bridge_signals() -> Result<RuntimeBridgeSignals, String> {
+    Ok(RuntimeBridgeSignals {
+        token_refresh_request: read_runtime_bridge_timestamp_file(
+            "ritual_refresh_token_request.txt",
+            true,
+        ),
+        dashboard_refresh_trigger: read_runtime_bridge_timestamp_file(
+            "ritual_timer_updated.txt",
+            false,
+        ),
+    })
+}
+
+fn read_runtime_bridge_timestamp_file(file_name: &str, delete_after_read: bool) -> f64 {
     use std::env;
     use std::fs;
 
     let temp_dir = env::temp_dir();
-    let request_file = temp_dir.join("ritual_refresh_token_request.txt");
+    let target_file = temp_dir.join(file_name);
 
-    match fs::read_to_string(&request_file) {
-        Ok(timestamp_str) => {
-            match timestamp_str.trim().parse::<f64>() {
-                Ok(timestamp) => {
-                    // Delete the request file after reading
-                    let _ = fs::remove_file(&request_file);
-                    Ok(timestamp)
+    match fs::read_to_string(&target_file) {
+        Ok(timestamp_str) => match timestamp_str.trim().parse::<f64>() {
+            Ok(timestamp) => {
+                if delete_after_read {
+                    let _ = fs::remove_file(&target_file);
                 }
-                Err(_) => Ok(0.0),
+                timestamp
             }
-        }
-        Err(_) => Ok(0.0),
+            Err(_) => 0.0,
+        },
+        Err(_) => 0.0,
     }
 }
 
@@ -658,6 +396,7 @@ pub async fn show_native_microphone_permission_dialog() -> Result<bool, String> 
     #[cfg(target_os = "macos")]
     {
         nw_info!("🎤 Showing native macOS microphone permission dialog...");
+        ensure_bundled_voice_runtime()?;
 
         unsafe {
             let granted = show_microphone_permission_dialog();
@@ -678,6 +417,7 @@ pub async fn check_native_microphone_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
         nw_info!("🎤 Checking native microphone permission...");
+        ensure_bundled_voice_runtime()?;
 
         unsafe {
             let has_permission = check_microphone_permission();
@@ -698,6 +438,7 @@ pub async fn show_native_speech_recognition_permission_dialog() -> Result<bool, 
     #[cfg(target_os = "macos")]
     {
         nw_info!("🎤 Showing native macOS speech recognition permission dialog...");
+        ensure_bundled_voice_runtime()?;
 
         unsafe {
             let granted = show_speech_recognition_permission_dialog();
@@ -718,6 +459,7 @@ pub async fn check_native_speech_recognition_permission() -> Result<bool, String
     #[cfg(target_os = "macos")]
     {
         nw_info!("🎤 Checking native speech recognition permission...");
+        ensure_bundled_voice_runtime()?;
 
         unsafe {
             let has_permission = check_speech_recognition_permission();
@@ -738,6 +480,7 @@ pub async fn start_native_speech_recognition() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         nw_info!("🎤 Starting native speech recognition...");
+        ensure_bundled_voice_runtime()?;
 
         unsafe {
             let success = start_speech_recognition();

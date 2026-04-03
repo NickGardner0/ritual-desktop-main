@@ -115,8 +115,8 @@ fn main() {
     println!("cargo:warning=🔨 Building Swift speech recognition library...");
 
     let swift_files = vec![
-        "native-timer/MicrophonePermission.swift",
-        "native-timer/SpeechRecognition.swift",
+        "native-voice/MicrophonePermission.swift",
+        "native-voice/SpeechRecognition.swift",
     ];
     let object_files = vec![
         "target/MicrophonePermission.o",

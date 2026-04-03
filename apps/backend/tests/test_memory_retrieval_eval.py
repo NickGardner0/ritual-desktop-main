@@ -100,6 +100,21 @@ class RetrievalEvalTests(unittest.IsolatedAsyncioTestCase):
             expanded = expand_memory_query("what did i work on this morning", include_hyde=True)
         self.assertTrue(any(item["type"] == "hyde" for item in expanded))
 
+    def test_expand_memory_query_uses_route_specific_profile_variants(self):
+        expanded = expand_memory_query(
+            "when did i fix voice mode",
+            intent="semantic_lookup",
+            query_profile={
+                "document_refs": ["entitlements.plist", "SpeechRecognition.swift"],
+                "artifact_refs": ["com.apple.security.device.audio-input"],
+                "entity_refs": ["voice mode", "microphone entitlement"],
+                "task_phrases": ["fix voice mode entitlement"],
+            },
+        )
+        expanded_texts = {item["text"] for item in expanded}
+        self.assertIn("entitlements.plist SpeechRecognition.swift", expanded_texts)
+        self.assertIn("fix voice mode entitlement", expanded_texts)
+
     def test_rrf_fuse_returns_trace_and_top_rank_bonus(self):
         fused, trace = _rrf_fuse(
             [
@@ -196,6 +211,37 @@ class RetrievalEvalTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(second["provider"], "cache")
                 self.assertFalse(second["rerank_attempted"])
                 self.assertGreater(second["cache_hits"], 0)
+
+    async def test_rerank_candidates_reports_openai_fallback_provenance(self):
+        candidates = [
+            {
+                "app_name": "Cursor",
+                "window_title": "entitlements.plist",
+                "document_title": "entitlements.plist",
+                "browser_domain": "",
+                "contextual_text_compact": "Fix microphone entitlement for native voice mode.",
+                "parent_context": "ritual-desktop-main",
+            }
+        ]
+        with patch(
+            "services.memory_rerank_service._cohere_rerank",
+            AsyncMock(side_effect=RuntimeError("cohere exploded")),
+        ), patch(
+            "services.memory_rerank_service._openai_rerank",
+            AsyncMock(return_value=[(0, 0.88)]),
+        ):
+            result = await rerank_candidates(
+                query="fix voice mode entitlement",
+                rerank_intent="documents: entitlements.plist",
+                candidates=candidates,
+                top_n=1,
+            )
+
+        self.assertEqual(result["provider"], "openai_fallback")
+        self.assertTrue(result["rerank_attempted"])
+        self.assertTrue(result["cohere_attempted"])
+        self.assertTrue(result["openai_attempted"])
+        self.assertEqual(result["fallback_reason"], "cohere_error")
 
     def test_strong_signal_short_circuit_detects_dominant_lexical_hit(self):
         result = _strong_signal_short_circuit(

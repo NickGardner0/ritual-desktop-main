@@ -20,7 +20,6 @@ import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerA
 import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 import {
   clearNativeDesktopSpeechState,
-  ensureNativeDesktopVoicePermissions,
   formatNativeSpeechError,
   getNativeSpeechErrorMessage,
   getNativeDesktopSpeechState,
@@ -811,6 +810,7 @@ export function ChatClient() {
   const nativeVoiceAutoStopRef = useRef<number | null>(null);
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
   const nativeVoiceTimestampRef = useRef(0);
+  const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
   
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
@@ -1553,7 +1553,9 @@ export function ChatClient() {
   useEffect(() => {
     return () => {
       clearNativeVoiceTimers();
-      void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+      if (voiceInputModeRef.current === 'native') {
+        void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+      }
     };
   }, [clearNativeVoiceTimers]);
 
@@ -1561,8 +1563,8 @@ export function ChatClient() {
     setVoiceError(null);
     setIsProcessingVoice(false);
     await resetNativeVoiceSession();
-    await ensureNativeDesktopVoicePermissions();
     await startNativeDesktopSpeechRecognition();
+    voiceInputModeRef.current = 'native';
     setIsListening(true);
 
     nativeVoicePollRef.current = window.setInterval(() => {
@@ -1628,12 +1630,10 @@ export function ChatClient() {
         await startNativeVoiceRecognition();
         return;
       } catch (nativeError) {
-        console.warn('Native desktop speech recognition failed:', nativeError);
         await resetNativeVoiceSession().catch(() => undefined);
         setIsListening(false);
         setIsProcessingVoice(false);
-        setVoiceError(formatNativeSpeechError(getNativeSpeechErrorMessage(nativeError)));
-        return;
+        voiceInputModeRef.current = null;
       }
     }
 
@@ -1641,6 +1641,7 @@ export function ChatClient() {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
+      voiceInputModeRef.current = 'browser';
       setAudioStream(stream);
 
       let mimeType = '';
@@ -1708,6 +1709,7 @@ export function ChatClient() {
       (window as any).__autoStopTimer = autoStopTimer;
 
     } catch (err: any) {
+      voiceInputModeRef.current = null;
       const nativeMessage = getNativeSpeechErrorMessage(err);
       setVoiceError(
         err?.name === 'NotAllowedError'
@@ -1720,7 +1722,7 @@ export function ChatClient() {
   };
 
   const stopVoiceRecording = () => {
-    if (isTauri()) {
+    if (voiceInputModeRef.current === 'native') {
       if (nativeVoiceAutoStopRef.current) {
         clearTimeout(nativeVoiceAutoStopRef.current);
         nativeVoiceAutoStopRef.current = null;
@@ -1741,6 +1743,7 @@ export function ChatClient() {
           nativeVoiceFinalizeTimeoutRef.current = window.setTimeout(() => {
             void resetNativeVoiceSession();
             setIsProcessingVoice(false);
+            voiceInputModeRef.current = null;
             setVoiceError('No speech detected. Please try again.');
           }, 1500);
         });
@@ -1751,6 +1754,7 @@ export function ChatClient() {
     const autoStopTimer = (window as any).__autoStopTimer;
     if (autoStopTimer) clearTimeout(autoStopTimer);
     if (mediaRecorder?.state === 'recording') mediaRecorder.stop();
+    voiceInputModeRef.current = null;
     if (audioStream) {
       audioStream.getTracks().forEach(track => track.stop());
       setAudioStream(null);

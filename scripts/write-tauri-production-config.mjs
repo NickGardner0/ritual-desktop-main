@@ -67,6 +67,7 @@ const generatedConfig = {
       ...baseConfig.tauri.bundle,
       macOS: {
         ...baseConfig.tauri.bundle.macOS,
+        signingIdentity: null,
         providerShortName:
           process.env.APPLE_PROVIDER_SHORT_NAME ||
           baseConfig.tauri.bundle.macOS.providerShortName ||

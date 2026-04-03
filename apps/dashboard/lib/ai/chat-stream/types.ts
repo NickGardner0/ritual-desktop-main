@@ -157,6 +157,8 @@ export interface ActivitySummaryResult {
   calendar_style_date?: string | null;
   bundle?: Record<string, unknown> | null;
   workstreams?: Array<Record<string, unknown>>;
+  retrieval_debug?: Record<string, unknown> | null;
+  provider_path?: Record<string, unknown> | null;
   health?: Record<string, unknown> | null;
   degraded?: boolean;
   degradation_notes?: string[];
