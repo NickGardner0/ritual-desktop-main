@@ -51,9 +51,56 @@ interface ComputerSummaryState {
   avg_daily_hours?: number;
 }
 
+interface MetricLogEntry {
+  habitId: string;
+  localDate: string;
+  amount: number | null;
+  duration: number | null;
+}
+
+interface HabitMetricStatsData {
+  unitLabel: string;
+  sumFormatted: string;
+  avgFormatted: string;
+  minFormatted: string;
+  maxFormatted: string;
+  stdDevFormatted: string;
+  daysWithData: number;
+}
+
+interface HabitMetricData {
+  display: string;
+  stats: HabitMetricStatsData;
+}
+
 const OVERVIEW_STATS_CACHE_VERSION = 'v3';
 const OVERVIEW_STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 const EMPTY_OVERVIEW_LOGS: any[] = [];
+
+function formatMetricAmount(value: number, unitType: string): string {
+  const rounded = Math.round(value * 100) / 100;
+  const unitLower = unitType.toLowerCase();
+
+  if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
+    return Math.round(rounded).toString();
+  }
+
+  if (['miles', 'km', 'kilometers'].includes(unitLower)) {
+    return rounded.toFixed(1);
+  }
+
+  if (['hours', 'minutes'].includes(unitLower)) {
+    return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  return Number.isInteger(rounded)
+    ? rounded.toString()
+    : rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function formatMetricDisplay(value: number, unitType: string): string {
+  return `${formatMetricAmount(value, unitType)} ${unitType}`;
+}
 
 function readOverviewStatsCache(cacheKey: string | null): Record<string, HabitStats> {
   if (typeof window === 'undefined' || !cacheKey) return {};
@@ -457,6 +504,15 @@ export function OverviewView({
           setComputerActivityDaily(existingRows)
         }
 
+        if (isDesktopShell) {
+          stopTimer({
+            success: true,
+            mode: 'summary-only-desktop',
+            total_active_ms: Number(summary.total_active_ms || 0),
+          });
+          return;
+        }
+
         deferredDailyTimer = window.setTimeout(async () => {
           if (controller.signal.aborted) return
           try {
@@ -516,7 +572,7 @@ export function OverviewView({
           return;
         }
         void fetchComputerActivity();
-      }, 60_000);
+      }, isDesktopShell ? 5 * 60_000 : 60_000);
     }
     return () => {
       controller.abort();
@@ -527,7 +583,7 @@ export function OverviewView({
         clearInterval(refreshTimer);
       }
     };
-  }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), overviewComputerCacheKey, userLoaded, isSignedIn, user]);
+  }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), isDesktopShell, overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   useEffect(() => {
     if (firstUsablePaintLoggedRef.current) return;
@@ -623,195 +679,6 @@ export function OverviewView({
     return () => clearInterval(retryTimer);
   }, [user, isBackendUnavailable, fetchHabits, fetchHabitLogs]);
 
-  // Get display text for habit metrics
-  const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
-    const unitType = habit.unit_type || 'sessions';
-    const isComputerHabit = isComputerHabitName(habit.name);
-    const cachedHabitStats = effectiveCachedStats[habit.id || ''];
-
-    if (isComputerHabit) {
-      let computerHours: number;
-      if (scrubberHoveredDate) {
-        // Hovered date on scrubber — sum all rows (single day fetch)
-        computerHours = effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
-      } else if (!dateRange?.from && computerActivitySummary) {
-        // "All time" — use the pre-computed summary
-        computerHours = Number(computerActivitySummary.total_hours || 0);
-      } else if (dateRange?.from) {
-        // Specific date or date range — filter rows to match
-        const fromStr = dateRange.from.toISOString().slice(0, 10);
-        const toStr = dateRange.to ? dateRange.to.toISOString().slice(0, 10) : fromStr;
-        computerHours = effectiveComputerActivityDaily
-          .filter((row) => {
-            const day = row.day;
-            return day && day >= fromStr && day <= toStr;
-          })
-          .reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
-      } else {
-        computerHours = effectiveComputerActivityDaily.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
-      }
-      const totalHours = Math.round(computerHours * 100) / 100;
-
-      // The history scrubber is derived from habit logs and does not include
-      // local desktop watcher data. When the computer habit is displayed, use
-      // the local watcher rows directly for hovered dates and otherwise fall
-      // back to the real desktop total instead of showing an unrelated 0-hour
-      // habit-log preview.
-      if (scrubberHoveredDate) {
-        const hoveredRow = effectiveComputerActivityDaily.find((row) => row.day === scrubberHoveredDate);
-        if (hoveredRow) {
-          const hoveredHours = Math.round(Number(hoveredRow.active_hours || 0) * 100) / 100;
-          return `${hoveredHours} Hours`;
-        }
-      }
-
-      return `${totalHours} Hours`;
-    }
-    
-    if (previewValue !== undefined && previewValue !== null) {
-      if (unitType.toLowerCase().includes('hour')) {
-        const hours = Math.round((previewValue / 60) * 100) / 100;
-        return `${hours} Hours`;
-      } else if (unitType.toLowerCase().includes('minute')) {
-        return `${Math.round(previewValue)} Minutes`;
-      }
-      
-      const unitLower = unitType.toLowerCase();
-      let formattedAmount: string;
-      
-      if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
-        formattedAmount = Math.round(previewValue).toString();
-      } else if (['miles', 'km', 'kilometers'].includes(unitLower)) {
-        formattedAmount = previewValue.toFixed(1);
-      } else {
-        formattedAmount = Number.isInteger(previewValue) 
-          ? previewValue.toString() 
-          : (Math.round(previewValue * 100) / 100).toString();
-      }
-      
-      return `${formattedAmount} ${unitType}`;
-    }
-
-    if (cachedHabitStats && !scrubberHoveredDate) {
-      const totalAmount = cachedHabitStats.total || 0;
-      const unitLower = unitType.toLowerCase();
-      let formattedAmount: string;
-
-      if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
-        formattedAmount = Math.round(totalAmount).toString();
-      } else if (['miles', 'km', 'kilometers'].includes(unitLower)) {
-        formattedAmount = totalAmount.toFixed(1);
-      } else if (['hours', 'minutes'].includes(unitLower)) {
-        formattedAmount = (Math.round(totalAmount * 100) / 100).toString();
-      } else {
-        formattedAmount = Number.isInteger(totalAmount)
-          ? totalAmount.toString()
-          : (Math.round(totalAmount * 100) / 100).toString();
-      }
-
-      return `${formattedAmount} ${unitType}`;
-    }
-
-    let filteredLogs = displayLogs.filter(log => {
-      const matchesHabit = log.habit_id === habit.id;
-      const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
-      return matchesHabit && isCompleted;
-    });
-
-    if (dateRange?.from) {
-      filteredLogs = filteredLogs.filter(log => {
-        const localDate = getLogLocalDate(log);
-        if (!localDate) return false;
-
-        const logDate = parseISO(localDate);
-        if (Number.isNaN(logDate.getTime())) {
-          return false;
-        }
-
-        if (dateRange.to) {
-          return isWithinInterval(logDate, {
-            start: startOfDay(dateRange.from!),
-            end: endOfDay(dateRange.to),
-          });
-        }
-
-        const filterDateStr = format(dateRange.from!, 'yyyy-MM-dd');
-        return localDate === filterDateStr;
-      });
-    }
-
-    if (filteredLogs.length === 0) {
-      return `0 ${unitType}`;
-    }
-
-    if (unitType.toLowerCase().includes('hour') || unitType.toLowerCase().includes('minute')) {
-      const totalDurationSeconds = filteredLogs.reduce((sum, log) => {
-        if (log.duration && log.duration > 0) {
-          return sum + log.duration;
-        } else if (log.amount && log.amount > 0) {
-          if (unitType.toLowerCase().includes('hour')) {
-            return sum + (log.amount * 3600);
-          } else if (unitType.toLowerCase().includes('minute')) {
-            return sum + (log.amount * 60);
-          } else {
-            return sum + log.amount;
-          }
-        }
-        return sum;
-      }, 0);
-
-      if (unitType.toLowerCase().includes('hour')) {
-        const totalHours = Math.round((totalDurationSeconds / 3600) * 100) / 100;
-        return `${totalHours} Hours`;
-      } else {
-        const totalMinutes = Math.round(totalDurationSeconds / 60);
-        return `${totalMinutes} Minutes`;
-      }
-    }
-
-    const totalAmount = filteredLogs.reduce((sum, log) => sum + (log.amount || 1), 0);
-    const unitLower = unitType.toLowerCase();
-    let formattedAmount: string;
-    
-    if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
-      formattedAmount = Math.round(totalAmount).toString();
-    } else if (['miles', 'km', 'kilometers'].includes(unitLower)) {
-      formattedAmount = totalAmount.toFixed(1);
-    } else if (['hours', 'minutes'].includes(unitLower)) {
-      formattedAmount = (Math.round(totalAmount * 100) / 100).toString();
-    } else {
-      formattedAmount = Number.isInteger(totalAmount) 
-        ? totalAmount.toString() 
-        : (Math.round(totalAmount * 100) / 100).toString();
-    }
-    
-    return `${formattedAmount} ${unitType}`;
-  }, [
-    computerActivitySummary,
-    effectiveCachedStats,
-    displayLogs,
-    dateRange,
-    effectiveComputerActivityDaily,
-    getLogLocalDate,
-    scrubberHoveredDate,
-  ]);
-
-  // Keep a ref to the latest getHabitMetricDisplay so we can call it from a
-  // stable function reference that never changes identity. This prevents
-  // React.memo on SortableHabitItem from being defeated every time
-  // displayLogs/effectiveCachedStats change (which create a new useCallback ref).
-  const getHabitMetricDisplayRef = useRef(getHabitMetricDisplay);
-  getHabitMetricDisplayRef.current = getHabitMetricDisplay;
-
-  const getHabitMetricDisplayStable = useCallback(
-    (habit: Habit, previewValue?: number | null): string => {
-      return getHabitMetricDisplayRef.current(habit, previewValue);
-    },
-    [],
-  );
-
-  const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
-
   const formatHabitStatNumber = useCallback((n: number) => {
     const rounded = Math.round(n * 100) / 100;
     return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -838,98 +705,128 @@ export function OverviewView({
     return false;
   }, []);
 
-  const getLocalHabitStats = useCallback((habit: Habit) => {
-    const unitLabel = habit.unit_type || 'sessions';
-    const unitLower = unitLabel.toLowerCase();
-    const isHourBased = unitLower.includes('hour');
-    const isMinuteBased = unitLower.includes('minute');
-    const useMaxPerDay = isSleepLikeHabit(habit);
+  const filteredMetricLogEntries = useMemo<MetricLogEntry[]>(() => {
+    const rangeStart = dateRange?.from ? startOfDay(dateRange.from) : null;
+    const rangeEnd = dateRange?.from ? endOfDay(dateRange.to ?? dateRange.from) : null;
 
-    const filteredLogs = displayLogs.filter(log => {
-      const matchesHabit = log.habit_id === habit.id;
+    return displayLogs.reduce<MetricLogEntry[]>((entries, log) => {
+      const habitId = typeof log.habit_id === 'string' ? log.habit_id : '';
       const isCompleted = log.status === 'completed' || (log.status as any) === 'success' || !log.status;
-      if (!matchesHabit || !isCompleted) return false;
 
-      if (!dateRange?.from) return true;
-
-      const localDate = getLogLocalDate(log);
-      if (!localDate) return false;
-
-      const logDate = parseISO(localDate);
-      if (Number.isNaN(logDate.getTime())) return false;
-
-      if (dateRange.to) {
-        return isWithinInterval(logDate, {
-          start: startOfDay(dateRange.from),
-          end: endOfDay(dateRange.to),
-        });
+      if (!habitId || !isCompleted) {
+        return entries;
       }
 
-      return localDate === format(dateRange.from, 'yyyy-MM-dd');
-    });
-
-    const dailyValues = new Map<string, number>();
-
-    filteredLogs.forEach((log) => {
       const localDate = getLogLocalDate(log);
-      if (!localDate) return;
 
-      let numericValue = 0;
-
-      if (typeof log.duration === 'number' && Number.isFinite(log.duration) && log.duration > 0) {
-        if (isHourBased) {
-          numericValue = log.duration / 3600;
-        } else if (isMinuteBased) {
-          numericValue = log.duration / 60;
-        } else {
-          numericValue = log.duration;
+      if (rangeStart && rangeEnd) {
+        if (!localDate) return entries;
+        const logDate = parseISO(localDate);
+        if (Number.isNaN(logDate.getTime())) return entries;
+        if (!isWithinInterval(logDate, { start: rangeStart, end: rangeEnd })) {
+          return entries;
         }
-      } else if (typeof log.amount === 'number' && Number.isFinite(log.amount)) {
-        numericValue = log.amount;
-      } else {
-        numericValue = 1;
       }
 
-      const previousValue = dailyValues.get(localDate) || 0;
-      dailyValues.set(localDate, useMaxPerDay ? Math.max(previousValue, numericValue) : previousValue + numericValue);
-    });
+      entries.push({
+        habitId,
+        localDate,
+        amount: typeof log.amount === 'number' && Number.isFinite(log.amount) ? log.amount : null,
+        duration: typeof log.duration === 'number' && Number.isFinite(log.duration) ? log.duration : null,
+      });
+      return entries;
+    }, []);
+  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), displayLogs, getLogLocalDate]);
 
-    const values = Array.from(dailyValues.values()).filter((value) => Number.isFinite(value));
-    const total = values.reduce((sum, value) => sum + value, 0);
-    const average = values.length ? total / values.length : 0;
-    const min = values.length ? Math.min(...values) : 0;
-    const max = values.length ? Math.max(...values) : 0;
-    const variance = values.length
-      ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
-      : 0;
+  const metricEntriesByHabitId = useMemo(() => {
+    const grouped = new Map<string, MetricLogEntry[]>();
 
-    return {
-      unitLabel,
-      sumFormatted: `${formatHabitStatNumber(total)} ${unitLabel}`,
-      avgFormatted: `${formatHabitStatNumber(average)} ${unitLabel}`,
-      minFormatted: `${formatHabitStatNumber(min)} ${unitLabel}`,
-      maxFormatted: `${formatHabitStatNumber(max)} ${unitLabel}`,
-      stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} ${unitLabel}`,
-      daysWithData: values.filter((value) => value > 0).length,
-    };
-  }, [dateRange, displayLogs, formatHabitStatNumber, getLogLocalDate, isSleepLikeHabit]);
+    for (const entry of filteredMetricLogEntries) {
+      const existing = grouped.get(entry.habitId);
+      if (existing) {
+        existing.push(entry);
+      } else {
+        grouped.set(entry.habitId, [entry]);
+      }
+    }
 
-  // Detailed stats for tooltip
-  const getHabitMetricStats = useCallback((habit: Habit) => {
-    if (isComputerHabitName(habit.name)) {
-      const rows = effectiveComputerActivityDaily;
-      if (rows.length === 0 && computerActivitySummary) {
+    return grouped;
+  }, [filteredMetricLogEntries]);
+
+  const computerActivityByDay = useMemo(() => {
+    const rows = new Map<string, ComputerDailyRow>();
+    for (const row of effectiveComputerActivityDaily) {
+      if (row.day) {
+        rows.set(row.day, row);
+      }
+    }
+    return rows;
+  }, [effectiveComputerActivityDaily]);
+
+  const habitMetricDataById = useMemo(() => {
+    const next = new Map<string, HabitMetricData>();
+    const habitsForMetrics = orderedHabits.length > 0 ? orderedHabits : habits;
+
+    const buildLocalMetricData = (habit: Habit, entries: MetricLogEntry[]): HabitMetricData => {
+      const unitLabel = habit.unit_type || 'sessions';
+      const unitLower = unitLabel.toLowerCase();
+      const isHourBased = unitLower.includes('hour');
+      const isMinuteBased = unitLower.includes('minute');
+      const useMaxPerDay = isSleepLikeHabit(habit);
+
+      if (entries.length === 0) {
+        const zeroDisplay = formatMetricDisplay(0, unitLabel);
         return {
-          unitLabel: 'Hours',
-          sumFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.total_hours || 0))} Hours`,
-          avgFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.avg_daily_hours || 0))} Hours`,
-          minFormatted: '—',
-          maxFormatted: '—',
-          stdDevFormatted: '—',
-          daysWithData: Number(computerActivitySummary.days_tracked || 0),
+          display: zeroDisplay,
+          stats: {
+            unitLabel,
+            sumFormatted: zeroDisplay,
+            avgFormatted: zeroDisplay,
+            minFormatted: zeroDisplay,
+            maxFormatted: zeroDisplay,
+            stdDevFormatted: zeroDisplay,
+            daysWithData: 0,
+          },
         };
       }
-      const values = rows.map(row => Number(row.active_hours || 0)).filter(value => Number.isFinite(value) && value >= 0);
+
+      let totalValue = 0;
+      const dailyValues = new Map<string, number>();
+
+      for (const entry of entries) {
+        let aggregateValue = 0;
+
+        if (entry.duration !== null && entry.duration > 0) {
+          if (isHourBased) {
+            aggregateValue = entry.duration / 3600;
+          } else if (isMinuteBased) {
+            aggregateValue = entry.duration / 60;
+          } else {
+            aggregateValue = entry.duration;
+          }
+        } else if (entry.amount !== null) {
+          if (isHourBased) {
+            aggregateValue = entry.amount;
+          } else if (isMinuteBased) {
+            aggregateValue = entry.amount;
+          } else {
+            aggregateValue = entry.amount;
+          }
+        } else {
+          aggregateValue = 1;
+        }
+
+        totalValue += aggregateValue;
+
+        if (!entry.localDate) continue;
+        const previousValue = dailyValues.get(entry.localDate) || 0;
+        dailyValues.set(
+          entry.localDate,
+          useMaxPerDay ? Math.max(previousValue, aggregateValue) : previousValue + aggregateValue,
+        );
+      }
+
+      const values = Array.from(dailyValues.values()).filter((value) => Number.isFinite(value));
       const total = values.reduce((sum, value) => sum + value, 0);
       const average = values.length ? total / values.length : 0;
       const min = values.length ? Math.min(...values) : 0;
@@ -937,34 +834,151 @@ export function OverviewView({
       const variance = values.length
         ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
         : 0;
+
       return {
-        unitLabel: 'Hours',
-        sumFormatted: `${formatHabitStatNumber(total)} Hours`,
-        avgFormatted: `${formatHabitStatNumber(average)} Hours`,
-        minFormatted: `${formatHabitStatNumber(min)} Hours`,
-        maxFormatted: `${formatHabitStatNumber(max)} Hours`,
-        stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} Hours`,
-        daysWithData: values.filter(value => value > 0).length,
+        display: formatMetricDisplay(totalValue, unitLabel),
+        stats: {
+          unitLabel,
+          sumFormatted: `${formatHabitStatNumber(total)} ${unitLabel}`,
+          avgFormatted: `${formatHabitStatNumber(average)} ${unitLabel}`,
+          minFormatted: `${formatHabitStatNumber(min)} ${unitLabel}`,
+          maxFormatted: `${formatHabitStatNumber(max)} ${unitLabel}`,
+          stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} ${unitLabel}`,
+          daysWithData: values.filter((value) => value > 0).length,
+        },
       };
+    };
+
+    for (const habit of habitsForMetrics) {
+      const habitId = habit.id || '';
+      if (!habitId) continue;
+
+      if (isComputerHabitName(habit.name)) {
+        const rows = effectiveComputerActivityDaily;
+        const totalHours = !dateRange?.from && computerActivitySummary
+          ? Number(computerActivitySummary.total_hours || 0)
+          : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+
+        if (rows.length === 0 && computerActivitySummary) {
+          next.set(habitId, {
+            display: `${formatHabitStatNumber(totalHours)} Hours`,
+            stats: {
+              unitLabel: 'Hours',
+              sumFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.total_hours || 0))} Hours`,
+              avgFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.avg_daily_hours || 0))} Hours`,
+              minFormatted: '—',
+              maxFormatted: '—',
+              stdDevFormatted: '—',
+              daysWithData: Number(computerActivitySummary.days_tracked || 0),
+            },
+          });
+          continue;
+        }
+
+        const values = rows
+          .map((row) => Number(row.active_hours || 0))
+          .filter((value) => Number.isFinite(value) && value >= 0);
+        const average = values.length ? totalHours / values.length : 0;
+        const min = values.length ? Math.min(...values) : 0;
+        const max = values.length ? Math.max(...values) : 0;
+        const variance = values.length
+          ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
+          : 0;
+
+        next.set(habitId, {
+          display: `${formatHabitStatNumber(totalHours)} Hours`,
+          stats: {
+            unitLabel: 'Hours',
+            sumFormatted: `${formatHabitStatNumber(totalHours)} Hours`,
+            avgFormatted: `${formatHabitStatNumber(average)} Hours`,
+            minFormatted: `${formatHabitStatNumber(min)} Hours`,
+            maxFormatted: `${formatHabitStatNumber(max)} Hours`,
+            stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} Hours`,
+            daysWithData: values.filter((value) => value > 0).length,
+          },
+        });
+        continue;
+      }
+
+      const stats = effectiveCachedStats[habitId];
+      if (stats) {
+        const unitLabel = stats.unit || habit.unit_type || 'sessions';
+        next.set(habitId, {
+          display: formatMetricDisplay(Number(stats.total || 0), unitLabel),
+          stats: {
+            unitLabel,
+            sumFormatted: `${formatHabitStatNumber(stats.total)} ${unitLabel}`,
+            avgFormatted: `${formatHabitStatNumber(stats.average)} ${unitLabel}`,
+            minFormatted: `${formatHabitStatNumber(stats.min)} ${unitLabel}`,
+            maxFormatted: `${formatHabitStatNumber(stats.max)} ${unitLabel}`,
+            stdDevFormatted: `${formatHabitStatNumber(stats.std_dev || Math.sqrt(stats.variance || 0))} ${unitLabel}`,
+            daysWithData: stats.days_with_data,
+          },
+        });
+        continue;
+      }
+
+      next.set(habitId, buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []));
     }
 
-    const stats = effectiveCachedStats[habit.id || ''];
+    return next;
+  }, [
+    habits,
+    orderedHabits,
+    computerActivitySummary,
+    dateRange?.from?.toISOString(),
+    effectiveCachedStats,
+    effectiveComputerActivityDaily,
+    formatHabitStatNumber,
+    isSleepLikeHabit,
+    metricEntriesByHabitId,
+  ]);
 
-    if (stats) {
-      const unitLabel = stats.unit || habit.unit_type || 'sessions';
-      return {
-        unitLabel,
-        sumFormatted: `${formatHabitStatNumber(stats.total)} ${unitLabel}`,
-        avgFormatted: `${formatHabitStatNumber(stats.average)} ${unitLabel}`,
-        minFormatted: `${formatHabitStatNumber(stats.min)} ${unitLabel}`,
-        maxFormatted: `${formatHabitStatNumber(stats.max)} ${unitLabel}`,
-        stdDevFormatted: `${formatHabitStatNumber(stats.std_dev || Math.sqrt(stats.variance || 0))} ${unitLabel}`,
-        daysWithData: stats.days_with_data,
-      };
+  const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
+    const unitType = habit.unit_type || 'sessions';
+
+    if (isComputerHabitName(habit.name) && scrubberHoveredDate) {
+      const hoveredRow = computerActivityByDay.get(scrubberHoveredDate);
+      if (hoveredRow) {
+        return `${formatHabitStatNumber(Number(hoveredRow.active_hours || 0))} Hours`;
+      }
     }
 
-    return getLocalHabitStats(habit);
-  }, [computerActivitySummary, effectiveCachedStats, effectiveComputerActivityDaily, formatHabitStatNumber, getLocalHabitStats]);
+    if (previewValue !== undefined && previewValue !== null) {
+      if (unitType.toLowerCase().includes('hour')) {
+        return `${formatHabitStatNumber(previewValue / 60)} Hours`;
+      }
+      if (unitType.toLowerCase().includes('minute')) {
+        return `${Math.round(previewValue)} Minutes`;
+      }
+      return `${formatMetricAmount(previewValue, unitType)} ${unitType}`;
+    }
+
+    return habitMetricDataById.get(habit.id || '')?.display || `0 ${unitType}`;
+  }, [computerActivityByDay, formatHabitStatNumber, habitMetricDataById, scrubberHoveredDate]);
+
+  const getHabitMetricDisplayRef = useRef(getHabitMetricDisplay);
+  getHabitMetricDisplayRef.current = getHabitMetricDisplay;
+
+  const getHabitMetricDisplayStable = useCallback(
+    (habit: Habit, previewValue?: number | null): string => getHabitMetricDisplayRef.current(habit, previewValue),
+    [],
+  );
+
+  const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
+
+  const getHabitMetricStats = useCallback((habit: Habit) => {
+    const unitLabel = habit.unit_type || 'sessions';
+    return habitMetricDataById.get(habit.id || '')?.stats || {
+      unitLabel,
+      sumFormatted: `0 ${unitLabel}`,
+      avgFormatted: `0 ${unitLabel}`,
+      minFormatted: `0 ${unitLabel}`,
+      maxFormatted: `0 ${unitLabel}`,
+      stdDevFormatted: `0 ${unitLabel}`,
+      daysWithData: 0,
+    };
+  }, [habitMetricDataById]);
 
   const getHabitMetricStatsRef = useRef(getHabitMetricStats);
   getHabitMetricStatsRef.current = getHabitMetricStats;

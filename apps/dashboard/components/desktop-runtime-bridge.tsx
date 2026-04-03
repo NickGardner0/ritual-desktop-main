@@ -3,12 +3,14 @@
 import { useEffect, useRef } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
+import { usePathname } from 'next/navigation';
 import { DesktopUpdater } from '@/components/desktop-updater';
 import { isTauri } from '@/lib/tauri-utils';
 import { habitLogKeys } from '@/hooks/use-habits-query';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
+const DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS = 30_000;
 
 interface RuntimeBridgeSignalsResponse {
   token_refresh_request?: number;
@@ -90,6 +92,7 @@ function RuntimeSyncBridge() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const lastTokenRefreshCheckRef = useRef(0);
   const lastDashboardRefreshRef = useRef(0);
   const lastProfileSyncKeyRef = useRef<string | null>(null);
@@ -100,6 +103,9 @@ function RuntimeSyncBridge() {
   const realtimeReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeReconnectAttemptRef = useRef(0);
   const realtimeHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runtimeBridgePollMs = pathname === '/dashboard'
+    ? DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS
+    : DESKTOP_RUNTIME_BRIDGE_POLL_MS;
 
   useEffect(() => {
     if (!isTauri() || !user?.id) return;
@@ -336,7 +342,7 @@ function RuntimeSyncBridge() {
     void checkRuntimeBridgeSignals();
     interval = setInterval(() => {
       void checkRuntimeBridgeSignals();
-    }, DESKTOP_RUNTIME_BRIDGE_POLL_MS);
+    }, runtimeBridgePollMs);
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityRefresh);
     }
@@ -350,7 +356,7 @@ function RuntimeSyncBridge() {
       }
       window.removeEventListener('focus', handleVisibilityRefresh);
     };
-  }, [getToken, queryClient, user?.id]);
+  }, [getToken, queryClient, runtimeBridgePollMs, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
