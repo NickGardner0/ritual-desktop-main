@@ -1079,6 +1079,15 @@ export function OverviewView({
         continue;
       }
 
+      const localMetricData = buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []);
+
+      // In ranged mode, derive the overview metrics directly from the locally
+      // filtered logs so the list always respects the active date picker.
+      if (dateRange?.from) {
+        next.set(habitId, localMetricData);
+        continue;
+      }
+
       const stats = effectiveCachedStats[habitId];
       if (stats) {
         const unitLabel = stats.unit || habit.unit_type || 'sessions';
@@ -1097,7 +1106,7 @@ export function OverviewView({
         continue;
       }
 
-          next.set(habitId, buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []));
+          next.set(habitId, localMetricData);
         }
 
         return next;
