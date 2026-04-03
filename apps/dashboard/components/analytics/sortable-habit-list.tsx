@@ -113,7 +113,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       style={style}
       {...attributes}
       {...listeners}
-      className={`w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 group hover:bg-[#F7F7F7] bg-white cursor-grab active:cursor-grabbing ${
+      className={`group w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 bg-white hover:bg-[#F7F7F7] cursor-grab active:cursor-grabbing ${
         isDragging ? 'shadow-lg bg-[#F3F3F3] opacity-90' : ''
       }`}
     >
@@ -253,27 +253,29 @@ export function SortableHabitList({
         items={habits.map(h => h.id || '')}
         strategy={verticalListSortingStrategy}
       >
-        {habits.map((habit) => {
-          const habitId = habit.id || '';
-          return (
-            <SortableHabitItem
-              key={habitId}
-              habit={habit}
-              getHabitMetricDisplay={getHabitMetricDisplay}
-              getHabitMetricClassName={getHabitMetricClassName}
-              hoveredValue={
-                scrubberHoveredDate && scrubberHoveredValues
-                  ? scrubberHoveredValues[habitId]
-                  : undefined
-              }
-              isTooltipOpen={activeTooltip === habitId}
-              setActiveTooltip={setActiveTooltip}
-              getHabitMetricStats={getHabitMetricStats}
-              confirmDelete={confirmDelete}
-              isDeleting={deletingHabit === habitId}
-            />
-          );
-        })}
+        <div>
+          {habits.map((habit) => {
+            const habitId = habit.id || '';
+            return (
+              <SortableHabitItem
+                key={habitId}
+                habit={habit}
+                getHabitMetricDisplay={getHabitMetricDisplay}
+                getHabitMetricClassName={getHabitMetricClassName}
+                hoveredValue={
+                  scrubberHoveredDate && scrubberHoveredValues
+                    ? scrubberHoveredValues[habitId]
+                    : undefined
+                }
+                isTooltipOpen={activeTooltip === habitId}
+                setActiveTooltip={setActiveTooltip}
+                getHabitMetricStats={getHabitMetricStats}
+                confirmDelete={confirmDelete}
+                isDeleting={deletingHabit === habitId}
+              />
+            );
+          })}
+        </div>
       </SortableContext>
     </DndContext>
   );
