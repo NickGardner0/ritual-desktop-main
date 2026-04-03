@@ -205,6 +205,45 @@ fn normalize_backend_base(value: Option<String>) -> Option<String> {
         .filter(|item| !item.is_empty())
 }
 
+fn persisted_turso_config_is_fresh_enough() -> bool {
+    let Ok(Some(config)) = crate::native_widget::load_turso_sync_config() else {
+        return false;
+    };
+
+    let expires_at = config.expires_at.trim();
+    if expires_at.is_empty() {
+        return false;
+    }
+
+    let Ok(expires_at) = DateTime::parse_from_rfc3339(expires_at) else {
+        return false;
+    };
+
+    let refresh_at = expires_at.with_timezone(&Utc) - chrono::Duration::minutes(30);
+    refresh_at > Utc::now()
+}
+
+fn should_skip_immediate_turso_refresh<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let database = crate::ritual_database::database_runtime_state_snapshot();
+    let activity_ready = matches!(
+        database.activity.status,
+        crate::ritual_database::DatabaseConnectionState::ReadyLocal
+            | crate::ritual_database::DatabaseConnectionState::ReadyReplica
+            | crate::ritual_database::DatabaseConnectionState::DegradedLocal
+    );
+
+    if !activity_ready {
+        return false;
+    }
+
+    let auth_state = read_auth_state(app);
+    if auth_state.last_turso_error.is_some() {
+        return false;
+    }
+
+    persisted_turso_config_is_fresh_enough()
+}
+
 fn read_auth_state<R: Runtime>(app: &AppHandle<R>) -> DesktopAuthState {
     app.state::<DesktopShellState>()
         .auth_state
@@ -758,7 +797,17 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
     }
 
     if normalized_backend_base.is_some() {
-        if let Err(error) = refresh_turso_sync_config(app.clone(), generation).await {
+        if should_skip_immediate_turso_refresh(&app) {
+            if let Ok(Some(config)) = crate::native_widget::load_turso_sync_config() {
+                schedule_turso_config_refresh(app.clone(), generation, &config.expires_at);
+                update_auth_state(&app, |state| {
+                    state.last_turso_error = None;
+                });
+                log::info!(
+                    "[DESKTOP_RUNTIME] reusing persisted Turso config after auth handoff; skipping immediate activity.db reload"
+                );
+            }
+        } else if let Err(error) = refresh_turso_sync_config(app.clone(), generation).await {
             warn!(error = %error, "Desktop Turso sync refresh failed after auth handoff");
         }
     }
