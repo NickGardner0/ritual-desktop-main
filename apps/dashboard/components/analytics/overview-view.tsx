@@ -976,14 +976,14 @@ export function OverviewView({
     }
   }, [fetchHabits]);
 
-  const confirmDelete = (habitId: string | undefined) => {
+  const confirmDelete = useCallback((habitId: string | undefined) => {
     if (!habitId) return;
     setHabitToDelete(habitId);
-  };
+  }, []);
 
-  const cancelDelete = () => {
+  const cancelDelete = useCallback(() => {
     setHabitToDelete(null);
-  };
+  }, []);
 
   const handleDeleteHabit = async (habitId: string | null) => {
     if (!habitId) {

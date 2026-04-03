@@ -8,6 +8,22 @@ import { isTauri } from '@/lib/tauri-utils';
 import { habitLogKeys } from '@/hooks/use-habits-query';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
+
+interface RuntimeBridgeSignalsResponse {
+  token_refresh_request?: number;
+  dashboard_refresh_trigger?: number;
+}
+
+type TauriInvoke = typeof import('@tauri-apps/api/tauri').invoke;
+let tauriInvokePromise: Promise<TauriInvoke> | null = null;
+
+async function getTauriInvoke(): Promise<TauriInvoke> {
+  if (!tauriInvokePromise) {
+    tauriInvokePromise = import('@tauri-apps/api/tauri').then((module) => module.invoke);
+  }
+  return tauriInvokePromise;
+}
 
 interface TursoSyncConfigResponse {
   sync_url: string;
@@ -253,42 +269,50 @@ function RuntimeSyncBridge() {
     if (!isTauri()) return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+    let inFlight = false;
 
-    const checkForTokenRefreshRequests = async () => {
+    const checkRuntimeBridgeSignals = async () => {
+      if (cancelled || inFlight) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+
+      inFlight = true;
       try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        const timestamp = await invoke<number>('check_token_refresh_request');
+        const invoke = await getTauriInvoke();
+        let payload: RuntimeBridgeSignalsResponse | null = null;
 
-        if (timestamp > 0 && timestamp !== lastTokenRefreshCheckRef.current) {
-          lastTokenRefreshCheckRef.current = timestamp;
+        try {
+          payload = await invoke<RuntimeBridgeSignalsResponse>('check_runtime_bridge_signals');
+        } catch {
+          const [token_refresh_request, dashboard_refresh_trigger] = await Promise.all([
+            invoke<number>('check_token_refresh_request'),
+            invoke<number>('check_dashboard_refresh_trigger'),
+          ]);
+          payload = { token_refresh_request, dashboard_refresh_trigger };
+        }
+
+        if (cancelled || !payload) return;
+
+        const tokenRefreshTimestamp = Number(payload.token_refresh_request || 0);
+        if (
+          tokenRefreshTimestamp > 0
+          && tokenRefreshTimestamp !== lastTokenRefreshCheckRef.current
+        ) {
+          lastTokenRefreshCheckRef.current = tokenRefreshTimestamp;
           const token = await getToken();
-          if (token) {
+          if (!cancelled && token) {
             await invoke('write_auth_token_to_file', { token });
           }
         }
-      } catch {
-        // Ignore outside desktop runtime.
-      }
-    };
 
-    interval = setInterval(checkForTokenRefreshRequests, 3000);
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [getToken]);
-
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    const checkForDashboardRefresh = async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        const timestamp = await invoke<number>('check_dashboard_refresh_trigger');
-
-        if (timestamp > 0 && timestamp !== lastDashboardRefreshRef.current) {
-          lastDashboardRefreshRef.current = timestamp;
+        const dashboardRefreshTimestamp = Number(payload.dashboard_refresh_trigger || 0);
+        if (
+          dashboardRefreshTimestamp > 0
+          && dashboardRefreshTimestamp !== lastDashboardRefreshRef.current
+        ) {
+          lastDashboardRefreshRef.current = dashboardRefreshTimestamp;
           const userId = user?.id || 'anonymous';
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
@@ -297,14 +321,36 @@ function RuntimeSyncBridge() {
         }
       } catch {
         // Ignore outside desktop runtime.
+      } finally {
+        inFlight = false;
       }
     };
 
-    interval = setInterval(checkForDashboardRefresh, 3000);
-    return () => {
-      if (interval) clearInterval(interval);
+    const handleVisibilityRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+      void checkRuntimeBridgeSignals();
     };
-  }, [queryClient, user?.id]);
+
+    void checkRuntimeBridgeSignals();
+    interval = setInterval(() => {
+      void checkRuntimeBridgeSignals();
+    }, DESKTOP_RUNTIME_BRIDGE_POLL_MS);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    }
+    window.addEventListener('focus', handleVisibilityRefresh);
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+      }
+      window.removeEventListener('focus', handleVisibilityRefresh);
+    };
+  }, [getToken, queryClient, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;

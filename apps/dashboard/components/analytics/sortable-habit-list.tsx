@@ -2,7 +2,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { X, LayoutDashboard } from 'lucide-react';
+import { X, LayoutDashboard, GripVertical } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -94,6 +94,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
@@ -111,13 +112,21 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
-      className={`group w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 bg-white hover:bg-[#F7F7F7] cursor-grab active:cursor-grabbing ${
+      className={`group w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 bg-white hover:bg-[#F7F7F7] ${
         isDragging ? 'shadow-lg bg-[#F3F3F3] opacity-90' : ''
       }`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          ref={setActivatorNodeRef}
+          {...attributes}
+          {...listeners}
+          type="button"
+          aria-label={`Reorder ${displayName}`}
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-gray-300 transition-colors hover:text-gray-600 cursor-grab active:cursor-grabbing"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
         <span className="flex items-center justify-center w-5 h-5 flex-shrink-0 self-center -translate-y-px">
           {habit.icon ? (
             /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
