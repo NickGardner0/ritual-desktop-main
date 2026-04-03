@@ -56,6 +56,8 @@ export async function GET(request: NextRequest) {
     const tinybirdToken = process.env.TINYBIRD_TOKEN;
     const tinybirdHost = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co';
     const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+    const userAgent = request.headers.get('user-agent') || '';
+    const isDesktopRequest = userAgent.startsWith('RitualDesktop/');
     
     // Build Tinybird query params
     const tinybirdParams = new URLSearchParams();
@@ -69,7 +71,7 @@ export async function GET(request: NextRequest) {
       try {
         const habitsRes = await fetch(`${backendUrl}/api/habits`, {
           headers: { 'Authorization': `Bearer ${token}` },
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(isDesktopRequest ? 5000 : 10000),
         });
         if (habitsRes.ok) {
           const habitsData = await habitsRes.json();
@@ -215,7 +217,7 @@ export async function GET(request: NextRequest) {
           'Authorization': `Bearer ${token}`,
         },
         cache: 'no-store',
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(isDesktopRequest ? 12000 : 15000),
       });
 
       if (!response.ok) {
@@ -227,7 +229,7 @@ export async function GET(request: NextRequest) {
       return rawLogs;
     };
 
-    if (!tinybirdToken) {
+    if (!tinybirdToken || isDesktopRequest) {
       const [habitsMap, backendLogs] = await Promise.all([
         habitsMapPromise,
         fetchBackendLogs(),

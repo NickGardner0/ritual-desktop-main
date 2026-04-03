@@ -1148,14 +1148,6 @@ export function OverviewView({
     return habitMetricDataById.get(habit.id || '')?.display || `0 ${unitType}`;
   }, [computerActivityByDay, formatHabitStatNumber, habitMetricDataById, scrubberHoveredDate]);
 
-  const getHabitMetricDisplayRef = useRef(getHabitMetricDisplay);
-  getHabitMetricDisplayRef.current = getHabitMetricDisplay;
-
-  const getHabitMetricDisplayStable = useCallback(
-    (habit: Habit, previewValue?: number | null): string => getHabitMetricDisplayRef.current(habit, previewValue),
-    [],
-  );
-
   const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
 
   const getHabitMetricStats = useCallback((habit: Habit) => {
@@ -1170,14 +1162,6 @@ export function OverviewView({
       daysWithData: 0,
     };
   }, [habitMetricDataById]);
-
-  const getHabitMetricStatsRef = useRef(getHabitMetricStats);
-  getHabitMetricStatsRef.current = getHabitMetricStats;
-
-  const getHabitMetricStatsStable = useCallback(
-    (habit: Habit) => getHabitMetricStatsRef.current(habit),
-    [],
-  );
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {
@@ -1245,13 +1229,13 @@ export function OverviewView({
         onShowSelectionModal={handleOpenSelectionModal}
         onShowImportModal={handleOpenImportModal}
         onReorder={handleReorder}
-        getHabitMetricDisplay={getHabitMetricDisplayStable}
+        getHabitMetricDisplay={getHabitMetricDisplay}
         getHabitMetricClassName={getHabitMetricClassName}
         scrubberHoveredDate={scrubberHoveredDate}
         scrubberHoveredValues={scrubberHoveredValues}
         activeTooltip={activeTooltip}
         setActiveTooltip={setActiveTooltip}
-        getHabitMetricStats={getHabitMetricStatsStable}
+        getHabitMetricStats={getHabitMetricStats}
         confirmDelete={confirmDelete}
         deletingHabit={deletingHabit}
       />
