@@ -103,7 +103,7 @@ impl SyncQueue {
         let mut last_error: Option<String> = None;
         let mut db: Option<BlockingDatabase> = None;
         for attempt in 0..DB_LOCK_RETRY_ATTEMPTS {
-            match BlockingDatabase::open_activity_db_with_env(path) {
+            match BlockingDatabase::open_with_path(path) {
                 Ok(opened) => {
                     db = Some(opened);
                     break;

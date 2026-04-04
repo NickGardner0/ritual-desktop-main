@@ -983,6 +983,66 @@ fn storage_title_fields(
     }
 }
 
+#[cfg(target_os = "macos")]
+fn event_driven_app_switch_enabled() -> bool {
+    matches!(
+        env::var("RITUAL_ENABLE_APP_SWITCH_NOTIFICATIONS")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn event_driven_app_switch_enabled() -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn screen_event_detection_enabled() -> bool {
+    matches!(
+        env::var("RITUAL_ENABLE_SCREEN_EVENT_NOTIFICATIONS")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn screen_event_detection_enabled() -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn browser_tab_tracker_enabled() -> bool {
+    matches!(
+        env::var("RITUAL_ENABLE_BROWSER_TAB_TRACKER")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn browser_tab_tracker_enabled() -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn window_title_observer_enabled() -> bool {
+    matches!(
+        env::var("RITUAL_ENABLE_WINDOW_TITLE_OBSERVER")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn window_title_observer_enabled() -> bool {
+    false
+}
+
 fn ensure_session_event_persisted(
     session: &mut CurrentSession,
     config: &WatcherConfig,
@@ -1197,28 +1257,46 @@ fn run_watcher_loop(
     // Initialize event-driven notification listener (macOS)
     // This provides immediate app switch detection instead of waiting for next poll
     #[cfg(target_os = "macos")]
-    let notification_listener = {
+    let notification_listener = if event_driven_app_switch_enabled() {
         use notifications::NotificationListener;
         Some(NotificationListener::new())
+    } else {
+        info!("ℹ️ Event-driven app switch detection disabled; using polling only");
+        None
     };
     #[cfg(not(target_os = "macos"))]
     let notification_listener: Option<()> = None;
 
     // Initialize screen event listener for lock/unlock and sleep/wake detection
     #[cfg(target_os = "macos")]
-    let screen_event_listener = Some(ScreenEventListener::new());
+    let screen_event_listener = if screen_event_detection_enabled() {
+        Some(ScreenEventListener::new())
+    } else {
+        info!("ℹ️ Screen event detection disabled");
+        None
+    };
     #[cfg(not(target_os = "macos"))]
     let screen_event_listener: Option<()> = None;
 
     // Initialize browser tab tracker (polls every 10 seconds)
     #[cfg(target_os = "macos")]
-    let browser_tab_tracker = Some(BrowserTabTracker::new(10));
+    let browser_tab_tracker = if browser_tab_tracker_enabled() {
+        Some(BrowserTabTracker::new(10))
+    } else {
+        info!("ℹ️ Browser tab tracker disabled");
+        None
+    };
     #[cfg(not(target_os = "macos"))]
     let browser_tab_tracker: Option<()> = None;
 
     // Initialize window change listener for title changes within same app
     #[cfg(target_os = "macos")]
-    let window_change_listener = Some(WindowChangeListener::new());
+    let window_change_listener = if window_title_observer_enabled() {
+        Some(WindowChangeListener::new())
+    } else {
+        info!("ℹ️ Window title observer disabled");
+        None
+    };
     #[cfg(not(target_os = "macos"))]
     let window_change_listener: Option<()> = None;
     #[cfg(target_os = "macos")]
@@ -1237,15 +1315,38 @@ fn run_watcher_loop(
     info!("   AFK timeout: {:.0}s", config.afk_timeout_seconds);
     #[cfg(target_os = "macos")]
     {
-        info!("   Event-driven detection: enabled");
-        info!("   Screen lock detection: enabled");
-        info!("   Browser tab polling: 10s interval");
         info!(
-            "   Window title observer: {}",
-            if WindowChangeListener::has_permission() {
+            "   Event-driven detection: {}",
+            if event_driven_app_switch_enabled() {
                 "enabled"
             } else {
+                "disabled (polling only)"
+            }
+        );
+        info!(
+            "   Screen lock detection: {}",
+            if screen_event_detection_enabled() {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+        info!(
+            "   Browser tab polling: {}",
+            if browser_tab_tracker_enabled() {
+                "10s interval"
+            } else {
+                "disabled"
+            }
+        );
+        info!(
+            "   Window title observer: {}",
+            if window_title_observer_enabled() && WindowChangeListener::has_permission() {
+                "enabled"
+            } else if window_title_observer_enabled() {
                 "disabled (no AX permission)"
+            } else {
+                "disabled"
             }
         );
     }
@@ -1617,7 +1718,9 @@ fn run_watcher_loop(
                     current_session = None;
                     #[cfg(target_os = "macos")]
                     {
-                        set_active_browser(None);
+                        if browser_tab_tracker_enabled() {
+                            set_active_browser(None);
+                        }
                     }
                     pump_run_loop(poll_interval);
                     continue;
@@ -1627,15 +1730,19 @@ fn run_watcher_loop(
                 // Notify the browser tracker which app is active so it knows when to poll
                 #[cfg(target_os = "macos")]
                 {
-                    set_active_browser(Some(info.bundle_id.clone()));
+                    if browser_tab_tracker_enabled() {
+                        set_active_browser(Some(info.bundle_id.clone()));
+                    }
                 }
 
                 // ===== UPDATE WINDOW OBSERVER =====
                 // Set up AX observer for this app's window title changes
                 #[cfg(target_os = "macos")]
                 {
-                    if let Some(pid) = info.pid {
-                        observe_app(pid);
+                    if window_title_observer_enabled() {
+                        if let Some(pid) = info.pid {
+                            observe_app(pid);
+                        }
                     }
                 }
 

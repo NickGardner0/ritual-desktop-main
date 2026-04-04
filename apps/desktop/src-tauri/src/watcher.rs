@@ -4,12 +4,14 @@
 //! Uses the unified ritual-db (libSQL) database for all queries.
 
 use once_cell::sync::Lazy;
+use rusqlite::{Connection as SqliteConnection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -31,6 +33,14 @@ static DEVICE_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 static WATCHER_LAST_STARTED_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 static WATCHER_LAST_RESTART_REASON: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 static WATCHER_RESTART_COUNT: AtomicU64 = AtomicU64::new(0);
+static WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LocalWatcherFreshness {
+    last_heartbeat_ts: Option<i64>,
+    last_context_snapshot_ts: Option<i64>,
+    last_activity_ts: Option<i64>,
+}
 
 fn apply_turso_sync_env(command: &mut Command) {
     if let Ok(sync_url) = std::env::var("TURSO_SYNC_URL") {
@@ -771,6 +781,71 @@ fn get_activity_database_path() -> PathBuf {
     }
 }
 
+fn configure_watcher_stdio(command: &mut Command) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or_else(|| "Could not resolve home directory".to_string())?;
+    let log_dir = home.join(".ritual").join("logs");
+    std::fs::create_dir_all(&log_dir)
+        .map_err(|e| format!("Failed to create watcher log dir: {}", e))?;
+    let log_path = log_dir.join("ritual-watcher.log");
+    let log_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Failed to open watcher log file {}: {}", log_path.display(), e))?;
+    let stdout = log_file
+        .try_clone()
+        .map_err(|e| format!("Failed to clone watcher log file handle: {}", e))?;
+    command.stdout(Stdio::from(stdout));
+    command.stderr(Stdio::from(log_file));
+    watcher_info!("📝 Capturing watcher stdout/stderr -> {}", log_path.display());
+    Ok(())
+}
+
+fn read_local_watcher_freshness(device_id: &str) -> Option<LocalWatcherFreshness> {
+    if device_id.trim().is_empty() {
+        return None;
+    }
+
+    let db_path = get_activity_database_path();
+    let conn = SqliteConnection::open_with_flags(
+        db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+
+    let last_heartbeat_ts = conn
+        .query_row(
+            "SELECT last_seen_ts FROM watcher_heartbeat WHERE device_id = ?1",
+            [device_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let last_context_snapshot_ts = conn
+        .query_row(
+            "SELECT MAX(ts) FROM context_snapshots WHERE device_id = ?1",
+            [device_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .ok()
+        .flatten();
+
+    let last_activity_ts = conn
+        .query_row(
+            "SELECT MAX(ts_end) FROM activity_events WHERE device_id = ?1",
+            [device_id],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .ok()
+        .flatten();
+
+    Some(LocalWatcherFreshness {
+        last_heartbeat_ts,
+        last_context_snapshot_ts,
+        last_activity_ts,
+    })
+}
+
 fn build_watcher_args(config: &WatcherConfig) -> Vec<String> {
     let activity_db_path = get_activity_database_path();
     let mut args = vec![
@@ -948,6 +1023,7 @@ pub async fn start_watcher(config: WatcherConfig) -> Result<WatcherStatus, Strin
     let mut command = Command::new(&executable);
     command.args(&args);
     apply_turso_sync_env(&mut command);
+    configure_watcher_stdio(&mut command)?;
     let child = command
         .spawn()
         .map_err(|e| format!("Failed to start watcher: {}", e))?;
@@ -1031,6 +1107,7 @@ pub fn start_watcher_sync(config: WatcherConfig) -> Result<WatcherStatus, String
     let mut command = Command::new(&executable);
     command.args(&args);
     apply_turso_sync_env(&mut command);
+    configure_watcher_stdio(&mut command)?;
     let child = command
         .spawn()
         .map_err(|e| format!("Failed to start watcher: {}", e))?;
@@ -1851,25 +1928,83 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
         .as_ref()
         .map(|diag| diag.watcher_reachable)
         .unwrap_or(false);
-    let context_stale = diagnostics
+    let context_fresh_from_diag = diagnostics
         .as_ref()
         .and_then(|diag| diag.seconds_since_context_snapshot)
-        .map(|seconds| seconds > max_stale_seconds)
+        .map(|seconds| seconds <= max_stale_seconds)
         .unwrap_or(false);
-    let heartbeat_stale = status
+    let heartbeat_fresh_from_diag = status
         .seconds_since_heartbeat
-        .map(|seconds| seconds > max_stale_seconds)
+        .map(|seconds| seconds <= max_stale_seconds)
         .unwrap_or(false);
+    let local_freshness = get_device_id_or_config()
+        .as_deref()
+        .and_then(read_local_watcher_freshness);
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let heartbeat_fresh_from_sqlite = local_freshness
+        .and_then(|freshness| freshness.last_heartbeat_ts)
+        .map(|ts| now_ms.saturating_sub(ts) <= max_stale_seconds * 1000)
+        .unwrap_or(false);
+    let context_fresh_from_sqlite = local_freshness
+        .and_then(|freshness| freshness.last_context_snapshot_ts)
+        .map(|ts| now_ms.saturating_sub(ts) <= max_stale_seconds * 1000)
+        .unwrap_or(false);
+    let activity_fresh_from_sqlite = local_freshness
+        .and_then(|freshness| freshness.last_activity_ts)
+        .map(|ts| now_ms.saturating_sub(ts) <= max_stale_seconds * 1000)
+        .unwrap_or(false);
+    let heartbeat_fresh = heartbeat_fresh_from_diag || heartbeat_fresh_from_sqlite;
+    let context_fresh = context_fresh_from_diag || context_fresh_from_sqlite;
+    let context_stale = !context_fresh;
+    let heartbeat_stale = !heartbeat_fresh;
+    let has_fresh_local_activity = heartbeat_fresh || context_fresh || activity_fresh_from_sqlite;
+    let startup_grace_active = WATCHER_LAST_STARTED_AT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .map(|started_at| {
+            started_at.elapsed()
+                < Duration::from_secs((max_stale_seconds.max(60) * 2) as u64)
+        })
+        .unwrap_or(false);
+    if startup_grace_active
+        && (status.is_running || watcher_reachable || has_fresh_local_activity)
+    {
+        return Ok(false);
+    }
     let should_restart = (!status.is_running && !watcher_reachable)
-        || (status.is_running && (heartbeat_stale || context_stale || !watcher_reachable));
+        || (status.is_running && !has_fresh_local_activity);
 
-    if should_restart {
+    if !should_restart {
+        WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS.store(0, Ordering::Relaxed);
+        return Ok(false);
+    }
+
+    let unhealthy_checks = WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS.fetch_add(1, Ordering::Relaxed) + 1;
+    if unhealthy_checks < 3 {
         watcher_info!(
-            "⚠️ Watcher unhealthy or missing (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={})",
+            "⚠️ Watcher health check degraded (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={}, fresh_local_activity={}, startup_grace_active={}, unhealthy_checks={}); waiting for confirmation before restart",
             status.is_running,
             watcher_reachable,
             heartbeat_stale,
-            context_stale
+            context_stale,
+            has_fresh_local_activity,
+            startup_grace_active,
+            unhealthy_checks
+        );
+        return Ok(false);
+    }
+
+    if should_restart {
+        WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS.store(0, Ordering::Relaxed);
+        watcher_info!(
+            "⚠️ Watcher unhealthy or missing (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={}, fresh_local_activity={}, startup_grace_active={}, unhealthy_checks={})",
+            status.is_running,
+            watcher_reachable,
+            heartbeat_stale,
+            context_stale,
+            has_fresh_local_activity,
+            startup_grace_active,
+            unhealthy_checks
         );
 
         if let Err(e) = stop_watcher().await {
