@@ -147,6 +147,7 @@ SCHEMA_STATEMENTS = (
         session_position INTEGER NOT NULL DEFAULT 0,
         session_count INTEGER NOT NULL DEFAULT 1,
         embedded_at INTEGER DEFAULT NULL,
+        provider_doc_id TEXT DEFAULT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
     )

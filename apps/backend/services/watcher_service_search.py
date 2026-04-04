@@ -19,8 +19,8 @@ from services.watcher_service_local_db import (
     get_local_activity_db_path_impl,
     get_local_memory_db_path_impl,
     get_local_watcher_db_path_impl,
-    open_activity_connection_for_user,
 )
+from services import watcher_service_local_db
 from services.watcher_service_search_utils import (
     SCREEN_SEARCH_STOP_WORDS,
     build_expanded_fts_query_impl,
@@ -51,7 +51,7 @@ from services.memory_embedding_service import (
     get_memory_index_health,
     process_embedding_jobs_with_guard,
 )
-from services.memory_backfill_service import backfill_cloud_from_local_chunks
+from services.session_embedding_service import process_session_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -739,23 +739,19 @@ async def _auto_backfill_cloud_if_needed(
         return None
 
     _LAST_AUTO_BACKFILL_MS = now_ms
-    result = await backfill_cloud_from_local_chunks(
+    result = await process_session_embeddings(
         user_id=user_id,
-        device_id_override=None,
-        limit=1500,
-        batch_size=150,
+        batch_size=128,
         start_ms=start_ms,
         end_ms=end_ms,
     )
-    if not result.get("success", False):
-        return "Cloud memory backfill attempt failed; semantic quality may be limited until ingestion succeeds."
-    accepted = int(result.get("accepted") or 0)
-    deduped = int(result.get("deduped") or 0)
-    if accepted <= 0:
+    processed = int(result.get("processed") or 0)
+    failed = int(result.get("failed") or 0)
+    if processed <= 0:
         return None
-    if deduped > 0:
-        return f"Cloud memory index is catching up ({accepted} new chunks, {deduped} already indexed)."
-    return f"Cloud memory index is catching up ({accepted} new chunks indexed)."
+    if failed > 0:
+        return f"Cloud memory index is catching up ({processed} session docs indexed, {failed} failed)."
+    return f"Cloud memory index is catching up ({processed} session docs indexed)."
 
 
 def _resolve_answer_mode(status: str, intent: str) -> str:
@@ -1281,7 +1277,7 @@ async def search_context_memory_impl(
     legacy_ocr_fallback_allowed = allow_legacy_fallback and _legacy_ocr_fallback_enabled()
 
     local_override_conn: Optional[sqlite3.Connection] = None
-    async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
+    async with watcher_service_local_db.open_activity_connection_for_user(user_id, write=False) as preferred_conn:
         using_turso = preferred_conn is not None and not force_local_context_db
         if using_turso:
             conn = preferred_conn
@@ -3190,7 +3186,7 @@ async def _materialize_recap_work_items(
     if not story_plan or not citations:
         return {"items": [], "stored": 0, "evidence": 0}
     try:
-        async with open_activity_connection_for_user(user_id, write=True) as conn:
+        async with watcher_service_local_db.open_activity_connection_for_user(user_id, write=True) as conn:
             if conn is None:
                 return {"items": [], "stored": 0, "evidence": 0}
             conn.row_factory = sqlite3.Row
@@ -3628,7 +3624,7 @@ async def query_memory_impl(
     override_warning: Optional[str] = None
     try:
         cursor = None
-        async with open_activity_connection_for_user(user_id, write=False) as preferred_conn:
+        async with watcher_service_local_db.open_activity_connection_for_user(user_id, write=False) as preferred_conn:
             if use_legacy_memory_query_path:
                 conn = sqlite3.connect(
                     f"file:{memory_db_path}?mode=ro",

@@ -519,9 +519,11 @@ async def get_top_apps_impl(
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
     end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+    used_activity_db = False
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
+            used_activity_db = True
             params: list[Any] = [start_ms, end_ms, user_id]
             device_clause = ""
             if device_id:
@@ -566,6 +568,12 @@ async def get_top_apps_impl(
                     row_count=len(result),
                 )
                 return result
+            logger.info(
+                "Per-user activity DB returned 0 top_apps rows for %s %s..%s",
+                user_id,
+                start_date,
+                end_date,
+            )
 
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
@@ -622,6 +630,20 @@ async def get_top_apps_impl(
             row_count=len(result),
         )
         return result
+
+    if used_activity_db:
+        _log_activity_perf(
+            "top_apps",
+            start=perf_start,
+            source="activity_db_empty",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=0,
+            empty_reason="activity_db_empty",
+        )
+        return []
 
     import sqlite3
 
@@ -723,9 +745,11 @@ async def get_top_domains_impl(
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
     end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+    used_activity_db = False
 
     async with open_activity_connection_for_user(user_id) as conn:
         if conn is not None:
+            used_activity_db = True
             params: list[Any] = [start_ms, end_ms, user_id]
             device_clause = ""
             if device_id:
@@ -771,6 +795,12 @@ async def get_top_domains_impl(
                     row_count=len(result),
                 )
                 return result
+            logger.info(
+                "Per-user activity DB returned 0 top_domains rows for %s %s..%s",
+                user_id,
+                start_date,
+                end_date,
+            )
 
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
@@ -827,6 +857,20 @@ async def get_top_domains_impl(
             row_count=len(result),
         )
         return result
+
+    if used_activity_db:
+        _log_activity_perf(
+            "top_domains",
+            start=perf_start,
+            source="activity_db_empty",
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            row_count=0,
+            empty_reason="activity_db_empty",
+        )
+        return []
 
     import sqlite3
 

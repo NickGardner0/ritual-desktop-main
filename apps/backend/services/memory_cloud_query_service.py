@@ -27,6 +27,7 @@ from services.watcher_service_local_db import open_activity_connection_for_user
 from services.watcher_service_search_utils import score_lexical_match_impl
 
 logger = logging.getLogger(__name__)
+SESSION_EMBED_MIN_TEXT_LENGTH = 40
 
 
 def _table_has_column(cursor, table_name: str, column_name: str) -> bool:
@@ -173,7 +174,43 @@ async def _embed_query(query: str) -> List[float]:
     return list(emb.data[0].embedding)
 
 
-def _active_doc_ids(user_id: str, doc_ids: List[str]) -> set[str]:
+async def _active_session_doc_ids(user_id: str, doc_ids: List[str]) -> set[str]:
+    if not doc_ids:
+        return set()
+    unique_doc_ids = [doc_id for doc_id in doc_ids if doc_id]
+    if not unique_doc_ids:
+        return set()
+
+    placeholders = ",".join(["?"] * len(unique_doc_ids))
+    try:
+        async with open_activity_connection_for_user(user_id=user_id, write=False) as conn:
+            if conn is None:
+                return set()
+            cursor = conn.cursor()
+            if not _table_has_column(cursor, "session_retrieval_docs", "provider_doc_id"):
+                return set()
+            has_embedded_at = _table_has_column(cursor, "session_retrieval_docs", "embedded_at")
+            embedded_clause = "AND COALESCE(embedded_at, 0) > 0" if has_embedded_at else ""
+            rows = conn.execute(
+                f"""
+                SELECT provider_doc_id
+                FROM session_retrieval_docs
+                WHERE provider_doc_id IN ({placeholders})
+                  {embedded_clause}
+                """,
+                tuple(unique_doc_ids),
+            ).fetchall()
+    except Exception:
+        return set()
+
+    return {
+        str(row["provider_doc_id"] or "").strip()
+        for row in rows
+        if str(row["provider_doc_id"] or "").strip()
+    }
+
+
+async def _active_doc_ids(user_id: str, doc_ids: List[str]) -> set[str]:
     if not doc_ids:
         return set()
     unique_doc_ids = [doc_id for doc_id in doc_ids if doc_id]
@@ -204,30 +241,33 @@ def _active_doc_ids(user_id: str, doc_ids: List[str]) -> set[str]:
             continue
         seen_logical.add(dedupe_key)
         active_doc_ids.add(doc_id)
+    if len(active_doc_ids) < len(unique_doc_ids):
+        remaining = [doc_id for doc_id in unique_doc_ids if doc_id not in active_doc_ids]
+        active_doc_ids.update(await _active_session_doc_ids(user_id=user_id, doc_ids=remaining))
     return active_doc_ids
 
 
-def _filter_active_candidates(user_id: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def _filter_active_candidates(user_id: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not candidates:
         return []
     doc_ids = [str(item.get("doc_id") or "").strip() for item in candidates]
     doc_ids = [doc_id for doc_id in doc_ids if doc_id]
     if not doc_ids:
         return []
-    active_doc_ids = _active_doc_ids(user_id=user_id, doc_ids=doc_ids)
+    active_doc_ids = await _active_doc_ids(user_id=user_id, doc_ids=doc_ids)
     if not active_doc_ids:
         return []
     return [item for item in candidates if str(item.get("doc_id") or "") in active_doc_ids]
 
 
-def _filter_active_ranked_lists(user_id: str, ranked_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def _filter_active_ranked_lists(user_id: str, ranked_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     doc_ids: List[str] = []
     for ranked_list in ranked_lists:
         for item in ranked_list.get("items") or []:
             doc_id = str(item.get("doc_id") or "").strip()
             if doc_id:
                 doc_ids.append(doc_id)
-    active_doc_ids = _active_doc_ids(user_id=user_id, doc_ids=doc_ids)
+    active_doc_ids = await _active_doc_ids(user_id=user_id, doc_ids=doc_ids)
     if not active_doc_ids:
         return []
 
@@ -241,6 +281,188 @@ def _filter_active_ranked_lists(user_id: str, ranked_lists: List[Dict[str, Any]]
         if filtered_items:
             filtered_lists.append({**ranked_list, "items": filtered_items})
     return filtered_lists
+
+
+async def _query_session_doc_lexical_lists(
+    *,
+    user_id: str,
+    expanded_queries: List[ExpandedMemoryQuery],
+    query_profile: Dict[str, Any],
+    start_ms: int,
+    end_ms: int,
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    sample_limit = max(300, min(max(top_k, 1) * 20, 2000))
+    try:
+        async with open_activity_connection_for_user(user_id=user_id, write=False) as conn:
+            if conn is None:
+                return []
+            cursor = conn.cursor()
+            if not _table_has_column(cursor, "session_retrieval_docs", "contextual_retrieval_text"):
+                return []
+            provider_doc_select = (
+                "COALESCE(provider_doc_id, '') AS provider_doc_id,"
+                if _table_has_column(cursor, "session_retrieval_docs", "provider_doc_id")
+                else "'' AS provider_doc_id,"
+            )
+            rows = conn.execute(
+                f"""
+                SELECT
+                    id,
+                    session_id,
+                    {provider_doc_select}
+                    chunk_start_ts,
+                    chunk_end_ts,
+                    source_kind,
+                    app_name,
+                    window_title,
+                    document_title,
+                    browser_domain,
+                    raw_visible_text,
+                    contextual_retrieval_text,
+                    capture_quality,
+                    context_version,
+                    session_position,
+                    session_count
+                FROM session_retrieval_docs
+                WHERE chunk_end_ts >= ?
+                  AND chunk_start_ts <= ?
+                ORDER BY chunk_end_ts DESC
+                LIMIT ?
+                """,
+                (int(start_ms), int(end_ms), int(sample_limit)),
+            ).fetchall()
+    except Exception:
+        return []
+
+    candidates: List[Dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        session_id = int(item.get("session_id") or item.get("id") or 0)
+        item["doc_id"] = (
+            str(item.get("provider_doc_id") or "").strip()
+            or f"context-session-{session_id}"
+        )
+        item["chunk_id"] = f"context-session-{session_id}"
+        item["logical_chunk_id"] = f"context-session-{session_id}"
+        item["raw_text_compact"] = item.get("raw_visible_text") or ""
+        item["contextual_text_compact"] = item.get("contextual_retrieval_text") or item.get("raw_visible_text") or ""
+        item["text_compact"] = item["contextual_text_compact"]
+        item["quality_score"] = float(item.get("capture_quality") or 0.0)
+        item["session_key"] = str(session_id)
+        item["session_chunk_count"] = int(item.get("session_count") or 1)
+        item["parent_context"] = item.get("window_title") or item.get("document_title") or ""
+        candidates.append(item)
+
+    ranked_lists: List[Dict[str, Any]] = []
+    for expanded in expanded_queries:
+        query_text = str(expanded.get("text") or "").strip()
+        tokens = [token for token in _normalized_key(query_text).split() if token]
+        if not query_text or not tokens:
+            continue
+
+        scored: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            lexical_score = score_lexical_match_impl(_candidate_haystack(candidate), tokens)
+            if lexical_score <= 0:
+                continue
+            semantic_bonus = _candidate_semantic_bonus(query_profile, candidate)
+            quality_signal = max(
+                float(candidate.get("capture_quality") or 0.0),
+                float(candidate.get("quality_score") or 0.0),
+            )
+            combined_score = lexical_score + semantic_bonus + min(quality_signal, 1.0) * 0.05
+            row = dict(candidate)
+            row["lexical_match_score"] = round(lexical_score, 4)
+            row["combined_score"] = round(combined_score, 4)
+            row["retrieval_score"] = round(combined_score, 4)
+            scored.append(row)
+
+        scored.sort(
+            key=lambda row: (
+                float(row.get("combined_score") or 0.0),
+                int(row.get("chunk_end_ts") or row.get("chunk_start_ts") or 0),
+            ),
+            reverse=True,
+        )
+        if not scored:
+            continue
+
+        ranked_lists.append(
+            {
+                "source": "session_docs_lexical",
+                "query_type": str(expanded.get("type") or "original"),
+                "query_text": query_text,
+                "weight": float(expanded.get("weight") or 1.0),
+                "items": scored[: max(1, int(top_k))],
+            }
+        )
+
+    return ranked_lists
+
+
+async def _session_embedding_window_state(
+    *,
+    user_id: str,
+    start_ms: int,
+    end_ms: int,
+) -> tuple[Optional[int], int]:
+    try:
+        async with open_activity_connection_for_user(user_id=user_id, write=False) as conn:
+            if conn is None:
+                return None, 0
+            cursor = conn.cursor()
+            if not _table_has_column(cursor, "session_retrieval_docs", "embedded_at"):
+                return None, 0
+            max_row = conn.execute(
+                """
+                SELECT MAX(chunk_end_ts)
+                FROM session_retrieval_docs
+                WHERE COALESCE(embedded_at, 0) > 0
+                """,
+            ).fetchone()
+            pending_row = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM session_retrieval_docs
+                WHERE embedded_at IS NULL
+                  AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?
+                  AND chunk_end_ts >= ?
+                  AND chunk_start_ts <= ?
+                """,
+                (SESSION_EMBED_MIN_TEXT_LENGTH, int(start_ms), int(end_ms)),
+            ).fetchone()
+            latest_ts = int(max_row[0]) if max_row and max_row[0] is not None else None
+            pending = int(pending_row[0]) if pending_row and pending_row[0] is not None else 0
+            return latest_ts, pending
+    except Exception:
+        return None, 0
+
+
+async def _process_session_embedding_backfill(
+    *,
+    user_id: str,
+    start_ms: int,
+    end_ms: int,
+    batch_size: int,
+) -> Dict[str, Any]:
+    try:
+        from services.session_embedding_service import process_session_embeddings
+
+        return await process_session_embeddings(
+            user_id=user_id,
+            batch_size=max(8, min(int(batch_size or 32), 128)),
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+    except Exception as exc:
+        logger.warning("Direct session embedding backfill failed for %s: %s", user_id, exc)
+        return {
+            "processed": 0,
+            "failed": 0,
+            "remaining": 0,
+            "error": str(exc),
+        }
 
 
 def _normalized_key(value: Any) -> str:
@@ -808,6 +1030,10 @@ async def query_semantic_cloud(
     embed_error: Optional[str] = None
     candidate_count_raw = 0
     candidate_count_active = 0
+    session_backfill_processed = 0
+    session_backfill_failed = 0
+    session_backfill_error: Optional[str] = None
+    used_session_lexical_fallback = False
     rerank_input_count = 0
     rerank_items_count = 0
     final_evidence_count = 0
@@ -890,7 +1116,7 @@ async def query_semantic_cloud(
             )
             candidate_count_raw = int(tp_result.get("candidate_count_raw") or 0)
             ranked_lists = tp_result.get("lists") or []
-            ranked_lists = _filter_active_ranked_lists(user_id=user_id, ranked_lists=ranked_lists)
+            ranked_lists = await _filter_active_ranked_lists(user_id=user_id, ranked_lists=ranked_lists)
             candidate_count_active = sum(len(item.get("items") or []) for item in ranked_lists)
         except Exception as exc:
             tp_error = str(exc)[:300]
@@ -898,7 +1124,55 @@ async def query_semantic_cloud(
             ranked_lists = []
             candidate_count_raw = 0
             candidate_count_active = 0
+        if candidate_count_active <= 0:
+            session_backfill = await _process_session_embedding_backfill(
+                user_id=user_id,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                batch_size=min(max(limit * 4, 32), budgets["lane_top_k"]),
+            )
+            session_backfill_processed = int(session_backfill.get("processed") or 0)
+            session_backfill_failed = int(session_backfill.get("failed") or 0)
+            session_backfill_error = (
+                str(session_backfill.get("error") or "").strip() or None
+            )
+            if session_backfill_processed > 0:
+                try:
+                    tp_result = await tp.hybrid_candidates(
+                        user_id=user_id,
+                        queries=retrieval_queries,
+                        start_ms=start_ms,
+                        end_ms=end_ms,
+                        top_k=budgets["lane_top_k"],
+                    )
+                    candidate_count_raw = int(tp_result.get("candidate_count_raw") or 0)
+                    ranked_lists = tp_result.get("lists") or []
+                    ranked_lists = await _filter_active_ranked_lists(
+                        user_id=user_id,
+                        ranked_lists=ranked_lists,
+                    )
+                    candidate_count_active = sum(len(item.get("items") or []) for item in ranked_lists)
+                except Exception as exc:
+                    tp_error = str(exc)[:300]
+                    candidate_count_raw = 0
+                    candidate_count_active = 0
+                    ranked_lists = []
         used_db_lexical_fallback = False
+        if candidate_count_active <= 0:
+            session_ranked_lists = await _query_session_doc_lexical_lists(
+                user_id=user_id,
+                expanded_queries=expanded_queries,
+                query_profile=query_profile,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                top_k=budgets["lane_top_k"],
+            )
+            if session_ranked_lists:
+                ranked_lists = session_ranked_lists
+                candidate_count_raw = sum(len(item.get("items") or []) for item in ranked_lists)
+                candidate_count_active = candidate_count_raw
+                lexical_only = True
+                used_session_lexical_fallback = True
         if candidate_count_active <= 0:
             db_ranked_lists = _query_memory_chunk_lexical_lists(
                 user_id=user_id,
@@ -1013,8 +1287,26 @@ async def query_semantic_cloud(
                 cloud_pending_in_window = int(row2[0]) if row2 else 0
         except Exception:
             pass
+        if cloud_max_embedded_ts is None or cloud_pending_in_window <= 0:
+            session_cloud_max_ts, session_pending_in_window = await _session_embedding_window_state(
+                user_id=user_id,
+                start_ms=start_ms,
+                end_ms=end_ms,
+            )
+            if cloud_max_embedded_ts is None:
+                cloud_max_embedded_ts = session_cloud_max_ts
+            if cloud_pending_in_window <= 0:
+                cloud_pending_in_window = session_pending_in_window
 
-        mode_used = "cloud-db-lexical" if used_db_lexical_fallback else ("cloud-lexical" if lexical_only else "cloud-hybrid")
+        mode_used = (
+            "cloud-session-lexical"
+            if used_session_lexical_fallback
+            else (
+                "cloud-db-lexical"
+                if used_db_lexical_fallback
+                else ("cloud-lexical" if lexical_only else "cloud-hybrid")
+            )
+        )
         if lexical_only:
             retrieval_tier = "cloud_lexical_only" if citations else "unavailable"
         else:
@@ -1051,6 +1343,10 @@ async def query_semantic_cloud(
             "rerank_fallback_reason": rerank_fallback_reason,
             "query_vector_present": bool(query_vectors),
             "db_lexical_fallback": used_db_lexical_fallback,
+            "session_lexical_fallback": used_session_lexical_fallback,
+            "session_backfill_processed": session_backfill_processed,
+            "session_backfill_failed": session_backfill_failed,
+            "session_backfill_error": session_backfill_error,
             "query_window_start": start_ms,
             "query_window_end": end_ms,
             "cloud_max_embedded_ts": cloud_max_embedded_ts,
@@ -1097,7 +1393,7 @@ async def query_semantic_cloud(
         }
         logger.info(
             "memory.cloud query lexical_only=%s embed_ok=%s candidates_raw=%s candidates_active=%s "
-            "db_lexical_fallback=%s rerank_provider=%s rerank_fallback_reason=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
+            "db_lexical_fallback=%s session_lexical_fallback=%s session_backfill_processed=%s rerank_provider=%s rerank_fallback_reason=%s rerank_items=%s rerank_attempted=%s rerank_latency_ms=%s "
             "final_evidence=%s distinct_sessions=%s distinct_apps=%s distinct_domains=%s distinct_buckets=%s "
             "citations=%s tier=%s vector_mode=%s lexical_strategy=%s cloud_max_embedded_ts=%s cloud_pending_in_window=%s",
             lexical_only,
@@ -1105,6 +1401,8 @@ async def query_semantic_cloud(
             candidate_count_raw,
             candidate_count_active,
             used_db_lexical_fallback,
+            used_session_lexical_fallback,
+            session_backfill_processed,
             rerank_provider or "none",
             rerank_fallback_reason,
             rerank_items_count,
@@ -1130,7 +1428,12 @@ async def query_semantic_cloud(
             "confidence": confidence,
             "debug": debug_payload,
             "provider_path": {
-                "retrieval": "memory_cloud_db" if used_db_lexical_fallback else "turbopuffer",
+                "retrieval": (
+                    "session_retrieval_docs"
+                    if used_session_lexical_fallback
+                    else ("memory_cloud_db" if used_db_lexical_fallback else "turbopuffer")
+                ),
+                "direct_session_backfill": bool(session_backfill_processed > 0),
                 "rerank": rerank_provider or "none",
                 "rerank_fallback_reason": rerank_fallback_reason,
                 "vector_rank_mode": vector_rank_mode,

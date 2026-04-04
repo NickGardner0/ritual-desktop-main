@@ -264,13 +264,35 @@ async def _ensure_bundle_synced(bundle: PerUserReplicaBundle, *, force: bool = F
 async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]:
     access = await turso_user_service.get_user_activity_access(user_id)
     if not access.use_per_user_db or not access.sync_url or not access.database_name:
+        logger.info(
+            "Per-user activity bundle disabled for %s mode=%s db=%s sync_url_present=%s",
+            user_id,
+            access.mode,
+            access.database_name or "none",
+            bool(access.sync_url),
+        )
         return None
 
-    token = await turso_user_service._mint_database_token(
+    logger.info(
+        "Building per-user activity bundle for %s db=%s sync_url=%s",
+        user_id,
         access.database_name,
-        expiration=turso_user_service.server_token_ttl,
-        authorization="full-access",
+        access.sync_url,
     )
+    try:
+        token = await turso_user_service._mint_database_token(
+            access.database_name,
+            expiration=turso_user_service.server_token_ttl,
+            authorization="full-access",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed minting per-user Turso token for %s db=%s: %s",
+            user_id,
+            access.database_name,
+            exc,
+        )
+        raise
     replica_path = turso_user_service.replica_path_for_user(user_id)
     expiry_epoch = time.time() + turso_user_service._ttl_to_timedelta(
         turso_user_service.server_token_ttl
@@ -279,7 +301,17 @@ async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]
     def _connect() -> object:
         return turso_user_service._open_remote_replica(replica_path, access.sync_url or "", token)
 
-    libsql_conn = await asyncio.to_thread(_connect)
+    try:
+        libsql_conn = await asyncio.to_thread(_connect)
+    except Exception as exc:
+        logger.warning(
+            "Failed opening per-user Turso replica for %s db=%s replica=%s: %s",
+            user_id,
+            access.database_name,
+            replica_path,
+            exc,
+        )
+        raise
     bundle = PerUserReplicaBundle(
         user_id=user_id,
         database_name=access.database_name,
@@ -290,6 +322,12 @@ async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]
         libsql_conn=libsql_conn,
         last_sync_epoch=time.time(),
     )
+    logger.info(
+        "Opened per-user Turso activity replica for %s db=%s replica=%s",
+        user_id,
+        access.database_name,
+        replica_path,
+    )
     return bundle
 
 
@@ -298,6 +336,12 @@ async def _get_or_create_per_user_bundle(user_id: str) -> Optional[PerUserReplic
         bundle = _USER_ACTIVITY_BUNDLES.get(user_id)
         if bundle is not None and _bundle_is_fresh(bundle):
             await _ensure_bundle_synced(bundle)
+            logger.info(
+                "Reusing cached per-user activity bundle for %s db=%s replica=%s",
+                user_id,
+                bundle.database_name,
+                bundle.replica_path,
+            )
             return bundle
 
         if bundle is not None:
@@ -331,18 +375,34 @@ async def open_activity_connection_for_user(
             )
             bundle = None
         if bundle is not None:
+            logger.info(
+                "Using per-user activity SQLite connection for %s db=%s replica=%s write=%s",
+                user_id,
+                bundle.database_name,
+                bundle.replica_path,
+                write,
+            )
             conn = _open_sqlite_conn(bundle.replica_path, write=write)
             yield conn
             return
 
         replica_path = _legacy_replica_path()
         if replica_path is None:
+            logger.warning(
+                "No per-user activity bundle or legacy backend replica available for %s",
+                user_id,
+            )
             yield None
             return
         if not any(
             _has_table(str(replica_path), table_name)
             for table_name in ("context_snapshots", "session_retrieval_docs", "activity_events")
         ):
+            logger.warning(
+                "Legacy backend replica for %s is missing required activity tables at %s",
+                user_id,
+                replica_path,
+            )
             yield None
             return
 
@@ -352,6 +412,12 @@ async def open_activity_connection_for_user(
             logger.warning("Failed opening legacy activity replica for %s: %s", user_id, exc)
             yield None
             return
+        logger.warning(
+            "Falling back to legacy backend activity replica for %s path=%s write=%s",
+            user_id,
+            replica_path,
+            write,
+        )
         yield conn
     finally:
         if conn is not None:

@@ -52,18 +52,47 @@ def _content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _ensure_tracking_column(conn: sqlite3.Connection) -> None:
-    """Add embedded_at column to session_retrieval_docs if it doesn't exist."""
+def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
     try:
-        conn.execute("SELECT embedded_at FROM session_retrieval_docs LIMIT 0")
-    except sqlite3.OperationalError:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    except Exception:
+        return False
+    target = str(column_name or "").strip().lower()
+    for row in rows:
+        name = ""
+        if isinstance(row, sqlite3.Row):
+            name = str(row["name"] or "")
+        elif isinstance(row, (list, tuple)) and len(row) > 1:
+            name = str(row[1] or "")
+        if name.strip().lower() == target:
+            return True
+    return False
+
+
+def _ensure_tracking_columns(conn: sqlite3.Connection) -> None:
+    """Add session embedding tracking columns if they don't exist yet."""
+    altered = False
+    if not _column_exists(conn, "session_retrieval_docs", "embedded_at"):
         conn.execute(
             "ALTER TABLE session_retrieval_docs ADD COLUMN embedded_at INTEGER DEFAULT NULL"
         )
+        altered = True
+    if not _column_exists(conn, "session_retrieval_docs", "provider_doc_id"):
+        conn.execute(
+            "ALTER TABLE session_retrieval_docs ADD COLUMN provider_doc_id TEXT DEFAULT NULL"
+        )
+        altered = True
+    if altered:
         conn.commit()
 
 
-def _fetch_unembedded(conn: sqlite3.Connection, batch_size: int) -> List[Dict[str, Any]]:
+def _fetch_unembedded(
+    conn: sqlite3.Connection,
+    batch_size: int,
+    *,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """Fetch session docs that haven't been embedded yet.
 
     JOINs to context_snapshots to pick up the best document_path and
@@ -77,9 +106,19 @@ def _fetch_unembedded(conn: sqlite3.Connection, batch_size: int) -> List[Dict[st
     except Exception:
         pass
 
+    window_clause = ""
+    params: List[Any] = [MIN_TEXT_LENGTH]
+    if start_ms is not None:
+        window_clause += " AND s.chunk_end_ts >= ?"
+        params.append(int(start_ms))
+    if end_ms is not None:
+        window_clause += " AND s.chunk_start_ts <= ?"
+        params.append(int(end_ms))
+    params.append(int(batch_size))
+
     if has_snapshots:
         cursor = conn.execute(
-            """
+            f"""
             SELECT
                 s.id,
                 s.session_id,
@@ -115,14 +154,15 @@ def _fetch_unembedded(conn: sqlite3.Connection, batch_size: int) -> List[Dict[st
             WHERE s.embedded_at IS NULL
               AND length(COALESCE(s.contextual_retrieval_text, s.raw_visible_text, '')) > ?
               AND COALESCE(s.app_name, '') NOT IN ('loginwindow', 'ScreenSaverEngine', '')
+              {window_clause}
             ORDER BY s.chunk_end_ts DESC
             LIMIT ?
             """,
-            (MIN_TEXT_LENGTH, batch_size),
+            tuple(params),
         )
     else:
         cursor = conn.execute(
-            """
+            f"""
             SELECT
                 id, session_id, device_id, user_id, source_kind,
                 chunk_start_ts, chunk_end_ts, app_name, browser_domain,
@@ -134,10 +174,11 @@ def _fetch_unembedded(conn: sqlite3.Connection, batch_size: int) -> List[Dict[st
             WHERE embedded_at IS NULL
               AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?
               AND COALESCE(app_name, '') NOT IN ('loginwindow', 'ScreenSaverEngine', '')
+              {window_clause.replace('s.', '')}
             ORDER BY chunk_end_ts DESC
             LIMIT ?
             """,
-            (MIN_TEXT_LENGTH, batch_size),
+            tuple(params),
         )
     return [dict(row) for row in cursor.fetchall()]
 
@@ -193,7 +234,13 @@ def _extract_parent_context(doc: Dict[str, Any]) -> str:
     return context_text[:240]
 
 
-async def process_session_embeddings(user_id: str, batch_size: int = BATCH_SIZE) -> Dict[str, Any]:
+async def process_session_embeddings(
+    user_id: str,
+    batch_size: int = BATCH_SIZE,
+    *,
+    start_ms: Optional[int] = None,
+    end_ms: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Main entry point: fetch unembedded session docs from activity.db,
     embed with OpenAI, upsert to Turbopuffer.
@@ -221,16 +268,26 @@ async def process_session_embeddings(user_id: str, batch_size: int = BATCH_SIZE)
                 "error": "No activity database is available for this user",
             }
         conn.row_factory = sqlite3.Row
-        _ensure_tracking_column(conn)
-        docs = _fetch_unembedded(conn, batch_size)
+        _ensure_tracking_columns(conn)
+        docs = _fetch_unembedded(conn, batch_size, start_ms=start_ms, end_ms=end_ms)
+
+        remaining_where = [
+            "embedded_at IS NULL",
+            "length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?",
+        ]
+        remaining_params: List[Any] = [MIN_TEXT_LENGTH]
+        if start_ms is not None:
+            remaining_where.append("chunk_end_ts >= ?")
+            remaining_params.append(int(start_ms))
+        if end_ms is not None:
+            remaining_where.append("chunk_start_ts <= ?")
+            remaining_params.append(int(end_ms))
+        remaining_sql = (
+            "SELECT COUNT(*) FROM session_retrieval_docs WHERE " + " AND ".join(remaining_where)
+        )
 
         if not docs:
-            remaining = conn.execute(
-                """SELECT COUNT(*) FROM session_retrieval_docs
-                   WHERE embedded_at IS NULL
-                     AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?""",
-                (MIN_TEXT_LENGTH,),
-            ).fetchone()[0]
+            remaining = conn.execute(remaining_sql, tuple(remaining_params)).fetchone()[0]
             return {
                 "processed": 0,
                 "failed": 0,
@@ -324,8 +381,8 @@ async def process_session_embeddings(user_id: str, batch_size: int = BATCH_SIZE)
                 )
                 # Mark as embedded
                 conn.execute(
-                    "UPDATE session_retrieval_docs SET embedded_at = ? WHERE id = ?",
-                    (now_ms, doc["id"]),
+                    "UPDATE session_retrieval_docs SET embedded_at = ?, provider_doc_id = ? WHERE id = ?",
+                    (now_ms, doc_id, doc["id"]),
                 )
                 processed += 1
             except Exception as exc:
@@ -337,18 +394,13 @@ async def process_session_embeddings(user_id: str, batch_size: int = BATCH_SIZE)
                 failed += 1
                 # Mark as embedded with negative value so it's skipped but trackable
                 conn.execute(
-                    "UPDATE session_retrieval_docs SET embedded_at = -1 WHERE id = ?",
+                    "UPDATE session_retrieval_docs SET embedded_at = -1, provider_doc_id = NULL WHERE id = ?",
                     (doc["id"],),
                 )
 
         conn.commit()
 
-        remaining = conn.execute(
-            """SELECT COUNT(*) FROM session_retrieval_docs
-               WHERE embedded_at IS NULL
-                 AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?""",
-            (MIN_TEXT_LENGTH,),
-        ).fetchone()[0]
+        remaining = conn.execute(remaining_sql, tuple(remaining_params)).fetchone()[0]
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.info(
@@ -371,7 +423,7 @@ async def get_embedding_status(user_id: str) -> Dict[str, Any]:
             if conn is None:
                 return {"error": "No activity database is available for this user"}
             conn.row_factory = sqlite3.Row
-            _ensure_tracking_column(conn)
+            _ensure_tracking_columns(conn)
 
             total = conn.execute("SELECT COUNT(*) FROM session_retrieval_docs").fetchone()[0]
             embedded = conn.execute(
