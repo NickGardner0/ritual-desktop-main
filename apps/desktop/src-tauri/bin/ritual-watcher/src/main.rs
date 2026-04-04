@@ -1043,6 +1043,15 @@ fn window_title_observer_enabled() -> bool {
     false
 }
 
+fn deep_accessibility_capture_enabled() -> bool {
+    matches!(
+        env::var("RITUAL_ENABLE_DEEP_ACCESSIBILITY_CAPTURE")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
 fn ensure_session_event_persisted(
     session: &mut CurrentSession,
     config: &WatcherConfig,
@@ -1345,6 +1354,14 @@ fn run_watcher_loop(
                 "enabled"
             } else if window_title_observer_enabled() {
                 "disabled (no AX permission)"
+            } else {
+                "disabled"
+            }
+        );
+        info!(
+            "   Deep accessibility capture: {}",
+            if deep_accessibility_capture_enabled() {
+                "enabled"
             } else {
                 "disabled"
             }
@@ -1786,16 +1803,19 @@ fn run_watcher_loop(
                     UrlMode::DomainOnly => (None, browser_info.domain.clone()),
                     UrlMode::Full => (browser_info.url.clone(), browser_info.domain.clone()),
                 };
-                let focused_text_info = info
-                    .pid
-                    .map(|pid| {
-                        get_focused_text_info(
-                            pid,
-                            Some(info.bundle_id.as_str()),
-                            info.window_title.as_deref(),
-                        )
-                    })
-                    .unwrap_or_default();
+                let focused_text_info = if deep_accessibility_capture_enabled() {
+                    info.pid
+                        .map(|pid| {
+                            get_focused_text_info(
+                                pid,
+                                Some(info.bundle_id.as_str()),
+                                info.window_title.as_deref(),
+                            )
+                        })
+                        .unwrap_or_default()
+                } else {
+                    macos::FocusedTextInfo::default()
+                };
                 let capture_bundle_id = info.bundle_id.clone();
                 let capture_app_name = info.app_name.clone();
                 let capture_window_title = info.window_title.clone();
