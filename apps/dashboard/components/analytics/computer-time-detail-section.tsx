@@ -329,7 +329,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
         <div className="px-5 pt-4 pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-0">
-              <span className="text-[13px] font-medium text-[#27251E] pr-3 py-1">Active Time</span>
+              <span className="text-[13px] font-medium text-[#27251E] pr-3 py-1">Top Apps</span>
               {hasData && (
                 <span className="text-[13px] font-normal tabular-nums text-[rgba(39,37,30,0.40)]">
                   {activeTimeStr}

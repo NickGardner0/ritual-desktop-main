@@ -869,15 +869,17 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
             exit={{ y: 80, opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
           >
-            <div className="border border-gray-300 bg-white shadow-lg h-12 px-3 flex items-center gap-2">
-              <span className="text-sm text-gray-900 min-w-[98px]">
+            <div className="border border-black/10 bg-white shadow-[0_8px_30px_-12px_rgba(0,0,0,0.2)] rounded-lg h-11 px-4 flex items-center gap-3">
+              <span className="text-[13px] font-medium text-gray-900 tabular-nums">
                 {selectedCount} selected
               </span>
+
+              <div className="w-px h-5 bg-gray-200" />
 
               <button
                 type="button"
                 onClick={() => setRowSelection({})}
-                className="h-8 px-2 border border-gray-300 text-sm text-gray-700 hover:bg-[#F5F5F5]"
+                className="h-7 px-2.5 rounded-md text-[13px] text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 Deselect
               </button>
@@ -885,21 +887,23 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
               <button
                 type="button"
                 onClick={() => exportLogsToCsv(selectedLogs)}
-                className="h-8 px-2 border border-gray-300 text-sm text-gray-700 hover:bg-[#F5F5F5] inline-flex items-center gap-1.5"
+                className="h-7 px-2.5 rounded-md text-[13px] text-gray-600 hover:bg-gray-100 transition-colors inline-flex items-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
                 Export
               </button>
 
+              <div className="w-px h-5 bg-gray-200" />
+
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <button
                     type="button"
-                    className="h-8 px-2 border border-red-200 text-sm text-red-700 hover:bg-red-50 inline-flex items-center gap-1.5"
+                    className="h-7 px-2.5 rounded-md text-[13px] text-red-600 hover:bg-red-50 transition-colors inline-flex items-center gap-1.5"
                     disabled={deleteMutation.isPending}
                   >
                     {deleteMutation.isPending ? (
-                      <BrailleSpinner className="text-sm text-red-700" />
+                      <BrailleSpinner className="text-sm text-red-600" />
                     ) : (
                       <Trash2 className="w-3.5 h-3.5" />
                     )}

@@ -10,6 +10,7 @@
 //! Events are stored with source='browser_extension' to distinguish them from
 //! events detected by the watcher's own window/AppleScript polling.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -60,6 +61,18 @@ pub struct BrowserHeartbeat {
     /// Optional top headings/landmarks from the page.
     #[serde(default)]
     pub headings: Vec<String>,
+    /// Optional page-level summary/description.
+    #[serde(default)]
+    pub meta_description: Option<String>,
+    /// Selected text from the page when available.
+    #[serde(default)]
+    pub selection_text: Option<String>,
+    /// Text from the focused element when available.
+    #[serde(default)]
+    pub focused_element_text: Option<String>,
+    /// Labeled semantic blocks extracted by the extension.
+    #[serde(default)]
+    pub semantic_blocks: Vec<String>,
     /// Client-estimated capture quality in the range [0, 1].
     #[serde(default)]
     pub capture_quality: Option<f64>,
@@ -186,6 +199,8 @@ pub enum BrowserDbCommand {
         visible_text_norm: String,
         capture_quality: f64,
         dedup_key: String,
+        capture_components_json: Option<String>,
+        ui_elements_json: Option<String>,
         is_sensitive_redacted: bool,
         response: Sender<Result<i64, String>>,
     },
@@ -375,6 +390,8 @@ fn queue_insert_context_snapshot(
     visible_text_norm: String,
     capture_quality: f64,
     dedup_key: String,
+    capture_components_json: Option<String>,
+    ui_elements_json: Option<String>,
     is_sensitive_redacted: bool,
 ) -> Result<i64, String> {
     let (response_tx, response_rx) = mpsc::channel();
@@ -396,6 +413,8 @@ fn queue_insert_context_snapshot(
             visible_text_norm,
             capture_quality,
             dedup_key,
+            capture_components_json,
+            ui_elements_json,
             is_sensitive_redacted,
             response: response_tx,
         })
@@ -406,28 +425,184 @@ fn queue_insert_context_snapshot(
         .map_err(|e| format!("timed out waiting for insert_context_snapshot: {}", e))?
 }
 
-fn sanitized_visible_text(heartbeat: &BrowserHeartbeat) -> (String, String) {
-    let raw = heartbeat.visible_text_raw.as_deref().unwrap_or("").trim();
-    let norm = heartbeat.visible_text_norm.as_deref().unwrap_or("").trim();
+fn push_unique_fragment(
+    fragments: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+    raw_value: &str,
+    max_chars: usize,
+) {
+    let trimmed = raw_value.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let normalized = trimmed.chars().take(max_chars).collect::<String>();
+    let key = normalized.to_lowercase();
+    if seen.insert(key) {
+        fragments.push(normalized);
+    }
+}
+
+fn browser_capture_components_json(heartbeat: &BrowserHeartbeat) -> Option<String> {
+    let mut components = vec!["browser_tab".to_string()];
+    if heartbeat.document_title.as_deref().unwrap_or("").trim().is_empty() {
+        // no-op
+    } else {
+        components.push("document_title".to_string());
+    }
+    if heartbeat.visible_text_raw.as_deref().unwrap_or("").trim().is_empty()
+        && heartbeat.visible_text_norm.as_deref().unwrap_or("").trim().is_empty()
+    {
+        // no-op
+    } else {
+        components.push("visible_text".to_string());
+    }
+    if heartbeat
+        .meta_description
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
+        // no-op
+    } else {
+        components.push("meta_description".to_string());
+    }
+    if heartbeat
+        .selection_text
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
+        // no-op
+    } else {
+        components.push("selection_text".to_string());
+    }
+    if heartbeat
+        .focused_element_text
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
+        // no-op
+    } else {
+        components.push("focused_element_text".to_string());
+    }
+    if !heartbeat.headings.is_empty() {
+        components.push("headings".to_string());
+    }
+    if !heartbeat.semantic_blocks.is_empty() {
+        components.push("semantic_blocks".to_string());
+    }
+    serde_json::to_string(&components).ok()
+}
+
+fn browser_ui_elements_json(heartbeat: &BrowserHeartbeat) -> Option<String> {
     let headings = heartbeat
         .headings
         .iter()
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join(" | ");
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let semantic_blocks = heartbeat
+        .semantic_blocks
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let meta_description = heartbeat
+        .meta_description
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let selection_text = heartbeat
+        .selection_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let focused_element_text = heartbeat
+        .focused_element_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
-    let raw_text = if !raw.is_empty() {
-        raw.to_string()
-    } else {
-        headings.clone()
-    };
-    let norm_text = if !norm.is_empty() {
-        norm.to_string()
-    } else if !raw_text.is_empty() {
+    if headings.is_empty()
+        && semantic_blocks.is_empty()
+        && meta_description.is_none()
+        && selection_text.is_none()
+        && focused_element_text.is_none()
+    {
+        return None;
+    }
+
+    serde_json::to_string(&serde_json::json!({
+        "meta_description": meta_description,
+        "selection_text": selection_text,
+        "focused_element_text": focused_element_text,
+        "headings": headings,
+        "semantic_blocks": semantic_blocks,
+    }))
+    .ok()
+}
+
+fn sanitized_visible_text(heartbeat: &BrowserHeartbeat) -> (String, String) {
+    let mut fragments = Vec::new();
+    let mut seen = HashSet::new();
+
+    push_unique_fragment(
+        &mut fragments,
+        &mut seen,
+        heartbeat.visible_text_raw.as_deref().unwrap_or(""),
+        12_000,
+    );
+
+    if let Some(meta_description) = heartbeat.meta_description.as_deref() {
+        push_unique_fragment(
+            &mut fragments,
+            &mut seen,
+            &format!("Page summary: {meta_description}"),
+            800,
+        );
+    }
+    if let Some(selection_text) = heartbeat.selection_text.as_deref() {
+        push_unique_fragment(
+            &mut fragments,
+            &mut seen,
+            &format!("Selected text: {selection_text}"),
+            1_400,
+        );
+    }
+    if let Some(focused_element_text) = heartbeat.focused_element_text.as_deref() {
+        push_unique_fragment(
+            &mut fragments,
+            &mut seen,
+            &format!("Focused element: {focused_element_text}"),
+            1_800,
+        );
+    }
+    for heading in heartbeat.headings.iter().take(12) {
+        push_unique_fragment(&mut fragments, &mut seen, &format!("Heading: {heading}"), 260);
+    }
+    for block in heartbeat.semantic_blocks.iter().take(16) {
+        push_unique_fragment(&mut fragments, &mut seen, block, 420);
+    }
+
+    let raw_text = fragments.join(" | ");
+    let norm_text = if !raw_text.is_empty() {
         raw_text.to_lowercase()
     } else {
-        String::new()
+        heartbeat
+            .visible_text_norm
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string()
     };
     (raw_text, norm_text)
 }
@@ -646,6 +821,8 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                 event_ts / 120_000
             )
         });
+        let capture_components_json = browser_capture_components_json(&heartbeat);
+        let ui_elements_json = browser_ui_elements_json(&heartbeat);
         if let Err(err) = queue_insert_context_snapshot(
             &state.db_write_tx,
             state.device_id.clone(),
@@ -678,6 +855,8 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                 },
             ),
             dedup_key,
+            capture_components_json,
+            ui_elements_json,
             heartbeat.is_sensitive_redacted,
         ) {
             debug!("Failed to persist browser context snapshot: {}", err);
@@ -788,6 +967,8 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                         event_ts / 120_000
                     )
                 });
+                let capture_components_json = browser_capture_components_json(&heartbeat);
+                let ui_elements_json = browser_ui_elements_json(&heartbeat);
                 if let Err(err) = queue_insert_context_snapshot(
                     &state.db_write_tx,
                     state.device_id.clone(),
@@ -816,6 +997,8 @@ fn process_heartbeat(state: &mut ServerState, heartbeat: BrowserHeartbeat) -> He
                         },
                     ),
                     dedup_key,
+                    capture_components_json,
+                    ui_elements_json,
                     heartbeat.is_sensitive_redacted,
                 ) {
                     debug!("Failed to persist browser context snapshot: {}", err);

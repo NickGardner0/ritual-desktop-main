@@ -51,6 +51,7 @@ import {
   CategoryCell,
   SourceCell,
   NotesCell,
+  ActionsCell,
 } from './columns';
 import type { HabitLog, TableDensity } from '@/app/(dashboard)/activity/logs-client';
 
@@ -121,9 +122,9 @@ interface HabitLogTableMeta {
 const COLUMN_RESIZE_STORAGE_KEY = 'ritual:logs:column-widths:v5';
 const COLUMN_ORDER_STORAGE_KEY = 'ritual:logs:column-order:v1';
 
-const DEFAULT_COLUMN_ORDER = ['select', 'date', 'time', 'habit', 'value', 'category', 'source', 'notes'];
+const DEFAULT_COLUMN_ORDER = ['select', 'date', 'time', 'habit', 'value', 'category', 'source', 'notes', 'actions'];
 const LEFT_STICKY_COLUMNS = ['select', 'date'];
-const PINNED_COLUMNS = new Set(['select']);
+const PINNED_COLUMNS = new Set(['select', 'actions']);
 
 const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
   select: { sticky: true, align: 'center', resizable: false, sortable: false },
@@ -134,6 +135,7 @@ const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
   category: { align: 'left', resizable: true, sortable: true },
   source: { align: 'left', resizable: true, sortable: true },
   notes: { align: 'left', resizable: false, sortable: false },
+  actions: { stickyRight: true, align: 'center', resizable: false, sortable: false },
 };
 
 const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: number }> = {
@@ -145,6 +147,7 @@ const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: num
   category: { size: 155, minSize: 100, maxSize: 300 },
   source: { size: 140, minSize: 90, maxSize: 300 },
   notes: { size: 195, minSize: 120, maxSize: 400 },
+  actions: { size: 60, minSize: 60, maxSize: 60 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
@@ -350,6 +353,17 @@ const tableColumns: ColumnDef<HabitLog>[] = [
       </span>
     ),
     cell: ({ row }) => <NotesCell notes={row.original.notes} />,
+  },
+  {
+    id: 'actions',
+    ...COLUMN_SIZES.actions,
+    enableResizing: false,
+    header: () => (
+      <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
+        Actions
+      </span>
+    ),
+    cell: ({ row }) => <ActionsCell log={row.original} />,
   },
 ];
 
@@ -824,7 +838,13 @@ export function HabitLogsDataTable({
     if (!layout) return base;
 
     if (layout.stickyRight) {
-      return { ...base, position: 'sticky', right: 0, zIndex: 18 };
+      return {
+        ...base,
+        position: 'sticky',
+        right: 0,
+        zIndex: 18,
+        ...(canScrollRight ? { boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.08)' } : {}),
+      };
     }
 
     if (!layout.sticky) return base;
@@ -848,7 +868,7 @@ export function HabitLogsDataTable({
       zIndex: 17,
       ...(isLastSticky && canScrollLeft ? { boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' } : {}),
     };
-  }, [columnVisibility, getColumnWidth, canScrollLeft]);
+  }, [columnVisibility, getColumnWidth, canScrollLeft, canScrollRight]);
 
   const getAlignmentClass = useCallback((align?: ColumnAlign) => {
     if (align === 'right') return 'text-right';
@@ -1030,7 +1050,7 @@ export function HabitLogsDataTable({
     );
   }
 
-  const NON_CLICKABLE = new Set(['select', 'source']);
+  const NON_CLICKABLE = new Set(['select', 'source', 'actions']);
 
   return (
     <TooltipProvider delayDuration={20}>
@@ -1106,7 +1126,8 @@ export function HabitLogsDataTable({
                           key={header.id}
                           columnId={header.id}
                           className={cn(
-                            'relative h-full flex items-center border-b border-r border-border bg-white text-neutral-500',
+                            'relative h-full flex items-center border-b border-border bg-white text-neutral-500',
+                            !layout?.stickyRight && 'border-r',
                             headerCellPadding,
                             getAlignmentClass(layout?.align),
                             stickyClass,
@@ -1203,7 +1224,8 @@ export function HabitLogsDataTable({
                           data-column={columnId}
                           className={cn(
                             bodyCellPadding,
-                            'h-full flex items-center border-b border-r border-border',
+                            'h-full flex items-center border-b border-border',
+                            !layout?.stickyRight && 'border-r',
                             getAlignmentClass(layout?.align),
                             stickyClass,
                             cellBgClass,
@@ -1211,7 +1233,7 @@ export function HabitLogsDataTable({
                           )}
                           style={getStickyStyle(columnId)}
                           onClick={
-                            columnId === 'select'
+                            columnId === 'select' || columnId === 'actions'
                               ? (event) => event.stopPropagation()
                               : undefined
                           }

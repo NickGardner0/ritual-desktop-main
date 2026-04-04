@@ -207,7 +207,11 @@ async function captureVisibleContext(tab) {
       documentTitle: tab?.title || null,
       visibleTextRaw: '',
       visibleTextNorm: '',
+      metaDescription: null,
+      selectionText: '',
+      focusedElementText: '',
       headings: [],
+      semanticBlocks: [],
       captureQuality: 0.25,
       dedupKey: null,
       isSensitiveRedacted: false,
@@ -305,6 +309,11 @@ async function captureVisibleContext(tab) {
         const passwordFields = Array.from(
           document.querySelectorAll('input[type="password"], [data-sensitive="true"]')
         );
+        const metaDescription = normalize(
+          document.querySelector('meta[name="description"]')?.content
+          || document.querySelector('meta[property="og:description"]')?.content
+          || ''
+        ) || null;
         const headingsSeen = new Set();
         const headings = Array.from(
           document.querySelectorAll('h1, h2, h3, [role="heading"], main h4')
@@ -321,8 +330,10 @@ async function captureVisibleContext(tab) {
 
         const fragments = [];
         const fragmentSeen = new Set();
+        const semanticBlocks = [];
+        const semanticSeen = new Set();
         const selectionText = normalize(window.getSelection?.()?.toString?.() || '');
-        const activeValue = normalize(
+        const focusedElementText = normalize(
           document.activeElement?.value
           || document.activeElement?.innerText
           || document.activeElement?.textContent
@@ -333,12 +344,30 @@ async function captureVisibleContext(tab) {
         ) || document.body;
 
         uniquePush(fragments, fragmentSeen, selectionText, 1200);
-        uniquePush(fragments, fragmentSeen, activeValue, 1600);
+        uniquePush(fragments, fragmentSeen, focusedElementText, 1600);
+        uniquePush(fragments, fragmentSeen, metaDescription, 600);
+        uniquePush(semanticBlocks, semanticSeen, selectionText ? `Selected text: ${selectionText}` : '', 1400);
+        uniquePush(
+          semanticBlocks,
+          semanticSeen,
+          focusedElementText ? `Focused element: ${focusedElementText}` : '',
+          1800
+        );
+        uniquePush(
+          semanticBlocks,
+          semanticSeen,
+          metaDescription ? `Page summary: ${metaDescription}` : '',
+          800
+        );
         for (const heading of headings) {
           uniquePush(fragments, fragmentSeen, heading, 220);
+          uniquePush(semanticBlocks, semanticSeen, `Heading: ${heading}`, 260);
         }
         for (const chunk of collectVisibleText(contentRoot)) {
           uniquePush(fragments, fragmentSeen, chunk, 360);
+          if (semanticBlocks.length < 12) {
+            uniquePush(semanticBlocks, semanticSeen, `Visible text: ${chunk}`, 420);
+          }
           if (fragments.join(' ').length >= MAX_TEXT_LENGTH) {
             break;
           }
@@ -359,7 +388,11 @@ async function captureVisibleContext(tab) {
           documentTitle: normalize(document.title) || null,
           visibleTextRaw,
           visibleTextNorm,
+          metaDescription,
+          selectionText,
+          focusedElementText,
           headings,
+          semanticBlocks: semanticBlocks.slice(0, 16),
           captureQuality: visibleTextNorm ? 0.98 : 0.35,
           isSensitiveRedacted: passwordFields.length > 0,
         };
@@ -373,13 +406,33 @@ async function captureVisibleContext(tab) {
     const headingSeen = new Set();
     const visibleChunks = [];
     const chunkSeen = new Set();
+    const semanticBlocks = [];
+    const semanticSeen = new Set();
     let documentTitle = tab.title || null;
+    let metaDescription = null;
+    let selectionText = '';
+    let focusedElementText = '';
     let captureQuality = 0.25;
     let isSensitiveRedacted = false;
 
     for (const extracted of frameResults) {
       if (!documentTitle && extracted?.documentTitle) {
         documentTitle = extracted.documentTitle;
+      }
+      if (!metaDescription && extracted?.metaDescription) {
+        metaDescription = extracted.metaDescription;
+      }
+      if (
+        typeof extracted?.selectionText === 'string'
+        && extracted.selectionText.length > selectionText.length
+      ) {
+        selectionText = extracted.selectionText;
+      }
+      if (
+        typeof extracted?.focusedElementText === 'string'
+        && extracted.focusedElementText.length > focusedElementText.length
+      ) {
+        focusedElementText = extracted.focusedElementText;
       }
       if (typeof extracted?.captureQuality === 'number') {
         captureQuality = Math.max(captureQuality, extracted.captureQuality);
@@ -393,6 +446,14 @@ async function captureVisibleContext(tab) {
         if (headingSeen.has(key)) continue;
         headingSeen.add(key);
         headings.push(normalized);
+      }
+      for (const block of Array.isArray(extracted?.semanticBlocks) ? extracted.semanticBlocks : []) {
+        const normalized = String(block || '').trim();
+        if (!normalized) continue;
+        const key = normalized.toLowerCase();
+        if (semanticSeen.has(key)) continue;
+        semanticSeen.add(key);
+        semanticBlocks.push(normalized);
       }
 
       const raw = String(extracted?.visibleTextRaw || '').trim();
@@ -410,6 +471,10 @@ async function captureVisibleContext(tab) {
         tab.url || '',
         tab.title || '',
         documentTitle || '',
+        metaDescription || '',
+        selectionText || '',
+        focusedElementText || '',
+        semanticBlocks.slice(0, 8).join('|'),
         visibleTextNorm.slice(0, 4000),
       ].join('|')
     );
@@ -417,7 +482,11 @@ async function captureVisibleContext(tab) {
       documentTitle,
       visibleTextRaw,
       visibleTextNorm,
+      metaDescription,
+      selectionText,
+      focusedElementText,
       headings,
+      semanticBlocks: semanticBlocks.slice(0, 16),
       captureQuality: visibleTextNorm ? Math.max(captureQuality, 0.92) : captureQuality,
       dedupKey,
       isSensitiveRedacted,
@@ -428,7 +497,11 @@ async function captureVisibleContext(tab) {
       documentTitle: tab?.title || null,
       visibleTextRaw: '',
       visibleTextNorm: '',
+      metaDescription: null,
+      selectionText: '',
+      focusedElementText: '',
       headings: [],
+      semanticBlocks: [],
       captureQuality: 0.25,
       dedupKey: hashString([tab?.url || '', tab?.title || '', Date.now() / 120000 | 0].join('|')),
       isSensitiveRedacted: false,
@@ -527,7 +600,11 @@ async function sendHeartbeat(tab, options = {}) {
     document_title: visibleContext.documentTitle,
     visible_text_raw: visibleContext.visibleTextRaw,
     visible_text_norm: visibleContext.visibleTextNorm,
+    meta_description: visibleContext.metaDescription,
+    selection_text: visibleContext.selectionText,
+    focused_element_text: visibleContext.focusedElementText,
     headings: visibleContext.headings,
+    semantic_blocks: visibleContext.semanticBlocks,
     capture_quality: visibleContext.captureQuality,
     dedup_key: visibleContext.dedupKey,
     is_sensitive_redacted: visibleContext.isSensitiveRedacted,

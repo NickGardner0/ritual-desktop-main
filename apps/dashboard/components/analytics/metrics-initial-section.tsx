@@ -38,7 +38,7 @@ export function MetricsInitialSection({
       {cardGrid}
 
       {showBarLists && habitBarItems.length > 0 ? (
-        <div className="mx-auto mt-6 w-full max-w-[1040px]">
+        <div className="mx-auto mt-6 w-full max-w-[920px]">
           <div className="grid grid-cols-1 gap-[6px] lg:grid-cols-2">
             <VercelBarListCard
               tabs={[
@@ -60,7 +60,7 @@ export function MetricsInitialSection({
       ) : null}
 
       {showBarLists ? (
-        <div className="mx-auto mt-5 w-full max-w-[1040px]">
+        <div className="mx-auto mt-5 w-full max-w-[920px]">
           <ComputerTimeDetailSection externalRange={computerTimeRangePreset} />
         </div>
       ) : null}

@@ -20,12 +20,18 @@ export function getServerCandidates(activeServerUrl, serverUrls) {
 }
 
 export function isSameHeartbeat(a, b) {
+  const arrayKey = (value) => JSON.stringify(Array.isArray(value) ? value : []);
   return (
     a.url === b.url &&
     a.domain === b.domain &&
     a.title === b.title &&
     a.document_title === b.document_title &&
     a.visible_text_norm === b.visible_text_norm &&
+    a.meta_description === b.meta_description &&
+    a.selection_text === b.selection_text &&
+    a.focused_element_text === b.focused_element_text &&
+    arrayKey(a.headings) === arrayKey(b.headings) &&
+    arrayKey(a.semantic_blocks) === arrayKey(b.semantic_blocks) &&
     a.audible === b.audible &&
     a.incognito === b.incognito &&
     a.browser_focused === b.browser_focused &&

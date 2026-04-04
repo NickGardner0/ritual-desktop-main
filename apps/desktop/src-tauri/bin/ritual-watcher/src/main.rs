@@ -1052,6 +1052,26 @@ fn deep_accessibility_capture_enabled() -> bool {
     )
 }
 
+fn deep_accessibility_capture_disabled() -> bool {
+    matches!(
+        env::var("RITUAL_DISABLE_DEEP_ACCESSIBILITY_CAPTURE")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+fn deep_accessibility_capture_enabled_for_bundle(bundle_id: &str) -> bool {
+    if deep_accessibility_capture_disabled() {
+        return false;
+    }
+    if deep_accessibility_capture_enabled() {
+        return true;
+    }
+
+    !is_browser(bundle_id)
+}
+
 fn ensure_session_event_persisted(
     session: &mut CurrentSession,
     config: &WatcherConfig,
@@ -1360,10 +1380,12 @@ fn run_watcher_loop(
         );
         info!(
             "   Deep accessibility capture: {}",
-            if deep_accessibility_capture_enabled() {
+            if deep_accessibility_capture_disabled() {
+                "disabled"
+            } else if deep_accessibility_capture_enabled() {
                 "enabled"
             } else {
-                "disabled"
+                "enabled (non-browser apps only)"
             }
         );
     }
@@ -1803,7 +1825,7 @@ fn run_watcher_loop(
                     UrlMode::DomainOnly => (None, browser_info.domain.clone()),
                     UrlMode::Full => (browser_info.url.clone(), browser_info.domain.clone()),
                 };
-                let focused_text_info = if deep_accessibility_capture_enabled() {
+                let focused_text_info = if deep_accessibility_capture_enabled_for_bundle(&info.bundle_id) {
                     info.pid
                         .map(|pid| {
                             get_focused_text_info(
@@ -2268,6 +2290,8 @@ fn process_browser_db_commands(
                 visible_text_norm,
                 capture_quality,
                 dedup_key,
+                capture_components_json,
+                ui_elements_json,
                 is_sensitive_redacted,
                 response,
             }) => {
@@ -2290,9 +2314,11 @@ fn process_browser_db_commands(
                 snapshot.visible_text_norm = visible_text_norm;
                 snapshot.capture_quality = capture_quality;
                 snapshot.capture_trigger = Some("browser_heartbeat".to_string());
-                snapshot.capture_components_json =
+                snapshot.capture_components_json = capture_components_json.or_else(|| {
                     serde_json::to_string(&vec!["document_title", "browser_tab", "visible_text"])
-                        .ok();
+                        .ok()
+                });
+                snapshot.ui_elements_json = ui_elements_json;
                 snapshot.is_sensitive_redacted = is_sensitive_redacted;
 
                 match db.record_context_snapshot(&snapshot) {

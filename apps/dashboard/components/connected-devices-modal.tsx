@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, Plus } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -134,7 +134,7 @@ export function ConnectedDevicesBar() {
 
   return (
     <>
-      <div className="fixed bottom-0 left-[70px] right-0 flex justify-end pr-[calc((100%-70px-640px)/2-12px)] pb-2.5 pointer-events-none">
+      <div className="fixed bottom-0 left-[70px] right-0 flex justify-end pr-[calc((100%-70px-640px)/2-12px)] pb-1 pointer-events-none">
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -266,7 +266,7 @@ function DeviceCard({
             alt={device.name}
             className={cn(
               'object-contain',
-              device.id === 'oura' ? 'max-h-10 max-w-10' : 'max-h-6 max-w-6',
+              device.id === 'oura' ? 'max-h-10 max-w-10' : device.id === 'plaid' ? 'max-h-7 max-w-7' : 'max-h-6 max-w-6',
             )}
           />
         </div>
@@ -280,11 +280,6 @@ function DeviceCard({
         </div>
       </div>
 
-      {!device.comingSoon && (
-        <div className="shrink-0 ml-2 mt-0.5">
-          <Plus className="h-4 w-4 text-neutral-400" />
-        </div>
-      )}
     </button>
   );
 }

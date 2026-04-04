@@ -15,6 +15,13 @@ use core_foundation::string::{CFString, CFStringRef};
 use serde::Serialize;
 use std::env;
 
+fn env_flag_enabled(name: &str) -> bool {
+    matches!(
+        env::var(name).ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
 /// Information about the currently active window
 #[derive(Debug, Clone)]
 pub struct ActiveWindowInfo {
@@ -946,7 +953,7 @@ fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
         // Default to the safer no-title path for the beta watcher. AX window-title
         // capture can be re-enabled explicitly once the callback crash surface is
         // isolated.
-        let window_title = if ax_window_title_capture_enabled() {
+        let window_title = if ax_window_title_capture_enabled_for_bundle(&bundle_id) {
             get_window_title_ax(pid)
         } else {
             None
@@ -962,17 +969,19 @@ fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn ax_window_title_capture_enabled() -> bool {
-    matches!(
-        env::var("RITUAL_ENABLE_AX_WINDOW_TITLES")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+fn ax_window_title_capture_enabled_for_bundle(bundle_id: &str) -> bool {
+    if env_flag_enabled("RITUAL_DISABLE_AX_WINDOW_TITLES") {
+        return false;
+    }
+    if env_flag_enabled("RITUAL_ENABLE_AX_WINDOW_TITLES") {
+        return true;
+    }
+
+    !is_browser_context(Some(bundle_id), None)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn ax_window_title_capture_enabled() -> bool {
+fn ax_window_title_capture_enabled_for_bundle(_bundle_id: &str) -> bool {
     false
 }
 

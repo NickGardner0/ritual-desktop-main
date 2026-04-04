@@ -27,6 +27,13 @@ test('isSameHeartbeat ignores queue metadata and compares tracking fields', () =
     url: 'https://example.com/a',
     domain: 'example.com',
     title: 'Example A',
+    document_title: 'Example A',
+    visible_text_norm: 'alpha beta',
+    meta_description: 'summary',
+    selection_text: 'selected text',
+    focused_element_text: 'search query',
+    headings: ['Heading'],
+    semantic_blocks: ['Selected text: selected text'],
     audible: false,
     incognito: false,
     browser_focused: true,
@@ -40,6 +47,10 @@ test('isSameHeartbeat ignores queue metadata and compares tracking fields', () =
 
   assert.equal(isSameHeartbeat(a, b), true);
   assert.equal(isSameHeartbeat(a, { ...b, title: 'Example B' }), false);
+  assert.equal(
+    isSameHeartbeat(a, { ...b, semantic_blocks: ['Selected text: something else'] }),
+    false
+  );
 });
 
 test('replayQueuedEvents preserves unsent tail when send fails mid-queue', async () => {

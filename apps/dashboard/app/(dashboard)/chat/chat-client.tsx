@@ -2020,8 +2020,11 @@ export function ChatClient() {
                   />
                 </div>
                 <h1 className="text-[28px] font-medium text-gray-900 tracking-tight">
-                  {greeting}{user?.firstName ? `, ${user.firstName}` : ''}
+                  Welcome to Ritual
                 </h1>
+                <p className="text-[15px] text-gray-400">
+                  Ask about your personal data or computer activity
+                </p>
               </div>
 
               {/* Input — clean rounded card */}
@@ -2083,6 +2086,28 @@ export function ChatClient() {
                   </div>
                 </div>
               </form>
+
+              {/* Suggestion Cards */}
+              <div className="grid grid-cols-3 gap-2.5 mt-1">
+                {[
+                  { query: 'How did I sleep last week?', label: 'Sleep analysis' },
+                  { query: 'What apps did I use most today?', label: 'App usage' },
+                  { query: 'Show my step trends this month', label: 'Step trends' },
+                ].map((card) => (
+                  <button
+                    key={card.query}
+                    type="button"
+                    onClick={() => {
+                      setInput(card.query);
+                      setTimeout(() => textareaRef.current?.focus(), 0);
+                    }}
+                    className="text-left border border-gray-200 rounded-lg px-4 py-3.5 hover:border-gray-300 hover:bg-gray-50/60 transition-colors group"
+                  >
+                    <span className="text-[13px] font-medium text-gray-900 leading-snug">{card.label}</span>
+                    <span className="block text-[12px] text-gray-400 mt-1 leading-snug">{card.query}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
