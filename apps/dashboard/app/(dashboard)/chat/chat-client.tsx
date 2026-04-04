@@ -2008,23 +2008,20 @@ export function ChatClient() {
         <div className="flex-1 flex flex-col min-w-0">
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
-            <div className="max-w-xl w-full space-y-5">
-              {/* Logo + Greeting — Claude-style centered hero */}
-              <div className="flex flex-col items-center gap-4 mb-2">
-                <div className="relative flex h-16 w-16 items-center justify-center">
+            <div className="max-w-xl w-full space-y-4">
+              {/* Logo + Greeting */}
+              <div className="flex flex-col items-center gap-2 mb-1">
+                <div className="relative flex h-12 w-12 items-center justify-center">
                   <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(15,23,42,0.08)_0%,rgba(15,23,42,0)_72%)] blur-sm" />
                   <img
                     src="/images/eclipse.svg"
                     alt="Ritual"
-                    className="relative h-10 w-10 opacity-70 saturate-[0.8]"
+                    className="relative h-8 w-8 opacity-70 saturate-[0.8]"
                   />
                 </div>
-                <h1 className="text-[28px] font-medium text-gray-900 tracking-tight">
+                <h1 className="text-[26px] font-medium text-gray-900 tracking-tight">
                   Welcome to Ritual
                 </h1>
-                <p className="text-[15px] text-gray-400">
-                  Ask about your personal data or computer activity
-                </p>
               </div>
 
               {/* Input — clean rounded card */}
@@ -2088,11 +2085,11 @@ export function ChatClient() {
               </form>
 
               {/* Suggestion Cards */}
-              <div className="grid grid-cols-3 gap-2.5 mt-1">
+              <div className="grid grid-cols-3 gap-2.5">
                 {[
                   { query: 'How did I sleep last week?', label: 'Sleep analysis' },
-                  { query: 'What apps did I use most today?', label: 'App usage' },
-                  { query: 'Show my step trends this month', label: 'Step trends' },
+                  { query: 'Break down my app and browser usage from last week', label: 'App usage' },
+                  { query: 'How much caffeine have I had this month?', label: 'Caffeine consumption' },
                 ].map((card) => (
                   <button
                     key={card.query}
@@ -2101,10 +2098,10 @@ export function ChatClient() {
                       setInput(card.query);
                       setTimeout(() => textareaRef.current?.focus(), 0);
                     }}
-                    className="text-left border border-gray-200 rounded-lg px-4 py-3.5 hover:border-gray-300 hover:bg-gray-50/60 transition-colors group"
+                    className="text-left border border-gray-200 rounded-sm px-4 pt-4 pb-3.5 hover:border-gray-300 hover:bg-gray-50/60 transition-colors group flex flex-col gap-1.5"
                   >
-                    <span className="text-[13px] font-medium text-gray-900 leading-snug">{card.label}</span>
-                    <span className="block text-[12px] text-gray-400 mt-1 leading-snug">{card.query}</span>
+                    <span className="text-[13px] font-medium text-gray-900">{card.label}</span>
+                    <span className="text-[12px] text-gray-400 leading-relaxed">{card.query}</span>
                   </button>
                 ))}
               </div>
