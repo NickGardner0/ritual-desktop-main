@@ -2008,7 +2008,7 @@ export function ChatClient() {
         <div className="flex-1 flex flex-col min-w-0">
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
-            <div className="max-w-xl w-full space-y-4">
+            <div className="max-w-2xl w-full space-y-4">
               {/* Logo + Greeting */}
               <div className="flex flex-col items-center gap-2 mb-1">
                 <div className="relative flex h-12 w-12 items-center justify-center">
@@ -2084,12 +2084,14 @@ export function ChatClient() {
                 </div>
               </form>
 
-              {/* Suggestion Cards */}
-              <div className="grid grid-cols-3 gap-2.5">
+              {/* Suggestion Chips */}
+              <div className="flex flex-wrap gap-2 justify-center">
                 {[
                   { query: 'How did I sleep last week?', label: 'Sleep analysis' },
                   { query: 'Break down my app and browser usage from last week', label: 'App usage' },
                   { query: 'How much caffeine have I had this month?', label: 'Caffeine consumption' },
+                  { query: 'What are my top apps this week?', label: 'Top apps' },
+                  { query: 'How many steps have I taken this month?', label: 'Steps' },
                 ].map((card) => (
                   <button
                     key={card.query}
@@ -2098,10 +2100,9 @@ export function ChatClient() {
                       setInput(card.query);
                       setTimeout(() => textareaRef.current?.focus(), 0);
                     }}
-                    className="text-left border border-gray-200 rounded-sm px-4 pt-4 pb-3.5 hover:border-gray-300 hover:bg-gray-50/60 transition-colors group flex flex-col gap-1.5"
+                    className="border border-gray-200 rounded-sm px-3.5 py-1.5 text-[12.5px] text-gray-500 hover:border-gray-300 hover:text-gray-700 hover:bg-gray-50/60 transition-colors"
                   >
-                    <span className="text-[13px] font-medium text-gray-900">{card.label}</span>
-                    <span className="text-[12px] text-gray-400 leading-relaxed">{card.query}</span>
+                    {card.label}
                   </button>
                 ))}
               </div>

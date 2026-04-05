@@ -106,11 +106,15 @@ export function AppIcon({
   const bgColor = `hsl(${hue}, 30%, 90%)`
   const textColor = `hsl(${hue}, 40%, 40%)`
   
+  // Check cache on every render (batch fetch may have populated it)
+  const cachedSrc = bundleId ? iconCache.get(bundleId) : undefined
+  const displaySrc = iconSrc || cachedSrc
+
   // Show icon if we have it
-  if (iconSrc && !error) {
+  if (displaySrc && !error) {
     return (
       <img
-        src={iconSrc}
+        src={displaySrc}
         alt={appName}
         className={`object-contain ${className}`}
         onError={() => setError(true)}
@@ -277,11 +281,10 @@ export function RankedBars({
                   }}
                 />
               ) : (
-                <AppIcon 
-                  appName={item.label} 
+                <AppIcon
+                  appName={item.label}
                   bundleId={item.key}
                   className="h-5 w-5 flex-shrink-0 rounded-sm"
-                  eagerFetch={false}
                 />
               )}
               

@@ -325,7 +325,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
   return (
     <div className="mt-[5px] grid grid-cols-1 lg:grid-cols-2 gap-[5px]">
       {/* Top Apps Card */}
-      <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-lg overflow-hidden flex min-h-[292px] flex-col h-full" ref={appCardRef}>
+      <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-sm overflow-hidden flex min-h-[292px] flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]" ref={appCardRef}>
         <div className="px-5 pt-4 pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-0">
@@ -391,7 +391,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
       </div>
 
       {/* Top Websites Card */}
-      <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-lg overflow-hidden flex min-h-[292px] flex-col h-full" ref={websiteCardRef}>
+      <div className="border border-[rgba(39,37,30,0.08)] bg-white rounded-sm overflow-hidden flex min-h-[292px] flex-col h-full shadow-[0_1px_2px_rgba(0,0,0,0.02)]" ref={websiteCardRef}>
         <div className="px-5 pt-4 pb-2">
           <div className="flex items-center justify-between">
             <span className="text-[13px] font-medium text-[#27251E] py-1">Top Websites</span>
