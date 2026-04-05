@@ -258,13 +258,16 @@ export async function loadDashboardInitialData(
           op: 'ui.load',
           attributes: {
             initial_view_mode: initialViewMode,
+            preload_habit_logs: shouldPreloadMetrics,
           },
         },
         async () => Promise.all([
-          getHabits(),
-          getHabitLogs(),
+          getHabits(userId),
           shouldPreloadMetrics
-            ? getAnalyticsSummary(1095).catch(() => null)
+            ? getHabitLogs(undefined, userId)
+            : Promise.resolve([] as HabitLogLike[]),
+          shouldPreloadMetrics
+            ? getAnalyticsSummary(1095, userId).catch(() => null)
             : Promise.resolve(null),
         ]),
       );
@@ -293,20 +296,11 @@ export async function loadDashboardInitialData(
             return buildDerivedInitialData(habits, habitLogs);
           }
 
-          const logsByHabit = new Map<string, HabitLogLike[]>();
-          for (const log of habitLogs) {
-            if (!log.habit_id) continue;
-            const habitId = String(log.habit_id);
-            const existing = logsByHabit.get(habitId);
-            if (existing) {
-              existing.push(log);
-            } else {
-              logsByHabit.set(habitId, [log]);
-            }
-          }
-
+          // Overview can render from the hydrated habit list immediately and
+          // fill in totals from client-side cache/fetch. Avoid blocking first
+          // paint on the full habit log history.
           return {
-            overviewStats: buildOverviewStats(habits, logsByHabit),
+            overviewStats: {},
             metricsAnalyticsData: {},
             metricsSummaryMetrics: {},
             metricsBarListAnalyticsData: {},
