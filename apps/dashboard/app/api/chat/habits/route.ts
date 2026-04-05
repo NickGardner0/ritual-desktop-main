@@ -409,7 +409,7 @@ Non-trackable input →
     const result = await generateObject({
       model: openai('gpt-4o-mini'),
       system: systemPrompt,
-      messages: messages,
+      messages: messages as any,
       schema: multiIntentSchema,
       temperature: 0.3,
     });
