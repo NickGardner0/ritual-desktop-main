@@ -405,7 +405,7 @@ Non-trackable input →
       message: z.string().optional()
     });
 
-    // @ts-expect-error - AI SDK type inference issue
+    // @ts-ignore - AI SDK generic inference still blows up here in some build environments
     const result = await generateObject({
       model: openai('gpt-4o-mini'),
       system: systemPrompt,
