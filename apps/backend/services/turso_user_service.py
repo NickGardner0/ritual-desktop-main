@@ -541,6 +541,7 @@ class TursoUserService:
         message = str(exc).lower()
         return (
             "stream not found" in message
+            or "wal_insert_begin failed" in message
             or "wal_insert_frame failed" in message
             or "lower generation" in message
             or "server returned a lower generation than local" in message

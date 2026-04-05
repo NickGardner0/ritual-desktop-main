@@ -12,7 +12,7 @@ use chrono::Utc;
 use once_cell::sync::Lazy;
 use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
@@ -286,8 +286,6 @@ pub fn reset_activity_replica_circuit_breaker() {
     set_activity_circuit_breaker(false, None);
 }
 
-const REPLICA_BOOTSTRAP_DEFERRED_REASON: &str = "replica_bootstrap_deferred";
-
 fn classify_replica_failure(error: &str) -> &'static str {
     let normalized = error.to_ascii_lowercase();
     if normalized.contains("unauthorized") {
@@ -307,19 +305,8 @@ fn activity_replica_info_path() -> PathBuf {
     PathBuf::from(format!("{}-info", get_activity_db_path().display()))
 }
 
-pub fn should_defer_activity_replica_bootstrap() -> bool {
-    turso_sync_env_configured()
-        && !activity_circuit_breaker_active()
-        && !activity_replica_info_path().exists()
-}
-
-pub fn defer_activity_replica_for_session() {
-    set_activity_circuit_breaker(true, Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()));
-    set_activity_runtime_state(
-        DatabaseConnectionState::DegradedLocal,
-        None,
-        Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()),
-    );
+pub fn activity_replica_bootstrap_pending() -> bool {
+    turso_sync_env_configured() && !activity_replica_info_path().exists()
 }
 
 #[derive(Debug, Clone)]
@@ -327,6 +314,41 @@ struct QuarantinedReplicaArtifact {
     original: PathBuf,
     quarantined: PathBuf,
 }
+
+#[derive(Debug, Clone)]
+struct BootstrappedActivityArtifact {
+    original: PathBuf,
+    bootstrapped: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ActivityBootstrapTablePlan {
+    name: &'static str,
+    conflict_target: &'static str,
+}
+
+const ACTIVITY_BOOTSTRAP_TABLES: [ActivityBootstrapTablePlan; 5] = [
+    ActivityBootstrapTablePlan {
+        name: "activity_events",
+        conflict_target: "id",
+    },
+    ActivityBootstrapTablePlan {
+        name: "afk_events",
+        conflict_target: "id",
+    },
+    ActivityBootstrapTablePlan {
+        name: "context_sessions",
+        conflict_target: "id",
+    },
+    ActivityBootstrapTablePlan {
+        name: "context_snapshots",
+        conflict_target: "dedup_key",
+    },
+    ActivityBootstrapTablePlan {
+        name: "session_retrieval_docs",
+        conflict_target: "session_id",
+    },
+];
 
 fn activity_replica_artifact_paths() -> Vec<PathBuf> {
     let db_path = get_activity_db_path();
@@ -338,6 +360,401 @@ fn activity_replica_artifact_paths() -> Vec<PathBuf> {
         PathBuf::from(format!("{db_path_string}-wal")),
         PathBuf::from(format!("{db_path_string}-info")),
     ]
+}
+
+fn local_activity_artifact_paths() -> Vec<PathBuf> {
+    let db_path = get_activity_db_path();
+    let db_path_string = db_path.display().to_string();
+
+    vec![
+        db_path,
+        PathBuf::from(format!("{db_path_string}-shm")),
+        PathBuf::from(format!("{db_path_string}-wal")),
+    ]
+}
+
+fn cleanup_activity_replica_artifacts() -> Result<(), String> {
+    for path in activity_replica_artifact_paths() {
+        if !path.exists() {
+            continue;
+        }
+
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path).map_err(|e| {
+                format!(
+                    "Failed to remove activity replica artifact directory {}: {}",
+                    path.display(),
+                    e
+                )
+            })?;
+        } else {
+            std::fs::remove_file(&path).map_err(|e| {
+                format!(
+                    "Failed to remove activity replica artifact {}: {}",
+                    path.display(),
+                    e
+                )
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn stash_local_activity_for_bootstrap() -> Result<Option<Vec<BootstrappedActivityArtifact>>, String> {
+    let existing_paths: Vec<PathBuf> = local_activity_artifact_paths()
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect();
+
+    if existing_paths.is_empty() {
+        return Ok(None);
+    }
+
+    let ritual_dir = get_ritual_dir();
+    let bootstrap_dir = ritual_dir.join("bootstrap").join(format!(
+        "activity-local-{}",
+        Utc::now().timestamp_millis()
+    ));
+    std::fs::create_dir_all(&bootstrap_dir).map_err(|e| {
+        format!(
+            "Failed to create activity bootstrap directory {}: {}",
+            bootstrap_dir.display(),
+            e
+        )
+    })?;
+
+    let mut moved = Vec::with_capacity(existing_paths.len());
+    for original in existing_paths {
+        let file_name = original.file_name().ok_or_else(|| {
+            format!(
+                "Failed to determine file name for activity bootstrap artifact {}",
+                original.display()
+            )
+        })?;
+        let bootstrapped = bootstrap_dir.join(file_name);
+        std::fs::rename(&original, &bootstrapped).map_err(|e| {
+            format!(
+                "Failed to move activity bootstrap artifact {} -> {}: {}",
+                original.display(),
+                bootstrapped.display(),
+                e
+            )
+        })?;
+        moved.push(BootstrappedActivityArtifact {
+            original,
+            bootstrapped,
+        });
+    }
+
+    db_info!(
+        "📦 Stashed {} local activity artifact(s) for replica bootstrap at {}",
+        moved.len(),
+        bootstrap_dir.display()
+    );
+
+    Ok(Some(moved))
+}
+
+fn restore_bootstrapped_activity_artifacts(
+    artifacts: &[BootstrappedActivityArtifact],
+) -> Result<(), String> {
+    cleanup_activity_replica_artifacts()?;
+
+    for artifact in artifacts.iter().rev() {
+        if !artifact.bootstrapped.exists() {
+            continue;
+        }
+
+        std::fs::rename(&artifact.bootstrapped, &artifact.original).map_err(|e| {
+            format!(
+                "Failed to restore bootstrapped activity artifact {} -> {}: {}",
+                artifact.bootstrapped.display(),
+                artifact.original.display(),
+                e
+            )
+        })?;
+    }
+
+    if let Some(parent) = artifacts
+        .first()
+        .and_then(|artifact| artifact.bootstrapped.parent())
+    {
+        let _ = std::fs::remove_dir(parent);
+    }
+
+    db_info!(
+        "↩️ Restored {} local activity bootstrap artifact(s)",
+        artifacts.len()
+    );
+
+    Ok(())
+}
+
+fn sqlite_table_columns(
+    conn: &SqliteConnection,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<String>, String> {
+    let pragma = format!("PRAGMA {}.table_info({})", schema, table);
+    let mut stmt = conn
+        .prepare(&pragma)
+        .map_err(|e| format!("Failed to prepare table_info for {}.{}: {}", schema, table, e))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| format!("Failed to query table_info for {}.{}: {}", schema, table, e))?;
+
+    let mut columns = Vec::new();
+    for row in rows {
+        columns.push(
+            row.map_err(|e| format!("Failed reading table_info for {}.{}: {}", schema, table, e))?,
+        );
+    }
+    Ok(columns)
+}
+
+fn copy_bootstrap_table_into_replica(
+    conn: &SqliteConnection,
+    plan: ActivityBootstrapTablePlan,
+    target_user_id: Option<&str>,
+) -> Result<usize, String> {
+    if !table_exists_in_schema(conn, "bootstrap", plan.name)? {
+        return Ok(0);
+    }
+
+    let target_columns = sqlite_table_columns(conn, "main", plan.name)?;
+    let source_columns = sqlite_table_columns(conn, "bootstrap", plan.name)?;
+    let common_columns: Vec<String> = target_columns
+        .into_iter()
+        .filter(|column| source_columns.iter().any(|source| source == column))
+        .collect();
+
+    if common_columns.is_empty() {
+        return Ok(0);
+    }
+
+    let has_user_id = common_columns.iter().any(|column| column == "user_id");
+    let insert_columns = common_columns.join(", ");
+    let select_expressions = common_columns
+        .iter()
+        .map(|column| {
+            if column == "user_id" && target_user_id.is_some() {
+                "?1 AS user_id".to_string()
+            } else {
+                format!("bootstrap.{}", column)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let update_assignments = common_columns
+        .iter()
+        .filter(|column| column.as_str() != "id")
+        .map(|column| format!("{0}=excluded.{0}", column))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    if update_assignments.is_empty() {
+        return Ok(0);
+    }
+
+    let where_clause = if has_user_id && target_user_id.is_some() {
+        "WHERE COALESCE(NULLIF(bootstrap.user_id, ''), ?2) = ?3"
+    } else {
+        ""
+    };
+
+    let sql = format!(
+        "INSERT INTO {table} ({insert_columns}) \
+         SELECT {select_expressions} \
+         FROM bootstrap.{table} AS bootstrap \
+         {where_clause} \
+         ON CONFLICT({conflict_target}) DO UPDATE SET {update_assignments}",
+        table = plan.name,
+        conflict_target = plan.conflict_target,
+    );
+
+    let rows_changed = match (has_user_id, target_user_id) {
+        (true, Some(user_id)) => conn
+            .execute(&sql, rusqlite::params![user_id, user_id, user_id])
+            .map_err(|e| format!("Failed bootstrapping table {}: {}", plan.name, e))?,
+        _ => conn
+            .execute(&sql, [])
+            .map_err(|e| format!("Failed bootstrapping table {}: {}", plan.name, e))?,
+    };
+
+    Ok(rows_changed)
+}
+
+fn import_bootstrap_activity_into_replica(
+    replica_path: &Path,
+    bootstrap_source_path: &Path,
+    target_user_id: Option<&str>,
+) -> Result<(), String> {
+    let conn = SqliteConnection::open_with_flags(
+        replica_path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| {
+        format!(
+            "Failed opening replica activity DB {} for bootstrap import: {}",
+            replica_path.display(),
+            e
+        )
+    })?;
+
+    conn.execute_batch("PRAGMA busy_timeout=30000; PRAGMA foreign_keys=OFF;")
+        .map_err(|e| format!("Failed configuring replica bootstrap pragmas: {}", e))?;
+    conn.execute(
+        "ATTACH DATABASE ?1 AS bootstrap",
+        [bootstrap_source_path.to_string_lossy().to_string()],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed attaching bootstrap source {}: {}",
+            bootstrap_source_path.display(),
+            e
+        )
+    })?;
+
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|e| format!("Failed starting activity bootstrap transaction: {}", e))?;
+
+    let result = (|| -> Result<(), String> {
+        for plan in ACTIVITY_BOOTSTRAP_TABLES {
+            let changed = copy_bootstrap_table_into_replica(&conn, plan, target_user_id)?;
+            db_info!(
+                "📥 Bootstrapped table {} changed_rows={} target_user_id={:?}",
+                plan.name,
+                changed,
+                target_user_id
+            );
+        }
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT; DETACH DATABASE bootstrap; PRAGMA foreign_keys=ON;")
+                .map_err(|e| format!("Failed finalizing activity bootstrap import: {}", e))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK; DETACH DATABASE bootstrap; PRAGMA foreign_keys=ON;");
+            Err(error)
+        }
+    }
+}
+
+fn bootstrap_activity_replica_if_needed_blocking(origin: &str) -> Result<bool, String> {
+    if !activity_replica_bootstrap_pending() {
+        return Ok(false);
+    }
+
+    let existing_local_activity = local_activity_artifact_paths()
+        .into_iter()
+        .any(|path| path.exists());
+    if !existing_local_activity {
+        db_info!(
+            "🆕 No existing local activity.db artifacts found; allowing fresh replica bootstrap origin={}",
+            origin
+        );
+        return Ok(false);
+    }
+
+    let target_user_id = resolve_active_identity().map(|identity| identity.user_id);
+    let stashed = stash_local_activity_for_bootstrap()?.unwrap_or_default();
+    let bootstrap_source_path = stashed
+        .iter()
+        .find(|artifact| artifact.original == get_activity_db_path())
+        .map(|artifact| artifact.bootstrapped.clone())
+        .ok_or_else(|| "Failed to locate stashed bootstrap source activity.db".to_string())?;
+
+    let activity_config = DatabaseConfig::with_turso_sync(
+        get_activity_db_path(),
+        std::env::var("TURSO_SYNC_URL").unwrap_or_default(),
+        std::env::var("TURSO_AUTH_TOKEN").unwrap_or_default(),
+    );
+
+    let initial_replica = match BlockingDatabase::open(&activity_config) {
+        Ok(db) => db,
+        Err(error) => {
+            restore_bootstrapped_activity_artifacts(&stashed)?;
+            return Err(format!(
+                "Failed to initialize fresh activity replica before bootstrap import: {}",
+                error
+            ));
+        }
+    };
+
+    if let Err(error) = initial_replica.sync() {
+        drop(initial_replica);
+        restore_bootstrapped_activity_artifacts(&stashed)?;
+        return Err(format!(
+            "Failed to sync fresh activity replica before bootstrap import: {}",
+            error
+        ));
+    }
+    drop(initial_replica);
+
+    if let Err(error) = import_bootstrap_activity_into_replica(
+        &get_activity_db_path(),
+        &bootstrap_source_path,
+        target_user_id.as_deref(),
+    ) {
+        cleanup_activity_replica_artifacts()?;
+        restore_bootstrapped_activity_artifacts(&stashed)?;
+        return Err(format!(
+            "Failed importing local activity history into fresh replica: {}",
+            error
+        ));
+    }
+
+    let final_replica = match BlockingDatabase::open(&activity_config) {
+        Ok(db) => db,
+        Err(error) => {
+            cleanup_activity_replica_artifacts()?;
+            restore_bootstrapped_activity_artifacts(&stashed)?;
+            return Err(format!(
+                "Failed reopening activity replica after bootstrap import: {}",
+                error
+            ));
+        }
+    };
+
+    if let Err(error) = final_replica.sync() {
+        drop(final_replica);
+        cleanup_activity_replica_artifacts()?;
+        restore_bootstrapped_activity_artifacts(&stashed)?;
+        return Err(format!(
+            "Failed syncing activity replica after bootstrap import: {}",
+            error
+        ));
+    }
+
+    drop(final_replica);
+
+    db_info!(
+        "✅ Bootstrapped activity replica from local activity.db origin={} bootstrap_source={} target_user_id={:?}",
+        origin,
+        bootstrap_source_path.display(),
+        target_user_id
+    );
+
+    Ok(true)
+}
+
+pub async fn bootstrap_activity_replica_if_needed(origin: &str) -> Result<bool, String> {
+    let origin = origin.to_string();
+    let task_origin = origin.clone();
+    tokio::task::spawn_blocking(move || bootstrap_activity_replica_if_needed_blocking(&task_origin))
+        .await
+        .map_err(|error| {
+            format!(
+                "Failed to join activity replica bootstrap task origin={}: {}",
+                origin, error
+            )
+        })?
 }
 
 fn quarantine_invalid_activity_replica_state() -> Result<Vec<QuarantinedReplicaArtifact>, String> {
@@ -507,17 +924,29 @@ async fn open_activity_database_with_fallback() -> Result<
         return open_local_activity_database(status, None, reason).await;
     }
 
-    if should_defer_activity_replica_bootstrap() {
-        db_info!(
-            "⏭️ Deferring activity replica bootstrap for this session because activity.db-info is missing"
-        );
-        set_activity_circuit_breaker(true, Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()));
-        return open_local_activity_database(
-            DatabaseConnectionState::DegradedLocal,
-            None,
-            Some(REPLICA_BOOTSTRAP_DEFERRED_REASON.to_string()),
-        )
-        .await;
+    if activity_replica_bootstrap_pending() {
+        match bootstrap_activity_replica_if_needed("ritual_database:open_activity_database") .await {
+            Ok(true) => {
+                db_info!("✅ Activity replica bootstrap completed; opening embedded replica");
+            }
+            Ok(false) => {
+                db_info!("🆕 Activity replica bootstrap not required; opening embedded replica directly");
+            }
+            Err(error) => {
+                let fail_reason = "replica_bootstrap_failed".to_string();
+                set_activity_circuit_breaker(true, Some(fail_reason.clone()));
+                db_error!(
+                    "❌ Failed to bootstrap activity replica from local history; falling back to local-only mode: {}",
+                    error
+                );
+                return open_local_activity_database(
+                    DatabaseConnectionState::DegradedLocal,
+                    Some(error),
+                    Some(fail_reason),
+                )
+                .await;
+            }
+        }
     }
 
     let activity_config = DatabaseConfig::with_turso_sync(

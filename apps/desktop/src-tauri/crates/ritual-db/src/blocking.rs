@@ -93,6 +93,11 @@ impl BlockingDatabase {
     pub fn config(&self) -> &DatabaseConfig {
         self.db.config()
     }
+
+    /// Explicitly sync an embedded replica with its remote Turso database.
+    pub fn sync(&self) -> Result<()> {
+        self.rt.block_on(self.db.sync())
+    }
     
     /// Get database path
     pub fn db_path(&self) -> &std::path::Path {

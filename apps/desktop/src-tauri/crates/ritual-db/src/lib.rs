@@ -257,6 +257,15 @@ impl RitualDatabase {
     pub async fn connection(&self) -> tokio::sync::RwLockReadGuard<'_, Connection> {
         self.conn.read().await
     }
+
+    /// Explicitly sync an embedded replica with its remote Turso database.
+    pub async fn sync(&self) -> Result<()> {
+        self.db
+            .sync()
+            .await
+            .map_err(|e| DatabaseError::Connection(format!("Turso sync: {}", e)))?;
+        Ok(())
+    }
     
     /// Get a mutable reference to the connection for write operations
     pub async fn connection_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, Connection> {

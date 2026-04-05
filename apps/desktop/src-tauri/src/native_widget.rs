@@ -252,22 +252,13 @@ pub(crate) async fn apply_turso_sync_config_internal(
         crate::ritual_database::DatabaseConnectionState::Uninitialized
             | crate::ritual_database::DatabaseConnectionState::Reloading
     );
-
-    if previous_config.as_ref() == Some(&config) && runtime_initialized {
+    let activity_bootstrap_pending = crate::ritual_database::activity_replica_bootstrap_pending();
+    if previous_config.as_ref() == Some(&config) && runtime_initialized && !activity_bootstrap_pending {
         nw_info!(
             "⏭️ Skipping identical Turso sync config apply origin={} activity_status={:?}",
             origin,
             runtime_state.activity.status
         );
-        return Ok(config_file);
-    }
-
-    if crate::ritual_database::should_defer_activity_replica_bootstrap() {
-        nw_info!(
-            "⏭️ Deferring Turso replica bootstrap for this session; keeping local activity DB active origin={}",
-            origin
-        );
-        crate::ritual_database::defer_activity_replica_for_session();
         return Ok(config_file);
     }
 
@@ -286,6 +277,16 @@ pub(crate) async fn apply_turso_sync_config_internal(
 
     let apply_result: Result<(), String> = async {
         crate::ritual_database::reset_activity_replica_circuit_breaker();
+        if crate::ritual_database::activity_replica_bootstrap_pending() {
+            nw_info!(
+                "🛠️ Bootstrapping activity replica from existing local activity.db origin={}",
+                origin
+            );
+            crate::ritual_database::bootstrap_activity_replica_if_needed(
+                &format!("{origin}:bootstrap_activity_replica"),
+            )
+            .await?;
+        }
         reload_activity_database_blocking(format!("{origin}:reload_activity_database")).await?;
 
         if let Some(saved_config) = watcher_restart_config.clone() {
