@@ -127,6 +127,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const [partialTranscript, setPartialTranscript] = useState<string | null>(null);
   const [mode, setMode] = useState<InputMode>('log');
   const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
@@ -693,6 +694,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const resetNativeVoiceSession = useCallback(async () => {
     clearNativeVoiceTimers();
     nativeVoiceTimestampRef.current = 0;
+    setPartialTranscript(null);
     await clearNativeDesktopSpeechState().catch(() => undefined);
   }, [clearNativeVoiceTimers]);
 
@@ -722,8 +724,23 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           }
           nativeVoiceTimestampRef.current = state.timestamp;
 
+          if (state.event === 'ritual:speech:partial') {
+            if (state.transcript?.trim()) {
+              setPartialTranscript(state.transcript);
+              // Reset auto-stop timer — user is still speaking
+              if (nativeVoiceAutoStopRef.current) {
+                clearTimeout(nativeVoiceAutoStopRef.current);
+                nativeVoiceAutoStopRef.current = window.setTimeout(() => {
+                  stopVoiceRecording();
+                }, 3000);
+              }
+            }
+            return;
+          }
+
           if (state.event === 'ritual:speech:final') {
             await resetNativeVoiceSession();
+            setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
             if (state.transcript?.trim()) {
@@ -737,6 +754,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
           if (state.event === 'ritual:speech:error') {
             await resetNativeVoiceSession();
+            setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
             setError(formatNativeSpeechError(state.transcript));
@@ -745,6 +763,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
           if (state.event === 'ritual:speech:status' && state.transcript === 'stopped') {
             await resetNativeVoiceSession();
+            setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
             setError('No speech detected. Please try again.');
@@ -1535,7 +1554,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               ) : (
                 <textarea
                   ref={textareaRef}
-                  value={input}
+                  value={isListening && partialTranscript ? partialTranscript : input}
                   onChange={(e) => {
                     setInput(e.target.value);
                     setSelectedSuggestionIndex(0);
@@ -1544,13 +1563,16 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   onKeyDown={handleKeyDown}
                   onFocus={handleInputFocus}
                   onBlur={handleInputBlur}
-                  placeholder={mode === 'log' 
-                    ? "Log anything..." 
-                    : "Ask about your personal data..."
+                  placeholder={isListening
+                    ? "Listening..."
+                    : mode === 'log'
+                      ? "Log anything..."
+                      : "Ask about your personal data..."
                   }
                   className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent py-1.5 font-normal leading-6"
                   rows={1}
                   disabled={isLoading}
+                  readOnly={isListening}
                 />
               )}
             </div>

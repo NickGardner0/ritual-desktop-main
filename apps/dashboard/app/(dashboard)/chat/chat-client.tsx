@@ -806,6 +806,7 @@ export function ChatClient() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [partialTranscript, setPartialTranscript] = useState<string | null>(null);
   const nativeVoicePollRef = useRef<number | null>(null);
   const nativeVoiceAutoStopRef = useRef<number | null>(null);
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
@@ -1547,6 +1548,7 @@ export function ChatClient() {
   const resetNativeVoiceSession = useCallback(async () => {
     clearNativeVoiceTimers();
     nativeVoiceTimestampRef.current = 0;
+    setPartialTranscript(null);
     await clearNativeDesktopSpeechState().catch(() => undefined);
   }, [clearNativeVoiceTimers]);
 
@@ -1576,8 +1578,23 @@ export function ChatClient() {
           }
           nativeVoiceTimestampRef.current = state.timestamp;
 
+          if (state.event === 'ritual:speech:partial') {
+            if (state.transcript?.trim()) {
+              setPartialTranscript(state.transcript);
+              // Reset auto-stop timer — user is still speaking
+              if (nativeVoiceAutoStopRef.current) {
+                clearTimeout(nativeVoiceAutoStopRef.current);
+                nativeVoiceAutoStopRef.current = window.setTimeout(() => {
+                  stopVoiceRecording();
+                }, 5000);
+              }
+            }
+            return;
+          }
+
           if (state.event === 'ritual:speech:final') {
             await resetNativeVoiceSession();
+            setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
             if (state.transcript?.trim()) {
@@ -1591,6 +1608,7 @@ export function ChatClient() {
 
           if (state.event === 'ritual:speech:error') {
             await resetNativeVoiceSession();
+            setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
             setVoiceError(formatNativeSpeechError(state.transcript));
@@ -1599,6 +1617,7 @@ export function ChatClient() {
 
           if (state.event === 'ritual:speech:status' && state.transcript === 'stopped') {
             await resetNativeVoiceSession();
+            setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
             setVoiceError('No speech detected. Please try again.');
@@ -1813,7 +1832,7 @@ export function ChatClient() {
                   <div className="px-4 py-2.5">
                     <textarea
                       ref={textareaRef}
-                      value={input}
+                      value={isListening && partialTranscript ? partialTranscript : input}
                       onChange={(e) => {
                         setInput(e.target.value);
                         setSelectedSuggestionIndex(0);
@@ -1822,10 +1841,11 @@ export function ChatClient() {
                       onKeyDown={handleKeyDown}
                       onFocus={handleInputFocus}
                       onBlur={handleInputBlur}
-                      placeholder="Ask a follow-up question..."
+                      placeholder={isListening ? 'Listening...' : 'Ask a follow-up question...'}
                       className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[22px] max-h-[96px]"
                       rows={1}
                       disabled={isLoading}
+                      readOnly={isListening}
                     />
                   </div>
                   <div className="px-4">
@@ -2032,7 +2052,7 @@ export function ChatClient() {
                 >
                   <textarea
                     ref={textareaRef}
-                    value={input}
+                    value={isListening && partialTranscript ? partialTranscript : input}
                     onChange={(e) => {
                       setInput(e.target.value);
                       setSelectedSuggestionIndex(0);
@@ -2041,9 +2061,10 @@ export function ChatClient() {
                     onKeyDown={handleKeyDown}
                     onFocus={handleInputFocus}
                     onBlur={handleInputBlur}
-                    placeholder="Ask about your personal data"
+                    placeholder={isListening ? 'Listening...' : 'Ask about your personal data'}
                     className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-5 pt-3 pb-1.5 min-h-[48px] max-h-[96px]"
                     rows={1}
+                    readOnly={isListening}
                   />
                   <div className="px-5">
                     {suggestionList}
@@ -2202,7 +2223,7 @@ export function ChatClient() {
                   <div className="px-4 py-3">
                     <textarea
                       ref={textareaRef}
-                      value={input}
+                      value={isListening && partialTranscript ? partialTranscript : input}
                       onChange={(e) => {
                         setInput(e.target.value);
                         setSelectedSuggestionIndex(0);
@@ -2211,10 +2232,11 @@ export function ChatClient() {
                       onKeyDown={handleKeyDown}
                       onFocus={handleInputFocus}
                       onBlur={handleInputBlur}
-                      placeholder="Ask a follow-up question..."
+                      placeholder={isListening ? 'Listening...' : 'Ask a follow-up question...'}
                       className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent min-h-[22px] max-h-[96px]"
                       rows={1}
                       disabled={isLoading}
+                      readOnly={isListening}
                     />
                   </div>
                   <div className="px-4">
