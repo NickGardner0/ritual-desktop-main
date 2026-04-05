@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X } from 'lucide-react';
-import { VoiceWaveformMini } from '@/components/voice-waveform';
+import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1549,6 +1549,11 @@ export function ChatClient() {
     clearNativeVoiceTimers();
     nativeVoiceTimestampRef.current = 0;
     setPartialTranscript(null);
+    // Stop visualization mic stream
+    setAudioStream((prev) => {
+      if (prev) prev.getTracks().forEach((t) => t.stop());
+      return null;
+    });
     await clearNativeDesktopSpeechState().catch(() => undefined);
   }, [clearNativeVoiceTimers]);
 
@@ -1568,6 +1573,16 @@ export function ChatClient() {
     await startNativeDesktopSpeechRecognition();
     voiceInputModeRef.current = 'native';
     setIsListening(true);
+
+    // Open a parallel mic stream purely for waveform visualization
+    try {
+      const vizStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      setAudioStream(vizStream);
+    } catch {
+      // Non-critical — waveform just won't animate
+    }
 
     nativeVoicePollRef.current = window.setInterval(() => {
       void (async () => {
@@ -1851,6 +1866,13 @@ export function ChatClient() {
                   <div className="px-4">
                     {suggestionList}
                   </div>
+                  {isListening && (
+                    <div className="px-4 pb-1">
+                      <div className="h-8">
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.0} />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center px-3 pb-2.5">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2 group">
@@ -2069,6 +2091,13 @@ export function ChatClient() {
                   <div className="px-5">
                     {suggestionList}
                   </div>
+                  {isListening && (
+                    <div className="px-5 pb-1">
+                      <div className="h-8">
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.0} />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center px-4 pb-2.5">
                     {/* Voice Input */}
                     <div className="flex items-center gap-3">
@@ -2242,6 +2271,13 @@ export function ChatClient() {
                   <div className="px-4">
                     {suggestionList}
                   </div>
+                  {isListening && (
+                    <div className="px-4 pb-1">
+                      <div className="h-8">
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.0} />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center px-3 pb-2.5">
                   {/* Voice Input */}
                   <div className="flex items-center gap-3">

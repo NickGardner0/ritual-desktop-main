@@ -695,6 +695,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     clearNativeVoiceTimers();
     nativeVoiceTimestampRef.current = 0;
     setPartialTranscript(null);
+    // Stop visualization mic stream
+    setAudioStream((prev) => {
+      if (prev) prev.getTracks().forEach((t) => t.stop());
+      return null;
+    });
     await clearNativeDesktopSpeechState().catch(() => undefined);
   }, [clearNativeVoiceTimers]);
 
@@ -714,6 +719,16 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     await startNativeDesktopSpeechRecognition();
     voiceInputModeRef.current = 'native';
     setIsListening(true);
+
+    // Open a parallel mic stream purely for waveform visualization
+    try {
+      const vizStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      setAudioStream(vizStream);
+    } catch {
+      // Non-critical — waveform just won't animate
+    }
 
     nativeVoicePollRef.current = window.setInterval(() => {
       void (async () => {
