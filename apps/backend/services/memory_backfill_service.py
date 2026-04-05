@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from services.memory_embedding_service import process_embedding_jobs_with_guard
 from services.memory_ingest_service import ingest_memory_chunks
-from services.watcher_service_local_db import get_local_activity_db_path_impl
+from services.watcher_service_local_db import open_activity_connection_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +35,20 @@ async def backfill_cloud_from_local_chunks(
     start_ms: Optional[int] = None,
     end_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
-    db_path = get_local_activity_db_path_impl()
     safe_limit = max(1, min(int(limit or 5000), 20000))
     safe_batch_size = max(1, min(int(batch_size or 200), 500))
 
-    conn: Optional[sqlite3.Connection] = None
     rows: List[sqlite3.Row] = []
-    try:
-        conn = sqlite3.connect(
-            f"file:{db_path}?mode=ro",
-            uri=True,
-            timeout=3.0,
-        )
+    async with open_activity_connection_for_user(user_id=user_id, write=False) as conn:
+        if conn is None:
+            return {
+                "success": False,
+                "error": "Unable to open activity database for user",
+                "accepted": 0,
+                "deduped": 0,
+                "failed": 0,
+                "processed_batches": 0,
+            }
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("PRAGMA query_only = ON")
@@ -55,7 +57,7 @@ async def backfill_cloud_from_local_chunks(
         if not has_session_docs:
             return {
                 "success": False,
-                "error": "No session_retrieval_docs table found in local activity DB",
+                "error": "No session_retrieval_docs table found in activity DB",
                 "accepted": 0,
                 "deduped": 0,
                 "failed": 0,
@@ -71,40 +73,36 @@ async def backfill_cloud_from_local_chunks(
             where_parts.append("chunk_start_ts <= ?")
             params.append(int(end_ms))
 
-        if has_session_docs:
-            context_where = ["TRIM(COALESCE(contextual_retrieval_text, '')) != ''"]
-            context_where.extend(where_parts)
-            context_query = f"""
-                SELECT
-                    -session_id AS id,
-                    COALESCE(device_id, '') AS device_id,
-                    COALESCE(user_id, '') AS chunk_user_id,
-                    printf('context-session-%d', session_id) AS logical_chunk_id,
-                    printf('context-session-%d-%d-%d', session_id, chunk_start_ts, chunk_end_ts) AS content_hash,
-                    chunk_start_ts,
-                    chunk_end_ts,
-                    COALESCE(app_name, '') AS app_name,
-                    COALESCE(window_title, '') AS window_title,
-                    COALESCE(document_title, '') AS document_title,
-                    COALESCE(browser_domain, '') AS browser_domain,
-                    COALESCE(raw_visible_text, '') AS raw_visible_text,
-                    COALESCE(contextual_retrieval_text, '') AS contextual_retrieval_text,
-                    COALESCE(capture_quality, 0.0) AS capture_quality,
-                    COALESCE(context_version, 1) AS context_version,
-                    COALESCE(session_position, 0) AS session_position,
-                    COALESCE(session_count, 1) AS session_count,
-                    'context_session' AS source_kind,
-                    CAST(session_id AS TEXT) AS session_id
-                FROM session_retrieval_docs
-                WHERE {" AND ".join(context_where)}
-                ORDER BY chunk_end_ts DESC
-                LIMIT ?
-            """
-            cursor.execute(context_query, tuple([*params, safe_limit]))
-            rows = cursor.fetchall() or []
-    finally:
-        if conn is not None:
-            conn.close()
+        context_where = ["TRIM(COALESCE(contextual_retrieval_text, '')) != ''"]
+        context_where.extend(where_parts)
+        context_query = f"""
+            SELECT
+                -session_id AS id,
+                COALESCE(device_id, '') AS device_id,
+                COALESCE(user_id, '') AS chunk_user_id,
+                printf('context-session-%d', session_id) AS logical_chunk_id,
+                printf('context-session-%d-%d-%d', session_id, chunk_start_ts, chunk_end_ts) AS content_hash,
+                chunk_start_ts,
+                chunk_end_ts,
+                COALESCE(app_name, '') AS app_name,
+                COALESCE(window_title, '') AS window_title,
+                COALESCE(document_title, '') AS document_title,
+                COALESCE(browser_domain, '') AS browser_domain,
+                COALESCE(raw_visible_text, '') AS raw_visible_text,
+                COALESCE(contextual_retrieval_text, '') AS contextual_retrieval_text,
+                COALESCE(capture_quality, 0.0) AS capture_quality,
+                COALESCE(context_version, 1) AS context_version,
+                COALESCE(session_position, 0) AS session_position,
+                COALESCE(session_count, 1) AS session_count,
+                'context_session' AS source_kind,
+                CAST(session_id AS TEXT) AS session_id
+            FROM session_retrieval_docs
+            WHERE {" AND ".join(context_where)}
+            ORDER BY chunk_end_ts DESC
+            LIMIT ?
+        """
+        cursor.execute(context_query, tuple([*params, safe_limit]))
+        rows = cursor.fetchall() or []
 
     accepted_total = 0
     deduped_total = 0
