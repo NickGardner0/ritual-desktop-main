@@ -250,6 +250,25 @@ export async function loadDashboardInitialData(
       const initialViewMode = resolveInitialViewMode(resolvedSearchParams);
       const shouldPreloadMetrics = initialViewMode === 'metrics';
       const queryClient = new QueryClient();
+
+      // Preserve the server-side auth redirect, but avoid blocking overview
+      // first paint on habits/log fetches. The desktop app can render from the
+      // persisted React Query cache immediately and refetch in the background.
+      if (!shouldPreloadMetrics) {
+        await getAuthenticatedUserId();
+        return {
+          dehydratedState: dehydrate(queryClient),
+          initialViewMode,
+          derived: {
+            overviewStats: {},
+            metricsAnalyticsData: {},
+            metricsSummaryMetrics: {},
+            metricsBarListAnalyticsData: {},
+            metricsBarListSummaryMetrics: {},
+          },
+        };
+      }
+
       const userId = await getAuthenticatedUserId();
 
       const [habits, habitLogs, analyticsSummary] = await Sentry.startSpan(
@@ -292,20 +311,7 @@ export async function loadDashboardInitialData(
           },
         },
         () => {
-          if (shouldPreloadMetrics) {
-            return buildDerivedInitialData(habits, habitLogs);
-          }
-
-          // Overview can render from the hydrated habit list immediately and
-          // fill in totals from client-side cache/fetch. Avoid blocking first
-          // paint on the full habit log history.
-          return {
-            overviewStats: {},
-            metricsAnalyticsData: {},
-            metricsSummaryMetrics: {},
-            metricsBarListAnalyticsData: {},
-            metricsBarListSummaryMetrics: {},
-          };
+          return buildDerivedInitialData(habits, habitLogs);
         },
       );
 

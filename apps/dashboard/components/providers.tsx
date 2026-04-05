@@ -43,7 +43,6 @@ function shouldPersistQuery(query: Query): boolean {
 
 function restorePersistedQueryCache() {
   if (typeof window === 'undefined') return;
-  if (isTauri()) return;
 
   try {
     const raw = window.localStorage.getItem(QUERY_CACHE_STORAGE_KEY);
@@ -90,7 +89,6 @@ function restorePersistedQueryCache() {
 
 function persistQueryCache() {
   if (typeof window === 'undefined') return;
-  if (isTauri()) return;
 
   try {
     const dehydratedState = dehydrate(queryClient, {
@@ -133,7 +131,6 @@ export function QueryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!cacheRestored) return;
-    if (isTauri()) return;
     auditLocalStorage('query-provider', [QUERY_CACHE_STORAGE_KEY]);
     auditQueryCache('query-provider', queryClient);
 
