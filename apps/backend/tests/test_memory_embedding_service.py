@@ -8,10 +8,15 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from services.memory_cloud_store import get_memory_db
+from services.memory_cloud_store import (
+    release_memory_worker_lease,
+    try_acquire_memory_worker_lease,
+)
 from services.memory_embedding_service import (
     MAX_RETRIES,
     process_embedding_jobs,
     process_embedding_jobs_freshness_first,
+    process_embedding_jobs_with_guard,
 )
 
 
@@ -118,6 +123,70 @@ def _insert_chunk_and_job(
 
 
 class MemoryEmbeddingServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_guard_returns_already_running_when_lease_held(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "memory.db")
+            env = {
+                "RITUAL_MEMORY_DB_PATH": db_path,
+                "RITUAL_MEMORY_CLOUD_ENABLED": "1",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                acquired = try_acquire_memory_worker_lease(
+                    name="memory_embedding_jobs",
+                    owner_id="test-owner",
+                    lease_ms=60_000,
+                )
+                self.assertTrue(acquired)
+                self.addCleanup(
+                    lambda: release_memory_worker_lease(
+                        name="memory_embedding_jobs",
+                        owner_id="test-owner",
+                    )
+                )
+
+                result = await process_embedding_jobs_with_guard(batch_size=8)
+
+                self.assertTrue(result["running"])
+                self.assertEqual(result["error"], "already_running")
+
+    async def test_unexpected_error_does_not_leave_jobs_stuck_processing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "memory.db")
+            with patch.dict(os.environ, {"RITUAL_MEMORY_DB_PATH": db_path}, clear=False):
+                now_ms = _now_ms()
+                chunk_pk = _insert_chunk_and_job(
+                    user_id="user-1",
+                    device_id="device-1",
+                    chunk_id="chunk-rewrite-fails",
+                    logical_chunk_id="chunk-rewrite-fails",
+                    text_compact="rewrite me",
+                    start_ts=now_ms - 1000,
+                    end_ts=now_ms,
+                    job_status="pending",
+                    retry_count=0,
+                    next_retry_at=None,
+                )
+
+                with patch(
+                    "services.memory_embedding_service._openai_client",
+                    return_value=_FakeOpenAIClient(),
+                ), patch(
+                    "services.memory_embedding_service._contextual_rewrite_batch",
+                    side_effect=RuntimeError("rewrite blew up"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "rewrite blew up"):
+                        await process_embedding_jobs(batch_size=8)
+
+                with get_memory_db() as conn:
+                    row = conn.execute(
+                        "SELECT status, retry_count, last_error FROM memory_embedding_jobs WHERE chunk_pk = ?",
+                        (chunk_pk,),
+                    ).fetchone()
+                    self.assertIsNotNone(row)
+                    self.assertEqual(str(row[0]), "failed")
+                    self.assertGreaterEqual(int(row[1]), 1)
+                    self.assertIn("rewrite blew up", str(row[2]))
+
     async def test_watermarks_not_advanced_when_no_successful_upserts(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = os.path.join(tmp, "memory.db")

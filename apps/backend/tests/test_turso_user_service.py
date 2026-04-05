@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -66,6 +67,22 @@ class _SyncFailReplica:
             _SyncFailReplica.remaining_failures -= 1
             raise ValueError('SqliteFailure(7, "wal_insert_frame failed")')
         return None
+
+
+class _FakeExecuteResult:
+    def __init__(self, row):
+        self._row = row
+
+    def first(self):
+        return self._row
+
+
+class _FakeMetadataSession:
+    def __init__(self, row):
+        self._row = row
+
+    async def execute(self, *args, **kwargs):
+        return _FakeExecuteResult(self._row)
 
 
 def _prepare_schema(path: str) -> None:
@@ -218,6 +235,37 @@ def _seed_rollout_user_source(path: str, user_id: str) -> None:
 
 
 class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_load_user_turso_metadata_recovers_from_malformed_shared_replica_once(self):
+        service = TursoUserService()
+        attempts = {"count": 0}
+        fake_row = (
+            "user-1",
+            "ritual-user-1",
+            "libsql://ritual-user-1.turso.io",
+            None,
+            None,
+        )
+
+        @asynccontextmanager
+        async def flaky_get_db_session():
+            if attempts["count"] == 0:
+                attempts["count"] += 1
+                raise ValueError("database disk image is malformed")
+            yield _FakeMetadataSession(fake_row)
+
+        with patch("services.turso_user_service.get_db_session", flaky_get_db_session), patch.object(
+            service,
+            "_recover_shared_metadata_replica",
+            AsyncMock(return_value=True),
+        ) as recover:
+            metadata = await service._load_user_turso_metadata("user-1")
+
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.id, "user-1")
+        self.assertEqual(metadata.turso_db_name, "ritual-user-1")
+        self.assertEqual(metadata.turso_db_url, "libsql://ritual-user-1.turso.io")
+        recover.assert_awaited_once()
+
     async def test_ensure_user_activity_database_skips_platform_calls_when_metadata_exists(self):
         service = TursoUserService()
         user = SimpleNamespace(

@@ -10,13 +10,20 @@ from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
-from services.memory_cloud_store import get_memory_db, refresh_watermarks
+from services.memory_cloud_store import (
+    get_memory_db,
+    refresh_watermarks,
+    release_memory_worker_lease,
+    try_acquire_memory_worker_lease,
+)
 from services.memory_turbopuffer_service import TurbopufferService
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 5
 PROCESSING_STALE_MS = 15 * 60 * 1000
+EMBEDDING_WORKER_LEASE_NAME = "memory_embedding_jobs"
+EMBEDDING_WORKER_LEASE_MS = 10 * 60 * 1000
 
 
 def _now_ms() -> int:
@@ -28,6 +35,10 @@ def _retry_delay_ms(retry_count: int) -> int:
     base = [15_000, 30_000, 60_000, 120_000, 240_000]
     idx = min(max(retry_count, 0), len(base) - 1)
     return base[idx]
+
+
+def _embedding_worker_owner_id() -> str:
+    return f"embedding-worker:{os.getpid()}:{_now_ms()}"
 
 
 def _openai_embed_model() -> str:
@@ -149,6 +160,39 @@ async def _contextual_rewrite_batch(
     return rewritten
 
 
+def _mark_unfinished_jobs_failed(
+    *,
+    rows: List[Dict[str, Any]],
+    error: Exception,
+    now_ms: Optional[int] = None,
+) -> None:
+    if not rows:
+        return
+    failed_at = int(now_ms or _now_ms())
+    error_text = str(error)[:500] or error.__class__.__name__
+    with get_memory_db() as conn:
+        for row in rows:
+            job_id = int(row["job_id"])
+            retry_count = int(row.get("retry_count") or 0) + 1
+            delay = _retry_delay_ms(retry_count)
+            if retry_count > MAX_RETRIES:
+                delay = 30 * 60 * 1000
+            conn.execute(
+                """
+                UPDATE memory_embedding_jobs
+                SET status = 'failed',
+                    retry_count = ?,
+                    last_error = ?,
+                    next_retry_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                  AND status = 'processing'
+                """,
+                (retry_count, error_text, failed_at + delay, failed_at, job_id),
+            )
+        refresh_watermarks(conn)
+
+
 async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
     """
     Process pending chunk embeddings and upsert into Turbopuffer.
@@ -263,189 +307,171 @@ async def process_embedding_jobs(batch_size: int = 64) -> Dict[str, Any]:
             [(now_ms, now_ms, job_id) for job_id in job_ids],
         )
 
-    # Embed in one batch call.
-    raw_texts = [
-        str(r.get("contextual_text_compact") or r.get("text_compact") or "").strip()
-        for r in rows
-    ]
-    # Contextual rewriting: add semantic context prefix before embedding
-    texts = await _contextual_rewrite_batch(raw_texts, client)
     try:
-        embeddings = await client.embeddings.create(model=_openai_embed_model(), input=texts)
-    except Exception as exc:
-        # Avoid leaving jobs stranded in "processing" when provider calls fail at batch level.
+        raw_texts = [
+            str(r.get("contextual_text_compact") or r.get("text_compact") or "").strip()
+            for r in rows
+        ]
+        texts = await _contextual_rewrite_batch(raw_texts, client)
+
+        try:
+            embeddings = await client.embeddings.create(model=_openai_embed_model(), input=texts)
+        except Exception as exc:
+            _mark_unfinished_jobs_failed(rows=rows, error=exc, now_ms=now_ms)
+            raise
+
+        vector_map: Dict[int, List[float]] = {}
+        for idx, emb in enumerate(embeddings.data):
+            vector_map[idx] = list(emb.embedding)
+
         with get_memory_db() as conn:
-            for row in rows:
+            for idx, row in enumerate(rows):
                 job_id = int(row["job_id"])
-                retry_count = int(row.get("retry_count") or 0) + 1
-                delay = _retry_delay_ms(retry_count)
-                if retry_count > MAX_RETRIES:
-                    delay = 30 * 60 * 1000
+                chunk_pk = int(row["chunk_pk"])
+                contextual_text_compact = str(
+                    row.get("contextual_text_compact") or row.get("text_compact") or ""
+                ).strip()
+                raw_text_compact = str(row.get("raw_text_compact") or "").strip()
+                text_compact = contextual_text_compact
+                rewritten_text = texts[idx] if idx < len(texts) else text_compact
+                if not text_compact:
+                    skipped += 1
+                    conn.execute(
+                        """
+                        UPDATE memory_embedding_jobs
+                        SET status = 'failed',
+                            retry_count = retry_count + 1,
+                            last_error = ?,
+                            next_retry_at = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            "text_compact_empty",
+                            now_ms + _retry_delay_ms(1),
+                            now_ms,
+                            job_id,
+                        ),
+                    )
+                    continue
+
+                try:
+                    vector = vector_map.get(idx)
+                    if not vector:
+                        raise RuntimeError("embedding_vector_missing")
+                    logical_chunk_id = str(row.get("logical_chunk_id") or row["chunk_id"])
+                    provider_doc_id = _make_provider_doc_id(
+                        str(row["user_id"]),
+                        logical_chunk_id,
+                        str(row["content_hash"]),
+                    )
+                    qs_raw = row.get("quality_score")
+                    qs = float(qs_raw) if qs_raw is not None else 0.0
+                    qs = max(0.0, min(1.0, qs))
+
+                    await tp.upsert_chunk(
+                        user_id=str(row["user_id"]),
+                        doc_id=provider_doc_id,
+                        vector=vector,
+                        attributes={
+                            "user_id": str(row["user_id"]),
+                            "device_id": str(row.get("device_id") or ""),
+                            "chunk_id": str(row["chunk_id"]),
+                            "logical_chunk_id": logical_chunk_id,
+                            "chunk_start_ts": int(row.get("chunk_start_ts") or 0),
+                            "chunk_end_ts": int(row.get("chunk_end_ts") or 0),
+                            "source_kind": str(row.get("source_kind") or "legacy_ocr_chunk"),
+                            "session_id": str(row.get("session_id") or ""),
+                            "app_name": str(row.get("app_name") or ""),
+                            "window_title": str(row.get("window_title") or ""),
+                            "document_title": str(row.get("document_title") or ""),
+                            "browser_domain": str(row.get("browser_domain") or ""),
+                            "text_compact": rewritten_text,
+                            "raw_text_compact": raw_text_compact,
+                            "contextual_text_compact": rewritten_text,
+                            "raw_visible_text": raw_text_compact,
+                            "contextual_retrieval_text": rewritten_text,
+                            "parent_context": _extract_parent_context(contextual_text_compact),
+                            "context_version": int(row.get("context_version") or 1),
+                            "session_key": str(row.get("session_key") or row.get("session_id") or ""),
+                            "session_position": int(row.get("session_position") or 0),
+                            "session_chunk_count": int(row.get("session_chunk_count") or 1),
+                            "session_count": int(row.get("session_chunk_count") or 1),
+                            "quality_score": qs,
+                            "capture_quality": float(row.get("capture_quality") or qs),
+                            "content_hash": str(row["content_hash"]),
+                            "active": 1,
+                        },
+                    )
+                except Exception as exc:
+                    retry_count = int(row.get("retry_count") or 0) + 1
+                    delay = _retry_delay_ms(retry_count)
+                    if retry_count > MAX_RETRIES:
+                        delay = 30 * 60 * 1000
+                    failed += 1
+                    last_error = str(exc)
+                    conn.execute(
+                        """
+                        UPDATE memory_embedding_jobs
+                        SET status = 'failed',
+                            retry_count = ?,
+                            last_error = ?,
+                            next_retry_at = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (retry_count, str(exc)[:500], now_ms + delay, now_ms, job_id),
+                    )
+                    continue
+
+                processed += 1
                 conn.execute(
                     """
                     UPDATE memory_embedding_jobs
-                    SET status = 'failed',
-                        retry_count = ?,
-                        last_error = ?,
-                        next_retry_at = ?,
+                    SET status = 'ok',
+                        last_error = NULL,
+                        next_retry_at = NULL,
                         updated_at = ?
                     WHERE id = ?
                     """,
-                    (retry_count, str(exc)[:500], now_ms + delay, now_ms, job_id),
+                    (now_ms, job_id),
                 )
-        raise
-
-    vector_map: Dict[int, List[float]] = {}
-    for idx, emb in enumerate(embeddings.data):
-        vector_map[idx] = list(emb.embedding)
-
-    with get_memory_db() as conn:
-        for idx, row in enumerate(rows):
-            job_id = int(row["job_id"])
-            chunk_pk = int(row["chunk_pk"])
-            contextual_text_compact = str(row.get("contextual_text_compact") or row.get("text_compact") or "").strip()
-            raw_text_compact = str(row.get("raw_text_compact") or "").strip()
-            text_compact = contextual_text_compact
-            # Use the contextually-rewritten text (with semantic prefix) for search
-            rewritten_text = texts[idx] if idx < len(texts) else text_compact
-            if not text_compact:
-                skipped += 1
                 conn.execute(
                     """
-                    UPDATE memory_embedding_jobs
-                    SET status = 'failed',
-                        retry_count = retry_count + 1,
-                        last_error = ?,
-                        next_retry_at = ?,
+                    UPDATE memory_chunks
+                    SET embedding_status = 'ok',
+                        embedded_at = ?,
+                        provider_doc_id = ?,
                         updated_at = ?
                     WHERE id = ?
                     """,
                     (
-                        "text_compact_empty",
-                        now_ms + _retry_delay_ms(1),
                         now_ms,
-                        job_id,
+                        _make_provider_doc_id(
+                            str(row["user_id"]),
+                            str(row.get("logical_chunk_id") or row["chunk_id"]),
+                            str(row["content_hash"]),
+                        ),
+                        now_ms,
+                        chunk_pk,
                     ),
                 )
-                continue
 
-            try:
-                vector = vector_map.get(idx)
-                if not vector:
-                    raise RuntimeError("embedding_vector_missing")
-                logical_chunk_id = str(row.get("logical_chunk_id") or row["chunk_id"])
-                provider_doc_id = _make_provider_doc_id(
-                    str(row["user_id"]),
-                    logical_chunk_id,
-                    str(row["content_hash"]),
-                )
-                qs_raw = row.get("quality_score")
-                qs = float(qs_raw) if qs_raw is not None else 0.0
-                qs = max(0.0, min(1.0, qs))
-
-                await tp.upsert_chunk(
-                    user_id=str(row["user_id"]),
-                    doc_id=provider_doc_id,
-                    vector=vector,
-                    attributes={
-                        "user_id": str(row["user_id"]),
-                        "device_id": str(row.get("device_id") or ""),
-                        "chunk_id": str(row["chunk_id"]),
-                        "logical_chunk_id": logical_chunk_id,
-                        "chunk_start_ts": int(row.get("chunk_start_ts") or 0),
-                        "chunk_end_ts": int(row.get("chunk_end_ts") or 0),
-                        "source_kind": str(row.get("source_kind") or "legacy_ocr_chunk"),
-                        "session_id": str(row.get("session_id") or ""),
-                        "app_name": str(row.get("app_name") or ""),
-                        "window_title": str(row.get("window_title") or ""),
-                        "document_title": str(row.get("document_title") or ""),
-                        "browser_domain": str(row.get("browser_domain") or ""),
-                        "text_compact": rewritten_text,
-                        "raw_text_compact": raw_text_compact,
-                        "contextual_text_compact": rewritten_text,
-                        "raw_visible_text": raw_text_compact,
-                        "contextual_retrieval_text": rewritten_text,
-                        "parent_context": _extract_parent_context(contextual_text_compact),
-                        "context_version": int(row.get("context_version") or 1),
-                        "session_key": str(row.get("session_key") or row.get("session_id") or ""),
-                        "session_position": int(row.get("session_position") or 0),
-                        "session_chunk_count": int(row.get("session_chunk_count") or 1),
-                        "session_count": int(row.get("session_chunk_count") or 1),
-                        "quality_score": qs,
-                        "capture_quality": float(row.get("capture_quality") or qs),
-                        "content_hash": str(row["content_hash"]),
-                        "active": 1,
-                    },
-                )
-            except Exception as exc:
-                retry_count = int(row.get("retry_count") or 0) + 1
-                delay = _retry_delay_ms(retry_count)
-                if retry_count > MAX_RETRIES:
-                    # Keep long-tail failures in rotation so index coverage can recover quickly
-                    # after transient provider/config issues.
-                    delay = 30 * 60 * 1000
-                failed += 1
-                last_error = str(exc)
+            if processed > 0:
                 conn.execute(
                     """
-                    UPDATE memory_embedding_jobs
-                    SET status = 'failed',
-                        retry_count = ?,
-                        last_error = ?,
-                        next_retry_at = ?,
+                    UPDATE memory_pipeline_watermarks
+                    SET last_embed_ts = ?,
+                        last_upsert_ts = ?,
                         updated_at = ?
-                    WHERE id = ?
+                    WHERE id = 1
                     """,
-                    (retry_count, str(exc)[:500], now_ms + delay, now_ms, job_id),
+                    (now_ms, now_ms, now_ms),
                 )
-                continue
-
-            processed += 1
-            conn.execute(
-                """
-                UPDATE memory_embedding_jobs
-                SET status = 'ok',
-                    last_error = NULL,
-                    next_retry_at = NULL,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (now_ms, job_id),
-            )
-            conn.execute(
-                """
-                UPDATE memory_chunks
-                SET embedding_status = 'ok',
-                    embedded_at = ?,
-                    provider_doc_id = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    now_ms,
-                    _make_provider_doc_id(
-                        str(row["user_id"]),
-                        str(row.get("logical_chunk_id") or row["chunk_id"]),
-                        str(row["content_hash"]),
-                    ),
-                    now_ms,
-                    chunk_pk,
-                ),
-            )
-
-        # Only advance embed/upsert watermarks when at least one upsert succeeded.
-        if processed > 0:
-            conn.execute(
-                """
-                UPDATE memory_pipeline_watermarks
-                SET last_embed_ts = ?,
-                    last_upsert_ts = ?,
-                    updated_at = ?
-                WHERE id = 1
-                """,
-                (now_ms, now_ms, now_ms),
-            )
-        refresh_watermarks(conn)
+            refresh_watermarks(conn)
+    except Exception as exc:
+        _mark_unfinished_jobs_failed(rows=rows, error=exc, now_ms=_now_ms())
+        raise
 
     return {
         "processed": processed,
@@ -684,11 +710,31 @@ async def process_embedding_jobs_freshness_first(
 async def process_embedding_jobs_with_guard(batch_size: int = 64) -> Dict[str, Any]:
     if not (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower() in {"1", "true", "yes", "on"}:
         return {"processed": 0, "failed": 0, "skipped": 0, "running": False, "error": "cloud_disabled"}
+    owner_id = _embedding_worker_owner_id()
+    try:
+        acquired = try_acquire_memory_worker_lease(
+            name=EMBEDDING_WORKER_LEASE_NAME,
+            owner_id=owner_id,
+            lease_ms=EMBEDDING_WORKER_LEASE_MS,
+        )
+    except Exception as exc:
+        logger.warning("Cloud embedding lease acquisition failed: %s", exc)
+        return {"processed": 0, "failed": 0, "skipped": 0, "running": False, "error": str(exc)}
+    if not acquired:
+        return {"processed": 0, "failed": 0, "skipped": 0, "running": True, "error": "already_running"}
     try:
         return await process_embedding_jobs(batch_size=batch_size)
     except Exception as exc:
         logger.warning("Cloud embedding job processing failed: %s", exc)
         return {"processed": 0, "failed": 0, "skipped": 0, "running": False, "error": str(exc)}
+    finally:
+        try:
+            release_memory_worker_lease(
+                name=EMBEDDING_WORKER_LEASE_NAME,
+                owner_id=owner_id,
+            )
+        except Exception:
+            logger.debug("Cloud embedding lease release skipped", exc_info=True)
 
 
 def get_memory_index_health() -> Dict[str, Any]:

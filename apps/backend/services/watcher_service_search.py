@@ -778,10 +778,13 @@ def _looks_like_activity_overview_query(query: str, tokens: List[str]) -> bool:
     has_time_hint = any(hint in normalized for hint in OVERVIEW_TIME_HINTS)
     has_overview_phrase = any(phrase in normalized for phrase in OVERVIEW_INTENT_PHRASES)
     has_summary_word = any(word in normalized for word in ("summary", "summarize", "overview", "recap"))
+    has_work_recap_phrase = _looks_like_work_recap_query(normalized)
 
     specific_tokens = [token for token in tokens if token not in GENERIC_OVERVIEW_TOKENS]
 
     if has_overview_phrase:
+        return True
+    if has_work_recap_phrase and has_time_hint:
         return True
     if has_summary_word and has_time_hint:
         return True

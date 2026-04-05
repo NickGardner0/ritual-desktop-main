@@ -22,6 +22,11 @@ class _DummyWatcherService:
     pass
 
 
+@asynccontextmanager
+async def _null_activity_connection_for_user(*args, **kwargs):
+    yield None
+
+
 def _normalized_evidence(
     *,
     evidence_id: str,
@@ -769,6 +774,9 @@ class ContextualRetrievalTests(unittest.IsolatedAsyncioTestCase):
             ), patch(
                 "services.watcher_service_search.get_local_activity_db_path_impl",
                 return_value=memory_db_path,
+            ), patch(
+                "services.watcher_service_local_db.open_activity_connection_for_user",
+                _null_activity_connection_for_user,
             ):
                 result = await search_context_memory_impl(
                     service=_DummyWatcherService(),

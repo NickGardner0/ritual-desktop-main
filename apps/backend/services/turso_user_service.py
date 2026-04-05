@@ -414,18 +414,52 @@ class TursoUserService:
             result = await session.execute(select(UserDB).where(UserDB.id == user_id))
             return result.scalar_one_or_none()
 
+    def _is_malformed_replica_error(self, exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        return (
+            "database disk image is malformed" in message
+            or "integrity check failed" in message
+            or "file is not a database" in message
+        )
+
+    async def _recover_shared_metadata_replica(self) -> bool:
+        try:
+            from database.connection import _recover_corrupt_local_replica
+        except Exception as exc:
+            logger.warning("Failed importing shared replica recovery helper: %s", exc)
+            return False
+        try:
+            return bool(await _recover_corrupt_local_replica())
+        except Exception as exc:
+            logger.warning("Failed recovering shared backend replica: %s", exc)
+            return False
+
     async def _load_user_turso_metadata(self, user_id: str) -> Optional[UserTursoMetadata]:
-        async with get_db_session() as session:
-            result = await session.execute(
-                select(
-                    UserDB.id,
-                    UserDB.turso_db_name,
-                    UserDB.turso_db_url,
-                    UserDB.turso_provisioned_at,
-                    UserDB.turso_migrated_at,
-                ).where(UserDB.id == user_id)
-            )
-            row = result.first()
+        recovered = False
+        while True:
+            try:
+                async with get_db_session() as session:
+                    result = await session.execute(
+                        select(
+                            UserDB.id,
+                            UserDB.turso_db_name,
+                            UserDB.turso_db_url,
+                            UserDB.turso_provisioned_at,
+                            UserDB.turso_migrated_at,
+                        ).where(UserDB.id == user_id)
+                    )
+                    row = result.first()
+                break
+            except Exception as exc:
+                if not recovered and self._is_malformed_replica_error(exc):
+                    recovered = await self._recover_shared_metadata_replica()
+                    if recovered:
+                        logger.warning(
+                            "Recovered malformed shared backend replica while loading Turso metadata for %s; retrying",
+                            user_id,
+                        )
+                        continue
+                raise
 
         if row is None:
             return None

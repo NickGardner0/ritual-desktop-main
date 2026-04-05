@@ -4,6 +4,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -13,6 +14,11 @@ from services.watcher_service_search import query_memory_impl, search_screen_rec
 
 class _DummyWatcherService:
     pass
+
+
+@asynccontextmanager
+async def _null_activity_connection_for_user(*args, **kwargs):
+    yield None
 
 
 def _create_activity_only_db(path: str, now_ms: int) -> None:
@@ -183,8 +189,26 @@ class WatcherScreenSearchTests(unittest.IsolatedAsyncioTestCase):
             }
 
             with patch(
+                "services.watcher_service_search.get_local_activity_db_path_impl",
+                return_value=db_path,
+            ), patch(
+                "services.watcher_service_search.get_local_memory_db_path_impl",
+                return_value=db_path,
+            ), patch(
                 "services.watcher_service_search.get_local_watcher_db_path_impl",
                 return_value=db_path,
+            ), patch(
+                "services.watcher_service_search.watcher_service_local_db.open_activity_connection_for_user",
+                _null_activity_connection_for_user,
+            ), patch(
+                "services.watcher_service_search.memory_cloud_enabled",
+                return_value=False,
+            ), patch(
+                "services.watcher_service_search.memory_fail_closed",
+                return_value=False,
+            ), patch(
+                "services.watcher_service_search._legacy_ocr_fallback_enabled",
+                return_value=True,
             ), patch(
                 "services.watcher_service_search.search_screen_recordings_impl",
                 AsyncMock(return_value=bridge_like_semantic_result),
@@ -246,8 +270,26 @@ class WatcherScreenSearchTests(unittest.IsolatedAsyncioTestCase):
             }
 
             with patch(
+                "services.watcher_service_search.get_local_activity_db_path_impl",
+                return_value=db_path,
+            ), patch(
+                "services.watcher_service_search.get_local_memory_db_path_impl",
+                return_value=db_path,
+            ), patch(
                 "services.watcher_service_search.get_local_watcher_db_path_impl",
                 return_value=db_path,
+            ), patch(
+                "services.watcher_service_search.watcher_service_local_db.open_activity_connection_for_user",
+                _null_activity_connection_for_user,
+            ), patch(
+                "services.watcher_service_search.memory_cloud_enabled",
+                return_value=False,
+            ), patch(
+                "services.watcher_service_search.memory_fail_closed",
+                return_value=False,
+            ), patch(
+                "services.watcher_service_search._legacy_ocr_fallback_enabled",
+                return_value=True,
             ), patch(
                 "services.watcher_service_search.search_screen_recordings_impl",
                 AsyncMock(return_value=strongly_grounded_result),

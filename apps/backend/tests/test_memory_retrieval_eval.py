@@ -84,6 +84,17 @@ def _create_context_db(path: str, now_ms: int) -> None:
 
 
 class RetrievalEvalTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self._memory_cloud_tmp = tempfile.TemporaryDirectory()
+        self._memory_db_env = patch.dict(
+            os.environ,
+            {"RITUAL_MEMORY_DB_PATH": f"{self._memory_cloud_tmp.name}/memory_cloud.db"},
+            clear=False,
+        )
+        self._memory_db_env.start()
+        self.addCleanup(self._memory_db_env.stop)
+        self.addCleanup(self._memory_cloud_tmp.cleanup)
+
     def test_expand_memory_query_returns_typed_variants(self):
         expanded = expand_memory_query("auth flow in Clerk sign-in page")
         self.assertGreaterEqual(len(expanded), 2)

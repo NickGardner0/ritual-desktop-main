@@ -28,6 +28,18 @@ _TOKEN_REFRESH_LEEWAY_SECONDS = max(
 )
 
 
+def _is_expected_per_user_bundle_fallback(exc: Exception) -> bool:
+    if isinstance(exc, TursoProvisioningError):
+        normalized = str(exc).strip().lower()
+        return normalized in {
+            "turso platform api is not configured",
+            "per-user turso sync is not configured",
+            "per-user turso database metadata is missing",
+            "per-user turso migration has not completed yet",
+        }
+    return False
+
+
 @dataclass
 class PerUserReplicaBundle:
     user_id: str
@@ -169,9 +181,11 @@ def _legacy_replica_path() -> Optional[Path]:
             logger.warning("Backend Turso replica missing at %s", replica_path)
             return None
         if DATABASE_RUNTIME_STATE.get("db_ready") is False:
-            logger.warning(
+            last_error = DATABASE_RUNTIME_STATE.get("last_error")
+            log_fn = logger.info if last_error in (None, "", "None") else logger.warning
+            log_fn(
                 "Backend Turso replica is not marked ready; last_error=%s",
-                DATABASE_RUNTIME_STATE.get("last_error"),
+                last_error,
             )
         return replica_path
     except Exception as exc:
@@ -368,11 +382,18 @@ async def open_activity_connection_for_user(
         try:
             bundle = await _get_or_create_per_user_bundle(user_id)
         except Exception as exc:
-            logger.warning(
-                "Failed resolving per-user activity bundle for %s; falling back to legacy replica: %s",
-                user_id,
-                exc,
-            )
+            if _is_expected_per_user_bundle_fallback(exc):
+                logger.info(
+                    "Per-user activity bundle unavailable for %s; using legacy replica fallback: %s",
+                    user_id,
+                    exc,
+                )
+            else:
+                logger.warning(
+                    "Failed resolving per-user activity bundle for %s; falling back to legacy replica: %s",
+                    user_id,
+                    exc,
+                )
             bundle = None
         if bundle is not None:
             logger.info(

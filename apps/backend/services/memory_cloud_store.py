@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+MEMORY_DB_BUSY_TIMEOUT_MS = 30_000
+
+
 def is_memory_cloud_enabled() -> bool:
     raw = (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
@@ -30,11 +33,15 @@ def _now_ms() -> int:
 @contextmanager
 def get_memory_db() -> sqlite3.Connection:
     path = memory_cloud_db_path()
-    conn = sqlite3.connect(path, timeout=10.0, isolation_level=None)
+    conn = sqlite3.connect(
+        path,
+        timeout=max(10.0, MEMORY_DB_BUSY_TIMEOUT_MS / 1000.0),
+        isolation_level=None,
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute(f"PRAGMA busy_timeout={MEMORY_DB_BUSY_TIMEOUT_MS}")
     ensure_memory_cloud_schema(conn)
     try:
         yield conn
@@ -156,6 +163,14 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_memory_rerank_cache_expires
         ON memory_rerank_cache(expires_at);
+
+        CREATE TABLE IF NOT EXISTS memory_worker_leases (
+            name TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            acquired_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         """
     )
 
@@ -241,6 +256,14 @@ def ensure_memory_cloud_schema(conn: sqlite3.Connection) -> None:
         (now_ms,),
     )
 
+    conn.execute(
+        """
+        DELETE FROM memory_worker_leases
+        WHERE expires_at <= ?
+        """,
+        (now_ms,),
+    )
+
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -277,6 +300,89 @@ def refresh_watermarks(conn: sqlite3.Connection) -> None:
         """,
         (int(pending or 0), int(failed or 0), now_ms),
     )
+
+
+def try_acquire_memory_worker_lease(
+    *,
+    name: str,
+    owner_id: str,
+    lease_ms: int,
+) -> bool:
+    now_ms = _now_ms()
+    expires_at = now_ms + max(1_000, int(lease_ms or 0))
+    with get_memory_db() as conn:
+        began = False
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            began = True
+            row = conn.execute(
+                """
+                SELECT owner_id, expires_at
+                FROM memory_worker_leases
+                WHERE name = ?
+                """,
+                (str(name or "").strip(),),
+            ).fetchone()
+            if row is not None and int(row["expires_at"] or 0) > now_ms:
+                conn.execute("ROLLBACK")
+                return False
+            if row is None:
+                conn.execute(
+                    """
+                    INSERT INTO memory_worker_leases (
+                        name,
+                        owner_id,
+                        acquired_at,
+                        expires_at,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(name or "").strip(),
+                        str(owner_id or "").strip(),
+                        now_ms,
+                        expires_at,
+                        now_ms,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE memory_worker_leases
+                    SET owner_id = ?,
+                        acquired_at = ?,
+                        expires_at = ?,
+                        updated_at = ?
+                    WHERE name = ?
+                    """,
+                    (
+                        str(owner_id or "").strip(),
+                        now_ms,
+                        expires_at,
+                        now_ms,
+                        str(name or "").strip(),
+                    ),
+                )
+            conn.execute("COMMIT")
+            return True
+        except Exception:
+            if began:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+            raise
+
+
+def release_memory_worker_lease(*, name: str, owner_id: str) -> None:
+    with get_memory_db() as conn:
+        conn.execute(
+            """
+            DELETE FROM memory_worker_leases
+            WHERE name = ? AND owner_id = ?
+            """,
+            (str(name or "").strip(), str(owner_id or "").strip()),
+        )
 
 
 def record_memory_query_observation(
