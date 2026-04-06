@@ -1596,13 +1596,15 @@ export function ChatClient() {
           if (state.event === 'ritual:speech:partial') {
             if (state.transcript?.trim()) {
               setPartialTranscript(state.transcript);
-              // Reset auto-stop timer — user is still speaking
+              // Reset auto-stop timer — once we have speech, use a shorter
+              // silence timeout so the transcript appears quickly after the
+              // user stops talking.
               if (nativeVoiceAutoStopRef.current) {
                 clearTimeout(nativeVoiceAutoStopRef.current);
-                nativeVoiceAutoStopRef.current = window.setTimeout(() => {
-                  stopVoiceRecording();
-                }, 10000);
               }
+              nativeVoiceAutoStopRef.current = window.setTimeout(() => {
+                stopVoiceRecording();
+              }, 3000);
             }
             return;
           }
@@ -1779,7 +1781,7 @@ export function ChatClient() {
             setIsProcessingVoice(false);
             voiceInputModeRef.current = null;
             setVoiceError('No speech detected. Please try again.');
-          }, 1500);
+          }, 800);
         });
       return;
     }

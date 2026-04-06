@@ -39,8 +39,6 @@ export function VoiceWaveform({
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const animationRef = useRef<number>(0);
   const cachedRectRef = useRef({ width: 0, height: 0 });
-  const gradientCacheRef = useRef<CanvasGradient | null>(null);
-  const lastWidthRef = useRef(0);
 
   // Handle canvas resizing
   useEffect(() => {
@@ -61,8 +59,6 @@ export function VoiceWaveform({
       if (ctx) ctx.scale(dpr, dpr);
 
       cachedRectRef.current = { width: rect.width, height: rect.height };
-      gradientCacheRef.current = null;
-      lastWidthRef.current = rect.width;
     });
 
     resizeObserver.observe(container);
@@ -129,8 +125,13 @@ export function VoiceWaveform({
       }
 
       const centerY = height / 2;
-      const barCount = Math.floor(width / step);
-      const halfCount = Math.floor(barCount / 2);
+      const centerX = width / 2;
+
+      // Only draw bars in the center portion of the canvas
+      const maxVisualizerWidth = Math.min(width, 240);
+      const visualizerBarCount = Math.floor(maxVisualizerWidth / step);
+      const halfCount = Math.floor(visualizerBarCount / 2);
+      const offsetX = centerX - (visualizerBarCount * step) / 2;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -157,10 +158,10 @@ export function VoiceWaveform({
           bars.push(Math.max(0.05, value));
         }
 
-        // Draw active bars
-        for (let i = 0; i < barCount && i < bars.length; i++) {
+        // Draw active bars — centered in canvas
+        for (let i = 0; i < visualizerBarCount && i < bars.length; i++) {
           const value = bars[i];
-          const x = i * step;
+          const x = offsetX + i * step;
           const barHeight = Math.max(2, value * height * 0.95);
           const y = centerY - barHeight / 2;
 
@@ -169,15 +170,15 @@ export function VoiceWaveform({
           ctx.fillRect(x, y, barWidth, barHeight);
         }
       } else {
-        // Idle state: deterministic voice-like sine pattern (no randomness)
-        for (let i = 0; i < barCount; i++) {
+        // Idle state: deterministic voice-like sine pattern — centered
+        for (let i = 0; i < visualizerBarCount; i++) {
           const normalizedPos = Math.abs((i - halfCount) / halfCount);
           const wave1 = Math.sin(normalizedPos * Math.PI * 3) * 0.3;
           const wave2 = Math.sin(normalizedPos * Math.PI * 7) * 0.15;
           const wave3 = Math.cos(normalizedPos * Math.PI * 11) * 0.1;
           const value = Math.max(0.15, 0.3 + wave1 + wave2 + wave3);
 
-          const x = i * step;
+          const x = offsetX + i * step;
           const barHeight = Math.max(2, value * height * 0.6);
           const y = centerY - barHeight / 2;
 
@@ -187,24 +188,19 @@ export function VoiceWaveform({
         }
       }
 
-      // Edge fading (Midday-style gradient mask)
-      if (fadeEdges && fadeWidth > 0 && width > 0) {
-        if (!gradientCacheRef.current || lastWidthRef.current !== width) {
-          const gradient = ctx.createLinearGradient(0, 0, width, 0);
-          const fadePercent = Math.min(0.3, fadeWidth / width);
+      // Edge fading on the visualizer region
+      if (fadeEdges && fadeWidth > 0 && maxVisualizerWidth > 0) {
+        const fadeGradient = ctx.createLinearGradient(offsetX, 0, offsetX + visualizerBarCount * step, 0);
+        const fadePct = Math.min(0.15, fadeWidth / maxVisualizerWidth);
 
-          gradient.addColorStop(0, 'rgba(255,255,255,1)');
-          gradient.addColorStop(fadePercent, 'rgba(255,255,255,0)');
-          gradient.addColorStop(1 - fadePercent, 'rgba(255,255,255,0)');
-          gradient.addColorStop(1, 'rgba(255,255,255,1)');
-
-          gradientCacheRef.current = gradient;
-          lastWidthRef.current = width;
-        }
+        fadeGradient.addColorStop(0, 'rgba(255,255,255,1)');
+        fadeGradient.addColorStop(fadePct, 'rgba(255,255,255,0)');
+        fadeGradient.addColorStop(1 - fadePct, 'rgba(255,255,255,0)');
+        fadeGradient.addColorStop(1, 'rgba(255,255,255,1)');
 
         ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = gradientCacheRef.current;
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = fadeGradient;
+        ctx.fillRect(offsetX, 0, visualizerBarCount * step, height);
         ctx.globalCompositeOperation = 'source-over';
       }
 
@@ -225,14 +221,11 @@ export function VoiceWaveform({
   return (
     <div
       ref={containerRef}
-      className={cn("relative w-full", className)}
-      style={{ height: '100%' }}
+      className={cn("relative", className)}
+      style={{ height: '100%', width: '100%', maxWidth: '100%' }}
       aria-label={isActive ? 'Live voice waveform' : 'Voice waveform idle'}
       role="img"
     >
-      {!isActive && (
-        <div className="absolute top-1/2 right-0 left-0 -translate-y-1/2 border-t border-dotted border-black/15" />
-      )}
       <canvas ref={canvasRef} className="block h-full w-full" />
     </div>
   );
