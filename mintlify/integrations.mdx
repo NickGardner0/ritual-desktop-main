@@ -55,6 +55,7 @@ When a canonical sample or event matches a habit with the same `integration_sour
 | Whoop | OAuth | Live | Manual/background cloud sync via `/connections/whoop/sync` | Uses provider-specific fetch logic behind the unified API |
 | Oura | OAuth | Live | Manual/background cloud sync via `/connections/oura/sync` | Normalized into shared samples/events |
 | Garmin | OAuth | Live | OAuth account setup plus webhook-driven ingestion | Manual sync refreshes permissions; data delivery is webhook-based |
+| Tesla | OAuth | Live | Manual/background cloud sync via `/api/integrations/tesla/sync` | Uses Tesla Fleet API for odometer/mileage tracking |
 | Fitbit | OAuth placeholder | Not enabled | Not available in this build | Present in contracts/provider enum, but auth is disabled |
 
 ---
@@ -309,6 +310,41 @@ If `GARMIN_WEBHOOK_SECRET` is configured, the webhook requires the `x-garmin-web
 
 ---
 
+## Tesla
+
+Tesla is connected through OAuth via the Tesla Fleet API. Ritual tracks odometer readings and calculates daily miles driven, projecting them into a managed habit.
+
+### Tesla integration API
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/api/integrations/tesla/callback` | OAuth token exchange |
+| GET | `/api/integrations/tesla/status` | Connection status, last sync time, and vehicle list |
+| POST | `/api/integrations/tesla/sync` | Manual odometer sync |
+| POST | `/api/integrations/tesla/backfill-odometer` | Backfill historical mileage across a date range |
+| POST | `/api/integrations/tesla/disconnect` | Revoke the Tesla connection |
+
+### What Ritual tracks from Tesla
+
+| Data | How it's stored |
+|------|-----------------|
+| Odometer readings | Raw odometer value per vehicle per sync |
+| Miles driven | Daily delta calculated from consecutive odometer readings, projected into a managed "Miles Driven" habit |
+| Vehicle metadata | Display name and vehicle IDs |
+
+### Tesla sync behavior
+
+| Behavior | Current implementation |
+|----------|------------------------|
+| Auth | OAuth 2.0 with automatic token refresh when expiry is within 5 minutes |
+| Token storage | Encrypted access and refresh tokens stored server-side |
+| Multi-vehicle | Supports multiple vehicles per account with per-vehicle odometer tracking |
+| Backfill | Distributes historical miles evenly across days with idempotent log creation |
+| Scheduled sync | Active connections are refreshed through a Trigger.dev background task |
+| Deduplication | Skips logging if the odometer delta is zero or a log already exists for that date |
+
+---
+
 ## Desktop context
 
 Ritual Watcher and Ritual Recorder are separate from the unified wearables API. They are first-party desktop context features, not third-party integrations.
@@ -327,6 +363,6 @@ Weather context is also outside the unified wearables API. Ritual attaches local
 
 | Integration | Current state |
 |-------------|---------------|
-| Fitbit | Included in provider enums/contracts, but auth is disabled in this build |
+| Fitbit | Included in provider enums/contracts, but auth is disabled in this build. Data can be imported via the bulk import system. |
 | Apple Screen Time cloud ingest | Metric types exist in shared Apple schemas, but there is no live unified provider flow yet |
 | Google Calendar | Still planned |
