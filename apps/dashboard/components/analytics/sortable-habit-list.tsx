@@ -111,7 +111,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group w-full max-w-2xl flex justify-between items-center gap-12 h-8 px-1 bg-white hover:bg-[#F7F7F7] cursor-grab active:cursor-grabbing ${
+      className={`group w-full max-w-2xl flex justify-between items-center gap-12 h-[26px] px-1 bg-white hover:bg-[#F7F7F7] cursor-grab active:cursor-grabbing ${
         isDragging ? 'shadow-lg bg-[#F3F3F3] opacity-90' : ''
       }`}
       {...attributes}

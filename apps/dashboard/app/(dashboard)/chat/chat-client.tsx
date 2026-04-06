@@ -4,7 +4,7 @@ import React, { startTransition, useDeferredValue, useEffect, useRef, useState, 
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X, Moon, Monitor, Coffee, CalendarDays, Footprints } from 'lucide-react';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -2052,7 +2052,7 @@ export function ChatClient() {
         <div className="flex-1 flex flex-col min-w-0">
 
           <div className="flex-1 flex flex-col items-center justify-center p-6">
-            <div className="max-w-2xl w-full space-y-4">
+            <div className="max-w-xl w-full space-y-4">
               {/* Logo + Greeting */}
               <div className="flex flex-col items-center gap-2 mb-1">
                 <div className="relative flex h-12 w-12 items-center justify-center">
@@ -2137,13 +2137,13 @@ export function ChatClient() {
               </form>
 
               {/* Suggestion Chips */}
-              <div className="flex flex-wrap gap-2 justify-center">
+              <div className="flex flex-wrap gap-2 justify-center pt-2">
                 {[
-                  { query: 'How did I sleep last week?', label: 'Sleep analysis' },
-                  { query: 'Break down my app and browser usage from last week', label: 'App usage' },
-                  { query: 'How much caffeine have I had this month?', label: 'Caffeine consumption' },
-                  { query: 'What are my top apps this week?', label: 'Top apps' },
-                  { query: 'How many steps have I taken this month?', label: 'Steps' },
+                  { query: 'How did I sleep last week?', label: 'Sleep analysis', icon: Moon },
+                  { query: 'Break down my app and browser usage from last week', label: 'App usage', icon: Monitor },
+                  { query: 'How much caffeine have I had this month?', label: 'Caffeine consumption', icon: Coffee },
+                  { query: 'Give me a breakdown of my week', label: 'Week Breakdown', icon: CalendarDays },
+                  { query: 'How many steps have I taken this month?', label: 'Steps', icon: Footprints },
                 ].map((card) => (
                   <button
                     key={card.query}
@@ -2152,8 +2152,9 @@ export function ChatClient() {
                       setInput(card.query);
                       setTimeout(() => textareaRef.current?.focus(), 0);
                     }}
-                    className="border border-gray-200 rounded-sm px-3.5 py-1.5 text-[12.5px] text-gray-500 hover:border-gray-300 hover:text-gray-700 hover:bg-gray-50/60 transition-colors"
+                    className="flex items-center gap-1.5 border border-gray-200 rounded-sm px-3 py-1.5 text-[13px] text-gray-600 hover:border-gray-300 hover:text-gray-800 hover:bg-gray-50/60 transition-colors"
                   >
+                    <card.icon className="w-3.5 h-3.5 stroke-[1.5]" />
                     {card.label}
                   </button>
                 ))}
