@@ -847,6 +847,52 @@ function buildDeterministicSemanticWorkItemSummary(
   return finalText.length > 60 ? finalText : null;
 }
 
+function isExplicitNarrativeRecapQuery(query: string): boolean {
+  const normalized = (query || '').toLowerCase();
+  return /\b(narrative work recap|work recap|workday recap|what did i get done|what did i work on|what was i working on|main projects|time blocks|with citations)\b/.test(normalized);
+}
+
+function buildSemanticWorkItemScaffold(
+  payload: any,
+  query: string,
+  timezone?: string,
+): string {
+  const workItems = Array.isArray(payload?.semantic_work_items) ? payload.semantic_work_items : [];
+  if (workItems.length === 0) return '';
+
+  const ordered = [...workItems]
+    .filter((item: any) => item && (item.title || item.action_summary || item.semantic_summary || item.start_ts || item.end_ts))
+    .sort((a: any, b: any) => {
+      const aTs = getStorySortTimestamp(a);
+      const bTs = getStorySortTimestamp(b);
+      if (aTs !== bTs) return aTs - bTs;
+      return Number(b?.score_main_event || 0) - Number(a?.score_main_event || 0);
+    })
+    .slice(0, 10);
+
+  if (ordered.length === 0) return '';
+
+  const lines: string[] = ['[SEMANTIC WORK ITEM CLUSTERS — prefer these for concrete project/action detail]'];
+
+  ordered.forEach((item: any, index: number) => {
+    const title = clipContextText(
+      item?.title || item?.action_summary || item?.semantic_summary || 'Workstream',
+      120,
+    );
+    const timeRange = formatWorkstreamTimeRange(item?.start_ts, item?.end_ts, timezone);
+    const bullets = buildSemanticWorkItemBullets(item, query);
+
+    lines.push(`WORK ITEM ${index + 1}`);
+    lines.push(`Title: ${title}`);
+    if (timeRange) lines.push(`Time range: ${timeRange}`);
+    bullets.slice(0, 6).forEach((bullet) => lines.push(bullet));
+    lines.push('');
+  });
+
+  lines.push('[END SEMANTIC WORK ITEM CLUSTERS]');
+  return lines.join('\n');
+}
+
 function pickStoryTitle(item: any): string {
   const label = clipContextText(item?.label || item?.title || '', 110);
   const specificTasks = dedupeStrings(Array.isArray(item?.specific_tasks) ? item.specific_tasks : []);
@@ -1110,6 +1156,7 @@ export async function buildRichActivitySummaryFromStoryPlan(
   timezone?: string,
   calendarStyleSummary?: string | null,
 ): Promise<string | null> {
+  let deterministicSummary: string | null = null;
   try {
     const hasSemanticWorkItems = Array.isArray(payload?.semantic_work_items)
       && payload.semantic_work_items.length > 0;
@@ -1118,14 +1165,20 @@ export async function buildRichActivitySummaryFromStoryPlan(
       return fallback ? appendRecapEnrichment(fallback, payload) : null;
     }
 
-    const deterministicSummary = buildDeterministicStorySummary(payload, query, timezone);
-    if (deterministicSummary) {
+    deterministicSummary = buildDeterministicStorySummary(payload, query, timezone);
+    const forceRichNarrative = isExplicitNarrativeRecapQuery(query);
+    if (deterministicSummary && !forceRichNarrative) {
       return deterministicSummary;
     }
 
-    const evidenceScaffold = buildContextMemoryNarrative(payload, query, timezone);
+    const evidenceScaffold = [
+      buildContextMemoryNarrative(payload, query, timezone),
+      buildSemanticWorkItemScaffold(payload, query, timezone),
+    ]
+      .filter((part) => typeof part === 'string' && part.trim().length > 0)
+      .join('\n\n');
     if (!evidenceScaffold || evidenceScaffold.trim().length < 80) {
-      const fallback = calendarStyleSummary?.trim() || null;
+      const fallback = deterministicSummary?.trim() || calendarStyleSummary?.trim() || null;
       return fallback ? appendRecapEnrichment(fallback, payload) : null;
     }
 
@@ -1142,6 +1195,10 @@ Your job:
 - Use concrete verbs and concrete nouns from the evidence: repos, files, products, domains, APIs, commits, settings pages, documents, commands.
 - Preserve chronology from earliest to latest workstream.
 - Merge tiny fragments into a short "Other things" section instead of dropping them.
+- For explicit recap questions like "what did I get done" or "narrative work recap," prefer concrete project threads and deliverables over generic themes.
+- If the evidence names specific files, repos, settings pages, products, or tickets, use those nouns directly in titles and body copy.
+- Avoid generic section titles like "Research on...", "Exploration of...", "Development work", or "Debugging tasks" unless the evidence is truly that vague.
+- If multiple apps are part of the same thread, combine them into one project workstream instead of narrating them as separate app visits.
 
 Output format:
 - Start directly with the work summary. No greeting or preamble.
@@ -1159,6 +1216,7 @@ Quality bar:
 - If the evidence shows concrete implementation/debugging/configuration work, say that plainly.
 - Mention later-day workstreams if they are in the evidence, even when the early morning block is strongest.
 - Pull concrete files, commands, domains, commits, and artifacts into the prose so each section feels grounded.
+- End crisply. Do not add a generic "productive day" summary line unless it contains a concrete observation from the evidence.
 - If a lower-quality draft summary is provided, use it only as supporting context. Prefer the evidence scaffold when there is any conflict or missing detail.
 - If additional biometrics or calendar context is provided, weave it into the recap only where it strengthens chronology or explains pacing/meetings. Do not force it into every section.
 
@@ -1166,7 +1224,7 @@ Evidence scaffold:
 ${evidenceScaffold}
 
 Supporting draft summary:
-${calendarStyleSummary?.trim() || '(none)'}
+${deterministicSummary?.trim() || calendarStyleSummary?.trim() || '(none)'}
 
 Additional recap context:
 ${enrichmentContext || '(none)'}`;
@@ -1185,11 +1243,11 @@ ${enrichmentContext || '(none)'}`;
     if (content) {
       return appendRecapEnrichment(sanitizeCalendarStyleActivitySummary(content), payload);
     }
-    const fallback = calendarStyleSummary?.trim() || null;
+    const fallback = deterministicSummary?.trim() || calendarStyleSummary?.trim() || null;
     return fallback ? appendRecapEnrichment(fallback, payload) : null;
   } catch (error) {
     console.error('❌ buildRichActivitySummaryFromStoryPlan error:', error);
-    const fallback = calendarStyleSummary?.trim() || null;
+    const fallback = deterministicSummary?.trim() || calendarStyleSummary?.trim() || null;
     return fallback ? appendRecapEnrichment(fallback, payload) : null;
   }
 }
