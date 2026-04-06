@@ -2854,7 +2854,7 @@ export function IntegrationsClient() {
           }
           title="Plaid"
           descriptionLineClamp={3}
-          description="Connect any of your bank accounts to track your spending behavior—Ritual summarizes posted transactions into simple daily totals."
+          description="Track your spending by connecting your bank accounts."
           isConnected={plaidConnected}
           isConnecting={plaidConnecting}
           isSyncing={!plaidNeedsReconnect && plaidSyncing}
@@ -2874,6 +2874,19 @@ export function IntegrationsClient() {
               </button>
             ) : null
           }
+        />
+
+        <IntegrationCard
+          logo={<Image src="/images/Tesla_T_symbol.svg" alt="Tesla" width={24} height={24} className="h-6 w-6" />}
+          title="Tesla"
+          description="Track miles driven from your Tesla vehicles."
+          isConnected={effectiveTeslaConnected}
+          isConnecting={teslaConnecting}
+          isSyncing={teslaSyncing}
+          onConnect={handleTeslaConnect}
+          onSync={handleTeslaSync}
+          onDisconnect={handleTeslaDisconnect}
+          onDetails={() => openIntegrationDetails('tesla')}
         />
 
         <IntegrationCard
@@ -2908,18 +2921,6 @@ export function IntegrationsClient() {
           onDetails={() => openIntegrationDetails('googlecalendar')}
         />
 
-        <IntegrationCard
-          logo={<Image src="/images/Tesla_T_symbol.svg" alt="Tesla" width={24} height={24} className="h-6 w-6" />}
-          title="Tesla"
-          description="Track miles driven from your Tesla vehicles."
-          isConnected={effectiveTeslaConnected}
-          isConnecting={teslaConnecting}
-          isSyncing={teslaSyncing}
-          onConnect={handleTeslaConnect}
-          onSync={handleTeslaSync}
-          onDisconnect={handleTeslaDisconnect}
-          onDetails={() => openIntegrationDetails('tesla')}
-        />
       </div>
 
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
