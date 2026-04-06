@@ -1,0 +1,102 @@
+---
+title: "AI Chat & Voice"
+description: "Conversational AI with tool-calling, native voice input, and intelligent data retrieval across your behavioral data."
+---
+
+Ritual includes an AI chat interface that can answer questions about your habits, activity, and behavioral data using structured tool calls. Voice mode provides native macOS speech recognition with real-time waveform visualization.
+
+---
+
+## Chat interface
+
+The chat interface supports two input modes:
+
+| Mode | Purpose |
+|------|---------|
+| Log mode | Quickly submit habit logs in natural language (e.g. "I read 30 pages" or "200mg caffeine") |
+| Chat mode | Ask questions about your data, request overviews, or explore patterns |
+
+Messages are processed through an AI orchestrator that classifies your query and routes it to the appropriate tool calls before composing a response.
+
+---
+
+## Tool calls
+
+The AI chat has access to 16+ tools that query your behavioral data in real time. These are not pre-canned responses — each tool executes a live query against your data.
+
+### Habit analysis tools
+
+| Tool | What it returns |
+|------|-----------------|
+| `getHabitStats` | Totals, averages, min/max, and standard deviation for any habit over a date range |
+| `getDailyBreakdown` | Day-by-day values for a habit |
+| `getCorrelation` | Statistical correlation between two habits |
+| `getHabitTrends` | Direction, percent change, and confidence vs. a previous period |
+| `getHabitAnomalies` | Statistical outlier detection using z-scores |
+| `listHabits` | All available habits and their metadata |
+
+### Overview tools
+
+| Tool | What it returns |
+|------|-----------------|
+| `getWeeklyOverview` | Comprehensive week recap including top apps and domains |
+| `getDailyOverview` | Today's summary across all tracked habits |
+| `getMonthlyOverview` | Last 30 days summary with trends |
+
+### Activity and context tools
+
+| Tool | What it returns |
+|------|-----------------|
+| `getComputerTimeSpentBreakdown` | Where computer time was spent by app and domain |
+| `getScreenTimeSummary` | App-level and domain-level screen time breakdowns |
+| `getActivitySummary` | Narrative summary of recent activity |
+| `searchContextMemory` | Search over visible window/tab text history from Ritual Watcher |
+| `getCalendarEvents` | Calendar events for a date range |
+
+### Reply chips
+
+After each AI response, smart quick-reply buttons are generated based on the tool results. These provide contextual follow-up actions like "Show app time table", "Last 30 days", "Show anomalies", or "Compare periods".
+
+---
+
+## Voice mode
+
+Voice mode uses native macOS speech recognition through the Tauri desktop app's Swift FFI layer.
+
+### How it works
+
+1. Click the microphone button or use the keyboard shortcut to start listening
+2. A real-time waveform visualization shows audio input levels
+3. Speech is transcribed with streaming partial results displayed as you speak
+4. When you stop speaking, the transcript is finalized and sent as a message
+
+### Recognition features
+
+| Feature | Detail |
+|---------|--------|
+| Server-side recognition | Uses Apple's server-side speech recognition for higher accuracy (macOS 13+) |
+| Contextual vocabulary | Ritual-specific terms are hinted to the recognizer: pages, caffeine, milligrams, steps, miles, hours, minutes, workout, sleep, reading, nicotine, spending, heart rate, BPM, and more |
+| Graceful stop | Audio stream ends cleanly with a short grace period before task cancellation, preventing mid-word cutoffs |
+| Auto-stop | Automatically stops after silence is detected post-speech (3 second silence timeout) |
+
+### Voice response formatting
+
+When responding to voice input, the AI formats responses for spoken delivery:
+
+- Responses are limited to 650 characters for concise spoken output
+- Bullet lists are capped at 3 items
+- Markdown tables are removed
+- Responses end with a follow-up question to encourage conversation
+
+---
+
+## Example queries
+
+| Query | Tools used |
+|-------|------------|
+| "How much caffeine did I have this week?" | `getHabitStats` |
+| "What's the correlation between my sleep and steps?" | `getCorrelation` |
+| "Give me a weekly overview" | `getWeeklyOverview` |
+| "Where did my screen time go today?" | `getScreenTimeSummary` |
+| "Any anomalies in my habits this month?" | `getHabitAnomalies` |
+| "What was I working on yesterday afternoon?" | `searchContextMemory`, `getActivitySummary` |

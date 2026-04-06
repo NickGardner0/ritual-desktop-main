@@ -1,0 +1,113 @@
+---
+title: "Analytics & Insights"
+description: "Habit statistics, trend analysis, correlations, streaks, anomaly detection, and computer activity breakdowns."
+---
+
+Ritual provides analytics across all tracked habits and computer activity. Data flows from integrations, manual logs, and desktop tracking into a unified analytics layer that powers dashboards, AI chat tool calls, and scheduled background processing.
+
+---
+
+## Overview
+
+The analytics dashboard provides two primary views:
+
+| View | What it shows |
+|------|---------------|
+| Overview | Habit list with totals, averages, min/max, standard deviation, and computer time summary |
+| Metrics | Draggable metric cards with charts, streaks, bar comparisons, and percent-change indicators |
+
+Both views support date range filtering with presets (7, 30, 90 days) and custom ranges. Metrics can be filtered by category (Fitness & Health, Productivity, etc.).
+
+---
+
+## Habit statistics
+
+For any habit over a given date range, Ritual computes:
+
+| Metric | Description |
+|--------|-------------|
+| Total (sum) | Sum of all logged values |
+| Average | Mean value per day with data |
+| Min / Max | Lowest and highest logged values |
+| Standard deviation | Variance in logged values |
+| Streak | Current and longest consecutive-day streaks |
+| Trend | Direction (up/down/flat), percent change, and confidence vs. previous period |
+
+### Aggregation rules
+
+Different habit types use different daily aggregation:
+
+| Rule | Used for | Behavior |
+|------|----------|----------|
+| MAX | Sleep-like habits | Takes the highest value per day |
+| SUM | Duration and count habits | Sums all values per day |
+
+---
+
+## Trend analysis
+
+Trend analysis compares a selected date range against the equivalent prior period to calculate:
+
+- **Direction**: Whether the habit is trending up, down, or flat
+- **Percent change**: Magnitude of change between periods
+- **Confidence**: Statistical confidence in the trend direction
+
+Trends are available both in the dashboard metrics view and through the AI chat `getHabitTrends` tool.
+
+---
+
+## Correlation analysis
+
+Ritual can calculate the statistical correlation between any two habits. This helps identify relationships like:
+
+- Sleep duration vs. steps taken
+- Caffeine intake vs. sleep quality
+- Screen time vs. exercise time
+
+Correlations are computed over a shared date range and return a correlation coefficient indicating the strength and direction of the relationship.
+
+---
+
+## Anomaly detection
+
+The anomaly detection system uses z-score analysis to identify statistical outliers in your habit data. An anomaly is flagged when a logged value deviates significantly from your historical mean.
+
+This is available through the AI chat `getHabitAnomalies` tool and surfaces unusual days that may warrant attention.
+
+---
+
+## Computer activity analytics
+
+When Ritual Watcher is active, computer usage is tracked and broken down by:
+
+| Dimension | Detail |
+|-----------|--------|
+| Daily active hours | Total tracked computer time per day |
+| App breakdown | Time spent per application with duration |
+| Domain breakdown | Time spent per website domain |
+| Daily average | Average computer time across the period |
+
+Computer time is also surfaced as a special habit, allowing it to participate in the same statistics, trends, and correlation analysis as any other habit.
+
+---
+
+## Data pipeline
+
+Analytics data flows through multiple layers:
+
+| Layer | Role |
+|-------|------|
+| Habit logs | Raw logged values from integrations, manual entry, and desktop tracking |
+| Daily rollups | Aggregated daily values per habit using the appropriate aggregation rule |
+| Tinybird | ClickHouse-based analytics processing for streaks, trends, and correlations |
+| Analytics cache | 12-hour TTL cache for computed statistics to reduce query load |
+
+### API endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/analytics/habits/logs/all` | All habit logs for the user |
+| GET | `/api/analytics/habits/logs` | Filtered habit logs with date range |
+| GET | `/api/analytics/habits/summary` | Aggregated habit statistics |
+| GET | `/api/analytics/habits/trends` | Trend analysis with direction and confidence |
+| GET | `/api/analytics/correlation` | Correlation between two habits |

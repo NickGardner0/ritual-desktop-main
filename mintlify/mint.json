@@ -30,6 +30,8 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
+        "voice-chat",
+        "analytics",
         "context-understanding",
         "integrations"
       ]
