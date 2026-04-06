@@ -416,26 +416,42 @@ async fn migrate_watcher_db(target: &Connection, source_path: &Path) -> Result<(
     
     let source = SqliteConn::open(source_path)?;
     
+    let has_activity_table = source_table_exists(&source, "activity_events")?;
+    let has_heartbeat_table = source_table_exists(&source, "watcher_heartbeat")?;
     let mut afk_count = 0i64;
     
     // Migrate activity_events
-    let activity_count = migrate_activity_events(target, &source).await?;
+    let activity_count = if has_activity_table {
+        migrate_activity_events(target, &source).await?
+    } else {
+        info!("Legacy watcher.db has no activity_events table; skipping activity migration");
+        0
+    };
     
     // Migrate afk_events if table exists
-    let has_afk_table: bool = source.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='afk_events'",
-        [],
-        |row| row.get::<_, i32>(0).map(|c| c > 0)
-    )?;
+    let has_afk_table = source_table_exists(&source, "afk_events")?;
     
     if has_afk_table {
         afk_count = migrate_afk_events(target, &source).await?;
     }
     
     // Migrate heartbeat
-    migrate_heartbeat(target, &source).await?;
+    if has_heartbeat_table {
+        migrate_heartbeat(target, &source).await?;
+    } else {
+        info!("Legacy watcher.db has no watcher_heartbeat table; skipping heartbeat migration");
+    }
     
     Ok((activity_count, afk_count))
+}
+
+fn source_table_exists(source: &SqliteConn, table_name: &str) -> Result<bool> {
+    let count = source.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+        [table_name],
+        |row| row.get::<_, i32>(0),
+    )?;
+    Ok(count > 0)
 }
 
 /// Migrate activity events in batches

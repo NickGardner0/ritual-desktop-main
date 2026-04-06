@@ -113,12 +113,12 @@ export interface HabitLog {
  * Fetch all habits for authenticated user
  * Called from Server Components
  */
-export async function getHabits(): Promise<Habit[]> {
+export async function getHabits(userIdOverride?: string): Promise<Habit[]> {
   console.log('📊 [Server] getHabits() called');
   const startTime = Date.now();
   
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = userIdOverride ?? await getAuthenticatedUserId();
     console.log('📊 [Server] Fetching habits for user:', userId, `(auth took ${Date.now() - startTime}ms)`);
     
     const fetchStart = Date.now();
@@ -136,8 +136,8 @@ export async function getHabits(): Promise<Habit[]> {
 /**
  * Fetch habit logs for authenticated user
  */
-export async function getHabitLogs(habitId?: string): Promise<HabitLog[]> {
-  const userId = await getAuthenticatedUserId();
+export async function getHabitLogs(habitId?: string, userIdOverride?: string): Promise<HabitLog[]> {
+  const userId = userIdOverride ?? await getAuthenticatedUserId();
   
   console.log('📊 [Server] Fetching habit logs for user:', userId);
   
@@ -184,12 +184,15 @@ export interface AnalyticsHabitSummary {
  * Fetch analytics summary data
  * Combines multiple queries into one efficient server call
  */
-export async function getAnalyticsSummary(daysBack: number = 365): Promise<AnalyticsData> {
+export async function getAnalyticsSummary(
+  daysBack: number = 365,
+  userIdOverride?: string,
+): Promise<AnalyticsData> {
   console.log('📊 [Server] getAnalyticsSummary() called - START');
   const startTime = Date.now();
   
   try {
-    const userId = await getAuthenticatedUserId();
+    const userId = userIdOverride ?? await getAuthenticatedUserId();
     console.log('📊 [Server] Fetching analytics data (parallel)...', `(auth took ${Date.now() - startTime}ms)`);
     
     const fetchStart = Date.now();
@@ -330,8 +333,8 @@ export async function getDashboardData() {
   try {
     // ✅ PARALLEL - All at once!
     const [habits, logs] = await Promise.all([
-      getHabits(),
-      getHabitLogs(),
+      getHabits(userId),
+      getHabitLogs(undefined, userId),
     ]);
     
     console.log('✅ [Server] Dashboard data loaded:', {

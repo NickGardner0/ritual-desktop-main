@@ -10,7 +10,8 @@
 
 #![allow(dead_code)] // Public API - fields may be used for future features
 
-use tracing::trace;
+use std::env;
+use tracing::{info, trace};
 
 #[cfg(target_os = "macos")]
 use crate::applescript_ffi::get_native_browser_info;
@@ -47,6 +48,15 @@ const BROWSER_BUNDLE_IDS: &[&str] = &[
 /// Check if the given bundle ID is a known browser
 pub fn is_browser(bundle_id: &str) -> bool {
     BROWSER_BUNDLE_IDS.iter().any(|&b| b == bundle_id)
+}
+
+fn native_browser_applescript_enabled() -> bool {
+    matches!(
+        env::var("RITUAL_ENABLE_NATIVE_BROWSER_APPLESCRIPT")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 /// Extract the domain from a URL
@@ -115,8 +125,20 @@ pub fn get_browser_info(bundle_id: &str) -> BrowserInfo {
         return BrowserInfo::default();
     }
 
+    // Browser richness should primarily come from the extension heartbeat path.
+    // Native NSAppleScript polling has been the strongest crash suspect in the
+    // release watcher, so keep it opt-in while we verify the safer hybrid path.
+    if !native_browser_applescript_enabled() {
+        trace!(
+            "Native browser AppleScript disabled for {}",
+            bundle_id
+        );
+        return BrowserInfo::default();
+    }
+
     #[cfg(target_os = "macos")]
     {
+        info!("Native browser AppleScript enabled for {}", bundle_id);
         let native_info = get_native_browser_info(bundle_id);
 
         trace!(

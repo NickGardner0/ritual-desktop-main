@@ -17,7 +17,7 @@ use crate::recorder_disabled as recorder;
 
 use std::env;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use tracing::{info, instrument, warn};
 
@@ -134,6 +134,14 @@ struct DesktopShellBootstrapConfig {
 }
 
 fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
+    if app_origin.starts_with("http://localhost:") || app_origin.starts_with("http://127.0.0.1:")
+    {
+        // Local perf/debug runs should hit the real dashboard route directly
+        // instead of going through the hosted bootstrap flow, which otherwise
+        // adds a blank shell + auth handoff step that obscures first-data timing.
+        return join_url_path(app_origin, "/dashboard");
+    }
+
     let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
     let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
     let mut bootstrap_url = with_query_param(
@@ -267,6 +275,139 @@ fn shutdown_background_helpers() {
             err
         );
     }
+}
+
+fn spawn_watcher_watchdog() {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // Skip the immediate bootstrap tick so the watcher can write its first
+        // heartbeat/context window before the watchdog evaluates health.
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            match watcher::check_and_restart_watcher_if_hung(60).await {
+                Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
+                Ok(false) => {}
+                Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
+            }
+        }
+    });
+}
+
+fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let startup_started_at = Instant::now();
+
+        // Let the webview paint before doing heavier native startup work so the
+        // main app finishes launching faster and the Dock icon settles sooner.
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let persisted_sync_started_at = Instant::now();
+        match tauri::async_runtime::spawn_blocking(load_persisted_turso_sync_config).await {
+            Ok(()) => {
+                info!(
+                    duration_ms = persisted_sync_started_at.elapsed().as_millis() as u64,
+                    "Loaded persisted Turso sync config"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    duration_ms = persisted_sync_started_at.elapsed().as_millis() as u64,
+                    "Persisted Turso sync config load task failed"
+                );
+            }
+        }
+
+        let db_init_started_at = Instant::now();
+        match tauri::async_runtime::spawn_blocking(|| {
+            ritual_database::initialize_database_with_origin("startup")
+        })
+        .await
+        {
+            Ok(Ok(())) => {
+                info!(
+                    duration_ms = db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual unified database ready"
+                );
+                match tauri::async_runtime::spawn_blocking(
+                    ritual_database::log_startup_pipeline_snapshot,
+                )
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        warn!(error = %error, "Failed to log startup pipeline snapshot");
+                    }
+                    Err(error) => {
+                        warn!(error = %error, "Startup pipeline snapshot task failed");
+                    }
+                }
+                info!("Local semantic bridge and local embedding startup disabled in cloud-first mode");
+            }
+            Ok(Err(error)) => {
+                warn!(
+                    error = %error,
+                    duration_ms = db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual database init deferred"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    duration_ms = db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual database init task failed"
+                );
+            }
+        }
+
+        if let Some(config) = read_watcher_config() {
+            let watcher_start_started_at = Instant::now();
+            info!(
+                device_id = %config.device_id,
+                user_id = %config.user_id,
+                "Auto-starting Ritual Watcher"
+            );
+
+            if watcher::check_accessibility_permission() {
+                match tauri::async_runtime::spawn_blocking(move || watcher::start_watcher_sync(config))
+                    .await
+                {
+                    Ok(Ok(status)) => {
+                        info!(
+                            pid = status.pid,
+                            duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                            "Watcher auto-started successfully"
+                        );
+                    }
+                    Ok(Err(error)) => {
+                        warn!(
+                            error = %error,
+                            duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                            "Failed to auto-start watcher"
+                        );
+                    }
+                    Err(error) => {
+                        warn!(
+                            error = %error,
+                            duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                            "Watcher auto-start task failed"
+                        );
+                    }
+                }
+            } else {
+                warn!("Watcher auto-start skipped: accessibility permission not granted");
+            }
+        }
+
+        spawn_watcher_watchdog();
+        desktop_runtime::emit_runtime_state_changed(app);
+        info!(
+            duration_ms = startup_started_at.elapsed().as_millis() as u64,
+            "Desktop background startup completed"
+        );
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -991,7 +1132,6 @@ fn main() {
       let window = if let Some(window) = app.get_window("main") {
         window
       } else {
-        let use_local_shell_window = should_use_local_shell_window();
         let mut builder = tauri::WindowBuilder::new(
           app,
           "main",
@@ -1004,7 +1144,7 @@ fn main() {
         .resizable(true)
         .decorations(true)
         .transparent(main_glass_enabled)
-        .visible(!use_local_shell_window);
+        .visible(true);
 
         #[cfg(target_os = "macos")]
         {
@@ -1080,101 +1220,10 @@ fn main() {
           let bootstrap_url_json = serde_json::to_string(&bootstrap_url)
             .unwrap_or_else(|_| "\"https://desktop.ritualdb.com/desktop/bootstrap\"".to_string());
           let _ = window.eval(&format!("window.__RITUAL_BOOTSTRAP_URL__ = {};", bootstrap_url_json));
-        } else {
-          let _ = window.show();
-          let _ = window.set_focus();
         }
-
-        // Fallback timer: only show the window if desktop bootstrap never does.
-        // The hosted bootstrap route should normally show the window itself.
-        let window_clone = window.clone();
-        std::thread::spawn(move || {
-          std::thread::sleep(std::time::Duration::from_secs(10));
-
-          // Check if window is still hidden
-          if let Ok(is_visible) = window_clone.is_visible() {
-            if !is_visible {
-              info!("Fallback timer showing main window after 10s");
-              let _ = window_clone.show();
-              let _ = window_clone.set_focus();
-            }
-          }
-        });
+        let _ = window.show();
+        let _ = window.set_focus();
       }
-      let persisted_sync_started_at = Instant::now();
-      load_persisted_turso_sync_config();
-      info!(
-        duration_ms = persisted_sync_started_at.elapsed().as_millis() as u64,
-        "Loaded persisted Turso sync config"
-      );
-
-      // Initialize Ritual Database (unified libSQL with vector search)
-      // This also handles migration from legacy databases
-      let db_init_started_at = Instant::now();
-      match ritual_database::initialize_database_with_origin("startup") {
-        Ok(()) => {
-          info!(
-            duration_ms = db_init_started_at.elapsed().as_millis() as u64,
-            "Ritual unified database ready"
-          );
-          if let Err(e) = ritual_database::log_startup_pipeline_snapshot() {
-            warn!(error = %e, "Failed to log startup pipeline snapshot");
-          }
-          info!("Local semantic bridge and local embedding startup disabled in cloud-first mode");
-        },
-        Err(e) => warn!(
-          error = %e,
-          duration_ms = db_init_started_at.elapsed().as_millis() as u64,
-          "Ritual database init deferred"
-        ),
-      }
-
-      // Auto-start Ritual Watcher if previously enabled
-      if let Some(config) = read_watcher_config() {
-        let watcher_start_started_at = Instant::now();
-        info!(device_id = %config.device_id, user_id = %config.user_id, "Auto-starting Ritual Watcher");
-
-        // Check accessibility permission first
-        if watcher::check_accessibility_permission() {
-          // Start watcher synchronously (it spawns its own process)
-          match watcher::start_watcher_sync(config) {
-            Ok(status) => {
-              info!(
-                pid = status.pid,
-                duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
-                "Watcher auto-started successfully"
-              );
-            }
-            Err(e) => {
-              warn!(
-                error = %e,
-                duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
-                "Failed to auto-start watcher"
-              );
-            }
-          }
-        } else {
-          warn!("Watcher auto-start skipped: accessibility permission not granted");
-        }
-      }
-
-      tauri::async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        // `tokio::time::interval` ticks immediately on first await; skip that
-        // bootstrap tick so we don't restart a watcher that just started and
-        // hasn't written its first healthy heartbeat/context window yet.
-        interval.tick().await;
-        loop {
-          interval.tick().await;
-          match watcher::check_and_restart_watcher_if_hung(60).await {
-            Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
-            Ok(false) => {}
-            Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
-          }
-        }
-      });
-
       // Recorder remains available, but context capture is now the default active path.
       let recorder_autostart_enabled = matches!(
         std::env::var("RITUAL_ENABLE_RECORDER_AUTOSTART")
@@ -1215,6 +1264,7 @@ fn main() {
       }
 
       desktop_runtime::emit_runtime_state_changed(app.handle());
+      spawn_background_startup_tasks(app.handle());
 
       #[cfg(target_os = "macos")]
       {

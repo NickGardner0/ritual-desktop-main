@@ -110,18 +110,15 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       try {
         // Phase 2: Fetch half-range data in background for % changes.
         // If this slower compare phase fails, preserve the already-loaded rows.
-        await new Promise((r) => setTimeout(r, 1500));
-        if (id !== fetchIdRef.current) return; // stale after delay
+        if (id !== fetchIdRef.current) return; // stale
 
         const midPoint = new Date((from.getTime() + to.getTime()) / 2);
         const firstEnd = format(midPoint, 'yyyy-MM-dd');
         const secondStart = format(new Date(midPoint.getTime() + 86400000), 'yyyy-MM-dd');
 
-        const [appsFirst, appsSecond] = await Promise.all([
+        const [appsFirst, appsSecond, domainsFirst, domainsSecond] = await Promise.all([
           getTopApps({ startDate, endDate: firstEnd }, BAR_LIST_COMPARE_FETCH_LIMIT),
           getTopApps({ startDate: secondStart, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
-        ]);
-        const [domainsFirst, domainsSecond] = await Promise.all([
           getTopDomains({ startDate, endDate: firstEnd }, BAR_LIST_COMPARE_FETCH_LIMIT),
           getTopDomains({ startDate: secondStart, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
         ]);
@@ -200,9 +197,7 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
   }, [activeRange]);
 
   useEffect(() => {
-    // Delay initial fetch to avoid competing with primary analytics API calls
-    const timer = setTimeout(() => fetchData(), 800);
-    return () => clearTimeout(timer);
+    fetchData();
   }, [fetchData]);
 
   return (

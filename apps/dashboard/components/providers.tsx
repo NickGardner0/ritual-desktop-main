@@ -4,7 +4,6 @@ import { QueryClientProvider, dehydrate, hydrate, type Query } from '@tanstack/r
 import { queryClient } from '@/lib/query-client';
 import { ReactNode, useEffect, useState } from 'react';
 import { auditLocalStorage, auditQueryCache, perfInfo, perfWarn } from '@/lib/perf-debug';
-import { isTauri } from '@/lib/tauri-utils';
 
 const QUERY_CACHE_STORAGE_KEY = 'ritual:react-query-cache:v1';
 const QUERY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
@@ -43,7 +42,6 @@ function shouldPersistQuery(query: Query): boolean {
 
 function restorePersistedQueryCache() {
   if (typeof window === 'undefined') return;
-  if (isTauri()) return;
 
   try {
     const raw = window.localStorage.getItem(QUERY_CACHE_STORAGE_KEY);
@@ -90,7 +88,6 @@ function restorePersistedQueryCache() {
 
 function persistQueryCache() {
   if (typeof window === 'undefined') return;
-  if (isTauri()) return;
 
   try {
     const dehydratedState = dehydrate(queryClient, {
@@ -133,7 +130,6 @@ export function QueryProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!cacheRestored) return;
-    if (isTauri()) return;
     auditLocalStorage('query-provider', [QUERY_CACHE_STORAGE_KEY]);
     auditQueryCache('query-provider', queryClient);
 

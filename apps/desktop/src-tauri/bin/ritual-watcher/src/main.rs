@@ -888,6 +888,31 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 fn configure_process_as_background_agent() {
+    let policy_mode = env::var("RITUAL_WATCHER_ACTIVATION_POLICY")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "accessory".to_string());
+
+    if matches!(
+        policy_mode.as_str(),
+        "off" | "disabled" | "none" | "0" | "false" | "no"
+    ) {
+        info!("ℹ️ Watcher background-only activation policy disabled");
+        return;
+    }
+
+    let (policy, policy_label) = match policy_mode.as_str() {
+        "prohibited" => (
+            NSApplicationActivationPolicy::Prohibited,
+            "background-only",
+        ),
+        _ => (
+            NSApplicationActivationPolicy::Accessory,
+            "accessory background",
+        ),
+    };
+
     // The watcher uses AppKit APIs for NSWorkspace notifications and run loop
     // pumping, but it should behave like a background helper and never claim its
     // own Dock icon.
@@ -900,12 +925,12 @@ fn configure_process_as_background_agent() {
 
         let changed: bool = objc2::msg_send![
             app,
-            setActivationPolicy: NSApplicationActivationPolicy::Prohibited
+            setActivationPolicy: policy
         ];
         if !changed {
-            warn!("⚠️ Failed to set watcher activation policy to Prohibited");
+            warn!("⚠️ Failed to set watcher activation policy to {}", policy_label);
         } else {
-            info!("✅ Watcher activation policy set to background-only");
+            info!("✅ Watcher activation policy set to {}", policy_label);
         }
     }
 }
@@ -1061,7 +1086,22 @@ fn deep_accessibility_capture_disabled() -> bool {
     )
 }
 
-fn deep_accessibility_capture_enabled_for_bundle(bundle_id: &str) -> bool {
+fn deep_accessibility_high_risk_app_shell(bundle_id: &str, app_name: &str) -> bool {
+    let bundle = bundle_id.to_ascii_lowercase();
+    let name = app_name.to_ascii_lowercase();
+
+    name == "ritual"
+        || name == "codex"
+        || name == "cursor"
+        || name == "claude"
+        || bundle == "com.ritual.desktop"
+        || bundle.contains("codex")
+        || bundle.contains("claude")
+        || bundle.contains("cursor")
+        || bundle.contains("todesktop")
+}
+
+fn deep_accessibility_capture_enabled_for_app(bundle_id: &str, app_name: &str) -> bool {
     if deep_accessibility_capture_disabled() {
         return false;
     }
@@ -1069,6 +1109,7 @@ fn deep_accessibility_capture_enabled_for_bundle(bundle_id: &str) -> bool {
         return true;
     }
 
+    let _ = app_name;
     !is_browser(bundle_id)
 }
 
@@ -1385,7 +1426,7 @@ fn run_watcher_loop(
             } else if deep_accessibility_capture_enabled() {
                 "enabled"
             } else {
-                "enabled (non-browser apps only)"
+                "enabled (non-browser apps)"
             }
         );
     }
@@ -1825,7 +1866,10 @@ fn run_watcher_loop(
                     UrlMode::DomainOnly => (None, browser_info.domain.clone()),
                     UrlMode::Full => (browser_info.url.clone(), browser_info.domain.clone()),
                 };
-                let focused_text_info = if deep_accessibility_capture_enabled_for_bundle(&info.bundle_id) {
+                let focused_text_info = if deep_accessibility_capture_enabled_for_app(
+                    &info.bundle_id,
+                    &info.app_name,
+                ) {
                     info.pid
                         .map(|pid| {
                             get_focused_text_info(

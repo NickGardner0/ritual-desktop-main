@@ -11,6 +11,7 @@
 //! events detected by the watcher's own window/AppleScript polling.
 
 use std::collections::HashSet;
+use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -39,6 +40,24 @@ const DUPLICATE_CREATE_GUARD_MS: u64 = 5_000;
 /// When a create attempt is deferred (typically lock contention), suppress
 /// immediate retries for the same logical browser session key.
 const PENDING_CREATE_GUARD_MS: u64 = 10_000;
+
+fn browser_heartbeat_capture_enabled() -> bool {
+    if matches!(
+        env::var("RITUAL_DISABLE_BROWSER_HEARTBEAT_CAPTURE")
+            .ok()
+            .as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    ) {
+        return false;
+    }
+
+    !matches!(
+        env::var("RITUAL_ENABLE_BROWSER_HEARTBEAT_CAPTURE")
+            .ok()
+            .as_deref(),
+        Some("0") | Some("false") | Some("FALSE") | Some("no") | Some("NO")
+    )
+}
 
 /// Heartbeat payload from the browser extension
 #[derive(Debug, Clone, Deserialize)]
@@ -1099,6 +1118,19 @@ fn handle_request(state: &Arc<Mutex<ServerState>>, request: tiny_http::Request) 
 
         // Browser heartbeat
         (tiny_http::Method::Post, "/api/heartbeat") => {
+            if !browser_heartbeat_capture_enabled() {
+                let response = tiny_http::Response::from_string(
+                    r#"{"status":"disabled","message":"Browser heartbeat capture disabled"}"#,
+                )
+                .with_status_code(200);
+                let mut response = response.boxed();
+                for header in cors_headers {
+                    response.add_header(header);
+                }
+                let _ = request.respond(response);
+                return;
+            }
+
             // Read body
             let mut body = String::new();
             let mut reader = request;
@@ -1177,6 +1209,9 @@ pub fn start_server(
     db_write_tx: Sender<BrowserDbCommand>,
 ) -> std::thread::JoinHandle<()> {
     info!("Starting browser heartbeat server on localhost:{}", port);
+    if !browser_heartbeat_capture_enabled() {
+        info!("Browser heartbeat capture disabled; server running in no-op mode");
+    }
 
     std::thread::spawn(move || {
         let mut listener_port = port;
