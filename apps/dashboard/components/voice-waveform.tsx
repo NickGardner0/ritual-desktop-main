@@ -161,7 +161,7 @@ export function VoiceWaveform({
         for (let i = 0; i < barCount && i < bars.length; i++) {
           const value = bars[i];
           const x = i * step;
-          const barHeight = Math.max(2, value * height * 0.85);
+          const barHeight = Math.max(2, value * height * 0.95);
           const y = centerY - barHeight / 2;
 
           ctx.fillStyle = barColor;

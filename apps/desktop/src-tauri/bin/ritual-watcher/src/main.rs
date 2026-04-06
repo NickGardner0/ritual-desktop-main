@@ -1109,7 +1109,10 @@ fn deep_accessibility_capture_enabled_for_app(bundle_id: &str, app_name: &str) -
         return true;
     }
 
-    let _ = app_name;
+    if deep_accessibility_high_risk_app_shell(bundle_id, app_name) {
+        return false;
+    }
+
     !is_browser(bundle_id)
 }
 
@@ -1426,7 +1429,7 @@ fn run_watcher_loop(
             } else if deep_accessibility_capture_enabled() {
                 "enabled"
             } else {
-                "enabled (non-browser apps)"
+                "enabled (non-browser apps, excluding high-risk app shells)"
             }
         );
     }

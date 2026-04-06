@@ -1204,8 +1204,16 @@ export function OverviewView({
     }
   };
 
-  // Show spinner while loading
-  if (isLoading || !isLoaded || !user) {
+  const hasRenderableCachedHabits = habits.length > 0;
+
+  // When desktop relaunches, render immediately from persisted habit cache even
+  // if Clerk is still rehydrating. Avoid blocking Overview on auth hydration
+  // when we already have usable data on-screen.
+  if (
+    (isLoading && !hasRenderableCachedHabits)
+    || (!isLoaded && !hasRenderableCachedHabits)
+    || (isLoaded && !user && !hasRenderableCachedHabits)
+  ) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
         <Spinner className="w-8 h-8" />

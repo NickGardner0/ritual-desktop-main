@@ -791,13 +791,22 @@ fn configure_watcher_stdio(command: &mut Command) -> Result<(), String> {
         .create(true)
         .append(true)
         .open(&log_path)
-        .map_err(|e| format!("Failed to open watcher log file {}: {}", log_path.display(), e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to open watcher log file {}: {}",
+                log_path.display(),
+                e
+            )
+        })?;
     let stdout = log_file
         .try_clone()
         .map_err(|e| format!("Failed to clone watcher log file handle: {}", e))?;
     command.stdout(Stdio::from(stdout));
     command.stderr(Stdio::from(log_file));
-    watcher_info!("📝 Capturing watcher stdout/stderr -> {}", log_path.display());
+    watcher_info!(
+        "📝 Capturing watcher stdout/stderr -> {}",
+        log_path.display()
+    );
     Ok(())
 }
 
@@ -1962,12 +1971,10 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .map(|started_at| {
-            started_at.elapsed()
-                < Duration::from_secs((max_stale_seconds.max(60) * 2) as u64)
+            started_at.elapsed() < Duration::from_secs((max_stale_seconds.max(60) * 2) as u64)
         })
         .unwrap_or(false);
-    if startup_grace_active
-        && (status.is_running || watcher_reachable || has_fresh_local_activity)
+    if startup_grace_active && (status.is_running || watcher_reachable || has_fresh_local_activity)
     {
         return Ok(false);
     }

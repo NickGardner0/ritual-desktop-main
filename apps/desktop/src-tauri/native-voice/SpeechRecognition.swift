@@ -226,6 +226,23 @@ private func startSpeechRecognitionInternal() -> Bool {
 
             request.shouldReportPartialResults = true
 
+            // Prefer server-side recognition for better accuracy (falls back to on-device if offline)
+            if #available(macOS 13, *) {
+                request.requiresOnDeviceRecognition = false
+            }
+
+            // Contextual hints to bias recognition toward Ritual vocabulary
+            if #available(macOS 14, *) {
+                request.contextualStrings = [
+                    "pages", "caffeine", "milligrams", "mg", "steps", "miles",
+                    "hours", "minutes", "workout", "sleep", "reading", "read",
+                    "nicotine", "spending", "dollars", "heart rate", "BPM",
+                    "coding", "screen time", "computer time", "walked", "walking",
+                    "coffee", "espresso", "tea", "ran", "running", "biked",
+                    "logged", "consumed", "drank", "ate", "slept", "woke",
+                ]
+            }
+
             let inputNode = audioEngine.inputNode
             let recordingFormat = inputNode.outputFormat(forBus: 0)
             inputNode.removeTap(onBus: 0)
@@ -284,8 +301,16 @@ func stop_speech_recognition() -> Bool {
             audioEngine.inputNode.removeTap(onBus: 0)
         }
 
+        // Signal end of audio — let the recognition task finish naturally for
+        // a more accurate final result instead of cancelling mid-recognition.
         request?.endAudio()
-        task?.cancel()
+
+        // Give the task a short grace period to produce a final result before
+        // force-cancelling. This avoids using an inaccurate partial transcript.
+        let capturedTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            capturedTask?.cancel()
+        }
 
         audioEngine = nil
         request = nil

@@ -1601,7 +1601,7 @@ export function ChatClient() {
                 clearTimeout(nativeVoiceAutoStopRef.current);
                 nativeVoiceAutoStopRef.current = window.setTimeout(() => {
                   stopVoiceRecording();
-                }, 5000);
+                }, 10000);
               }
             }
             return;
@@ -1648,7 +1648,7 @@ export function ChatClient() {
 
     nativeVoiceAutoStopRef.current = window.setTimeout(() => {
       stopVoiceRecording();
-    }, 5000);
+    }, 10000);
   }, [resetNativeVoiceSession]);
 
   // Voice recording
@@ -1867,9 +1867,9 @@ export function ChatClient() {
                     {suggestionList}
                   </div>
                   {isListening && (
-                    <div className="px-4 pb-1">
-                      <div className="h-8">
-                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.0} />
+                    <div className="px-4 pb-1 flex justify-center">
+                      <div className="h-8 w-full max-w-[280px]">
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
                       </div>
                     </div>
                   )}
@@ -2092,9 +2092,9 @@ export function ChatClient() {
                     {suggestionList}
                   </div>
                   {isListening && (
-                    <div className="px-5 pb-1">
-                      <div className="h-8">
-                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.0} />
+                    <div className="px-5 pb-1 flex justify-center">
+                      <div className="h-8 w-full max-w-[280px]">
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
                       </div>
                     </div>
                   )}
@@ -2272,9 +2272,9 @@ export function ChatClient() {
                     {suggestionList}
                   </div>
                   {isListening && (
-                    <div className="px-4 pb-1">
-                      <div className="h-8">
-                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.0} />
+                    <div className="px-4 pb-1 flex justify-center">
+                      <div className="h-8 w-full max-w-[280px]">
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
                       </div>
                     </div>
                   )}

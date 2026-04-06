@@ -134,8 +134,7 @@ struct DesktopShellBootstrapConfig {
 }
 
 fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
-    if app_origin.starts_with("http://localhost:") || app_origin.starts_with("http://127.0.0.1:")
-    {
+    if app_origin.starts_with("http://localhost:") || app_origin.starts_with("http://127.0.0.1:") {
         // Local perf/debug runs should hit the real dashboard route directly
         // instead of going through the hosted bootstrap flow, which otherwise
         // adds a blank shell + auth handoff step that obscures first-data timing.
@@ -356,8 +355,8 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
                 {
                     Ok(Ok(true)) => {
                         info!(
-                            duration_ms = deferred_bootstrap_started_at.elapsed().as_millis()
-                                as u64,
+                            duration_ms =
+                                deferred_bootstrap_started_at.elapsed().as_millis() as u64,
                             "Deferred activity replica bootstrap completed"
                         );
                     }
@@ -405,8 +404,10 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
             );
 
             if watcher::check_accessibility_permission() {
-                match tauri::async_runtime::spawn_blocking(move || watcher::start_watcher_sync(config))
-                    .await
+                match tauri::async_runtime::spawn_blocking(move || {
+                    watcher::start_watcher_sync(config)
+                })
+                .await
                 {
                     Ok(Ok(status)) => {
                         info!(

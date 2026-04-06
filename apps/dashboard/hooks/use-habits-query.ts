@@ -22,6 +22,34 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const LOCAL_HABITS_API = '/api/habits';
 const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 
+function getLatestSuccessfulQuerySnapshot<T>(
+  queryClient: ReturnType<typeof useQueryClient>,
+  queryKeyPrefix: readonly unknown[],
+): { data: T; updatedAt: number } | null {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: queryKeyPrefix });
+  let newestData: T | null = null;
+  let newestUpdatedAt = 0;
+
+  for (const query of queries) {
+    if (query.state.status !== 'success' || query.state.data == null) {
+      continue;
+    }
+    if (query.state.dataUpdatedAt >= newestUpdatedAt) {
+      newestData = query.state.data as T;
+      newestUpdatedAt = query.state.dataUpdatedAt;
+    }
+  }
+
+  if (newestData == null || newestUpdatedAt <= 0) {
+    return null;
+  }
+
+  return {
+    data: newestData,
+    updatedAt: newestUpdatedAt,
+  };
+}
+
 /**
  * Fetch with automatic retry on 401/403 using a fresh token.
  * Reduces stale-token errors on initial load or after app was backgrounded.
@@ -85,6 +113,8 @@ export const habitLogKeys = {
  */
 export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
+  const queryClient = useQueryClient();
+  const fallbackSnapshot = getLatestSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.lists());
 
   return useQuery({
     queryKey: habitKeys.list(user?.id || 'anonymous'),
@@ -106,6 +136,8 @@ export function useHabitsQuery() {
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', habits.length); }
       return habits as Habit[];
     },
+    initialData: !user?.id ? fallbackSnapshot?.data : undefined,
+    initialDataUpdatedAt: !user?.id ? fallbackSnapshot?.updatedAt : undefined,
     enabled: isLoaded && !!user?.id,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
@@ -116,6 +148,8 @@ export function useHabitsQuery() {
  */
 export function useHabitLogsQuery() {
   const { user, isLoaded } = useUser();
+  const queryClient = useQueryClient();
+  const fallbackSnapshot = getLatestSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.lists());
 
   return useQuery({
     queryKey: habitLogKeys.list(user?.id || 'anonymous'),
@@ -142,6 +176,8 @@ export function useHabitLogsQuery() {
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', processedLogs.length); }
       return processedLogs as HabitLog[];
     },
+    initialData: !user?.id ? fallbackSnapshot?.data : undefined,
+    initialDataUpdatedAt: !user?.id ? fallbackSnapshot?.updatedAt : undefined,
     enabled: isLoaded && !!user?.id,
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background

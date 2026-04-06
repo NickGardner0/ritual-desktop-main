@@ -250,6 +250,24 @@ export async function loadDashboardInitialData(
       const initialViewMode = resolveInitialViewMode(resolvedSearchParams);
       const shouldPreloadMetrics = initialViewMode === 'metrics';
       const queryClient = new QueryClient();
+
+      // Overview first paint should not wait on server-side auth + habits fetch.
+      // The client can hydrate from persisted React Query cache and refetch in
+      // the background once Clerk is ready.
+      if (!shouldPreloadMetrics) {
+        return {
+          dehydratedState: dehydrate(queryClient),
+          initialViewMode,
+          derived: {
+            overviewStats: {},
+            metricsAnalyticsData: {},
+            metricsSummaryMetrics: {},
+            metricsBarListAnalyticsData: {},
+            metricsBarListSummaryMetrics: {},
+          },
+        };
+      }
+
       const userId = await getAuthenticatedUserId();
 
       const [habits, habitLogs, analyticsSummary] = await Sentry.startSpan(
@@ -292,20 +310,7 @@ export async function loadDashboardInitialData(
           },
         },
         () => {
-          if (shouldPreloadMetrics) {
-            return buildDerivedInitialData(habits, habitLogs);
-          }
-
-          // Overview can render from the hydrated habit list immediately and
-          // fill in totals from client-side cache/fetch. Avoid blocking first
-          // paint on the full habit log history.
-          return {
-            overviewStats: {},
-            metricsAnalyticsData: {},
-            metricsSummaryMetrics: {},
-            metricsBarListAnalyticsData: {},
-            metricsBarListSummaryMetrics: {},
-          };
+          return buildDerivedInitialData(habits, habitLogs);
         },
       );
 

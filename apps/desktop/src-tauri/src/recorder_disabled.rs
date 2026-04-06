@@ -348,8 +348,8 @@ pub fn get_recorder_storage_status() -> Result<StorageStatus, String> {
     };
 
     let (frame_count, video_chunk_count) = if frames_db.exists() {
-        let conn =
-            Connection::open(&frames_db).map_err(|e| format!("Failed to open ritual database: {}", e))?;
+        let conn = Connection::open(&frames_db)
+            .map_err(|e| format!("Failed to open ritual database: {}", e))?;
 
         let frames: i64 = conn
             .query_row("SELECT COUNT(*) FROM ocr_frames", [], |row| row.get(0))
@@ -507,7 +507,10 @@ pub async fn search_ocr_text(
         )
         .unwrap_or(0);
 
-    Ok(OcrSearchResult { frames, total_count })
+    Ok(OcrSearchResult {
+        frames,
+        total_count,
+    })
 }
 
 #[tauri::command]

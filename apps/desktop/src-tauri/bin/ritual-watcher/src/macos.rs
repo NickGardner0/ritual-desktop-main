@@ -969,6 +969,16 @@ fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
 }
 
 #[cfg(target_os = "macos")]
+fn ax_window_title_high_risk_bundle(bundle_id: &str) -> bool {
+    let bundle = bundle_id.to_ascii_lowercase();
+    bundle == "com.ritual.desktop"
+        || bundle.contains("codex")
+        || bundle.contains("claude")
+        || bundle.contains("cursor")
+        || bundle.contains("todesktop")
+}
+
+#[cfg(target_os = "macos")]
 fn ax_window_title_capture_enabled_for_bundle(bundle_id: &str) -> bool {
     if env_flag_enabled("RITUAL_DISABLE_AX_WINDOW_TITLES") {
         return false;
@@ -977,7 +987,7 @@ fn ax_window_title_capture_enabled_for_bundle(bundle_id: &str) -> bool {
         return true;
     }
 
-    !is_browser_context(Some(bundle_id), None)
+    !is_browser_context(Some(bundle_id), None) && !ax_window_title_high_risk_bundle(bundle_id)
 }
 
 #[cfg(not(target_os = "macos"))]

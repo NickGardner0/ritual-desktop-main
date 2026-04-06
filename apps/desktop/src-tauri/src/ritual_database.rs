@@ -14,6 +14,7 @@ use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 use ritual_db::{blocking::BlockingDatabase, DatabaseConfig, RitualDatabase};
@@ -290,6 +291,11 @@ fn classify_replica_failure(error: &str) -> &'static str {
     let normalized = error.to_ascii_lowercase();
     if normalized.contains("unauthorized") {
         "unauthorized"
+    } else if normalized.contains("walconflict")
+        || normalized.contains("wal frame insert conflict")
+        || normalized.contains("insert error (frame=")
+    {
+        "replica_sync_conflict"
     } else if normalized.contains("metadata file does not")
         || normalized.contains("db file does not")
         || normalized.contains("local state is incorrect")
@@ -314,6 +320,12 @@ fn replica_failure_is_corruption(error: &str) -> bool {
 
 fn activity_replica_info_path() -> PathBuf {
     PathBuf::from(format!("{}-info", get_activity_db_path().display()))
+}
+
+fn local_activity_history_exists() -> bool {
+    local_activity_artifact_paths()
+        .into_iter()
+        .any(|path| path.exists())
 }
 
 pub fn activity_replica_bootstrap_pending() -> bool {
@@ -384,6 +396,65 @@ fn local_activity_artifact_paths() -> Vec<PathBuf> {
     ]
 }
 
+fn maybe_checkpoint_local_activity_wal(context: &str) {
+    let db_path = get_activity_db_path();
+    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
+
+    if !db_path.exists() || !wal_path.exists() {
+        return;
+    }
+
+    let conn = match SqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+    {
+        Ok(conn) => conn,
+        Err(error) => {
+            log::warn!(
+                "[DB] Skipping activity WAL checkpoint context={} db_path={} error={}",
+                context,
+                db_path.display(),
+                error
+            );
+            return;
+        }
+    };
+
+    if let Err(error) = conn.busy_timeout(Duration::from_secs(2)) {
+        log::warn!(
+            "[DB] Failed to set busy_timeout before activity WAL checkpoint context={} db_path={} error={}",
+            context,
+            db_path.display(),
+            error
+        );
+        return;
+    }
+
+    match conn.query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
+    }) {
+        Ok((busy, log_frames, checkpointed_frames)) => {
+            db_info!(
+                "🧹 Activity WAL checkpoint context={} busy={} log_frames={} checkpointed_frames={}",
+                context,
+                busy,
+                log_frames,
+                checkpointed_frames
+            );
+        }
+        Err(error) => {
+            log::warn!(
+                "[DB] Activity WAL checkpoint failed context={} db_path={} error={}",
+                context,
+                db_path.display(),
+                error
+            );
+        }
+    }
+}
+
 fn cleanup_activity_replica_artifacts() -> Result<(), String> {
     for path in activity_replica_artifact_paths() {
         if !path.exists() {
@@ -412,7 +483,8 @@ fn cleanup_activity_replica_artifacts() -> Result<(), String> {
     Ok(())
 }
 
-fn stash_local_activity_for_bootstrap() -> Result<Option<Vec<BootstrappedActivityArtifact>>, String> {
+fn stash_local_activity_for_bootstrap() -> Result<Option<Vec<BootstrappedActivityArtifact>>, String>
+{
     let existing_paths: Vec<PathBuf> = local_activity_artifact_paths()
         .into_iter()
         .filter(|path| path.exists())
@@ -423,10 +495,9 @@ fn stash_local_activity_for_bootstrap() -> Result<Option<Vec<BootstrappedActivit
     }
 
     let ritual_dir = get_ritual_dir();
-    let bootstrap_dir = ritual_dir.join("bootstrap").join(format!(
-        "activity-local-{}",
-        Utc::now().timestamp_millis()
-    ));
+    let bootstrap_dir = ritual_dir
+        .join("bootstrap")
+        .join(format!("activity-local-{}", Utc::now().timestamp_millis()));
     std::fs::create_dir_all(&bootstrap_dir).map_err(|e| {
         format!(
             "Failed to create activity bootstrap directory {}: {}",
@@ -508,9 +579,12 @@ fn sqlite_table_columns(
     table: &str,
 ) -> Result<Vec<String>, String> {
     let pragma = format!("PRAGMA {}.table_info({})", schema, table);
-    let mut stmt = conn
-        .prepare(&pragma)
-        .map_err(|e| format!("Failed to prepare table_info for {}.{}: {}", schema, table, e))?;
+    let mut stmt = conn.prepare(&pragma).map_err(|e| {
+        format!(
+            "Failed to prepare table_info for {}.{}: {}",
+            schema, table, e
+        )
+    })?;
     let rows = stmt
         .query_map([], |row| row.get::<_, String>(1))
         .map_err(|e| format!("Failed to query table_info for {}.{}: {}", schema, table, e))?;
@@ -651,7 +725,8 @@ fn import_bootstrap_activity_into_replica(
             Ok(())
         }
         Err(error) => {
-            let _ = conn.execute_batch("ROLLBACK; DETACH DATABASE bootstrap; PRAGMA foreign_keys=ON;");
+            let _ =
+                conn.execute_batch("ROLLBACK; DETACH DATABASE bootstrap; PRAGMA foreign_keys=ON;");
             Err(error)
         }
     }
@@ -662,9 +737,7 @@ fn bootstrap_activity_replica_if_needed_blocking(origin: &str) -> Result<bool, S
         return Ok(false);
     }
 
-    let existing_local_activity = local_activity_artifact_paths()
-        .into_iter()
-        .any(|path| path.exists());
+    let existing_local_activity = local_activity_history_exists();
     if !existing_local_activity {
         db_info!(
             "🆕 No existing local activity.db artifacts found; allowing fresh replica bootstrap origin={}",
@@ -686,6 +759,8 @@ fn bootstrap_activity_replica_if_needed_blocking(origin: &str) -> Result<bool, S
         std::env::var("TURSO_SYNC_URL").unwrap_or_default(),
         std::env::var("TURSO_AUTH_TOKEN").unwrap_or_default(),
     );
+
+    maybe_checkpoint_local_activity_wal("bootstrap_activity_replica");
 
     let initial_replica = match BlockingDatabase::open(&activity_config) {
         Ok(db) => db,
@@ -907,6 +982,57 @@ async fn open_local_activity_database(
     Ok((db, status, last_error, fail_reason))
 }
 
+async fn open_activity_database_for_startup() -> Result<
+    (
+        RitualDatabase,
+        DatabaseConnectionState,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
+    let sync_configured = turso_sync_env_configured();
+    let circuit_broken = activity_circuit_breaker_active();
+
+    if !sync_configured || circuit_broken {
+        let status = if circuit_broken {
+            DatabaseConnectionState::DegradedLocal
+        } else {
+            DatabaseConnectionState::ReadyLocal
+        };
+        let reason = if circuit_broken {
+            database_runtime_state_snapshot()
+                .activity
+                .replica_fail_reason
+        } else {
+            None
+        };
+        return open_local_activity_database(status, None, reason).await;
+    }
+
+    if local_activity_history_exists() {
+        let fail_reason = if activity_replica_bootstrap_pending() {
+            "replica_bootstrap_pending"
+        } else {
+            "replica_startup_deferred"
+        };
+
+        db_info!(
+            "⏭️ Deferring activity replica open until after initial render; opening local activity.db first reason={}",
+            fail_reason
+        );
+
+        return open_local_activity_database(
+            DatabaseConnectionState::ReadyLocal,
+            None,
+            Some(fail_reason.to_string()),
+        )
+        .await;
+    }
+
+    open_activity_database_with_fallback().await
+}
+
 async fn open_activity_database_with_fallback() -> Result<
     (
         RitualDatabase,
@@ -936,10 +1062,7 @@ async fn open_activity_database_with_fallback() -> Result<
     }
 
     if activity_replica_bootstrap_pending() {
-        let local_history_exists = local_activity_artifact_paths()
-            .into_iter()
-            .any(|path| path.exists());
-        if local_history_exists {
+        if local_activity_history_exists() {
             db_info!(
                 "⏭️ Deferring activity replica bootstrap until after initial render; opening local activity.db first"
             );
@@ -953,6 +1076,8 @@ async fn open_activity_database_with_fallback() -> Result<
 
         db_info!("🆕 Activity replica bootstrap not required; opening embedded replica directly");
     }
+
+    maybe_checkpoint_local_activity_wal("activity_replica_open");
 
     let activity_config = DatabaseConfig::with_turso_sync(
         get_activity_db_path(),
@@ -1025,14 +1150,21 @@ async fn open_activity_database_with_fallback() -> Result<
                 }
             }
 
-            set_activity_circuit_breaker(true, Some(fail_reason.clone()));
+            let trip_circuit_breaker = fail_reason != "replica_sync_conflict";
+            if trip_circuit_breaker {
+                set_activity_circuit_breaker(true, Some(fail_reason.clone()));
+            }
             db_error!(
                 "❌ Failed to initialize activity replica; falling back to local-only mode: {}",
                 replica_error
             );
 
             let local_result = open_local_activity_database(
-                DatabaseConnectionState::DegradedLocal,
+                if trip_circuit_breaker {
+                    DatabaseConnectionState::DegradedLocal
+                } else {
+                    DatabaseConnectionState::ReadyLocal
+                },
                 Some(replica_error),
                 Some(fail_reason),
             )
@@ -1056,28 +1188,43 @@ pub fn finalize_deferred_activity_replica_bootstrap_with_origin(
         Some(origin),
         "native:finalize_deferred_activity_replica_bootstrap",
     );
+    let snapshot = database_runtime_state_snapshot();
+    let deferred_reason = snapshot.activity.replica_fail_reason.clone();
+    let bootstrap_pending = activity_replica_bootstrap_pending();
+    let should_upgrade_local_startup = matches!(
+        deferred_reason.as_deref(),
+        Some("replica_bootstrap_pending")
+            | Some("replica_startup_deferred")
+            | Some("replica_sync_conflict")
+    );
 
-    if !turso_sync_env_configured()
-        || activity_circuit_breaker_active()
-        || !activity_replica_bootstrap_pending()
-    {
+    if !turso_sync_env_configured() || activity_circuit_breaker_active() {
+        return Ok(false);
+    }
+
+    if !bootstrap_pending && !should_upgrade_local_startup {
         return Ok(false);
     }
 
     RUNTIME.block_on(async {
         db_info!(
-            "🚚 Finalizing deferred activity replica bootstrap origin={}",
+            "🚚 Finalizing deferred activity replica startup origin={}",
             origin
         );
-        let bootstrapped =
+
+        let bootstrapped = if bootstrap_pending {
             bootstrap_activity_replica_if_needed(&format!("{origin}:bootstrap_activity_replica"))
-                .await?;
+                .await?
+        } else {
+            false
+        };
+
         reload_activity_database_async_with_origin(&format!(
             "{origin}:reload_activity_database_after_bootstrap"
         ))
         .await?;
 
-        Ok(bootstrapped)
+        Ok(bootstrapped || should_upgrade_local_startup)
     })
 }
 
@@ -1290,7 +1437,7 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
                 if activity_ready {
                     None
                 } else {
-                    Some(open_activity_database_with_fallback().await)
+                    Some(open_activity_database_for_startup().await)
                 }
             }
         );
@@ -1302,7 +1449,10 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
                 *memory_guard = Some(memory_db);
             }
             set_memory_runtime_state(DatabaseConnectionState::ReadyLocal, None);
-            db_info!("✅ Memory database initialized at {:?}", get_memory_db_path());
+            db_info!(
+                "✅ Memory database initialized at {:?}",
+                get_memory_db_path()
+            );
         }
 
         if let Some(activity_result) = activity_result {
@@ -1312,7 +1462,10 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
                 *activity_guard = Some(activity_db);
             }
             set_activity_runtime_state(status, fallback_error, fail_reason);
-            db_info!("✅ Activity database initialized at {:?}", get_activity_db_path());
+            db_info!(
+                "✅ Activity database initialized at {:?}",
+                get_activity_db_path()
+            );
         }
 
         Ok(())
