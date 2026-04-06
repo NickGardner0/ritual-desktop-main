@@ -203,6 +203,71 @@ def _open_sqlite_conn(path: Path, *, write: bool) -> sqlite3.Connection:
     return conn
 
 
+def _sqlite_integrity_ok(path: Path) -> bool:
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
+        try:
+            row = conn.execute("PRAGMA quick_check(1)").fetchone()
+        finally:
+            conn.close()
+        return bool(row) and str(row[0]).strip().lower() == "ok"
+    except Exception as exc:
+        logger.warning("Integrity check failed for %s: %s", path, exc)
+        return False
+
+
+def _has_required_activity_tables(path: Path) -> bool:
+    return any(
+        _has_table(str(path), table_name)
+        for table_name in ("context_snapshots", "session_retrieval_docs", "activity_events")
+    )
+
+
+def _open_cached_per_user_replica_conn(
+    user_id: str,
+    *,
+    write: bool,
+) -> Optional[sqlite3.Connection]:
+    if write:
+        return None
+
+    replica_path = turso_user_service.replica_path_for_user(user_id)
+    if not replica_path.exists():
+        return None
+    if not _has_required_activity_tables(replica_path):
+        logger.warning(
+            "Cached per-user replica for %s is missing required activity tables at %s",
+            user_id,
+            replica_path,
+        )
+        return None
+    if not _sqlite_integrity_ok(replica_path):
+        logger.warning(
+            "Cached per-user replica for %s failed integrity check at %s",
+            user_id,
+            replica_path,
+        )
+        return None
+
+    try:
+        conn = _open_sqlite_conn(replica_path, write=False)
+    except Exception as exc:
+        logger.warning(
+            "Failed opening cached per-user replica for %s at %s: %s",
+            user_id,
+            replica_path,
+            exc,
+        )
+        return None
+
+    logger.warning(
+        "Using cached per-user activity replica for %s path=%s due to per-user bundle resolution failure",
+        user_id,
+        replica_path,
+    )
+    return conn
+
+
 def get_turso_activity_conn():
     """Get a read-only connection to the backend-managed Turso replica.
 
@@ -378,7 +443,14 @@ async def open_activity_connection_for_user(
 ) -> AsyncIterator[Optional[sqlite3.Connection]]:
     bundle = None
     conn = None
+    access = None
     try:
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception as exc:
+            logger.warning("Failed loading activity access mode for %s: %s", user_id, exc)
+            access = None
+
         try:
             bundle = await _get_or_create_per_user_bundle(user_id)
         except Exception as exc:
@@ -407,6 +479,19 @@ async def open_activity_connection_for_user(
             yield conn
             return
 
+        if access is not None and access.use_per_user_db:
+            conn = _open_cached_per_user_replica_conn(user_id, write=write)
+            if conn is not None:
+                yield conn
+                return
+
+            logger.warning(
+                "Per-user activity DB is expected for %s but no healthy per-user replica is available; refusing malformed legacy fallback",
+                user_id,
+            )
+            yield None
+            return
+
         replica_path = _legacy_replica_path()
         if replica_path is None:
             logger.warning(
@@ -415,12 +500,17 @@ async def open_activity_connection_for_user(
             )
             yield None
             return
-        if not any(
-            _has_table(str(replica_path), table_name)
-            for table_name in ("context_snapshots", "session_retrieval_docs", "activity_events")
-        ):
+        if not _has_required_activity_tables(replica_path):
             logger.warning(
                 "Legacy backend replica for %s is missing required activity tables at %s",
+                user_id,
+                replica_path,
+            )
+            yield None
+            return
+        if not _sqlite_integrity_ok(replica_path):
+            logger.warning(
+                "Legacy backend replica for %s failed integrity check at %s",
                 user_id,
                 replica_path,
             )

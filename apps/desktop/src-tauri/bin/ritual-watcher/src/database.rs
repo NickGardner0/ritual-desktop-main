@@ -65,9 +65,9 @@ impl WatcherDatabase {
     pub fn new(path: &str) -> std::result::Result<Self, String> {
         info!("Opening Ritual database: {}", path);
 
-        // The watcher is the local capture writer. It should always write to the
-        // local activity.db directly and leave any Turso replica/bootstrap logic
-        // to the desktop host process.
+        // The desktop host owns Turso sync/bootstrap. The watcher should write
+        // to local activity.db only, otherwise two embedded replicas can race
+        // each other and trigger WAL frame conflicts during sync.
         let db = BlockingDatabase::open_with_path(path)
             .map_err(|e| format!("Failed to open database: {}", e))?;
 

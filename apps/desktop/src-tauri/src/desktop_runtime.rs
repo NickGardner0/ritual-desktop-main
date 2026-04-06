@@ -17,6 +17,9 @@ const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-auth-handoff-v1",
     "desktop-runtime-events-v1",
 ];
+const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
+const TURSO_SYNC_FETCH_RETRY_BASE_SECS: u64 = 3;
+const TURSO_SYNC_FAILURE_RETRY_SECS: u64 = 30;
 
 pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
 pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
@@ -572,34 +575,115 @@ async fn fetch_turso_sync_config(
     backend_base: String,
 ) -> Result<TursoSyncConfigResponse, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let url = format!("{backend_base}/api/user/turso-sync-config");
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .map_err(|error| format!("Failed to create Turso config client: {error}"))?;
 
-        let url = format!("{backend_base}/api/user/turso-sync-config");
-        let response = client
-            .get(url)
-            .bearer_auth(auth_token)
-            .send()
-            .map_err(|error| format!("Failed to fetch Turso sync config: {error}"))?;
+        let mut last_error: Option<String> = None;
+        for attempt in 0..TURSO_SYNC_FETCH_RETRY_ATTEMPTS {
+            let response = client
+                .get(&url)
+                .bearer_auth(&auth_token)
+                .send();
 
-        if !response.status().is_success() {
-            return Err(format!(
-                "Turso sync config request failed with HTTP {}",
-                response.status()
-            ));
+            match response {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let body = response.text().map_err(|error| {
+                            format!("Failed to read Turso sync config response: {error}")
+                        })?;
+
+                        return serde_json::from_str::<TursoSyncConfigResponse>(&body).map_err(
+                            |error| format!("Failed to parse Turso sync config response: {error}"),
+                        );
+                    }
+
+                    let error = format!(
+                        "Turso sync config request failed with HTTP {}",
+                        response.status()
+                    );
+                    last_error = Some(error.clone());
+
+                    let status = response.status().as_u16();
+                    let retryable = matches!(status, 408 | 429 | 500 | 502 | 503 | 504);
+                    if retryable && attempt + 1 < TURSO_SYNC_FETCH_RETRY_ATTEMPTS {
+                        std::thread::sleep(Duration::from_secs(
+                            TURSO_SYNC_FETCH_RETRY_BASE_SECS * (attempt as u64 + 1),
+                        ));
+                        continue;
+                    }
+
+                    return Err(error);
+                }
+                Err(error) => {
+                    let error = format!("Failed to fetch Turso sync config: {error}");
+                    last_error = Some(error.clone());
+                    let retryable = error.to_ascii_lowercase().contains("timed out")
+                        || error.to_ascii_lowercase().contains("timeout")
+                        || error.to_ascii_lowercase().contains("connection")
+                        || error.to_ascii_lowercase().contains("connect")
+                        || error.to_ascii_lowercase().contains("tempor");
+                    if retryable && attempt + 1 < TURSO_SYNC_FETCH_RETRY_ATTEMPTS {
+                        std::thread::sleep(Duration::from_secs(
+                            TURSO_SYNC_FETCH_RETRY_BASE_SECS * (attempt as u64 + 1),
+                        ));
+                        continue;
+                    }
+
+                    return Err(error);
+                }
+            }
         }
 
-        let body = response
-            .text()
-            .map_err(|error| format!("Failed to read Turso sync config response: {error}"))?;
-
-        serde_json::from_str::<TursoSyncConfigResponse>(&body)
-            .map_err(|error| format!("Failed to parse Turso sync config response: {error}"))
+        Err(last_error.unwrap_or_else(|| {
+            "Failed to fetch Turso sync config for an unknown reason".to_string()
+        }))
     })
     .await
     .map_err(|error| format!("Turso config fetch task failed: {error}"))?
+}
+
+fn should_retry_turso_sync_error(error: &str) -> bool {
+    let lowered = error.to_ascii_lowercase();
+    lowered.contains("timed out")
+        || lowered.contains("timeout")
+        || lowered.contains("connection")
+        || lowered.contains("connect")
+        || lowered.contains("tempor")
+        || lowered.contains("http 408")
+        || lowered.contains("http 429")
+        || lowered.contains("http 500")
+        || lowered.contains("http 502")
+        || lowered.contains("http 503")
+        || lowered.contains("http 504")
+}
+
+fn schedule_turso_config_retry<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    generation: u64,
+    delay: Duration,
+) {
+    let retry_at_ms = Utc::now().timestamp_millis() + delay.as_millis() as i64;
+    update_auth_state(&app, |state| {
+        state.turso_refresh_scheduled_for_ms = Some(retry_at_ms);
+    });
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(delay).await;
+        let current_generation = app
+            .state::<DesktopShellState>()
+            .auth_generation
+            .load(Ordering::SeqCst);
+        if current_generation != generation {
+            return;
+        }
+
+        if let Err(error) = refresh_turso_sync_config(app.clone(), generation).await {
+            warn!(error = %error, "Scheduled retry for Turso sync config failed");
+        }
+    });
 }
 
 fn schedule_turso_config_refresh<R: Runtime + 'static>(
@@ -684,6 +768,12 @@ async fn refresh_turso_sync_config<R: Runtime + 'static>(
             let lowered = error.to_ascii_lowercase();
             if lowered.contains("http 401") || lowered.contains("http 403") {
                 request_token_refresh(&app);
+            } else if should_retry_turso_sync_error(&error) {
+                schedule_turso_config_retry(
+                    app.clone(),
+                    generation,
+                    Duration::from_secs(TURSO_SYNC_FAILURE_RETRY_SECS),
+                );
             }
 
             emit_runtime_state_changed(app.clone());
