@@ -123,12 +123,13 @@ export function RootProviders({ children }: { children: ReactNode }) {
           appearance={{
             userProfile: {
               elements: {
-                modalBackdrop: 'bg-transparent',
-                modalContent: 'shadow-lg border border-gray-200 rounded-sm',
-                rootBox: 'max-w-[420px]',
+                modalBackdrop: 'bg-black/20 backdrop-blur-[2px]',
+                modalContent: 'shadow-xl border border-gray-200 rounded-sm mx-auto',
+                rootBox: 'w-full max-w-[480px] mx-auto',
                 card: 'shadow-none rounded-sm',
                 navbar: 'hidden',
-                pageScrollBox: 'max-h-[400px]',
+                navbarMobileMenuRow: 'hidden',
+                pageScrollBox: 'max-h-[min(520px,calc(100vh-6rem))]',
               },
             },
           }}
