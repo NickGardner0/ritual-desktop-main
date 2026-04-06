@@ -44,7 +44,11 @@ def _sendblue_headers() -> dict:
     }
 
 
-async def send_message(phone_number: str, text: str) -> bool:
+async def send_message(
+    phone_number: str,
+    text: str,
+    media_url: Optional[str] = None,
+) -> bool:
     """Send a message to a phone number via Sendblue."""
     if not SENDBLUE_API_KEY or not SENDBLUE_API_SECRET:
         logger.warning("SENDBLUE_API_KEY/SECRET not set — cannot send message")
@@ -55,16 +59,20 @@ async def send_message(phone_number: str, text: str) -> bool:
         logger.warning("Missing normalized phone number for Sendblue message")
         return False
 
+    payload: dict = {
+        "number": normalized,
+        "content": text,
+        "from_number": _normalize_phone_number(SENDBLUE_FROM_NUMBER),
+    }
+    if media_url:
+        payload["media_url"] = media_url
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
                 f"{SENDBLUE_API_BASE}/api/send-message",
                 headers=_sendblue_headers(),
-                json={
-                    "number": normalized,
-                    "content": text,
-                    "from_number": _normalize_phone_number(SENDBLUE_FROM_NUMBER),
-                },
+                json=payload,
             )
         if response.status_code in (200, 201):
             logger.info("Sendblue message sent to %s", normalized)
@@ -86,9 +94,20 @@ def build_onboarding_welcome_text(first_name: Optional[str] = None) -> str:
     )
 
 
+BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "")
+
+
 async def send_onboarding_welcome(phone_number: str, full_name: Optional[str] = None) -> bool:
     first_name = (full_name or "").strip().split(" ")[0] or None
-    return await send_message(
+    sent = await send_message(
         phone_number=phone_number,
         text=build_onboarding_welcome_text(first_name),
     )
+    if sent and BACKEND_PUBLIC_URL:
+        vcard_url = f"{BACKEND_PUBLIC_URL.rstrip('/')}/api/contact/ritual.vcf"
+        await send_message(
+            phone_number=phone_number,
+            text="Save this contact so you always know it's Ritual:",
+            media_url=vcard_url,
+        )
+    return sent

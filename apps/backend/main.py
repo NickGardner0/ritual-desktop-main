@@ -381,6 +381,9 @@ app.include_router(watcher_router)
 from api.sendblue import router as sendblue_router
 app.include_router(sendblue_router)
 
+from api.vcard import router as vcard_router
+app.include_router(vcard_router)
+
 
 def _memory_cloud_enabled() -> bool:
     return (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower() in {
