@@ -4,7 +4,7 @@ import React, { startTransition, useDeferredValue, useEffect, useRef, useState, 
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X, Moon, Monitor, Coffee, CalendarDays, Footprints } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X } from 'lucide-react';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -2136,29 +2136,6 @@ export function ChatClient() {
                 </div>
               </form>
 
-              {/* Suggestion Chips */}
-              <div className="flex flex-wrap gap-2 justify-center pt-2">
-                {[
-                  { query: 'How did I sleep last week?', label: 'Sleep analysis', icon: Moon },
-                  { query: 'Break down my app and browser usage from last week', label: 'App usage', icon: Monitor },
-                  { query: 'How much caffeine have I had this month?', label: 'Caffeine consumption', icon: Coffee },
-                  { query: 'Give me a breakdown of my week', label: 'Week Breakdown', icon: CalendarDays },
-                  { query: 'How many steps have I taken this month?', label: 'Steps', icon: Footprints },
-                ].map((card) => (
-                  <button
-                    key={card.query}
-                    type="button"
-                    onClick={() => {
-                      setInput(card.query);
-                      setTimeout(() => textareaRef.current?.focus(), 0);
-                    }}
-                    className="flex items-center gap-1.5 border border-gray-200 rounded-sm px-3 py-1.5 text-[13px] text-gray-600 hover:border-gray-300 hover:text-gray-800 hover:bg-gray-50/60 transition-colors"
-                  >
-                    <card.icon className="w-3.5 h-3.5 stroke-[1.5]" />
-                    {card.label}
-                  </button>
-                ))}
-              </div>
             </div>
           </div>
         </div>
