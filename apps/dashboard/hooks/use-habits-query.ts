@@ -15,12 +15,26 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
+import { useMemo } from 'react';
 import type { Habit, HabitLog } from '@/contexts/HabitsContext';
 import { useAnalytics } from '@/lib/analytics';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const LOCAL_HABITS_API = '/api/habits';
 const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
+const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
+const HABIT_LOGS_SNAPSHOT_STORAGE_KEY = 'ritual:habit-logs-snapshot:v1';
+const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+
+type PersistedSnapshot<T> = {
+  updatedAt: number;
+  data: T;
+};
+
+type SnapshotEnvelope<T> = {
+  latest?: PersistedSnapshot<T>;
+  byUser?: Record<string, PersistedSnapshot<T>>;
+};
 
 function getLatestSuccessfulQuerySnapshot<T>(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -48,6 +62,63 @@ function getLatestSuccessfulQuerySnapshot<T>(
     data: newestData,
     updatedAt: newestUpdatedAt,
   };
+}
+
+function readPersistedSnapshot<T>(
+  storageKey: string,
+  userId?: string | null,
+): PersistedSnapshot<T> | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as SnapshotEnvelope<T>;
+    const candidate = (userId && parsed.byUser?.[userId]) || parsed.latest;
+    if (!candidate?.data || !candidate.updatedAt) return null;
+
+    if (Date.now() - candidate.updatedAt > SNAPSHOT_MAX_AGE_MS) {
+      return null;
+    }
+
+    return candidate;
+  } catch (error) {
+    console.warn(`Failed to restore persisted snapshot for ${storageKey}:`, error);
+    return null;
+  }
+}
+
+function persistSnapshot<T>(
+  storageKey: string,
+  data: T,
+  userId?: string | null,
+): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) as SnapshotEnvelope<T> : {};
+    const snapshot: PersistedSnapshot<T> = {
+      data,
+      updatedAt: Date.now(),
+    };
+
+    const next: SnapshotEnvelope<T> = {
+      latest: snapshot,
+      byUser: {
+        ...(parsed.byUser || {}),
+      },
+    };
+
+    if (userId) {
+      next.byUser![userId] = snapshot;
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(next));
+  } catch (error) {
+    console.warn(`Failed to persist snapshot for ${storageKey}:`, error);
+  }
 }
 
 /**
@@ -114,7 +185,12 @@ export const habitLogKeys = {
 export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
-  const fallbackSnapshot = getLatestSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.lists());
+  const fallbackSnapshot = useMemo(() => {
+    return (
+      getLatestSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.lists())
+      || readPersistedSnapshot<Habit[]>(HABITS_SNAPSHOT_STORAGE_KEY, user?.id)
+    );
+  }, [queryClient, user?.id]);
 
   return useQuery({
     queryKey: habitKeys.list(user?.id || 'anonymous'),
@@ -133,11 +209,12 @@ export function useHabitsQuery() {
       }
 
       const habits = await response.json();
+      persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, habits as Habit[], user.id);
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', habits.length); }
       return habits as Habit[];
     },
-    initialData: !user?.id ? fallbackSnapshot?.data : undefined,
-    initialDataUpdatedAt: !user?.id ? fallbackSnapshot?.updatedAt : undefined,
+    initialData: fallbackSnapshot?.data,
+    initialDataUpdatedAt: fallbackSnapshot?.updatedAt,
     enabled: isLoaded && !!user?.id,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
@@ -149,7 +226,12 @@ export function useHabitsQuery() {
 export function useHabitLogsQuery() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
-  const fallbackSnapshot = getLatestSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.lists());
+  const fallbackSnapshot = useMemo(() => {
+    return (
+      getLatestSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.lists())
+      || readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user?.id)
+    );
+  }, [queryClient, user?.id]);
 
   return useQuery({
     queryKey: habitLogKeys.list(user?.id || 'anonymous'),
@@ -173,11 +255,12 @@ export function useHabitLogsQuery() {
         duration: log.duration || 0,
       }));
 
+      persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, processedLogs as HabitLog[], user.id);
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', processedLogs.length); }
       return processedLogs as HabitLog[];
     },
-    initialData: !user?.id ? fallbackSnapshot?.data : undefined,
-    initialDataUpdatedAt: !user?.id ? fallbackSnapshot?.updatedAt : undefined,
+    initialData: fallbackSnapshot?.data,
+    initialDataUpdatedAt: fallbackSnapshot?.updatedAt,
     enabled: isLoaded && !!user?.id,
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background

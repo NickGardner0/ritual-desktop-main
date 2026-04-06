@@ -222,7 +222,8 @@ impl<'a> ActivityOps<'a> {
         Ok(result as i64)
     }
 
-    /// Delete exact duplicate browser-extension events, keeping the earliest row.
+    /// Delete duplicate/contained browser-extension events, keeping the longest row
+    /// for a logical browser session start and breaking exact ties by earliest id.
     pub async fn delete_duplicate_browser_extension_events(
         &self,
         device_id: &str,
@@ -232,24 +233,26 @@ impl<'a> ActivityOps<'a> {
             r#"
             DELETE FROM activity_events
             WHERE id IN (
-                SELECT newer.id
-                FROM activity_events AS newer
-                JOIN activity_events AS older
-                  ON older.id < newer.id
-                 AND older.device_id = newer.device_id
-                 AND older.user_id = newer.user_id
-                 AND older.source = 'browser_extension'
-                 AND newer.source = 'browser_extension'
-                 AND older.ts_start = newer.ts_start
-                 AND older.ts_end = newer.ts_end
-                 AND COALESCE(older.app_bundle_id, '') = COALESCE(newer.app_bundle_id, '')
-                 AND COALESCE(older.app_name, '') = COALESCE(newer.app_name, '')
-                 AND COALESCE(older.window_title, '') = COALESCE(newer.window_title, '')
-                 AND COALESCE(older.browser_url, '') = COALESCE(newer.browser_url, '')
-                 AND COALESCE(older.browser_domain, '') = COALESCE(newer.browser_domain, '')
-                 AND COALESCE(older.is_incognito, 0) = COALESCE(newer.is_incognito, 0)
-                WHERE newer.device_id = ?
-                  AND newer.ts_start >= ?
+                SELECT victim.id
+                FROM activity_events AS victim
+                JOIN activity_events AS keeper
+                  ON keeper.id != victim.id
+                 AND keeper.device_id = victim.device_id
+                 AND keeper.user_id = victim.user_id
+                 AND keeper.source = 'browser_extension'
+                 AND victim.source = 'browser_extension'
+                 AND keeper.ts_start = victim.ts_start
+                 AND COALESCE(keeper.app_bundle_id, '') = COALESCE(victim.app_bundle_id, '')
+                 AND COALESCE(keeper.app_name, '') = COALESCE(victim.app_name, '')
+                 AND COALESCE(keeper.browser_url, '') = COALESCE(victim.browser_url, '')
+                 AND COALESCE(keeper.browser_domain, '') = COALESCE(victim.browser_domain, '')
+                 AND COALESCE(keeper.is_incognito, 0) = COALESCE(victim.is_incognito, 0)
+                 AND (
+                    keeper.ts_end > victim.ts_end
+                    OR (keeper.ts_end = victim.ts_end AND keeper.id < victim.id)
+                 )
+                WHERE victim.device_id = ?
+                  AND victim.ts_start >= ?
             )
             "#,
             libsql::params![device_id, lookback_ts],
@@ -900,5 +903,38 @@ mod tests {
             .unwrap();
         assert_eq!(deleted, 1);
         assert_eq!(ops.get_event_count("device1").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_contained_browser_extension_events_keeps_longest_row() {
+        let (_db, conn, _temp) = create_test_db().await;
+        let ops = ActivityOps::new(&conn);
+
+        let mut first = ActivityEvent::new(
+            "device1",
+            "user1",
+            1_000,
+            2_000,
+            "com.google.Chrome",
+            "Google Chrome",
+        );
+        first.source = "browser_extension".to_string();
+        first.browser_domain = Some("example.com".to_string());
+        first.browser_url = Some("https://example.com".to_string());
+        ops.insert_activity_event(&first).await.unwrap();
+
+        let mut longer = first.clone();
+        longer.ts_end = 4_000;
+        ops.insert_activity_event(&longer).await.unwrap();
+
+        let deleted = ops
+            .delete_duplicate_browser_extension_events("device1", 0)
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(ops.get_event_count("device1").await.unwrap(), 1);
+        let kept = ops.get_activity_event(2).await.unwrap().unwrap();
+        assert_eq!(kept.ts_start, 1_000);
+        assert_eq!(kept.ts_end, 4_000);
     }
 }
