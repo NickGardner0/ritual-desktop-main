@@ -742,6 +742,52 @@ function buildSemanticWorkItemBullets(item: any, query: string): string[] {
   return bullets;
 }
 
+function finalizeNarrativeSentence(value: string): string {
+  const clipped = clipContextText(value, 220).trim();
+  if (!clipped) return '';
+  return /[.!?]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
+function joinNarrativeSentences(parts: Array<string | null | undefined>, maxSentences = 3): string {
+  return parts
+    .map((part) => finalizeNarrativeSentence(String(part || '')))
+    .filter(Boolean)
+    .slice(0, maxSentences)
+    .join(' ');
+}
+
+function buildSemanticWorkItemNarrative(item: any): string {
+  const actionSummary = String(item?.action_summary || '').trim();
+  const semanticSummary = String(item?.semantic_summary || '').trim();
+  const files = dedupeStrings(Array.isArray(item?.files) ? item.files : []);
+  const commands = dedupeStrings(Array.isArray(item?.commands) ? item.commands : []);
+  const errors = dedupeStrings(Array.isArray(item?.errors) ? item.errors : []);
+  const artifacts = dedupeStrings(Array.isArray(item?.artifacts) ? item.artifacts : []);
+  const apps = dedupeStrings(Array.isArray(item?.apps) ? item.apps : []);
+
+  const opening = actionSummary
+    ? actionSummary.split('\n').map((part) => clipContextText(part, 180)).filter(Boolean)[0]
+    : (semanticSummary || '');
+
+  const secondary = files.length > 0
+    ? `Key files included ${files.slice(0, 4).map((file) => `\`${file}\``).join(', ')}`
+    : commands.length > 0
+      ? `You ran ${commands.slice(0, 3).map((command) => `\`${command}\``).join(', ')}`
+      : errors.length > 0
+        ? `The main debugging thread involved ${errors.slice(0, 2).join(' and ')}`
+        : artifacts.length > 0
+          ? `Related artifacts included ${artifacts.slice(0, 3).join(', ')}`
+          : '';
+
+  const tertiary = errors.length > 0 && secondary.indexOf('debugging') === -1
+    ? `The main debugging thread involved ${errors.slice(0, 2).join(' and ')}`
+    : apps.length > 0
+      ? `Most of this block ran through ${apps.slice(0, 4).join(', ')}`
+      : '';
+
+  return joinNarrativeSentences([opening, secondary, tertiary], 3);
+}
+
 function buildDeterministicSemanticWorkItemSummary(
   payload: any,
   query: string,
@@ -772,9 +818,8 @@ function buildDeterministicSemanticWorkItemSummary(
     );
     const timeRange = formatWorkstreamTimeRange(workItem?.start_ts, workItem?.end_ts, timezone);
     lines.push(`**${title}**${timeRange ? ` *${timeRange}*` : ''}`);
-    for (const bullet of buildSemanticWorkItemBullets(workItem, query)) {
-      lines.push(`- ${bullet}`);
-    }
+    const paragraph = buildSemanticWorkItemNarrative(workItem);
+    if (paragraph) lines.push(paragraph);
     sections.set(bucket, lines);
   }
 
@@ -857,6 +902,47 @@ function buildStoryBullets(item: any, query: string): string[] {
   return bullets;
 }
 
+function buildStoryWorkstreamNarrative(item: any, query: string): string {
+  const specificTasks = dedupeStrings(Array.isArray(item?.specific_tasks) ? item.specific_tasks : []);
+  const files = dedupeStrings(Array.isArray(item?.file_artifacts) ? item.file_artifacts : []);
+  const commands = dedupeStrings(Array.isArray(item?.command_artifacts) ? item.command_artifacts : []);
+  const commits = dedupeStrings(
+    [
+      ...(Array.isArray(item?.commit_artifacts) ? item.commit_artifacts : []),
+      ...(Array.isArray(item?.git_op_artifacts) ? item.git_op_artifacts : []),
+    ],
+  );
+  const errors = dedupeStrings(Array.isArray(item?.error_artifacts) ? item.error_artifacts : []);
+  const apps = dedupeStrings(Array.isArray(item?.apps) ? item.apps : []);
+  const queryLooksDebug = /\b(debug|fix|error|issue|broken|deploy|build|bug)\b/i.test(query || '');
+
+  const opening = specificTasks.length > 0
+    ? specificTasks.slice(0, queryLooksDebug ? 2 : 1).join('; ')
+    : files.length > 0
+      ? `You edited ${files.slice(0, 4).map((file) => `\`${file}\``).join(', ')}`
+      : commits.length > 0
+        ? `Git activity centered on ${commits.slice(0, 2).join(' and ')}`
+        : errors.length > 0
+          ? `You were debugging ${errors.slice(0, 2).join(' and ')}`
+          : '';
+
+  const secondary = files.length > 0 && !opening.includes('`')
+    ? `Key files included ${files.slice(0, 4).map((file) => `\`${file}\``).join(', ')}`
+    : commands.length > 0
+      ? `You ran ${commands.slice(0, 3).map((command) => `\`${command}\``).join(', ')}`
+      : commits.length > 0 && !opening.toLowerCase().includes('git activity')
+        ? `Git activity included ${commits.slice(0, 2).join(' and ')}`
+        : '';
+
+  const tertiary = errors.length > 0 && !opening.toLowerCase().includes('debug')
+    ? `The main issue trail involved ${errors.slice(0, 2).join(' and ')}`
+    : apps.length > 0
+      ? `Most of this block ran through ${apps.slice(0, 4).join(', ')}`
+      : '';
+
+  return joinNarrativeSentences([opening, secondary, tertiary], 3);
+}
+
 function buildDeterministicStorySummary(
   payload: any,
   query: string,
@@ -902,9 +988,8 @@ function buildDeterministicStorySummary(
     const title = pickStoryTitle(workstream);
     const timeRange = formatWorkstreamTimeRange(workstream?.start_ts, workstream?.end_ts, timezone);
     lines.push(`**${title}**${timeRange ? ` *${timeRange}*` : ''}`);
-    for (const bullet of buildStoryBullets(workstream, query)) {
-      lines.push(`- ${bullet}`);
-    }
+    const paragraph = buildStoryWorkstreamNarrative(workstream, query);
+    if (paragraph) lines.push(paragraph);
     sections.set(bucket, lines);
   }
 

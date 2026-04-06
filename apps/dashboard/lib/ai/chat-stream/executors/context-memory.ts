@@ -374,6 +374,36 @@ export async function executeGetActivitySummary(
         { timeoutMs: 25_000 },
       );
       if (recapResponse?.success) {
+        const rawPlan = recapResponse?.semantic_truth?.story_plan || null;
+        const cleanPlan = rawPlan ? stripStoryPlanMeta(rawPlan) : rawPlan;
+        const semanticWorkItems = Array.isArray(recapResponse?.semantic_truth?.semantic_work_items)
+          ? recapResponse.semantic_truth.semantic_work_items
+          : [];
+        const citations = (Array.isArray(recapResponse?.citations) ? recapResponse.citations : [])
+          .slice(0, localCitationLimit)
+          .map((c: any) => ({
+            app: c.app_name || c.app || '',
+            title: c.window_title || c.title || '',
+            text: (c.text_compact || c.contextual_text_compact || c.snippet || '').slice(0, 300),
+            ts: c.chunk_start_ts || c.timestamp || 0,
+          }));
+        const calendarStyleSummary = recapResponse.calendar_style_summary || recapResponse.rendered_summary || null;
+        const richActivitySummary = buildRichActivitySummaryFromStoryPlanFn
+          ? await buildRichActivitySummaryFromStoryPlanFn(
+              {
+                success: true,
+                story_plan: cleanPlan,
+                semantic_work_items: semanticWorkItems,
+                renderer: recapResponse.semantic_truth?.renderer || cleanPlan?.renderer || null,
+                results: Array.isArray(recapResponse.results) ? recapResponse.results : [],
+                citations,
+              },
+              query,
+              timezone,
+              calendarStyleSummary,
+            )
+          : null;
+
         return JSON.stringify({
           success: true,
           query,
@@ -383,14 +413,15 @@ export async function executeGetActivitySummary(
           start_date: recapResponse.start_date || recapAnchorDate,
           end_date: recapResponse.end_date || recapAnchorDate,
           retrieval_tier: recapResponse.retrieval_tier || 'day_recap_bundle',
-          story_plan: recapResponse?.semantic_truth?.story_plan || null,
-          citations: Array.isArray(recapResponse.citations) ? recapResponse.citations : [],
-          citations_count: Number(recapResponse.citations_count || (Array.isArray(recapResponse.citations) ? recapResponse.citations.length : 0)),
+          story_plan: cleanPlan,
+          semantic_work_items: semanticWorkItems,
+          citations,
+          citations_count: Number(recapResponse.citations_count || citations.length),
           time_truth: recapResponse.time_truth || null,
           confidence: recapResponse.confidence || null,
           freshness: recapResponse.freshness || null,
-          rich_activity_summary: recapResponse.rich_activity_summary || recapResponse.rendered_summary || null,
-          calendar_style_summary: recapResponse.calendar_style_summary || recapResponse.rendered_summary || null,
+          rich_activity_summary: richActivitySummary || recapResponse.rich_activity_summary || recapResponse.rendered_summary || null,
+          calendar_style_summary: calendarStyleSummary,
           calendar_style_date: recapResponse.calendar_style_date || recapAnchorDate,
           bundle: recapResponse.bundle || null,
           workstreams: Array.isArray(recapResponse.workstreams) ? recapResponse.workstreams : [],

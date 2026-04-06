@@ -54,6 +54,13 @@ export function isContextMemoryRecapQuery(text: string): boolean {
     'what file was i working on',
     'what was i looking at',
     'what planning work did i do',
+    'work recap',
+    'workday recap',
+    'narrative work recap',
+    'narrative recap',
+    'summarize my workday',
+    'summarize my day',
+    'recap my workday',
     'activity recap',
     'activity overview',
     'screen recap',
@@ -64,17 +71,20 @@ export function isContextMemoryRecapQuery(text: string): boolean {
     return true;
   }
 
-  const hasWorkVerb = /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(normalized);
-  const hasContextTarget =
-    hasRelativeTimeHint(normalized) ||
-    parseExplicitRecapAnchorDate(normalized) !== null ||
-    /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(normalized);
+  const hasWorkVerb = /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading|recap|summary|summarize)\b/.test(normalized);
+  const hasExplicitAnchor = hasRelativeTimeHint(normalized) || parseExplicitRecapAnchorDate(normalized) !== null;
+  const hasHabitFocus = /\b(habit|habits|tracked)\b/.test(normalized);
+  const hasDigitalContext = /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(normalized);
+  const hasNarrativeWorkTarget =
+    /\b(work|workday|projects?|tools?|time blocks?|workflow|workflows)\b/.test(normalized)
+    && hasExplicitAnchor;
+  const hasContextTarget = hasDigitalContext || (hasExplicitAnchor && !hasHabitFocus);
 
   const scopedQuery =
     /\bin\s+(cursor|codex|chrome|google chrome|slack|paper|finder|terminal|things|gmail|mail|safari|arc|claude)\b/.test(normalized)
     || /\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)\b/.test(normalized);
 
-  return hasWorkVerb && hasContextTarget && !scopedQuery;
+  return (hasWorkVerb && hasContextTarget && !scopedQuery) || hasNarrativeWorkTarget;
 }
 
 export function isSpecificContextLookupQuery(text: string): boolean {

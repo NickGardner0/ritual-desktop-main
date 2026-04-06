@@ -44,7 +44,9 @@ describe("Query Classifiers", () => {
         "what did i work on",
         "what was i working on",
         "what did i get done",
+        "what did i get done on",
         "what did i accomplish",
+        "what did i accomplish on",
         "what did i do on",
         "what did i do this morning",
         "what did i do today",
@@ -56,6 +58,13 @@ describe("Query Classifiers", () => {
         "what file was i working on",
         "what was i looking at",
         "what planning work did i do",
+        "work recap",
+        "workday recap",
+        "narrative work recap",
+        "narrative recap",
+        "summarize my workday",
+        "summarize my day",
+        "recap my workday",
         "activity recap",
         "activity overview",
         "screen recap",
@@ -63,17 +72,29 @@ describe("Query Classifiers", () => {
       ];
       if (explicitPatterns.some((p) => normalized.includes(p))) return true;
       const hasWorkVerb =
-        /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(
+        /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading|recap|summary|summarize)\b/.test(
           normalized,
         );
-      const hasContextTarget =
+      const hasExplicitDate =
+        /\b(?:on\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)?(\d{4})?\b/.test(
+          normalized,
+        );
+      const hasRelativeTimeHint =
         /\b(today|yesterday|this week|last week|this month|last month)\b/.test(
           normalized,
-        ) ||
+        );
+      const hasExplicitAnchor = hasRelativeTimeHint || hasExplicitDate;
+      const hasHabitFocus = /\b(habit|habits|tracked)\b/.test(normalized);
+      const hasDigitalContext =
         /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(
           normalized,
         );
-      return hasWorkVerb && hasContextTarget;
+      const hasNarrativeWorkTarget =
+        /\b(work|workday|projects?|tools?|time blocks?|workflow|workflows)\b/.test(
+          normalized,
+        ) && hasExplicitAnchor;
+      const hasContextTarget = hasDigitalContext || (hasExplicitAnchor && !hasHabitFocus);
+      return hasWorkVerb && hasContextTarget || hasNarrativeWorkTarget;
     }
 
     function isComprehensiveWeeklyRecapQuery(text) {
@@ -188,6 +209,13 @@ describe("Query Classifiers", () => {
         "what file was i working on",
         "what was i looking at",
         "what planning work did i do",
+        "work recap",
+        "workday recap",
+        "narrative work recap",
+        "narrative recap",
+        "summarize my workday",
+        "summarize my day",
+        "recap my workday",
         "activity recap",
         "activity overview",
         "screen recap",
@@ -195,17 +223,37 @@ describe("Query Classifiers", () => {
       ];
       if (explicitPatterns.some((p) => normalized.includes(p))) return true;
       const hasWorkVerb =
-        /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(
+        /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading|recap|summary|summarize)\b/.test(
           normalized,
         );
-      const hasContextTarget =
+      const hasExplicitAnchor =
         /\b(today|yesterday|this week|last week|this month|last month)\b/.test(
           normalized,
         ) ||
+        /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(
+          normalized,
+        ) ||
+        /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/.test(
+          normalized,
+        ) ||
+        /\b\d{4}-\d{2}-\d{2}\b/.test(normalized);
+      const hasHabitFocus = /\b(habit|habits|tracked)\b/.test(normalized);
+      const hasDigitalContext =
         /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(
           normalized,
         );
-      return hasWorkVerb && hasContextTarget;
+      const hasContextTarget =
+        hasDigitalContext || (hasExplicitAnchor && !hasHabitFocus);
+      const hasNarrativeWorkTarget =
+        /\b(work|workday|projects?|tools?|time blocks?|workflow|workflows)\b/.test(
+          normalized,
+        ) && hasExplicitAnchor;
+      const scopedQuery =
+        /\bin\s+(cursor|codex|chrome|google chrome|slack|paper|finder|terminal|things|gmail|mail|safari|arc|claude)\b/.test(
+          normalized,
+        ) ||
+        /\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)\b/.test(normalized);
+      return (hasWorkVerb && hasContextTarget && !scopedQuery) || hasNarrativeWorkTarget;
     }
 
     function isDailyOverviewQuery(text) {
@@ -284,6 +332,13 @@ describe("Query Classifiers", () => {
         "what file was i working on",
         "what was i looking at",
         "what planning work did i do",
+        "work recap",
+        "workday recap",
+        "narrative work recap",
+        "narrative recap",
+        "summarize my workday",
+        "summarize my day",
+        "recap my workday",
         "activity recap",
         "activity overview",
         "screen recap",
@@ -291,17 +346,35 @@ describe("Query Classifiers", () => {
       ];
       if (explicitPatterns.some((p) => normalized.includes(p))) return true;
       const hasWorkVerb =
-        /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading)\b/.test(
+        /\b(work(?:ed|ing)? on|get done|accomplish(?:ed)?|doing|look(?:ed|ing) at|happened in|planning|research|reading|recap|summary|summarize)\b/.test(
           normalized,
         );
-      const hasContextTarget =
+      const hasExplicitDate =
+        /\b(?:on\s+)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*|\s+)?(\d{4})?\b/.test(
+          normalized,
+        );
+      const hasRelativeTimeHint =
         /\b(today|yesterday|this week|last week|this month|last month)\b/.test(
           normalized,
-        ) ||
+        );
+      const hasExplicitAnchor = hasRelativeTimeHint || hasExplicitDate;
+      const hasHabitFocus = /\b(habit|habits|tracked)\b/.test(normalized);
+      const hasDigitalContext =
         /\b(computer|screen|context|browser|website|app|apps|cursor|codex|chrome|slack|paper|finder|terminal|things)\b/.test(
           normalized,
         );
-      return hasWorkVerb && hasContextTarget;
+      const hasNarrativeWorkTarget =
+        /\b(work|workday|projects?|tools?|time blocks?|workflow|workflows)\b/.test(
+          normalized,
+        ) && hasExplicitAnchor;
+      const scopedQuery =
+        /\bin\s+(cursor|codex|chrome|google chrome|slack|paper|finder|terminal|things|gmail|mail|safari|arc|claude)\b/.test(
+          normalized,
+        ) ||
+        /\bat\s+\d{1,2}(?::\d{2})?\s*(am|pm)\b/.test(normalized);
+      const hasContextTarget =
+        hasDigitalContext || (hasExplicitAnchor && !hasHabitFocus);
+      return (hasWorkVerb && hasContextTarget && !scopedQuery) || hasNarrativeWorkTarget;
     }
 
     test("matches 'What did I get done yesterday?'", () => {
@@ -327,6 +400,13 @@ describe("Query Classifiers", () => {
 
     test("matches 'activity recap'", () => {
       assert.equal(isContextMemoryRecapQuery("activity recap"), true);
+    });
+
+    test("matches explicit-date narrative work recap phrasing", () => {
+      assert.equal(
+        isContextMemoryRecapQuery("Give me a narrative work recap for Tuesday, March 31st, 2026 with the main projects, tools, websites, and time blocks."),
+        true,
+      );
     });
 
     test("matches 'what was i working on in Cursor'", () => {

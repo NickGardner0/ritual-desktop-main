@@ -136,6 +136,75 @@ function formatWeeklyNameList(names: string[]): string {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
+function normalizeWeeklyUnit(unit?: string): string {
+  return String(unit || '').trim().toLowerCase();
+}
+
+function getNarrativeDailyValueCeiling(unit?: string): number | null {
+  const normalized = normalizeWeeklyUnit(unit);
+  if (['hours', 'hour', 'h'].includes(normalized)) return 24;
+  if (['minutes', 'minute', 'min', 'm'].includes(normalized)) return 24 * 60;
+  return null;
+}
+
+function sanitizeWeeklyDailyPoints(
+  points: Array<{ date?: string; value?: number }> | undefined,
+  unit?: string,
+): Array<{ date?: string; value?: number }> {
+  const ceiling = getNarrativeDailyValueCeiling(unit);
+  return (Array.isArray(points) ? points : [])
+    .map((point) => ({
+      date: point.date,
+      value: Number(point.value || 0),
+    }))
+    .filter((point) => point.date && Number.isFinite(point.value) && point.value >= 0)
+    .filter((point) => (ceiling === null ? true : point.value <= ceiling));
+}
+
+function sanitizeWeeklyHabitSummary(habit: WeeklyOverviewHabitSummary): WeeklyOverviewHabitSummary {
+  const sanitizedDaily = sanitizeWeeklyDailyPoints(
+    Array.isArray(habit.daily)
+      ? habit.daily.map((point) => ({ date: point.date, value: point.value }))
+      : [],
+    habit.unit,
+  );
+
+  if (sanitizedDaily.length === 0) {
+    return {
+      ...habit,
+      total: 0,
+      average: 0,
+      min: 0,
+      max: 0,
+      days_with_data: 0,
+      daily: [],
+    };
+  }
+
+  const values = sanitizedDaily
+    .map((point) => Number(point.value || 0))
+    .filter((value) => Number.isFinite(value));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const min = values.reduce((best, value) => Math.min(best, value), values[0] || 0);
+  const max = values.reduce((best, value) => Math.max(best, value), values[0] || 0);
+
+  return {
+    ...habit,
+    total,
+    average: total / sanitizedDaily.length,
+    min,
+    max,
+    days_with_data: sanitizedDaily.length,
+    daily: sanitizedDaily,
+  };
+}
+
+function getNarrativeHabitSummaries(payload: WeeklyOverviewPayload): WeeklyOverviewHabitSummary[] {
+  return (Array.isArray(payload.habits) ? payload.habits : [])
+    .map((habit) => sanitizeWeeklyHabitSummary(habit))
+    .filter((habit) => (habit.days_with_data || 0) > 0);
+}
+
 function findWeeklyPeakPoint(
   points: Array<{ date?: string; value?: number }>,
 ): { date?: string; value: number } | null {
@@ -212,8 +281,7 @@ function describeWeeklyShape(
 // ---------------------------------------------------------------------------
 
 export function buildWeeklyOverviewSynthesisPayload(payload: WeeklyOverviewPayload) {
-  const habits = (Array.isArray(payload.habits) ? payload.habits : [])
-    .filter((habit) => (habit.days_with_data || 0) > 0)
+  const habits = getNarrativeHabitSummaries(payload)
     .map((habit) => ({
       name: habit.name,
       category: habit.category,
@@ -264,8 +332,7 @@ export function buildWeeklyOverviewSynthesisPayload(payload: WeeklyOverviewPaylo
 }
 
 export function buildWeeklyOverviewHighlights(payload: WeeklyOverviewPayload): string[] {
-  const habits = Array.isArray(payload.habits) ? payload.habits : [];
-  const habitsWithData = habits.filter((habit) => (habit.days_with_data || 0) > 0);
+  const habitsWithData = getNarrativeHabitSummaries(payload);
   const rangeDays = payload.date_range?.days || 7;
   const computer = payload.computer_activity;
 
@@ -470,8 +537,7 @@ export function buildWeeklyOverviewNarrative(
   payload: WeeklyOverviewPayload,
   title = 'Weekly Activity Overview',
 ): string {
-  const habits = Array.isArray(payload.habits) ? payload.habits : [];
-  const habitsWithData = habits.filter((h) => (h.days_with_data || 0) > 0);
+  const habitsWithData = getNarrativeHabitSummaries(payload);
   const computer = payload.computer_activity;
   const rangeDays = payload.date_range?.days || 7;
   const periodLabel = title.includes('Daily')

@@ -676,6 +676,34 @@ def _render_sparse_evidence_sections(bundle: Dict[str, Any]) -> List[str]:
     return output
 
 
+def _sanitize_recap_degradation_note(note: str) -> str:
+    text = str(note or "").strip()
+    lowered = text.lower()
+    if not text:
+        return ""
+    if "database disk image is malformed" in lowered:
+        if lowered.startswith("context failed"):
+            return "Context snapshots for that day were temporarily unavailable."
+        if lowered.startswith("top apps failed"):
+            return "App activity totals for that day were temporarily unavailable."
+        if lowered.startswith("top domains failed"):
+            return "Website activity totals for that day were temporarily unavailable."
+        return "Some local recap sources were temporarily unavailable."
+    if lowered.startswith("context failed:"):
+        return "Context snapshots for that day were temporarily unavailable."
+    if lowered.startswith("top apps failed:"):
+        return "App activity totals for that day were temporarily unavailable."
+    if lowered.startswith("top domains failed:"):
+        return "Website activity totals for that day were temporarily unavailable."
+    if lowered.startswith("calendar failed:"):
+        return "Calendar context was temporarily unavailable."
+    if lowered.startswith("biometrics failed:"):
+        return "Biometrics data was temporarily unavailable."
+    if lowered.startswith("semantic bundle failed:"):
+        return "Cloud semantic retrieval was temporarily unavailable."
+    return text
+
+
 def render_day_recap(
     *,
     anchor_date: str,
@@ -1166,7 +1194,14 @@ async def build_day_recap(
         semantic_task,
     )
 
-    degradation_notes = [note for note in [context_error, apps_error, domains_error, git_error, calendar_error, biometrics_error, semantic_error] if note]
+    degradation_notes = [
+        note
+        for note in (
+            _sanitize_recap_degradation_note(raw)
+            for raw in [context_error, apps_error, domains_error, git_error, calendar_error, biometrics_error, semantic_error]
+        )
+        if note
+    ]
     context_payload = context_payload or {
         "context_snapshots": [],
         "context_docs": [],
@@ -1429,7 +1464,14 @@ async def build_range_recap(
         semantic_task,
     )
 
-    degradation_notes = [note for note in [context_error, apps_error, domains_error, git_error, calendar_error, semantic_error] if note]
+    degradation_notes = [
+        note
+        for note in (
+            _sanitize_recap_degradation_note(raw)
+            for raw in [context_error, apps_error, domains_error, git_error, calendar_error, semantic_error]
+        )
+        if note
+    ]
     context_payload = context_payload or {
         "context_snapshots": [],
         "context_docs": [],
