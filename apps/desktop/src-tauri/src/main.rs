@@ -345,6 +345,40 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
                     }
                 }
                 info!("Local semantic bridge and local embedding startup disabled in cloud-first mode");
+
+                let deferred_bootstrap_started_at = Instant::now();
+                match tauri::async_runtime::spawn_blocking(|| {
+                    ritual_database::finalize_deferred_activity_replica_bootstrap_with_origin(
+                        "startup",
+                    )
+                })
+                .await
+                {
+                    Ok(Ok(true)) => {
+                        info!(
+                            duration_ms = deferred_bootstrap_started_at.elapsed().as_millis()
+                                as u64,
+                            "Deferred activity replica bootstrap completed"
+                        );
+                    }
+                    Ok(Ok(false)) => {}
+                    Ok(Err(error)) => {
+                        warn!(
+                            error = %error,
+                            duration_ms = deferred_bootstrap_started_at.elapsed().as_millis()
+                                as u64,
+                            "Deferred activity replica bootstrap failed"
+                        );
+                    }
+                    Err(error) => {
+                        warn!(
+                            error = %error,
+                            duration_ms = deferred_bootstrap_started_at.elapsed().as_millis()
+                                as u64,
+                            "Deferred activity replica bootstrap task failed"
+                        );
+                    }
+                }
             }
             Ok(Err(error)) => {
                 warn!(

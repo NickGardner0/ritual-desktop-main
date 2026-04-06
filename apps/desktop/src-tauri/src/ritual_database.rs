@@ -292,6 +292,10 @@ fn classify_replica_failure(error: &str) -> &'static str {
         "unauthorized"
     } else if normalized.contains("metadata file does not")
         || normalized.contains("db file does not")
+        || normalized.contains("local state is incorrect")
+        || normalized.contains("database disk image is malformed")
+        || normalized.contains("file is not a database")
+        || normalized.contains("not a database")
     {
         "invalid_local_replica_state"
     } else if normalized.contains("sync error") {
@@ -299,6 +303,13 @@ fn classify_replica_failure(error: &str) -> &'static str {
     } else {
         "replica_open_failed"
     }
+}
+
+fn replica_failure_is_corruption(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("database disk image is malformed")
+        || normalized.contains("file is not a database")
+        || normalized.contains("not a database")
 }
 
 fn activity_replica_info_path() -> PathBuf {
@@ -925,28 +936,22 @@ async fn open_activity_database_with_fallback() -> Result<
     }
 
     if activity_replica_bootstrap_pending() {
-        match bootstrap_activity_replica_if_needed("ritual_database:open_activity_database") .await {
-            Ok(true) => {
-                db_info!("✅ Activity replica bootstrap completed; opening embedded replica");
-            }
-            Ok(false) => {
-                db_info!("🆕 Activity replica bootstrap not required; opening embedded replica directly");
-            }
-            Err(error) => {
-                let fail_reason = "replica_bootstrap_failed".to_string();
-                set_activity_circuit_breaker(true, Some(fail_reason.clone()));
-                db_error!(
-                    "❌ Failed to bootstrap activity replica from local history; falling back to local-only mode: {}",
-                    error
-                );
-                return open_local_activity_database(
-                    DatabaseConnectionState::DegradedLocal,
-                    Some(error),
-                    Some(fail_reason),
-                )
-                .await;
-            }
+        let local_history_exists = local_activity_artifact_paths()
+            .into_iter()
+            .any(|path| path.exists());
+        if local_history_exists {
+            db_info!(
+                "⏭️ Deferring activity replica bootstrap until after initial render; opening local activity.db first"
+            );
+            return open_local_activity_database(
+                DatabaseConnectionState::ReadyLocal,
+                None,
+                Some("replica_bootstrap_pending".to_string()),
+            )
+            .await;
         }
+
+        db_info!("🆕 Activity replica bootstrap not required; opening embedded replica directly");
     }
 
     let activity_config = DatabaseConfig::with_turso_sync(
@@ -961,6 +966,8 @@ async fn open_activity_database_with_fallback() -> Result<
             let initial_replica_error = replica_error.to_string();
             let mut replica_error = initial_replica_error.clone();
             let mut fail_reason = classify_replica_failure(&replica_error).to_string();
+            let retain_quarantine_on_retry_failure =
+                replica_failure_is_corruption(&initial_replica_error);
             increment_replica_failure_metric();
 
             if fail_reason == "invalid_local_replica_state" {
@@ -982,18 +989,34 @@ async fn open_activity_database_with_fallback() -> Result<
                             let retry_fail_reason =
                                 classify_replica_failure(&retry_error).to_string();
 
-                            if let Err(restore_error) =
-                                restore_quarantined_activity_replica_state(&quarantined)
-                            {
+                            if retain_quarantine_on_retry_failure {
+                                let quarantine_path = quarantined
+                                    .first()
+                                    .and_then(|artifact| artifact.quarantined.parent())
+                                    .map(|path| path.display().to_string())
+                                    .unwrap_or_else(|| "<unknown>".to_string());
+                                db_error!(
+                                    "❌ Activity replica remained corrupted after quarantine retry; keeping quarantined artifacts out of the live path quarantine_dir={}",
+                                    quarantine_path
+                                );
                                 replica_error = format!(
-                                    "{}; retry after quarantine failed: {}; restore failed: {}",
-                                    initial_replica_error, retry_error, restore_error
+                                    "{}; retry after quarantine failed: {}; quarantined corrupted artifacts retained at {}",
+                                    initial_replica_error, retry_error, quarantine_path
                                 );
                             } else {
-                                replica_error = format!(
-                                    "{}; retry after quarantine failed: {}",
-                                    initial_replica_error, retry_error
-                                );
+                                if let Err(restore_error) =
+                                    restore_quarantined_activity_replica_state(&quarantined)
+                                {
+                                    replica_error = format!(
+                                        "{}; retry after quarantine failed: {}; restore failed: {}",
+                                        initial_replica_error, retry_error, restore_error
+                                    );
+                                } else {
+                                    replica_error = format!(
+                                        "{}; retry after quarantine failed: {}",
+                                        initial_replica_error, retry_error
+                                    );
+                                }
                             }
 
                             fail_reason = retry_fail_reason;
@@ -1024,6 +1047,38 @@ async fn open_activity_database_with_fallback() -> Result<
             })
         }
     }
+}
+
+pub fn finalize_deferred_activity_replica_bootstrap_with_origin(
+    origin: &str,
+) -> Result<bool, String> {
+    let origin = normalize_db_command_origin(
+        Some(origin),
+        "native:finalize_deferred_activity_replica_bootstrap",
+    );
+
+    if !turso_sync_env_configured()
+        || activity_circuit_breaker_active()
+        || !activity_replica_bootstrap_pending()
+    {
+        return Ok(false);
+    }
+
+    RUNTIME.block_on(async {
+        db_info!(
+            "🚚 Finalizing deferred activity replica bootstrap origin={}",
+            origin
+        );
+        let bootstrapped =
+            bootstrap_activity_replica_if_needed(&format!("{origin}:bootstrap_activity_replica"))
+                .await?;
+        reload_activity_database_async_with_origin(&format!(
+            "{origin}:reload_activity_database_after_bootstrap"
+        ))
+        .await?;
+
+        Ok(bootstrapped)
+    })
 }
 
 fn initialize_schema_in_blocking_thread(
@@ -1195,10 +1250,10 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
     }
 
     RUNTIME.block_on(async {
-        let mut memory_guard = RITUAL_DB.write().await;
-        let mut activity_guard = ACTIVITY_DB.write().await;
+        let memory_ready = RITUAL_DB.read().await.is_some();
+        let activity_ready = ACTIVITY_DB.read().await.is_some();
 
-        if memory_guard.is_some() && activity_guard.is_some() {
+        if memory_ready && activity_ready {
             db_info!(
                 "⏭️ initialize_database skipped origin={} memory_ready=true activity_ready=true",
                 origin
@@ -1209,33 +1264,55 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
         db_info!(
             "🚀 initialize_database origin={} memory_ready={} activity_ready={}",
             origin,
-            memory_guard.is_some(),
-            activity_guard.is_some()
+            memory_ready,
+            activity_ready
         );
 
-        if memory_guard.is_none() {
+        if !memory_ready {
             set_memory_runtime_state(DatabaseConnectionState::Reloading, None);
             db_info!("📂 Opening live memory.db handle origin={}", origin);
-            let memory_db = open_memory_database().await?;
-            *memory_guard = Some(memory_db);
-            set_memory_runtime_state(DatabaseConnectionState::ReadyLocal, None);
-            db_info!(
-                "✅ Memory database initialized at {:?}",
-                get_memory_db_path()
-            );
         }
 
-        if activity_guard.is_none() {
+        if !activity_ready {
             set_activity_runtime_state(DatabaseConnectionState::Reloading, None, None);
             db_info!("📂 Opening live activity.db handle origin={}", origin);
-            let (activity_db, status, fallback_error, fail_reason) =
-                open_activity_database_with_fallback().await?;
-            *activity_guard = Some(activity_db);
+        }
+
+        let (memory_result, activity_result) = tokio::join!(
+            async {
+                if memory_ready {
+                    None
+                } else {
+                    Some(open_memory_database().await)
+                }
+            },
+            async {
+                if activity_ready {
+                    None
+                } else {
+                    Some(open_activity_database_with_fallback().await)
+                }
+            }
+        );
+
+        if let Some(memory_result) = memory_result {
+            let memory_db = memory_result?;
+            let mut memory_guard = RITUAL_DB.write().await;
+            if memory_guard.is_none() {
+                *memory_guard = Some(memory_db);
+            }
+            set_memory_runtime_state(DatabaseConnectionState::ReadyLocal, None);
+            db_info!("✅ Memory database initialized at {:?}", get_memory_db_path());
+        }
+
+        if let Some(activity_result) = activity_result {
+            let (activity_db, status, fallback_error, fail_reason) = activity_result?;
+            let mut activity_guard = ACTIVITY_DB.write().await;
+            if activity_guard.is_none() {
+                *activity_guard = Some(activity_db);
+            }
             set_activity_runtime_state(status, fallback_error, fail_reason);
-            db_info!(
-                "✅ Activity database initialized at {:?}",
-                get_activity_db_path()
-            );
+            db_info!("✅ Activity database initialized at {:?}", get_activity_db_path());
         }
 
         Ok(())
