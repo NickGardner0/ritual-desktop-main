@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from services.watcher_service_search import query_memory_impl, search_screen_recordings_impl
+from services.watcher_service_search import (
+    _load_time_truth,
+    query_memory_impl,
+    search_screen_recordings_impl,
+)
 
 
 class _DummyWatcherService:
@@ -35,15 +39,17 @@ def _create_activity_only_db(path: str, now_ms: int) -> None:
             window_title TEXT,
             browser_url TEXT,
             browser_domain TEXT,
-            is_afk INTEGER DEFAULT 0
+            is_afk INTEGER DEFAULT 0,
+            source TEXT DEFAULT 'ritual_watcher_v2',
+            is_incognito INTEGER DEFAULT 0
         )
         """
     )
     cursor.executemany(
         """
         INSERT INTO activity_events (
-            id, ts_start, ts_end, app_bundle_id, app_name, window_title, browser_url, browser_domain, is_afk
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, ts_start, ts_end, app_bundle_id, app_name, window_title, browser_url, browser_domain, is_afk, source, is_incognito
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -56,6 +62,8 @@ def _create_activity_only_db(path: str, now_ms: int) -> None:
                 "https://app.ritual.so/chat",
                 "app.ritual.so",
                 0,
+                "ritual_watcher_v2",
+                0,
             ),
             (
                 2,
@@ -66,6 +74,8 @@ def _create_activity_only_db(path: str, now_ms: int) -> None:
                 "Debugging screen search",
                 "https://chatgpt.com/",
                 "chatgpt.com",
+                0,
+                "ritual_watcher_v2",
                 0,
             ),
             (
@@ -78,6 +88,8 @@ def _create_activity_only_db(path: str, now_ms: int) -> None:
                 "",
                 "",
                 0,
+                "ritual_watcher_v2",
+                0,
             ),
         ],
     )
@@ -86,6 +98,130 @@ def _create_activity_only_db(path: str, now_ms: int) -> None:
 
 
 class WatcherScreenSearchTests(unittest.IsolatedAsyncioTestCase):
+    def test_load_time_truth_collapses_overlapping_browser_extension_replays(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = f"{tmp}/ritual.db"
+            _create_activity_only_db(db_path, now_ms)
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.executemany(
+                """
+                INSERT INTO activity_events (
+                    id, ts_start, ts_end, app_bundle_id, app_name, window_title, browser_url, browser_domain, is_afk, source, is_incognito
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        10,
+                        now_ms - 3_600_000,
+                        now_ms - 3_000_000,
+                        "com.google.Chrome",
+                        "Google Chrome",
+                        "GitHub",
+                        "https://github.com/NickGardner0/ritual-desktop-releases",
+                        "github.com",
+                        0,
+                        "browser_extension",
+                        0,
+                    ),
+                    (
+                        11,
+                        now_ms - 3_600_000,
+                        now_ms - 2_400_000,
+                        "com.google.Chrome",
+                        "Google Chrome",
+                        "GitHub",
+                        "https://github.com/NickGardner0/ritual-desktop-releases",
+                        "github.com",
+                        0,
+                        "browser_extension",
+                        0,
+                    ),
+                ],
+            )
+            conn.commit()
+
+            result = _load_time_truth(
+                cursor,
+                start_ms=now_ms - 4_000_000,
+                end_ms=now_ms,
+                group_by="app",
+                limit=10,
+                start_date="2026-04-06",
+                end_date="2026-04-06",
+            )
+            conn.close()
+
+        chrome_bucket = next(
+            bucket for bucket in result["top_buckets"] if bucket["bucket"] == "Google Chrome"
+        )
+        self.assertEqual(result["total_events"], 4)
+        self.assertAlmostEqual(chrome_bucket["total_active_hours"], 0.35, places=2)
+
+    def test_load_time_truth_merges_overlapping_browser_extension_intervals(self):
+        now_ms = int(time.time() * 1000)
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = f"{tmp}/ritual.db"
+            _create_activity_only_db(db_path, now_ms)
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.executemany(
+                """
+                INSERT INTO activity_events (
+                    id, ts_start, ts_end, app_bundle_id, app_name, window_title, browser_url, browser_domain, is_afk, source, is_incognito
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        20,
+                        now_ms - 3_600_000,
+                        now_ms - 3_000_000,
+                        "com.google.Chrome",
+                        "Google Chrome",
+                        "GitHub",
+                        "https://github.com/NickGardner0/ritual-desktop-releases",
+                        "github.com",
+                        0,
+                        "browser_extension",
+                        0,
+                    ),
+                    (
+                        21,
+                        now_ms - 3_300_000,
+                        now_ms - 2_700_000,
+                        "com.google.Chrome",
+                        "Google Chrome",
+                        "GitHub",
+                        "https://github.com/NickGardner0/ritual-desktop-releases",
+                        "github.com",
+                        0,
+                        "browser_extension",
+                        0,
+                    ),
+                ],
+            )
+            conn.commit()
+
+            result = _load_time_truth(
+                cursor,
+                start_ms=now_ms - 4_000_000,
+                end_ms=now_ms,
+                group_by="app",
+                limit=10,
+                start_date="2026-04-06",
+                end_date="2026-04-06",
+            )
+            conn.close()
+
+        chrome_bucket = next(
+            bucket for bucket in result["top_buckets"] if bucket["bucket"] == "Google Chrome"
+        )
+        self.assertEqual(result["total_events"], 5)
+        self.assertAlmostEqual(chrome_bucket["total_active_hours"], 0.26, places=2)
+
     async def test_broad_weekly_query_returns_recent_activity_when_bridge_is_empty(self):
         now_ms = int(time.time() * 1000)
         with tempfile.TemporaryDirectory() as tmp:

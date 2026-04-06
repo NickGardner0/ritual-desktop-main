@@ -2487,6 +2487,35 @@ def _safe_hours(total_ms: float) -> float:
     return round(max(0.0, float(total_ms)) / (1000.0 * 60.0 * 60.0), 2)
 
 
+def _clip_activity_interval(ts_start: Any, ts_end: Any, start_ms: int, end_ms: int) -> Optional[Tuple[int, int]]:
+    try:
+        clipped_start = max(int(ts_start), start_ms)
+        clipped_end = min(int(ts_end), end_ms)
+    except Exception:
+        return None
+    if clipped_end <= clipped_start:
+        return None
+    return clipped_start, clipped_end
+
+
+def _merged_activity_duration_ms(intervals: List[Tuple[int, int]]) -> int:
+    if not intervals:
+        return 0
+
+    ordered = sorted(intervals)
+    total = 0
+    current_start, current_end = ordered[0]
+    for next_start, next_end in ordered[1:]:
+        if next_start <= current_end:
+            if next_end > current_end:
+                current_end = next_end
+            continue
+        total += current_end - current_start
+        current_start, current_end = next_start, next_end
+    total += current_end - current_start
+    return total
+
+
 def _extract_topic_profile(query: str) -> Dict[str, Any]:
     words = re.findall(r"[a-z0-9]+", (query or "").lower())
     filtered_words: List[str] = []
@@ -3009,44 +3038,120 @@ def _load_time_truth(
         bucket_expr = "COALESCE(NULLIF(browser_domain, ''), 'Unknown domain')"
     elif group_by == "window":
         bucket_expr = "COALESCE(NULLIF(window_title, ''), COALESCE(NULLIF(app_name, ''), 'Unknown'))"
+    deduped_events_cte = """
+        WITH scoped_events AS (
+            SELECT
+                id,
+                ts_start,
+                ts_end,
+                app_bundle_id,
+                app_name,
+                window_title,
+                browser_url,
+                browser_domain,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(source, '') AS source,
+                COALESCE(is_incognito, 0) AS is_incognito
+            FROM activity_events
+            WHERE ts_start <= ?
+              AND ts_end >= ?
+              AND COALESCE(is_afk, 0) = 0
+        ),
+        deduped_events AS (
+            SELECT
+                MIN(id) AS id,
+                ts_start,
+                MAX(ts_end) AS ts_end,
+                app_bundle_id,
+                app_name,
+                window_title,
+                browser_url,
+                browser_domain,
+                is_afk,
+                source,
+                is_incognito
+            FROM scoped_events
+            WHERE source = 'browser_extension'
+            GROUP BY
+                ts_start,
+                COALESCE(app_bundle_id, ''),
+                COALESCE(app_name, ''),
+                COALESCE(browser_url, ''),
+                COALESCE(browser_domain, ''),
+                is_incognito
 
-    overlap_expr = "MAX(0, MIN(ts_end, ?) - MAX(ts_start, ?))"
+            UNION ALL
+
+            SELECT
+                id,
+                ts_start,
+                ts_end,
+                app_bundle_id,
+                app_name,
+                window_title,
+                browser_url,
+                browser_domain,
+                is_afk,
+                source,
+                is_incognito
+            FROM scoped_events
+            WHERE source <> 'browser_extension'
+        )
+    """
 
     cursor.execute(
-        f"""
+        deduped_events_cte
+        + f"""
         SELECT
-            COALESCE(SUM({overlap_expr}), 0) AS total_active_ms,
-            COUNT(*) AS total_events,
-            COUNT(DISTINCT DATE(ts_start / 1000, 'unixepoch', 'localtime')) AS days_with_activity,
-            COUNT(DISTINCT {bucket_expr}) AS unique_buckets
-        FROM activity_events
-        WHERE ts_start <= ?
-          AND ts_end >= ?
-          AND COALESCE(is_afk, 0) = 0
-        """,
-        (end_ms, start_ms, end_ms, start_ms),
-    )
-    summary_row = cursor.fetchone() or (0, 0, 0, 0)
-    total_active_ms = int(summary_row[0] or 0)
-
-    cursor.execute(
-        f"""
-        SELECT
+            id,
             {bucket_expr} AS bucket,
-            COALESCE(SUM({overlap_expr}), 0) AS total_active_ms,
-            COUNT(*) AS hits,
-            MAX(ts_end) AS last_seen_ts
-        FROM activity_events
-        WHERE ts_start <= ?
-          AND ts_end >= ?
-          AND COALESCE(is_afk, 0) = 0
-        GROUP BY bucket
-        ORDER BY total_active_ms DESC
-        LIMIT ?
+            ts_start,
+            ts_end,
+            DATE(ts_start / 1000, 'unixepoch', 'localtime') AS local_day
+        FROM deduped_events
+        ORDER BY ts_start ASC, ts_end ASC
         """,
-        (end_ms, start_ms, end_ms, start_ms, limit),
+        (end_ms, start_ms),
     )
-    top_rows = cursor.fetchall() or []
+    scoped_rows = cursor.fetchall() or []
+
+    total_events = len(scoped_rows)
+    total_intervals: List[Tuple[int, int]] = []
+    bucket_intervals: Dict[str, List[Tuple[int, int]]] = {}
+    bucket_hits: Dict[str, int] = {}
+    bucket_last_seen: Dict[str, int] = {}
+    daily_intervals: Dict[str, List[Tuple[int, int]]] = {}
+    daily_hits: Dict[str, int] = {}
+
+    for row in scoped_rows:
+        interval = _clip_activity_interval(row[2], row[3], start_ms, end_ms)
+        if interval is None:
+            continue
+        bucket = str(row[1] or "Unknown")
+        local_day = str(row[4] or "")
+        total_intervals.append(interval)
+        bucket_intervals.setdefault(bucket, []).append(interval)
+        bucket_hits[bucket] = bucket_hits.get(bucket, 0) + 1
+        bucket_last_seen[bucket] = max(bucket_last_seen.get(bucket, 0), int(row[3] or 0))
+        if local_day:
+            daily_intervals.setdefault(local_day, []).append(interval)
+            daily_hits[local_day] = daily_hits.get(local_day, 0) + 1
+
+    total_active_ms = _merged_activity_duration_ms(total_intervals)
+
+    top_rows: List[Tuple[str, int, int, Optional[int]]] = []
+    for bucket, intervals in bucket_intervals.items():
+        top_rows.append(
+            (
+                bucket,
+                _merged_activity_duration_ms(intervals),
+                bucket_hits.get(bucket, 0),
+                bucket_last_seen.get(bucket),
+            )
+        )
+    top_rows.sort(key=lambda row: row[1], reverse=True)
+    top_rows = top_rows[:limit]
+
     top_buckets: List[Dict[str, Any]] = []
     for row in top_rows:
         row_total_ms = int(row[1] or 0)
@@ -3061,33 +3166,17 @@ def _load_time_truth(
                 "last_seen_ts": int(row[3]) if row[3] is not None else None,
             }
         )
-
-    cursor.execute(
-        f"""
-        SELECT
-            DATE(ts_start / 1000, 'unixepoch', 'localtime') AS day,
-            COALESCE(SUM({overlap_expr}), 0) AS total_active_ms,
-            COUNT(*) AS hits
-        FROM activity_events
-        WHERE ts_start <= ?
-          AND ts_end >= ?
-          AND COALESCE(is_afk, 0) = 0
-        GROUP BY day
-        ORDER BY day ASC
-        """,
-        (end_ms, start_ms, end_ms, start_ms),
-    )
-    daily_rows = cursor.fetchall() or []
-    daily_breakdown = [
-        {
-            "date": row[0],
-            "total_active_ms": int(row[1] or 0),
-            "total_active_hours": _safe_hours(row[1] or 0),
-            "hits": int(row[2] or 0),
-        }
-        for row in daily_rows
-        if row[0]
-    ]
+    daily_breakdown: List[Dict[str, Any]] = []
+    for day in sorted(daily_intervals.keys()):
+        merged_total_ms = _merged_activity_duration_ms(daily_intervals.get(day) or [])
+        daily_breakdown.append(
+            {
+                "date": day,
+                "total_active_ms": merged_total_ms,
+                "total_active_hours": _safe_hours(merged_total_ms),
+                "hits": int(daily_hits.get(day) or 0),
+            }
+        )
 
     return {
         "metric_source": "activity_events",
@@ -3096,9 +3185,9 @@ def _load_time_truth(
         "range_end": end_date,
         "total_active_ms": total_active_ms,
         "total_active_hours": _safe_hours(total_active_ms),
-        "total_events": int(summary_row[1] or 0),
-        "days_with_activity": int(summary_row[2] or 0),
-        "unique_buckets": int(summary_row[3] or 0),
+        "total_events": total_events,
+        "days_with_activity": len(daily_breakdown),
+        "unique_buckets": len(bucket_intervals),
         "top_buckets": top_buckets,
         "daily_breakdown": daily_breakdown,
     }

@@ -112,6 +112,7 @@ export async function executeGetComputerTimeSpentBreakdown(
           .map((segment) => segment.trim())
           .filter((segment) => segment.length > 0)
           .filter((segment) => !/semantic|embeddings?\s+finish|vector|matched moments/i.test(segment))
+          .filter((segment) => !/ocr evidence is stale|time totals still come from activity events/i.test(segment))
           .join('. ')
           .trim();
         return cleaned ? `${cleaned}${cleaned.endsWith('.') ? '' : '.'}` : undefined;
