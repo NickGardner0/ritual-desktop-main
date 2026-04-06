@@ -75,7 +75,8 @@ impl BlockingDatabase {
     /// Open the database with custom configuration
     pub fn open(config: &DatabaseConfig) -> Result<Self> {
         // Create a dedicated runtime for this database instance
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .map_err(|e| DatabaseError::Connection(format!("Failed to create runtime: {}", e)))?;
