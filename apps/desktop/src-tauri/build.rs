@@ -109,60 +109,67 @@ fn ensure_watcher_sidecar_for_tauri() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
+    println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
+    println!("cargo:rerun-if-env-changed=TARGET");
+
     ensure_watcher_sidecar_for_tauri();
     tauri_build::build();
 
     println!("cargo:warning=🔨 Building Swift speech recognition library...");
 
-    let swift_files = vec![
-        "native-voice/MicrophonePermission.swift",
-        "native-voice/SpeechRecognition.swift",
+    let swift_files = [
+        PathBuf::from("native-voice/MicrophonePermission.swift"),
+        PathBuf::from("native-voice/SpeechRecognition.swift"),
     ];
-    let object_files = vec![
-        "target/MicrophonePermission.o",
-        "target/SpeechRecognition.o",
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let object_files = [
+        out_dir.join("MicrophonePermission.o"),
+        out_dir.join("SpeechRecognition.o"),
     ];
-    let static_lib = "target/libspeech_native.a";
-    let module_cache_dir = "target/swift-module-cache";
-    let _ = std::fs::create_dir_all(module_cache_dir);
+    let static_lib = out_dir.join("libspeech_native.a");
+    let module_cache_dir = out_dir.join("swift-module-cache");
+    let _ = std::fs::create_dir_all(&module_cache_dir);
 
     // Step 1: Compile Swift files to object files
     let mut all_success = true;
 
     for (swift_file, object_file) in swift_files.iter().zip(object_files.iter()) {
-        println!("cargo:warning=🔨 Compiling {}", swift_file);
+        println!("cargo:warning=🔨 Compiling {}", swift_file.display());
 
-        let swift_output = std::process::Command::new("swiftc")
-            .args(&[
-                "-c",
-                "-module-cache-path",
-                module_cache_dir,
-                "-framework",
-                "Cocoa",
-                "-framework",
-                "Foundation",
-                "-framework",
-                "AVFoundation",
-                "-framework",
-                "Speech",
-                "-o",
-                object_file,
-                swift_file,
-            ])
-            .env("CLANG_MODULE_CACHE_PATH", module_cache_dir)
+        let mut swift_command = std::process::Command::new("swiftc");
+        swift_command
+            .arg("-c")
+            .arg("-module-cache-path")
+            .arg(&module_cache_dir)
+            .arg("-framework")
+            .arg("Cocoa")
+            .arg("-framework")
+            .arg("Foundation")
+            .arg("-framework")
+            .arg("AVFoundation")
+            .arg("-framework")
+            .arg("Speech")
+            .arg("-o")
+            .arg(object_file)
+            .arg(swift_file)
+            .env("CLANG_MODULE_CACHE_PATH", &module_cache_dir);
+
+        let swift_output = swift_command
             .output();
 
         match swift_output {
             Ok(result) => {
                 if !result.status.success() {
-                    println!("cargo:warning=❌ Failed to compile {}", swift_file);
+                    println!("cargo:warning=❌ Failed to compile {}", swift_file.display());
                     println!(
                         "cargo:warning=Error: {}",
                         String::from_utf8_lossy(&result.stderr)
                     );
                     all_success = false;
                 } else {
-                    println!("cargo:warning=✅ Compiled {}", swift_file);
+                    println!("cargo:warning=✅ Compiled {}", swift_file.display());
                 }
             }
             Err(e) => {
@@ -175,10 +182,12 @@ fn main() {
     if all_success {
         // Step 2: Create static library
         println!("cargo:warning=🔨 Creating static library...");
-        let ar_output = std::process::Command::new("ar")
-            .args(&["rcs", static_lib])
-            .args(&object_files)
-            .output();
+        let mut ar_command = std::process::Command::new("ar");
+        ar_command.arg("rcs").arg(&static_lib);
+        for object_file in &object_files {
+            ar_command.arg(object_file);
+        }
+        let ar_output = ar_command.output();
 
         match ar_output {
             Ok(ar_result) => {
@@ -186,8 +195,7 @@ fn main() {
                     println!("cargo:warning=✅ Static library created!");
 
                     // Step 3: Tell Rust linker about the library
-                    let target_dir = std::env::current_dir().unwrap().join("target");
-                    println!("cargo:rustc-link-search=native={}", target_dir.display());
+                    println!("cargo:rustc-link-search=native={}", out_dir.display());
                     println!("cargo:rustc-link-lib=static=speech_native");
                     println!("cargo:rustc-link-lib=framework=AVFoundation");
                     println!("cargo:rustc-link-lib=framework=Speech");
