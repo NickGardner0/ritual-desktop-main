@@ -15,12 +15,39 @@ export async function POST(request: NextRequest) {
 
     const webhookSecret = request.headers.get("x-webhook-secret") || "";
 
+    // DEBUG: log all incoming headers from SendBlue so we can identify
+    // which header name SendBlue uses for the webhook secret/signature.
+    const headerDump: Record<string, string> = {};
+    request.headers.forEach((value, key) => {
+      headerDump[key] = value;
+    });
+    console.log(
+      "[sendblue-webhook] incoming headers:",
+      JSON.stringify(headerDump),
+    );
+
+    // Forward common SendBlue header name candidates so the backend can
+    // pick whichever header SendBlue actually uses.
+    const forwardHeaders: Record<string, string> = {
+      "Content-Type": contentType,
+      "x-webhook-secret": webhookSecret,
+    };
+    request.headers.forEach((value, key) => {
+      const lower = key.toLowerCase();
+      if (
+        lower.startsWith("x-sendblue") ||
+        lower.startsWith("x-sb-") ||
+        lower === "x-signature" ||
+        lower === "x-signing-secret" ||
+        lower === "authorization"
+      ) {
+        forwardHeaders[key] = value;
+      }
+    });
+
     const backendResponse = await fetch(`${BACKEND_URL}/api/sendblue/webhook`, {
       method: "POST",
-      headers: {
-        "Content-Type": contentType,
-        "x-webhook-secret": webhookSecret,
-      },
+      headers: forwardHeaders,
       body,
       signal: AbortSignal.timeout(15000),
     });
