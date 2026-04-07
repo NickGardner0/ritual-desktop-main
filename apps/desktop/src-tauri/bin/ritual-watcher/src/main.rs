@@ -45,11 +45,11 @@ mod applescript_ffi;
 #[cfg(target_os = "macos")]
 mod browser_tracker;
 #[cfg(target_os = "macos")]
-mod vision_helper;
-#[cfg(target_os = "macos")]
 mod notifications;
 #[cfg(target_os = "macos")]
 mod screen_events;
+#[cfg(target_os = "macos")]
+mod vision_helper;
 #[cfg(target_os = "macos")]
 mod window_observer;
 
@@ -604,9 +604,7 @@ fn maybe_run_vision_ui_fallback(
     window_title: Option<&str>,
     focused_text_info: &macos::FocusedTextInfo,
 ) -> Option<VisionUiFallbackResult> {
-    if focused_text_info.is_sensitive
-        || !app_allows_vision_fallback(app_bundle_id, app_name)
-    {
+    if focused_text_info.is_sensitive || !app_allows_vision_fallback(app_bundle_id, app_name) {
         return None;
     }
     let vision_worthy = focused_text_info.ax_richness_score < 0.55
@@ -628,12 +626,8 @@ fn maybe_run_vision_ui_fallback(
         let _ = fs::remove_file(&screenshot_path);
         return None;
     }
-    let output = vision_helper::run_vision_helper(
-        &screenshot_path,
-        app_bundle_id,
-        app_name,
-        window_title,
-    );
+    let output =
+        vision_helper::run_vision_helper(&screenshot_path, app_bundle_id, app_name, window_title);
     let _ = fs::remove_file(&screenshot_path);
     let output = output?;
     let visible_text_raw = output.visible_text_raw.trim().to_string();
@@ -973,10 +967,7 @@ fn configure_process_as_background_agent() {
     }
 
     let (policy, policy_label) = match policy_mode.as_str() {
-        "prohibited" => (
-            NSApplicationActivationPolicy::Prohibited,
-            "background-only",
-        ),
+        "prohibited" => (NSApplicationActivationPolicy::Prohibited, "background-only"),
         _ => (
             NSApplicationActivationPolicy::Accessory,
             "accessory background",
@@ -998,7 +989,10 @@ fn configure_process_as_background_agent() {
             setActivationPolicy: policy
         ];
         if !changed {
-            warn!("⚠️ Failed to set watcher activation policy to {}", policy_label);
+            warn!(
+                "⚠️ Failed to set watcher activation policy to {}",
+                policy_label
+            );
         } else {
             info!("✅ Watcher activation policy set to {}", policy_label);
         }
@@ -1094,13 +1088,27 @@ fn storage_title_fields(
     }
 }
 
+fn env_flag(name: &str) -> Option<bool> {
+    match env::var(name).ok()?.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_feature_enabled(enable_var: &str, disable_var: &str) -> bool {
+    if let Some(disabled) = env_flag(disable_var) {
+        return !disabled;
+    }
+    env_flag(enable_var).unwrap_or(true)
+}
+
 #[cfg(target_os = "macos")]
 fn event_driven_app_switch_enabled() -> bool {
-    matches!(
-        env::var("RITUAL_ENABLE_APP_SWITCH_NOTIFICATIONS")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    macos_feature_enabled(
+        "RITUAL_ENABLE_APP_SWITCH_NOTIFICATIONS",
+        "RITUAL_DISABLE_APP_SWITCH_NOTIFICATIONS",
     )
 }
 
@@ -1111,11 +1119,9 @@ fn event_driven_app_switch_enabled() -> bool {
 
 #[cfg(target_os = "macos")]
 fn screen_event_detection_enabled() -> bool {
-    matches!(
-        env::var("RITUAL_ENABLE_SCREEN_EVENT_NOTIFICATIONS")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    macos_feature_enabled(
+        "RITUAL_ENABLE_SCREEN_EVENT_NOTIFICATIONS",
+        "RITUAL_DISABLE_SCREEN_EVENT_NOTIFICATIONS",
     )
 }
 
@@ -1141,11 +1147,9 @@ fn browser_tab_tracker_enabled() -> bool {
 
 #[cfg(target_os = "macos")]
 fn window_title_observer_enabled() -> bool {
-    matches!(
-        env::var("RITUAL_ENABLE_WINDOW_TITLE_OBSERVER")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    macos_feature_enabled(
+        "RITUAL_ENABLE_WINDOW_TITLE_OBSERVER",
+        "RITUAL_DISABLE_WINDOW_TITLE_OBSERVER",
     )
 }
 
@@ -1748,9 +1752,8 @@ fn run_watcher_loop(
                             continue;
                         }
                         recent_window_event_debounce_ms.insert(event_key, event.timestamp_ms);
-                        recent_window_event_debounce_ms.retain(|_, ts| {
-                            event.timestamp_ms.saturating_sub(*ts) <= 30_000
-                        });
+                        recent_window_event_debounce_ms
+                            .retain(|_, ts| event.timestamp_ms.saturating_sub(*ts) <= 30_000);
                         last_window_change_event = Some(event.clone());
                         if matches!(
                             event.change_type,
@@ -2200,8 +2203,7 @@ fn run_watcher_loop(
                         delayed_follow_up,
                     );
                     #[cfg(not(target_os = "macos"))]
-                    let capture_trigger =
-                        derive_native_capture_trigger(info.pid, now, None, false);
+                    let capture_trigger = derive_native_capture_trigger(info.pid, now, None, false);
                     record_native_context_snapshot(
                         db,
                         config,

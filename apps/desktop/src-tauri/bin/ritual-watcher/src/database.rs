@@ -9,6 +9,9 @@ use ritual_db::blocking::BlockingDatabase;
 use ritual_db::{
     ActivityEvent, ContextSnapshot as RitualContextSnapshot, OcrFrame as RitualOcrFrame,
 };
+use rusqlite::{Connection, OpenFlags};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
@@ -23,12 +26,155 @@ pub struct WatcherDatabase {
 }
 
 impl WatcherDatabase {
+    fn is_corruption_error(message: &str) -> bool {
+        let lower = message.to_lowercase();
+        lower.contains("database disk image is malformed")
+            || lower.contains("file is not a database")
+            || lower.contains("malformed")
+            || lower.contains("schema error")
+            || lower.contains("shadow table")
+    }
+
     fn is_lock_error(message: &str) -> bool {
         let lower = message.to_lowercase();
         lower.contains("database is locked")
             || lower.contains("database busy")
             || lower.contains("busy timeout")
             || lower.contains("sql_busy")
+    }
+
+    fn db_artifact_paths(path: &Path) -> Vec<PathBuf> {
+        vec![
+            path.to_path_buf(),
+            PathBuf::from(format!("{}-wal", path.display())),
+            PathBuf::from(format!("{}-shm", path.display())),
+            PathBuf::from(format!("{}-info", path.display())),
+        ]
+    }
+
+    fn quarantine_db_artifacts(path: &Path, reason: &str) -> std::result::Result<(), String> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("Database path has no parent: {}", path.display()))?;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs();
+        let quarantine_dir = parent
+            .join("quarantine")
+            .join(format!("watcher-activitydb-{}", ts));
+        fs::create_dir_all(&quarantine_dir).map_err(|e| {
+            format!(
+                "Failed to create watcher quarantine dir {}: {}",
+                quarantine_dir.display(),
+                e
+            )
+        })?;
+
+        for artifact in Self::db_artifact_paths(path) {
+            if !artifact.exists() {
+                continue;
+            }
+            let file_name = artifact
+                .file_name()
+                .ok_or_else(|| format!("Invalid artifact path: {}", artifact.display()))?;
+            let target = quarantine_dir.join(file_name);
+            fs::rename(&artifact, &target).map_err(|e| {
+                format!(
+                    "Failed to quarantine database artifact {} -> {}: {}",
+                    artifact.display(),
+                    target.display(),
+                    e
+                )
+            })?;
+        }
+
+        warn!(
+            "[watcher-db] quarantined local activity DB artifacts at {} reason={}",
+            quarantine_dir.display(),
+            reason
+        );
+        Ok(())
+    }
+
+    fn preflight_local_db(path: &Path) -> std::result::Result<(), String> {
+        let db_exists = path.exists();
+        let has_sidecars = Self::db_artifact_paths(path)
+            .into_iter()
+            .skip(1)
+            .any(|artifact| artifact.exists());
+
+        if !db_exists {
+            if has_sidecars {
+                Self::quarantine_db_artifacts(path, "stale-sidecars-without-main-db")?;
+            }
+            return Ok(());
+        }
+
+        let metadata = fs::metadata(path)
+            .map_err(|e| format!("Failed reading database metadata {}: {}", path.display(), e))?;
+        if metadata.len() == 0 {
+            if has_sidecars {
+                Self::quarantine_db_artifacts(path, "zero-byte-db-with-sidecars")?;
+            } else {
+                fs::remove_file(path).map_err(|e| {
+                    format!(
+                        "Failed removing zero-byte database {}: {}",
+                        path.display(),
+                        e
+                    )
+                })?;
+                warn!(
+                    "[watcher-db] removed zero-byte local activity DB placeholder {}",
+                    path.display()
+                );
+            }
+            return Ok(());
+        }
+
+        let conn = match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            Ok(conn) => conn,
+            Err(err) => {
+                let err_text = err.to_string();
+                if Self::is_corruption_error(&err_text) {
+                    Self::quarantine_db_artifacts(
+                        path,
+                        &format!("preflight-open-failed: {}", err_text),
+                    )?;
+                    return Ok(());
+                }
+                return Err(format!(
+                    "Failed to preflight local activity DB {}: {}",
+                    path.display(),
+                    err_text
+                ));
+            }
+        };
+
+        let check: String = match conn.query_row("PRAGMA quick_check(1)", [], |row| row.get(0)) {
+            Ok(result) => result,
+            Err(err) => {
+                let err_text = err.to_string();
+                if Self::is_corruption_error(&err_text) {
+                    Self::quarantine_db_artifacts(
+                        path,
+                        &format!("quick_check-failed: {}", err_text),
+                    )?;
+                    return Ok(());
+                }
+                return Err(format!(
+                    "Failed to run quick_check on {}: {}",
+                    path.display(),
+                    err_text
+                ));
+            }
+        };
+
+        if check.trim() != "ok" {
+            Self::quarantine_db_artifacts(path, &format!("quick_check reported {}", check.trim()))?;
+        }
+
+        Ok(())
     }
 
     fn with_write_retry<T, F>(&self, op_name: &str, mut op: F) -> std::result::Result<T, String>
@@ -64,12 +210,28 @@ impl WatcherDatabase {
     /// Create a new database connection and ensure tables exist.
     pub fn new(path: &str) -> std::result::Result<Self, String> {
         info!("Opening Ritual database: {}", path);
+        let db_path = PathBuf::from(path);
+
+        Self::preflight_local_db(&db_path)?;
 
         // The desktop host owns Turso sync/bootstrap. The watcher should write
         // to local activity.db only, otherwise two embedded replicas can race
         // each other and trigger WAL frame conflicts during sync.
-        let db = BlockingDatabase::open_with_path(path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+        let open_result = BlockingDatabase::open_with_path(&db_path)
+            .map_err(|e| format!("Failed to open database: {}", e));
+        let db = match open_result {
+            Ok(db) => db,
+            Err(err) if Self::is_corruption_error(&err) => {
+                warn!(
+                    "[watcher-db] initial open failed with invalid local DB state, retrying after quarantine error={}",
+                    err
+                );
+                Self::quarantine_db_artifacts(&db_path, &format!("open-failed: {}", err))?;
+                BlockingDatabase::open_with_path(&db_path)
+                    .map_err(|e| format!("Failed to reopen database after quarantine: {}", e))?
+            }
+            Err(err) => return Err(err),
+        };
 
         Ok(Self { db })
     }
