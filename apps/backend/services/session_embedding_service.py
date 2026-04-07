@@ -9,6 +9,7 @@ are no longer part of the primary chat/search architecture.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -139,17 +140,24 @@ def _fetch_unembedded(
                 s.session_count,
                 cs.document_path,
                 cs.ax_richness_score,
-                cs.semantic_summary
+                cs.semantic_summary,
+                cs.source_type,
+                cs.capture_components_json,
+                cs.ui_elements_json
             FROM session_retrieval_docs s
             LEFT JOIN (
                 SELECT session_id,
                        document_path,
                        ax_richness_score,
                        semantic_summary,
+                       source_type,
+                       capture_components_json,
+                       ui_elements_json,
                        ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY ax_richness_score DESC) as rn
                 FROM context_snapshots
                 WHERE (document_path IS NOT NULL AND document_path != '')
                    OR (semantic_summary IS NOT NULL AND semantic_summary != '')
+                   OR (ui_elements_json IS NOT NULL AND ui_elements_json != '')
             ) cs ON cs.session_id = s.session_id AND cs.rn = 1
             WHERE s.embedded_at IS NULL
               AND length(COALESCE(s.contextual_retrieval_text, s.raw_visible_text, '')) > ?
@@ -169,7 +177,8 @@ def _fetch_unembedded(
                 window_title, document_title, raw_visible_text,
                 contextual_retrieval_text, capture_quality, context_version,
                 session_position, session_count,
-                NULL as document_path, 0.0 as ax_richness_score, NULL as semantic_summary
+                NULL as document_path, 0.0 as ax_richness_score, NULL as semantic_summary,
+                NULL as source_type, NULL as capture_components_json, NULL as ui_elements_json
             FROM session_retrieval_docs
             WHERE embedded_at IS NULL
               AND length(COALESCE(contextual_retrieval_text, raw_visible_text, '')) > ?
@@ -199,18 +208,24 @@ def _build_embed_text(doc: Dict[str, Any]) -> str:
         parts.append(f"Domain: {domain}")
     if doc_title and doc_title != window:
         parts.append(f"Document: {doc_title}")
+    source_type = str(doc.get("source_type") or "").strip()
+    if source_type:
+        parts.append(f"Source: {source_type}")
 
     header = " | ".join(parts) if parts else ""
 
     semantic_summary = str(doc.get("semantic_summary") or "").strip()
     contextual_text = str(doc.get("contextual_retrieval_text") or "").strip()
     raw_text = str(doc.get("raw_visible_text") or "").strip()
+    structured_ui_text = _extract_ui_text(doc)
 
     body_parts: List[str] = []
     if semantic_summary:
         body_parts.append(
             semantic_summary if semantic_summary.endswith(".") else f"{semantic_summary}."
         )
+    if structured_ui_text:
+        body_parts.append(f"Structured UI: {structured_ui_text}")
     if contextual_text:
         body_parts.append(contextual_text)
     elif raw_text:
@@ -232,6 +247,43 @@ def _extract_parent_context(doc: Dict[str, Any]) -> str:
     if "|" in context_text:
         context_text = context_text.split("|", 1)[0].strip()
     return context_text[:240]
+
+
+def _extract_ui_text(doc: Dict[str, Any]) -> str:
+    raw = str(doc.get("ui_elements_json") or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return ""
+
+    fragments: List[str] = []
+    if isinstance(parsed, dict):
+        for key in ("selection_text", "focused_element_text", "meta_description"):
+            value = str(parsed.get(key) or "").strip()
+            if value:
+                fragments.append(value)
+        for key in ("headings", "semantic_blocks"):
+            values = parsed.get(key) or []
+            if isinstance(values, list):
+                for value in values[:8]:
+                    text = str(value or "").strip()
+                    if text:
+                        fragments.append(text)
+        ocr_elements = parsed.get("ocr_elements") or []
+        if isinstance(ocr_elements, list):
+            for element in ocr_elements[:12]:
+                if isinstance(element, dict):
+                    text = str(element.get("text") or "").strip()
+                    if text:
+                        fragments.append(text)
+    elif isinstance(parsed, list):
+        for value in parsed[:12]:
+            text = str(value or "").strip()
+            if text:
+                fragments.append(text)
+    return " | ".join(dict.fromkeys(fragments))[:800]
 
 
 async def process_session_embeddings(

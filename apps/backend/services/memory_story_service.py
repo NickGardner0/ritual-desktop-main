@@ -1965,6 +1965,10 @@ def _build_renderer_payload(
                 label = item.get("label") or item.get("title") or item.get("claim_text") or item.get("canonical_name") or item.get("segment_type")
                 if label:
                     scaffold_lines.append(f"- {label}")
+                for snippet in list(item.get("supporting_snippets") or [])[:2]:
+                    snippet_text = _compact(snippet, 180)
+                    if snippet_text:
+                        scaffold_lines.append(f"  evidence: {snippet_text}")
             else:
                 scaffold_lines.append(f"- {item}")
 

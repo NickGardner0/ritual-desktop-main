@@ -44,6 +44,7 @@ pub struct FocusedTextInfo {
     pub quality_score: f64,
     pub capture_components: Vec<String>,
     pub ax_richness_score: f64,
+    pub ax_thinness_score: f64,
     pub selected_text_present: bool,
     pub document_path: Option<String>,
     pub ax_source: Option<String>,
@@ -205,6 +206,89 @@ fn ax_text_richness_weight(text: &str) -> f64 {
         240..=799 => 1.0,
         _ => 1.04,
     }
+}
+
+fn ax_text_thinness_score(
+    bundle_id: Option<&str>,
+    joined: &str,
+    capture_component_count: usize,
+    selected_text_present: bool,
+    has_document_identity: bool,
+    contextual_long_count: usize,
+) -> f64 {
+    let text = joined.trim().to_ascii_lowercase();
+    if text.is_empty() {
+        return 1.0;
+    }
+
+    let mut thinness = 0.0;
+    if text.len() < 80 {
+        thinness += 0.34;
+    } else if text.len() < 180 {
+        thinness += 0.18;
+    }
+    if !selected_text_present {
+        thinness += 0.18;
+    }
+    if !has_document_identity {
+        thinness += 0.14;
+    }
+    if contextual_long_count == 0 {
+        thinness += 0.14;
+    }
+    if capture_component_count <= 1 {
+        thinness += 0.12;
+    }
+
+    let generic_markers = [
+        "accessibility links",
+        "address and search bar",
+        "all branches",
+        "all authors",
+        "all environments",
+        "ask a follow-up question",
+        "command palette",
+        "create image",
+        "favorites",
+        "file explorer",
+        "find in files",
+        "go to file",
+        "google chrome",
+        "inbox",
+        "new chat",
+        "notifications",
+        "output directory",
+        "pinterest",
+        "recents",
+        "select date range",
+        "window title observer",
+    ];
+    let generic_hits = generic_markers
+        .iter()
+        .filter(|marker| text.contains(**marker))
+        .count();
+    thinness += (generic_hits as f64 * 0.08).min(0.24);
+
+    let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
+    if (bundle.contains("cursor")
+        || bundle.contains("code")
+        || bundle.contains("codex")
+        || bundle.contains("claude")
+        || bundle.contains("ritual"))
+        && !selected_text_present
+        && !has_document_identity
+        && text.len() < 260
+    {
+        thinness += 0.18;
+    }
+
+    if selected_text_present {
+        thinness -= 0.2;
+    }
+    if has_document_identity {
+        thinness -= 0.12;
+    }
+    thinness.clamp(0.0, 0.99)
 }
 
 fn candidate_score(attribute: &str, source: &str, text: &str) -> f64 {
@@ -622,6 +706,7 @@ fn finalize_accessibility_text(
             quality_score: 0.0,
             capture_components: vec!["metadata_fallback".to_string()],
             ax_richness_score: 0.0,
+            ax_thinness_score: 1.0,
             selected_text_present: false,
             document_path: None,
             ax_source: Some("metadata".to_string()),
@@ -888,6 +973,15 @@ fn finalize_accessibility_text(
         ax_richness = ax_richness.min(0.45);
     }
 
+    let ax_thinness = ax_text_thinness_score(
+        bundle_id,
+        &joined,
+        capture_components.len(),
+        selected_text_present,
+        document_identity.is_some() || document_path.is_some(),
+        contextual_long_count,
+    );
+
     FocusedTextInfo {
         text: normalize_ax_candidate_text(&joined, 12_000),
         is_sensitive: false,
@@ -895,6 +989,7 @@ fn finalize_accessibility_text(
         quality_score: quality.clamp(0.0, 0.98),
         capture_components,
         ax_richness_score: ax_richness.clamp(0.0, 0.99),
+        ax_thinness_score: ax_thinness,
         selected_text_present,
         document_path,
         ax_source: Some(best_source.to_string()),
@@ -1386,6 +1481,7 @@ pub fn get_focused_text_info(
                     quality_score: 0.0,
                     capture_components: vec!["secure_field".to_string()],
                     ax_richness_score: 0.0,
+                    ax_thinness_score: 1.0,
                     selected_text_present: false,
                     document_path: None,
                     ax_source: Some("focused".to_string()),
@@ -1410,6 +1506,7 @@ pub fn get_focused_text_info(
                         quality_score: 0.0,
                         capture_components: vec!["secure_parent".to_string()],
                         ax_richness_score: 0.0,
+                        ax_thinness_score: 1.0,
                         selected_text_present: false,
                         document_path: None,
                         ax_source: Some("parent".to_string()),

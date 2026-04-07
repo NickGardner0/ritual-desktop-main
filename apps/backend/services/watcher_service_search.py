@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -51,6 +52,10 @@ from services.memory_embedding_service import (
     get_memory_index_health,
     process_embedding_jobs_with_guard,
 )
+from services.project_memory_card_service import (
+    build_story_plan_from_project_memory_cards,
+    load_selected_project_memory_cards,
+)
 from services.session_embedding_service import process_session_embeddings
 
 logger = logging.getLogger(__name__)
@@ -95,6 +100,61 @@ def _prefer_explicit_local_context_db(path: str) -> bool:
     if str(resolved).startswith(str(ritual_dir)):
         return False
     return resolved.exists()
+
+
+def _json_loads_safe(value: Any, default: Any) -> Any:
+    if value in (None, ""):
+        return default
+    try:
+        return json.loads(value)
+    except Exception:
+        return default
+
+
+def _snapshot_capture_components(raw: Any) -> List[str]:
+    parsed = _json_loads_safe(raw, [])
+    if isinstance(parsed, list):
+        return [str(item or "").strip() for item in parsed if str(item or "").strip()]
+    return []
+
+
+def _extract_snapshot_ui_text(raw: Any) -> str:
+    parsed = _json_loads_safe(raw, {})
+    if not isinstance(parsed, dict):
+        return ""
+    parts: List[str] = []
+    for key in ("headings", "semantic_blocks"):
+        values = parsed.get(key) or []
+        if isinstance(values, list):
+            for item in values[:10]:
+                if isinstance(item, dict):
+                    text = str(item.get("text") or "").strip()
+                else:
+                    text = str(item or "").strip()
+                if text:
+                    parts.append(text)
+    for key in ("selection_text", "focused_element_text"):
+        text = str(parsed.get(key) or "").strip()
+        if text:
+            parts.append(text)
+    ocr_elements = parsed.get("ocr_elements") or []
+    if isinstance(ocr_elements, list):
+        for item in ocr_elements[:14]:
+            if isinstance(item, dict):
+                text = str(item.get("text") or "").strip()
+            else:
+                text = str(item or "").strip()
+            if text:
+                parts.append(text)
+    deduped: List[str] = []
+    seen = set()
+    for item in parts:
+        normalized = item.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(item)
+    return " ".join(deduped[:12]).strip()
 
 
 OVERVIEW_TIME_HINTS = (
@@ -1525,6 +1585,8 @@ async def search_context_memory_impl(
                         document_path,
                         COALESCE(visible_text_raw, '') AS visible_text_raw,
                         COALESCE(visible_text_norm, '') AS visible_text_norm,
+                        COALESCE(capture_components_json, '') AS capture_components_json,
+                        COALESCE(ui_elements_json, '') AS ui_elements_json,
                         COALESCE(capture_quality, 0.0) AS capture_quality,
                         COALESCE(ax_richness_score, 0.0) AS ax_richness_score,
                         COALESCE(selected_text_present, 0) AS selected_text_present,
@@ -1539,6 +1601,9 @@ async def search_context_memory_impl(
                 )
                 scored_rows = []
                 for row in cursor.fetchall():
+                    ui_text = _extract_snapshot_ui_text(row["ui_elements_json"])
+                    capture_components = _snapshot_capture_components(row["capture_components_json"])
+                    source_type = str(row["source_type"] or "")
                     haystack = " ".join(
                         [
                             str(row["app_name"] or ""),
@@ -1547,6 +1612,7 @@ async def search_context_memory_impl(
                             str(row["document_path"] or ""),
                             str(row["tab_title"] or ""),
                             str(row["browser_domain"] or ""),
+                            ui_text,
                             str(row["visible_text_norm"] or ""),
                             str(row["visible_text_raw"] or ""),
                         ]
@@ -1563,6 +1629,7 @@ async def search_context_memory_impl(
                             row["window_title"],
                             row["tab_title"],
                             row["browser_url"],
+                            ui_text,
                             row["visible_text_raw"],
                             row["visible_text_norm"],
                         ],
@@ -1581,7 +1648,7 @@ async def search_context_memory_impl(
                         "document_title": row["document_title"],
                         "document_path": row["document_path"],
                         "browser_domain": row["browser_domain"],
-                        "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                        "snippet": row["visible_text_raw"] or ui_text or row["visible_text_norm"] or "",
                         "parent_context": _derive_parent_context(
                             app_name=str(row["app_name"] or "Unknown"),
                             browser_domain=str(row["browser_domain"] or ""),
@@ -1604,7 +1671,7 @@ async def search_context_memory_impl(
                             "window_title": row["window_title"] or row["tab_title"],
                             "document_title": row["document_title"],
                             "document_path": row["document_path"],
-                            "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                            "snippet": row["visible_text_raw"] or ui_text or row["visible_text_norm"] or "",
                         },
                         requested_app_scope,
                     )
@@ -1614,7 +1681,7 @@ async def search_context_memory_impl(
                         window_title=str(row["window_title"] or row["document_title"] or row["tab_title"] or ""),
                         document_title=str(row["document_title"] or row["tab_title"] or ""),
                         browser_domain=str(row["browser_domain"] or ""),
-                        snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                        snippet=str(row["visible_text_raw"] or ui_text or row["visible_text_norm"] or ""),
                         semantic_boost=semantic_boost,
                     ):
                         continue
@@ -1629,22 +1696,38 @@ async def search_context_memory_impl(
                                     window_title=str(row["window_title"] or row["tab_title"] or ""),
                                     document_title=str(row["document_title"] or row["tab_title"] or ""),
                                     browser_domain=str(row["browser_domain"] or ""),
-                                    snippet=str(row["visible_text_raw"] or row["visible_text_norm"] or ""),
+                                    snippet=str(row["visible_text_raw"] or ui_text or row["visible_text_norm"] or ""),
                                 )
                             )
                         )
                     ):
                         continue
 
-                    metadata_penalty = 0.08 if str(row["source_type"] or "") == "window_metadata_fallback" and semantic_boost < 0.08 else 0.0
+                    metadata_penalty = 0.08 if source_type == "window_metadata_fallback" and semantic_boost < 0.08 else 0.0
                     recency_hours = max(0.0, (now_ms - int(row["ts"] or 0)) / (1000.0 * 60.0 * 60.0))
                     recency_boost = 0.06 * (1.0 - min(recency_hours / 24.0, 1.0))
                     ax_richness = float(row["ax_richness_score"] or 0.0)
-                    text_length = len(str(row["visible_text_raw"] or row["visible_text_norm"] or ""))
+                    text_length = len(str(row["visible_text_raw"] or ui_text or row["visible_text_norm"] or ""))
                     richness_boost = max(ax_richness * 0.18, min(0.14, text_length / 2400.0))
                     app_bonus = 0.0
                     selected_text_bonus = 0.06 if int(row["selected_text_present"] or 0) else 0.0
-                    trigger_bonus = 0.04 if str(row["capture_trigger"] or "") == "ax_event" else 0.0
+                    trigger_kind = str(row["capture_trigger"] or "")
+                    trigger_bonus = 0.04 if trigger_kind.startswith("ax_") else 0.0
+                    hybrid_bonus = 0.0
+                    structured_ui_bonus = 0.0
+                    has_vision = source_type in {"hybrid_native", "vision_ui_fallback"} or "vision_ui_fallback" in capture_components
+                    has_accessibility = any(
+                        component in {"document_identity", "selected_text", "focused_node_text", "nearby_structural_text", "window_title"}
+                        for component in capture_components
+                    )
+                    if source_type == "hybrid_native":
+                        hybrid_bonus += 0.16
+                    elif source_type == "vision_ui_fallback":
+                        hybrid_bonus += 0.10
+                    if has_vision and has_accessibility:
+                        hybrid_bonus += 0.06
+                    if ui_text:
+                        structured_ui_bonus += min(0.12, len(ui_text) / 1800.0)
                     if normalized_app in {"cursor", "codex", "paper", "things 3", "things", "finder"}:
                         app_bonus = 0.08
                     elif normalized_app == "google chrome" and str(row["browser_domain"] or "").strip().lower() not in LOW_SIGNAL_BROWSER_DOMAINS:
@@ -1660,6 +1743,8 @@ async def search_context_memory_impl(
                             + semantic_boost
                             + recency_boost
                             + richness_boost
+                            + hybrid_bonus
+                            + structured_ui_bonus
                             + app_bonus
                             + selected_text_bonus
                             + trigger_bonus
@@ -1682,16 +1767,18 @@ async def search_context_memory_impl(
                             "document_path": row["document_path"],
                             "browser_domain": row["browser_domain"],
                             "browser_url": row["browser_url"],
-                            "ocr_text": row["visible_text_raw"] or row["visible_text_norm"] or "",
-                            "snippet": row["visible_text_raw"] or row["visible_text_norm"] or "",
+                            "ocr_text": row["visible_text_raw"] or ui_text or row["visible_text_norm"] or "",
+                            "snippet": row["visible_text_raw"] or ui_text or row["visible_text_norm"] or "",
                             "parent_context": candidate.get("parent_context"),
                             "relevance_score": relevance,
                             "capture_quality": capture_quality,
                             "semantic_overlap_debug": _semantic_debug,
                             "activity_class": candidate_activity_class,
                             "exact_match_score": exact_match_score,
-                            "source_type": row["source_type"] or "context_snapshot",
-                            "source": "text",
+                            "source_type": source_type or "context_snapshot",
+                            "source": "hybrid" if has_vision else "text",
+                            "capture_components_json": row["capture_components_json"] or "",
+                            "ui_elements_json": row["ui_elements_json"] or "",
                             "fts_matched": False,
                         }
                     )
@@ -4127,12 +4214,34 @@ async def query_memory_impl(
                     **cloud_retrieval_debug,
                     **(existing_debug if isinstance(existing_debug, dict) else {}),
                 }
-            story_plan = _build_story_semantics(
+            selected_cards_payload = await load_selected_project_memory_cards(
+                user_id=user_id,
                 query=normalized_query,
                 intent=resolved_intent,
+                range_start_ts=start_ms,
+                range_end_ts=end_ms,
                 citations=citations,
-                time_truth=time_truth,
+                limit=min(max(safe_limit, 4), 8),
             )
+            selected_cards = selected_cards_payload.get("cards") or []
+            selected_card_ids = selected_cards_payload.get("selected_card_ids") or []
+            card_selection_debug = selected_cards_payload.get("debug") or {}
+            story_plan = None
+            if selected_cards:
+                story_plan = build_story_plan_from_project_memory_cards(
+                    selected_cards,
+                    query=normalized_query,
+                    intent=resolved_intent,
+                    time_truth=time_truth,
+                    citations=citations,
+                )
+            if story_plan is None:
+                story_plan = _build_story_semantics(
+                    query=normalized_query,
+                    intent=resolved_intent,
+                    citations=citations,
+                    time_truth=time_truth,
+                )
             if story_plan:
                 persisted_work_item_result = {"items": [], "stored": 0, "evidence": 0}
                 renderer_kind = str((story_plan.get("renderer") or {}).get("kind") or "")
@@ -4149,8 +4258,13 @@ async def query_memory_impl(
                 semantic_truth["renderer"] = story_plan.get("renderer")
                 semantic_truth["recap_outline"] = story_plan
                 semantic_truth["semantic_work_items"] = persisted_work_item_result.get("items") or []
+                semantic_truth["selected_project_memory_cards"] = selected_cards
+                semantic_truth["selected_card_ids"] = selected_card_ids
+                semantic_truth["card_selection_debug"] = card_selection_debug
                 semantic_truth["generation_mode"] = (
-                    (story_plan.get("renderer") or {}).get("generation_mode") or "default"
+                    "card_first"
+                    if selected_cards
+                    else ((story_plan.get("renderer") or {}).get("generation_mode") or "default")
                 )
                 debug_payload = semantic_truth.get("debug")
                 if not isinstance(debug_payload, dict):
@@ -4165,6 +4279,9 @@ async def query_memory_impl(
                         "claim_grounding_rate": float(metrics.get("claim_grounding_rate") or 0.0),
                         "generic_fallback_used": bool(metrics.get("generic_fallback_used")),
                         "planning_only_ratio": float(metrics.get("planning_only_ratio") or 0.0),
+                        "selected_card_count": len(selected_cards),
+                        "selected_card_ids": selected_card_ids,
+                        "card_selection_debug": card_selection_debug,
                         "semantic_work_items_stored": int(
                             persisted_work_item_result.get("stored") or 0
                         ),

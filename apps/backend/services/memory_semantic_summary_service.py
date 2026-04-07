@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 import sqlite3
 import time
 from typing import List, Dict, Any, Optional
@@ -53,6 +54,9 @@ def _fetch_unsummarized(conn: sqlite3.Connection, limit: int) -> List[Dict[str, 
         """
         SELECT id, app_name, window_title, document_path, document_title,
                browser_domain, browser_url,
+               COALESCE(source_type, '') AS source_type,
+               COALESCE(capture_components_json, '') AS capture_components_json,
+               COALESCE(ui_elements_json, '') AS ui_elements_json,
                substr(COALESCE(visible_text_raw, visible_text_norm, ''), 1, 1200) as visible_text,
                ax_richness_score, ts
         FROM context_snapshots
@@ -90,6 +94,43 @@ Rules:
 - No quotes, no markdown, no punctuation at the end except a period"""
 
 
+def _extract_ui_text(snapshot: Dict[str, Any]) -> str:
+    raw = str(snapshot.get("ui_elements_json") or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return ""
+
+    fragments: List[str] = []
+    if isinstance(parsed, dict):
+        for key in ("selection_text", "focused_element_text", "meta_description"):
+            value = str(parsed.get(key) or "").strip()
+            if value:
+                fragments.append(value)
+        for key in ("headings", "semantic_blocks"):
+            values = parsed.get(key) or []
+            if isinstance(values, list):
+                for value in values[:8]:
+                    text = str(value or "").strip()
+                    if text:
+                        fragments.append(text)
+        ocr_elements = parsed.get("ocr_elements") or []
+        if isinstance(ocr_elements, list):
+            for element in ocr_elements[:12]:
+                if isinstance(element, dict):
+                    text = str(element.get("text") or "").strip()
+                    if text:
+                        fragments.append(text)
+    elif isinstance(parsed, list):
+        for value in parsed[:12]:
+            text = str(value or "").strip()
+            if text:
+                fragments.append(text)
+    return " | ".join(dict.fromkeys(fragments))[:800]
+
+
 def _build_evidence_text(snapshot: Dict[str, Any]) -> str:
     """Build a compact evidence string for the LLM."""
     parts = []
@@ -108,9 +149,18 @@ def _build_evidence_text(snapshot: Dict[str, Any]) -> str:
         if len(url) > 200:
             url = url[:200]
         parts.append(f"URL: {url}")
+    source_type = str(snapshot.get("source_type") or "").strip()
+    if source_type:
+        parts.append(f"Source: {source_type}")
+    components = str(snapshot.get("capture_components_json") or "").strip()
+    if components:
+        parts.append(f"Capture components: {components[:200]}")
     visible = (snapshot.get("visible_text") or "").strip()
     if visible:
         parts.append(f"Screen text: {visible[:600]}")
+    ui_text = _extract_ui_text(snapshot)
+    if ui_text:
+        parts.append(f"Structured UI text: {ui_text[:600]}")
     return "\n".join(parts)
 
 

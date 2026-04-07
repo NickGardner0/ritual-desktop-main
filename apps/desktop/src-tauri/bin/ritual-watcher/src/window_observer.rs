@@ -1,7 +1,7 @@
 //! Window Title Change Observer using Accessibility API
 //!
-//! Uses AXObserver with kAXMainWindowChangedNotification, kAXTitleChangedNotification,
-//! and kAXFocusedUIElementChangedNotification to detect in-app context shifts.
+//! Uses AXObserver with window, focus, title, selected-text, and value-change notifications
+//! to detect in-app context shifts.
 //!
 //! Inspired by Cronus's activeWindowObserver.mm implementation.
 
@@ -38,6 +38,10 @@ pub enum WindowChangeType {
     TitleChanged,
     /// Focused UI element changed
     FocusedUIElementChanged,
+    /// Selected text changed
+    SelectedTextChanged,
+    /// Value changed
+    ValueChanged,
 }
 
 impl std::fmt::Display for WindowChangeType {
@@ -46,6 +50,8 @@ impl std::fmt::Display for WindowChangeType {
             WindowChangeType::MainWindowChanged => write!(f, "main_window_changed"),
             WindowChangeType::TitleChanged => write!(f, "title_changed"),
             WindowChangeType::FocusedUIElementChanged => write!(f, "focused_ui_changed"),
+            WindowChangeType::SelectedTextChanged => write!(f, "selected_text_changed"),
+            WindowChangeType::ValueChanged => write!(f, "value_changed"),
         }
     }
 }
@@ -109,6 +115,14 @@ fn k_ax_title_changed_notification() -> CFString {
 
 fn k_ax_focused_ui_element_changed_notification() -> CFString {
     CFString::new("AXFocusedUIElementChangedNotification")
+}
+
+fn k_ax_selected_text_changed_notification() -> CFString {
+    CFString::new("AXSelectedTextChangedNotification")
+}
+
+fn k_ax_value_changed_notification() -> CFString {
+    CFString::new("AXValueChangedNotification")
 }
 
 /// Global state for window observer
@@ -189,6 +203,10 @@ extern "C" fn ax_observer_callback(
             WindowChangeType::MainWindowChanged
         } else if notification_str.contains("Title") {
             WindowChangeType::TitleChanged
+        } else if notification_str.contains("SelectedText") {
+            WindowChangeType::SelectedTextChanged
+        } else if notification_str.contains("ValueChanged") {
+            WindowChangeType::ValueChanged
         } else {
             WindowChangeType::FocusedUIElementChanged
         };
@@ -353,6 +371,22 @@ pub fn observe_app(pid: i32) {
             refcon,
         );
 
+        let selected_text_notif = k_ax_selected_text_changed_notification();
+        AXObserverAddNotification(
+            observer,
+            app_element,
+            selected_text_notif.as_concrete_TypeRef(),
+            refcon,
+        );
+
+        let value_changed_notif = k_ax_value_changed_notification();
+        AXObserverAddNotification(
+            observer,
+            app_element,
+            value_changed_notif.as_concrete_TypeRef(),
+            refcon,
+        );
+
         // Add to run loop
         let run_loop_source = AXObserverGetRunLoopSource(observer);
         if !run_loop_source.is_null() {
@@ -403,6 +437,20 @@ fn cleanup_observer(state: &mut WindowObserverState) {
                     observer,
                     app_element,
                     focused_ui_notif.as_concrete_TypeRef(),
+                );
+
+                let selected_text_notif = k_ax_selected_text_changed_notification();
+                AXObserverRemoveNotification(
+                    observer,
+                    app_element,
+                    selected_text_notif.as_concrete_TypeRef(),
+                );
+
+                let value_changed_notif = k_ax_value_changed_notification();
+                AXObserverRemoveNotification(
+                    observer,
+                    app_element,
+                    value_changed_notif.as_concrete_TypeRef(),
                 );
 
                 CFRelease(app_element as _);
@@ -456,5 +504,10 @@ mod tests {
             WindowChangeType::FocusedUIElementChanged.to_string(),
             "focused_ui_changed"
         );
+        assert_eq!(
+            WindowChangeType::SelectedTextChanged.to_string(),
+            "selected_text_changed"
+        );
+        assert_eq!(WindowChangeType::ValueChanged.to_string(), "value_changed");
     }
 }

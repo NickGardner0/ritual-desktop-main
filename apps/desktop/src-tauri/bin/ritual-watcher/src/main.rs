@@ -13,7 +13,7 @@
 
 #![allow(dead_code)] // Some fields are kept for future use and debugging
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,8 @@ mod applescript_ffi;
 #[cfg(target_os = "macos")]
 mod browser_tracker;
 #[cfg(target_os = "macos")]
+mod vision_helper;
+#[cfg(target_os = "macos")]
 mod notifications;
 #[cfg(target_os = "macos")]
 mod screen_events;
@@ -67,6 +69,8 @@ use objc2::runtime::AnyObject;
 use objc2_app_kit::NSApplicationActivationPolicy;
 #[cfg(target_os = "macos")]
 use screen_events::{ScreenEventListener, ScreenEventType};
+#[cfg(target_os = "macos")]
+use vision_helper::elements_to_ui_elements_json;
 #[cfg(target_os = "macos")]
 use window_observer::{observe_app, WindowChangeEvent, WindowChangeListener};
 
@@ -440,6 +444,8 @@ fn context_capture_quality(
     if !visible_text_norm.trim().is_empty() {
         if source_type == "browser_extension" {
             0.98
+        } else if source_type == "hybrid_native" {
+            accessibility_quality.unwrap_or(0.9).clamp(0.0, 0.99)
         } else if source_type == "vision_ui_fallback" {
             accessibility_quality.unwrap_or(0.84).clamp(0.0, 0.99)
         } else {
@@ -481,39 +487,62 @@ struct NativeCaptureTrigger {
     latency_ms: Option<i64>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default)]
 struct VisionUiFallbackResult {
-    #[serde(default)]
     document_title: Option<String>,
-    #[serde(default)]
     visible_text_raw: Option<String>,
-    #[serde(default)]
     visible_text_norm: Option<String>,
-    #[serde(default)]
-    artifact_refs: Vec<String>,
-    #[serde(default)]
-    task_phrases: Vec<String>,
-    #[serde(default)]
-    entities: Vec<String>,
-    #[serde(default)]
     ui_elements_json: Option<String>,
+    confidence: Option<f64>,
 }
 
-fn vision_ui_fallback_command() -> Option<String> {
-    env::var("RITUAL_VISION_UI_FALLBACK_COMMAND")
+fn vision_fallback_env_set(name: &str) -> Vec<String> {
+    env::var(name)
         .ok()
-        .map(|value| value.trim().to_string())
+        .unwrap_or_default()
+        .split(',')
+        .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
+        .collect()
 }
 
 fn app_allows_vision_fallback(app_bundle_id: &str, app_name: &str) -> bool {
     let bundle = app_bundle_id.to_ascii_lowercase();
     let app = app_name.to_ascii_lowercase();
-    bundle.contains("cursor")
-        || bundle.contains("codex")
-        || bundle.contains("code")
-        || app.contains("cursor")
-        || app.contains("codex")
+
+    let denied = vision_fallback_env_set("RITUAL_VISION_FALLBACK_DENYLIST");
+    if denied
+        .iter()
+        .any(|token| bundle.contains(token) || app.contains(token))
+    {
+        return false;
+    }
+
+    let allowed = vision_fallback_env_set("RITUAL_VISION_FALLBACK_ALLOWLIST");
+    if !allowed.is_empty() {
+        return allowed
+            .iter()
+            .any(|token| bundle.contains(token) || app.contains(token));
+    }
+
+    let known_ax_poor_shells = [
+        "claude",
+        "codex",
+        "code",
+        "cursor",
+        "discord",
+        "electron",
+        "figma",
+        "linear",
+        "notion",
+        "obsidian",
+        "ritual",
+        "slack",
+        "todesktop",
+    ];
+    known_ax_poor_shells
+        .iter()
+        .any(|token| bundle.contains(token) || app.contains(token))
 }
 
 fn compose_vision_retrieval_text(result: &VisionUiFallbackResult) -> String {
@@ -524,14 +553,11 @@ fn compose_vision_retrieval_text(result: &VisionUiFallbackResult) -> String {
             parts.push(trimmed.to_string());
         }
     }
-    if !result.artifact_refs.is_empty() {
-        parts.push(format!("Artifacts: {}", result.artifact_refs.join(", ")));
-    }
-    if !result.task_phrases.is_empty() {
-        parts.push(format!("Tasks: {}", result.task_phrases.join(" | ")));
-    }
-    if !result.entities.is_empty() {
-        parts.push(format!("Entities: {}", result.entities.join(", ")));
+    if let Some(title) = result.document_title.as_deref() {
+        let trimmed = title.trim();
+        if !trimmed.is_empty() {
+            parts.push(format!("Document: {trimmed}"));
+        }
     }
     parts.join(" | ")
 }
@@ -553,20 +579,42 @@ fn merge_visible_text(primary: &str, secondary: &str) -> String {
     }
 }
 
+fn native_capture_trigger_kind_for_event(
+    event: &WindowChangeEvent,
+    delayed_follow_up: bool,
+) -> String {
+    let base = match event.change_type {
+        window_observer::WindowChangeType::SelectedTextChanged => "ax_selected_text_changed",
+        window_observer::WindowChangeType::ValueChanged => "ax_value_changed",
+        window_observer::WindowChangeType::FocusedUIElementChanged => "ax_focus_changed",
+        window_observer::WindowChangeType::MainWindowChanged => "ax_main_window_changed",
+        window_observer::WindowChangeType::TitleChanged => "ax_title_changed",
+    };
+    if delayed_follow_up {
+        format!("{base}_followup")
+    } else {
+        base.to_string()
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn maybe_run_vision_ui_fallback(
     app_bundle_id: &str,
     app_name: &str,
+    window_title: Option<&str>,
     focused_text_info: &macos::FocusedTextInfo,
 ) -> Option<VisionUiFallbackResult> {
     if focused_text_info.is_sensitive
         || !app_allows_vision_fallback(app_bundle_id, app_name)
-        || focused_text_info.ax_richness_score >= 0.55
-        || focused_text_info.quality_score >= 0.65
     {
         return None;
     }
-    let command = vision_ui_fallback_command()?;
+    let vision_worthy = focused_text_info.ax_richness_score < 0.55
+        || focused_text_info.ax_thinness_score >= 0.45
+        || focused_text_info.quality_score < 0.65;
+    if !vision_worthy {
+        return None;
+    }
     let screenshot_path = env::temp_dir().join(format!(
         "ritual-vision-fallback-{}-{}.png",
         std::process::id(),
@@ -580,29 +628,33 @@ fn maybe_run_vision_ui_fallback(
         let _ = fs::remove_file(&screenshot_path);
         return None;
     }
-    let output = std::process::Command::new("/bin/sh")
-        .arg("-lc")
-        .arg(&command)
-        .env("RITUAL_SCREENSHOT_PATH", &screenshot_path)
-        .env("RITUAL_APP_BUNDLE_ID", app_bundle_id)
-        .env("RITUAL_APP_NAME", app_name)
-        .output()
-        .ok()?;
+    let output = vision_helper::run_vision_helper(
+        &screenshot_path,
+        app_bundle_id,
+        app_name,
+        window_title,
+    );
     let _ = fs::remove_file(&screenshot_path);
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return None;
-    }
-    serde_json::from_str::<VisionUiFallbackResult>(&stdout).ok()
+    let output = output?;
+    let visible_text_raw = output.visible_text_raw.trim().to_string();
+    let visible_text_norm = normalize_visible_text(&visible_text_raw);
+    let ui_elements_json = elements_to_ui_elements_json(&output.elements);
+    Some(VisionUiFallbackResult {
+        document_title: window_title
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        visible_text_raw: (!visible_text_raw.is_empty()).then_some(visible_text_raw),
+        visible_text_norm: (!visible_text_norm.is_empty()).then_some(visible_text_norm),
+        ui_elements_json,
+        confidence: output.overall_confidence,
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
 fn maybe_run_vision_ui_fallback(
     _app_bundle_id: &str,
     _app_name: &str,
+    _window_title: Option<&str>,
     _focused_text_info: &macos::FocusedTextInfo,
 ) -> Option<VisionUiFallbackResult> {
     None
@@ -613,20 +665,21 @@ fn derive_native_capture_trigger(
     active_pid: Option<i32>,
     now_ms: u64,
     recent_event: Option<&WindowChangeEvent>,
+    delayed_follow_up: bool,
 ) -> NativeCaptureTrigger {
     if let (Some(pid), Some(event)) = (active_pid, recent_event) {
         if pid == event.pid {
             let latency = now_ms.saturating_sub(event.timestamp_ms) as i64;
             if latency <= 2_500 {
                 return NativeCaptureTrigger {
-                    kind: "ax_event".to_string(),
+                    kind: native_capture_trigger_kind_for_event(event, delayed_follow_up),
                     latency_ms: Some(latency),
                 };
             }
         }
     }
     NativeCaptureTrigger {
-        kind: "polling".to_string(),
+        kind: "polling_idle".to_string(),
         latency_ms: None,
     }
 }
@@ -636,9 +689,10 @@ fn derive_native_capture_trigger(
     _active_pid: Option<i32>,
     _now_ms: u64,
     _recent_event: Option<&()>,
+    _delayed_follow_up: bool,
 ) -> NativeCaptureTrigger {
     NativeCaptureTrigger {
-        kind: "polling".to_string(),
+        kind: "polling_idle".to_string(),
         latency_ms: None,
     }
 }
@@ -658,7 +712,12 @@ fn record_native_context_snapshot(
     focused_text_info: &macos::FocusedTextInfo,
     capture_trigger: &NativeCaptureTrigger,
 ) {
-    let vision_fallback = maybe_run_vision_ui_fallback(app_bundle_id, app_name, focused_text_info);
+    let vision_fallback = maybe_run_vision_ui_fallback(
+        app_bundle_id,
+        app_name,
+        window_title.as_deref(),
+        focused_text_info,
+    );
     let vision_text = vision_fallback
         .as_ref()
         .map(compose_vision_retrieval_text)
@@ -668,13 +727,24 @@ fn record_native_context_snapshot(
         &vision_text,
     );
     let mut visible_text_norm = normalize_visible_text(&visible_text_raw);
-    let mut source_type = if visible_text_norm.is_empty() {
+    let base_source_type = if visible_text_norm.is_empty() {
         "window_metadata_fallback"
     } else {
         "macos_accessibility_deep"
     };
-    if vision_fallback.is_some() && focused_text_info.ax_richness_score < 0.55 {
-        source_type = "vision_ui_fallback";
+    let mut source_type = base_source_type;
+    if vision_fallback.is_some() {
+        source_type = if focused_text_info
+            .text
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        {
+            "vision_ui_fallback"
+        } else {
+            "hybrid_native"
+        };
     }
     if visible_text_norm.is_empty() && vision_fallback.is_some() {
         visible_text_raw = vision_text;
@@ -720,7 +790,7 @@ fn record_native_context_snapshot(
     snapshot.document_path = focused_text_info.document_path.clone();
     snapshot.ax_source = focused_text_info.ax_source.clone();
     snapshot.capture_trigger = Some(
-        if source_type == "window_metadata_fallback" && capture_trigger.kind == "polling" {
+        if source_type == "window_metadata_fallback" && capture_trigger.kind == "polling_idle" {
             "idle_fallback".to_string()
         } else {
             capture_trigger.kind.clone()
@@ -943,7 +1013,7 @@ fn configure_process_as_background_agent() {
 fn pump_run_loop(duration: Duration) {
     use core_foundation_sys::runloop::{kCFRunLoopDefaultMode, CFRunLoopRunInMode};
     unsafe {
-        CFRunLoopRunInMode(kCFRunLoopDefaultMode, duration.as_secs_f64(), 0);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, duration.as_secs_f64(), 1);
     }
 }
 
@@ -990,6 +1060,22 @@ fn decide_session_action(
         }
         None => (SessionAction::CreateNew, None),
     }
+}
+
+fn scheduled_pump_duration(
+    default_duration: Duration,
+    now_ms: u64,
+    follow_up_deadline_ms: Option<u64>,
+) -> Duration {
+    let mut duration = default_duration;
+    if let Some(deadline_ms) = follow_up_deadline_ms {
+        if deadline_ms <= now_ms {
+            return Duration::from_millis(25);
+        }
+        let until_deadline = Duration::from_millis(deadline_ms.saturating_sub(now_ms));
+        duration = duration.min(until_deadline);
+    }
+    duration
 }
 
 fn storage_title_fields(
@@ -1374,6 +1460,10 @@ fn run_watcher_loop(
     let window_change_listener: Option<()> = None;
     #[cfg(target_os = "macos")]
     let mut last_window_change_event: Option<WindowChangeEvent> = None;
+    #[cfg(target_os = "macos")]
+    let mut pending_follow_up_capture_ms: Option<u64> = None;
+    #[cfg(target_os = "macos")]
+    let mut recent_window_event_debounce_ms: HashMap<String, u64> = HashMap::new();
 
     // Track screen lock state
     let mut is_screen_locked = false;
@@ -1644,7 +1734,34 @@ fn run_watcher_loop(
             if let Some(ref listener) = window_change_listener {
                 for event in listener.drain() {
                     if !is_screen_locked {
+                        let event_key = format!(
+                            "{}:{}:{}",
+                            event.pid,
+                            event.change_type,
+                            event.title.as_deref().unwrap_or("")
+                        );
+                        let should_process = recent_window_event_debounce_ms
+                            .get(&event_key)
+                            .map(|previous| event.timestamp_ms.saturating_sub(*previous) >= 300)
+                            .unwrap_or(true);
+                        if !should_process {
+                            continue;
+                        }
+                        recent_window_event_debounce_ms.insert(event_key, event.timestamp_ms);
+                        recent_window_event_debounce_ms.retain(|_, ts| {
+                            event.timestamp_ms.saturating_sub(*ts) <= 30_000
+                        });
                         last_window_change_event = Some(event.clone());
+                        if matches!(
+                            event.change_type,
+                            window_observer::WindowChangeType::FocusedUIElementChanged
+                                | window_observer::WindowChangeType::SelectedTextChanged
+                                | window_observer::WindowChangeType::ValueChanged
+                                | window_observer::WindowChangeType::MainWindowChanged
+                        ) {
+                            pending_follow_up_capture_ms =
+                                Some(event.timestamp_ms.saturating_add(350));
+                        }
                         debug!(
                             "🪟 Window change detected: PID {} - {:?} ({})",
                             event.pid,
@@ -1695,7 +1812,12 @@ fn run_watcher_loop(
 
         // ===== SKIP PROCESSING IF SCREEN IS LOCKED =====
         if is_screen_locked {
-            pump_run_loop(poll_interval);
+            #[cfg(target_os = "macos")]
+            let sleep_duration =
+                scheduled_pump_duration(poll_interval, now, pending_follow_up_capture_ms);
+            #[cfg(not(target_os = "macos"))]
+            let sleep_duration = poll_interval;
+            pump_run_loop(sleep_duration);
             continue;
         }
 
@@ -1805,7 +1927,12 @@ fn run_watcher_loop(
                             set_active_browser(None);
                         }
                     }
-                    pump_run_loop(poll_interval);
+                    #[cfg(target_os = "macos")]
+                    let sleep_duration =
+                        scheduled_pump_duration(poll_interval, now, pending_follow_up_capture_ms);
+                    #[cfg(not(target_os = "macos"))]
+                    let sleep_duration = poll_interval;
+                    pump_run_loop(sleep_duration);
                     continue;
                 }
 
@@ -1846,7 +1973,12 @@ fn run_watcher_loop(
                         );
                     }
                     current_session = None;
-                    pump_run_loop(poll_interval);
+                    #[cfg(target_os = "macos")]
+                    let sleep_duration =
+                        scheduled_pump_duration(poll_interval, now, pending_follow_up_capture_ms);
+                    #[cfg(not(target_os = "macos"))]
+                    let sleep_duration = poll_interval;
+                    pump_run_loop(sleep_duration);
                     continue;
                 }
 
@@ -2053,13 +2185,23 @@ fn run_watcher_loop(
                         .as_ref()
                         .and_then(|session| session.event_id);
                     #[cfg(target_os = "macos")]
+                    let delayed_follow_up = pending_follow_up_capture_ms
+                        .map(|deadline_ms| now >= deadline_ms)
+                        .unwrap_or(false);
+                    #[cfg(target_os = "macos")]
+                    if delayed_follow_up {
+                        pending_follow_up_capture_ms = None;
+                    }
+                    #[cfg(target_os = "macos")]
                     let capture_trigger = derive_native_capture_trigger(
                         info.pid,
                         now,
                         last_window_change_event.as_ref(),
+                        delayed_follow_up,
                     );
                     #[cfg(not(target_os = "macos"))]
-                    let capture_trigger = derive_native_capture_trigger(info.pid, now, None);
+                    let capture_trigger =
+                        derive_native_capture_trigger(info.pid, now, None, false);
                     record_native_context_snapshot(
                         db,
                         config,
@@ -2191,7 +2333,12 @@ fn run_watcher_loop(
             last_status_log = now;
         }
 
-        pump_run_loop(poll_interval);
+        #[cfg(target_os = "macos")]
+        let sleep_duration =
+            scheduled_pump_duration(poll_interval, now, pending_follow_up_capture_ms);
+        #[cfg(not(target_os = "macos"))]
+        let sleep_duration = poll_interval;
+        pump_run_loop(sleep_duration);
     }
 
     // ===== SHUTDOWN: Close final session =====

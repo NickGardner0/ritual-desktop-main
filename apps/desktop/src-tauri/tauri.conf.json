@@ -96,7 +96,8 @@
         "depends": []
       },
       "externalBin": [
-        "binaries/ritual-watcher"
+        "binaries/ritual-watcher",
+        "binaries/ritual-vision-helper"
       ],
       "icon": [
         "icons/32x32.png",

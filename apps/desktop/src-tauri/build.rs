@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::SystemTime;
 
 fn ensure_watcher_sidecar_for_tauri() {
@@ -108,13 +109,68 @@ fn ensure_watcher_sidecar_for_tauri() {
     );
 }
 
+fn running_on_macos_target() -> bool {
+    std::env::var("TARGET")
+        .map(|target| target.contains("apple-darwin"))
+        .unwrap_or(false)
+}
+
+fn ensure_vision_helper_for_tauri() {
+    if !running_on_macos_target() {
+        return;
+    }
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let script_path = manifest_dir
+        .join("../../../scripts/build-native-vision-helper.sh");
+    if !script_path.exists() {
+        panic!(
+            "ritual-vision-helper build script is missing at {}",
+            script_path.display()
+        );
+    }
+
+    let target = std::env::var("TARGET").unwrap_or_default();
+    let binaries_dir = manifest_dir.join("binaries");
+    let output = Command::new("bash")
+        .arg(&script_path)
+        .arg(&target)
+        .arg(&binaries_dir)
+        .current_dir(&manifest_dir)
+        .output()
+        .unwrap_or_else(|err| panic!("Failed to invoke ritual-vision-helper build script: {err}"));
+
+    if !output.status.success() {
+        panic!(
+            "ritual-vision-helper build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let helper_path = binaries_dir.join(format!("ritual-vision-helper-{target}"));
+    if !helper_path.exists() {
+        panic!(
+            "ritual-vision-helper build completed but {} is missing",
+            helper_path.display()
+        );
+    }
+
+    println!(
+        "cargo:warning=✅ vision helper prepared: {}",
+        helper_path.display()
+    );
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
     println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
+    println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
+    println!("cargo:rerun-if-changed=native-vision/main.swift");
     println!("cargo:rerun-if-env-changed=TARGET");
 
     ensure_watcher_sidecar_for_tauri();
+    ensure_vision_helper_for_tauri();
     tauri_build::build();
 
     println!("cargo:warning=🔨 Building Swift speech recognition library...");

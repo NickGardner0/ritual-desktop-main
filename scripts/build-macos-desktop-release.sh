@@ -122,6 +122,7 @@ UPDATER_SIG="${UPDATER_TAR}.sig"
 LATEST_JSON="${UPDATER_DIR}/latest.json"
 DMG_PATH="${DMG_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.dmg"
 HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-watcher"
+VISION_HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-vision-helper"
 ENTITLEMENTS_PATH="apps/desktop/src-tauri/entitlements.plist"
 KEYCHAIN_PATH="${HOME}/Library/Keychains/login.keychain-db"
 UPDATER_ASSET_URL="${UPDATER_ENDPOINT%/latest.json}/${PRODUCT_NAME}.app.tar.gz"
@@ -157,6 +158,8 @@ rm -rf "${APP_PATH}"
 rm -f "${APP_NOTARY_ZIP}" "${APP_ZIP}" "${UPDATER_TAR}" "${UPDATER_SIG}" "${LATEST_JSON}" "${DMG_PATH}"
 
 SIDECAR_DIR="apps/desktop/src-tauri/binaries"
+echo "Preparing native vision helper..."
+bash scripts/build-native-vision-helper.sh "${UPDATER_PLATFORM}" "${SIDECAR_DIR}"
 echo "Pre-signing sidecar binaries..."
 for bin in "${SIDECAR_DIR}"/*; do
   if [[ -f "${bin}" && -x "${bin}" ]]; then
@@ -175,8 +178,14 @@ if [[ ! -f "${HELPER_PATH}" ]]; then
   exit 1
 fi
 
-echo "Manually signing bundled helper and outer app..."
+if [[ ! -f "${VISION_HELPER_PATH}" ]]; then
+  echo "Bundled vision helper not found at ${VISION_HELPER_PATH}" >&2
+  exit 1
+fi
+
+echo "Manually signing bundled helpers and outer app..."
 sign_macos_path "${HELPER_PATH}"
+sign_macos_path "${VISION_HELPER_PATH}"
 sign_macos_path "${APP_PATH}"
 
 echo "Verifying signed app bundle..."
