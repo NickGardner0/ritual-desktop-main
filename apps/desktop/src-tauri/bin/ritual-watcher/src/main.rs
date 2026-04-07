@@ -275,12 +275,6 @@ static VISION_CAPTURE_DISABLED_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 static VISION_CAPTURE_LAST_WARNING_MS: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(target_os = "macos")]
-#[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
-    fn CGPreflightScreenCaptureAccess() -> bool;
-}
-
-#[cfg(target_os = "macos")]
 fn vision_capture_log_block(reason: &str, cooldown_ms: u64) {
     let now = now_ms();
     let last = VISION_CAPTURE_LAST_WARNING_MS.load(Ordering::Relaxed);
@@ -309,11 +303,6 @@ fn block_vision_capture(reason: &str, cooldown_ms: u64) {
 #[cfg(target_os = "macos")]
 fn unblock_vision_capture() {
     VISION_CAPTURE_DISABLED_UNTIL_MS.store(0, Ordering::Relaxed);
-}
-
-#[cfg(target_os = "macos")]
-fn screen_capture_access_granted() -> bool {
-    unsafe { CGPreflightScreenCaptureAccess() }
 }
 
 #[cfg(target_os = "macos")]
@@ -686,13 +675,9 @@ fn maybe_run_vision_ui_fallback(
     if vision_capture_backoff_active(now) {
         return None;
     }
-    if !screen_capture_access_granted() {
-        block_vision_capture(
-            "screen capture preflight denied for the current watcher process",
-            VISION_CAPTURE_DENIED_COOLDOWN_MS,
-        );
-        return None;
-    }
+    // Treat actual screencapture execution as the source of truth. On some
+    // startup paths CGPreflightScreenCaptureAccess() can return a false
+    // negative even though the watcher binary already has TCC approval.
     let screenshot_path = env::temp_dir().join(format!(
         "ritual-vision-fallback-{}-{}.png",
         std::process::id(),
