@@ -1,112 +1,100 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::SystemTime;
 
 fn ensure_watcher_sidecar_for_tauri() {
+    let manifest_dir = PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"),
+    );
     let target = std::env::var("TARGET").unwrap_or_default();
     if target.is_empty() {
         println!("cargo:warning=⚠️ Unable to determine TARGET for watcher sidecar");
         return;
     }
 
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     let sidecar_name = format!("ritual-watcher-{target}");
-    let sidecar_dir = PathBuf::from("binaries");
+    let sidecar_dir = manifest_dir.join("binaries");
     let sidecar_path = sidecar_dir.join(&sidecar_name);
-    let candidates = [
-        PathBuf::from("bin/ritual-watcher/target/release/ritual-watcher"),
-        PathBuf::from("target/release/ritual-watcher"),
-        PathBuf::from("bin/ritual-watcher/target/debug/ritual-watcher"),
-        PathBuf::from("target/debug/ritual-watcher"),
-    ];
+    let watcher_manifest = manifest_dir.join("bin/ritual-watcher/Cargo.toml");
+    let watcher_target_dir = manifest_dir.join("target/watcher-sidecar-build");
+    let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
-    let force_refresh = std::env::var("RITUAL_FORCE_SIDECAR_REFRESH")
-        .map(|v| {
-            let value = v.trim().to_ascii_lowercase();
-            matches!(value.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false);
-
-    let existing_mtime = std::fs::metadata(&sidecar_path)
-        .and_then(|meta| meta.modified())
-        .ok();
-
-    let mut newest_candidate: Option<(PathBuf, SystemTime)> = None;
-    for candidate in candidates {
-        let Ok(meta) = std::fs::metadata(&candidate) else {
-            continue;
-        };
-        let Ok(modified) = meta.modified() else {
-            continue;
-        };
-        match &newest_candidate {
-            Some((_, current_modified)) if *current_modified >= modified => {}
-            _ => newest_candidate = Some((candidate, modified)),
-        }
-    }
-
-    if let Some((candidate_path, candidate_mtime)) = newest_candidate {
-        let should_copy = force_refresh
-            || existing_mtime
-                .map(|existing| candidate_mtime > existing)
-                .unwrap_or(true);
-        if should_copy {
-            if let Err(e) = std::fs::create_dir_all(&sidecar_dir) {
-                println!(
-                    "cargo:warning=⚠️ Failed to create sidecar directory {}: {}",
-                    sidecar_dir.display(),
-                    e
-                );
-                return;
-            }
-
-            match std::fs::copy(&candidate_path, &sidecar_path) {
-                Ok(_) => {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        if let Ok(metadata) = std::fs::metadata(&sidecar_path) {
-                            let mut permissions = metadata.permissions();
-                            permissions.set_mode(0o755);
-                            let _ = std::fs::set_permissions(&sidecar_path, permissions);
-                        }
-                    }
-
-                    println!(
-                        "cargo:warning=✅ watcher sidecar prepared: {} -> {}",
-                        candidate_path.display(),
-                        sidecar_path.display()
-                    );
-                    return;
-                }
-                Err(e) => {
-                    println!(
-                        "cargo:warning=⚠️ Failed to copy watcher sidecar from {}: {}",
-                        candidate_path.display(),
-                        e
-                    );
-                }
-            }
-        } else {
-            println!(
-                "cargo:warning=✅ watcher sidecar up-to-date: {}",
-                sidecar_path.display()
-            );
-            return;
-        }
-    }
-
-    if sidecar_path.exists() {
-        println!(
-            "cargo:warning=✅ watcher sidecar present (no newer local candidate found): {}",
-            sidecar_path.display()
+    if let Err(err) = fs::create_dir_all(&sidecar_dir) {
+        panic!(
+            "Failed to create watcher sidecar directory {}: {}",
+            sidecar_dir.display(),
+            err
         );
-        return;
+    }
+
+    let mut command = Command::new(cargo_bin);
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(&watcher_manifest)
+        .arg("--bin")
+        .arg("ritual-watcher")
+        .arg("--target")
+        .arg(&target)
+        .arg("--target-dir")
+        .arg(&watcher_target_dir);
+
+    if profile == "release" {
+        command.arg("--release");
+    }
+
+    let output = command.current_dir(&manifest_dir).output().unwrap_or_else(|err| {
+        panic!(
+            "Failed to invoke cargo build for watcher sidecar using {}: {}",
+            watcher_manifest.display(),
+            err
+        )
+    });
+
+    if !output.status.success() {
+        panic!(
+            "watcher sidecar build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let built_binary = watcher_target_binary_path(&watcher_target_dir, &target, &profile);
+    if !built_binary.exists() {
+        panic!(
+            "watcher sidecar build completed but {} is missing",
+            built_binary.display()
+        );
+    }
+
+    fs::copy(&built_binary, &sidecar_path).unwrap_or_else(|err| {
+        panic!(
+            "Failed to copy watcher sidecar {} -> {}: {}",
+            built_binary.display(),
+            sidecar_path.display(),
+            err
+        )
+    });
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&sidecar_path) {
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o755);
+            let _ = fs::set_permissions(&sidecar_path, permissions);
+        }
     }
 
     println!(
-        "cargo:warning=⚠️ watcher sidecar not found at {}. Run apps/desktop/src-tauri/bin/ritual-watcher/build.sh",
+        "cargo:warning=✅ watcher sidecar prepared: {} -> {}",
+        built_binary.display(),
         sidecar_path.display()
     );
+}
+
+fn watcher_target_binary_path(target_dir: &Path, target: &str, profile: &str) -> PathBuf {
+    target_dir.join(target).join(profile).join("ritual-watcher")
 }
 
 fn running_on_macos_target() -> bool {
@@ -121,8 +109,7 @@ fn ensure_vision_helper_for_tauri() {
     }
 
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let script_path = manifest_dir
-        .join("../../../scripts/build-native-vision-helper.sh");
+    let script_path = manifest_dir.join("../../../scripts/build-native-vision-helper.sh");
     if !script_path.exists() {
         panic!(
             "ritual-vision-helper build script is missing at {}",
@@ -163,6 +150,10 @@ fn ensure_vision_helper_for_tauri() {
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=bin/ritual-watcher/Cargo.toml");
+    println!("cargo:rerun-if-changed=bin/ritual-watcher/src");
+    println!("cargo:rerun-if-changed=crates/ritual-db/Cargo.toml");
+    println!("cargo:rerun-if-changed=crates/ritual-db/src");
     println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
     println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
     println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
@@ -212,13 +203,15 @@ fn main() {
             .arg(swift_file)
             .env("CLANG_MODULE_CACHE_PATH", &module_cache_dir);
 
-        let swift_output = swift_command
-            .output();
+        let swift_output = swift_command.output();
 
         match swift_output {
             Ok(result) => {
                 if !result.status.success() {
-                    println!("cargo:warning=❌ Failed to compile {}", swift_file.display());
+                    println!(
+                        "cargo:warning=❌ Failed to compile {}",
+                        swift_file.display()
+                    );
                     println!(
                         "cargo:warning=Error: {}",
                         String::from_utf8_lossy(&result.stderr)
