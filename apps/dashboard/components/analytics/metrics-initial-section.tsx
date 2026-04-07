@@ -33,6 +33,8 @@ export function MetricsInitialSection({
   onBarListRangeChange,
   computerTimeRangePreset,
 }: MetricsInitialSectionProps) {
+  const comparisonLabel = barListRange === 'ALL' ? undefined : `vs prior ${barListRange}`;
+
   return (
     <>
       {cardGrid}
@@ -53,6 +55,7 @@ export function MetricsInitialSection({
               showRangeSelector
               activeRange={barListRange}
               onRangeChange={onBarListRangeChange}
+              comparisonLabel={comparisonLabel}
             />
             <ComputerTimeBarList activeRange={barListRange} onRangeChange={onBarListRangeChange} />
           </div>

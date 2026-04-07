@@ -33,11 +33,21 @@ interface VercelBarListCardProps {
   onRangeChange?: (range: BarListRange) => void;
   showRangeSelector?: boolean;
   visibleRows?: number;
+  /** Optional label clarifying the % comparison baseline (e.g. "vs prior 1M"). */
+  comparisonLabel?: string;
 }
 
 // ── Change Badge ──
 
-function ChangeBadge({ change, label }: { change?: number; label?: string }) {
+function ChangeBadge({
+  change,
+  label,
+  higherIsBetter,
+}: {
+  change?: number;
+  label?: string;
+  higherIsBetter?: boolean;
+}) {
   if (label) {
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.58)] tabular-nums">
@@ -66,18 +76,22 @@ function ChangeBadge({ change, label }: { change?: number; label?: string }) {
   }
 
   const isUp = change > 0;
+  // Arrow always reflects direction; color reflects improvement when we know
+  // higherIsBetter, otherwise falls back to direction-only.
+  const isImprovement = higherIsBetter == null ? isUp : (higherIsBetter ? isUp : !isUp);
+  const arrow = isUp ? '↗' : '↘';
 
-  if (isUp) {
+  if (isImprovement) {
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(19,106,34,0.08)] text-[#136A22] tabular-nums">
-        ↗ {display}%
+        {arrow} {display}%
       </span>
     );
   }
 
   return (
     <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(162,53,68,0.08)] text-[#A23544] tabular-nums">
-      ↘ {display}%
+      {arrow} {display}%
     </span>
   );
 }
@@ -92,6 +106,7 @@ export function VercelBarListCard({
   onRangeChange,
   showRangeSelector = false,
   visibleRows = 8,
+  comparisonLabel,
 }: VercelBarListCardProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id || '');
 
@@ -119,6 +134,13 @@ export function VercelBarListCard({
               </button>
             ))}
           </div>
+
+          {/* Comparison baseline label (e.g. "vs prior 1M") */}
+          {comparisonLabel && (
+            <span className="text-[10.5px] font-normal text-[rgba(39,37,30,0.45)] tabular-nums px-1.5">
+              {comparisonLabel}
+            </span>
+          )}
 
           {/* Date range selector */}
           {showRangeSelector && onRangeChange && (
@@ -157,7 +179,11 @@ export function VercelBarListCard({
             </span>
             {(item.change !== undefined || item.changeLabel !== undefined) && (
               <span className="ml-1.5 shrink-0 min-w-[56px] text-right">
-                <ChangeBadge change={item.change} label={item.changeLabel} />
+                <ChangeBadge
+                  change={item.change}
+                  label={item.changeLabel}
+                  higherIsBetter={item.higherIsBetter}
+                />
               </span>
             )}
           </div>

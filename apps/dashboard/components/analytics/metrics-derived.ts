@@ -225,15 +225,27 @@ export function buildHabitMetricCardData({
   logs,
   summary,
   isWideRange,
+  rangeFrom,
+  rangeTo,
 }: {
   habit: MetricHabitLike | null | undefined;
   logs: MetricDailyRow[];
   summary?: MetricSummaryLike;
   isWideRange: boolean;
+  /** When provided, compare current [rangeFrom, rangeTo] vs the prior equivalent window. */
+  rangeFrom?: Date;
+  rangeTo?: Date;
 }): MetricCardData | null {
   if (!habit) return null;
 
-  const chartData = toMetricChartData(logs);
+  const allChartData = toMetricChartData(logs);
+  // When a custom range is selected, the upstream fetch may include rows from
+  // the prior equivalent window so we can compute % change. Keep `allChartData`
+  // for that comparison, but trim `chartData` to the visible window so totals
+  // and the rendered sparkline only reflect what the user actually selected.
+  const chartData = (rangeFrom && rangeTo)
+    ? allChartData.filter((d) => d.rawDate >= rangeFrom && d.rawDate <= rangeTo)
+    : allChartData;
   const safeSummary = summary || {};
   const localTotal = chartData.reduce((sum, d) => sum + d.value, 0);
   const localAverage = chartData.length > 0 ? localTotal / chartData.length : 0;
@@ -244,7 +256,23 @@ export function buildHabitMetricCardData({
   let previousValue: number;
   let currentValue: number;
 
-  if (isWideRange && chartData.length > 0) {
+  if (rangeFrom && rangeTo && allChartData.length > 0) {
+    // Honor the selected window: compare it against an immediately-prior window
+    // of the same length, using non-zero day averages so partial-day boundaries
+    // do not skew the comparison.
+    const len = rangeTo.getTime() - rangeFrom.getTime();
+    const priorFrom = new Date(rangeFrom.getTime() - len);
+    const recentDays = allChartData.filter((d) => d.rawDate >= rangeFrom && d.rawDate <= rangeTo && d.value > 0);
+    const priorDays = allChartData.filter((d) => d.rawDate >= priorFrom && d.rawDate < rangeFrom && d.value > 0);
+
+    latestValue = recentDays.length > 0
+      ? recentDays.reduce((sum, d) => sum + d.value, 0) / recentDays.length
+      : 0;
+    previousValue = priorDays.length > 0
+      ? priorDays.reduce((sum, d) => sum + d.value, 0) / priorDays.length
+      : 0;
+    currentValue = latestValue || Number(safeSummary.current_value ?? localAverage ?? 0);
+  } else if (isWideRange && chartData.length > 0) {
     const now = new Date();
     const thirtyDaysAgo = subDays(now, 30);
     const sixtyDaysAgo = subDays(now, 60);
@@ -299,13 +327,17 @@ export function buildHabitMetricCardData({
 export function buildComputerActivityMetricCardData({
   rows,
   isWideRange,
+  rangeFrom,
+  rangeTo,
 }: {
   rows: MetricDailyRow[];
   isWideRange: boolean;
+  rangeFrom?: Date;
+  rangeTo?: Date;
 }): MetricCardData | null {
   if (!rows.length) return null;
 
-  const chartData = rows.map((row) => {
+  const allChartData = rows.map((row) => {
     const date = parseISO(String(row.day));
     return {
       date: format(date, 'MMM dd'),
@@ -315,6 +347,12 @@ export function buildComputerActivityMetricCardData({
     };
   });
 
+  // Same trim trick as buildHabitMetricCardData: keep `allChartData` for the
+  // prior-window comparison but only display rows inside the visible window.
+  const chartData = (rangeFrom && rangeTo)
+    ? allChartData.filter((d) => d.rawDate >= rangeFrom && d.rawDate <= rangeTo)
+    : allChartData;
+
   const values = chartData.map((d) => Number(d.value || 0));
   const total = values.reduce((sum, value) => sum + value, 0);
   const average = values.length > 0 ? total / values.length : 0;
@@ -322,7 +360,19 @@ export function buildComputerActivityMetricCardData({
   let latestValue: number;
   let previousValue: number;
 
-  if (isWideRange && chartData.length > 0) {
+  if (rangeFrom && rangeTo && allChartData.length > 0) {
+    const len = rangeTo.getTime() - rangeFrom.getTime();
+    const priorFrom = new Date(rangeFrom.getTime() - len);
+    const recentDays = allChartData.filter((d) => d.rawDate >= rangeFrom && d.rawDate <= rangeTo && d.value > 0);
+    const priorDays = allChartData.filter((d) => d.rawDate >= priorFrom && d.rawDate < rangeFrom && d.value > 0);
+
+    latestValue = recentDays.length > 0
+      ? recentDays.reduce((sum, d) => sum + d.value, 0) / recentDays.length
+      : 0;
+    previousValue = priorDays.length > 0
+      ? priorDays.reduce((sum, d) => sum + d.value, 0) / priorDays.length
+      : 0;
+  } else if (isWideRange && chartData.length > 0) {
     const now = new Date();
     const thirtyDaysAgo = subDays(now, 30);
     const sixtyDaysAgo = subDays(now, 60);
@@ -383,6 +433,9 @@ export function buildMetricsBarData({
   rangeTo: Date;
   computerActivityDaily: MetricDailyRow[];
 }): MetricsBarDatum[] {
+  const windowMs = rangeTo.getTime() - rangeFrom.getTime();
+  const priorFrom = new Date(rangeFrom.getTime() - windowMs);
+
   const barData = habits
     .map((habit) => {
       const logs = analyticsDataByHabit[habit.habit_id] || [];
@@ -405,21 +458,23 @@ export function buildMetricsBarData({
       const total = values.reduce((sum, value) => sum + value, 0);
       const displayVal = useAverage ? total / values.length : total;
 
-      const midPoint = new Date((rangeFrom.getTime() + rangeTo.getTime()) / 2);
-      const firstHalf = rangeLogs.filter((log) => parseISO(String(log.date)) < midPoint);
-      const secondHalf = rangeLogs.filter((log) => parseISO(String(log.date)) >= midPoint);
-      const firstValues = firstHalf
-        .map((log) => Number(log.daily_value ?? log.value ?? log.total_amount ?? 0))
-        .filter((value) => value > 0);
-      const secondValues = secondHalf
+      // Compare the visible window against the immediately-prior equivalent
+      // window. Use per-day averages so partial day-counts on either side do
+      // not skew the comparison (the displayed value above is still the
+      // window total/average and remains unchanged).
+      const priorLogs = logs.filter((log) => {
+        if (!log.date) return false;
+        const date = parseISO(log.date);
+        return date >= priorFrom && date < rangeFrom;
+      });
+      const priorValues = priorLogs
         .map((log) => Number(log.daily_value ?? log.value ?? log.total_amount ?? 0))
         .filter((value) => value > 0);
 
-      const firstSum = firstValues.reduce((sum, value) => sum + value, 0);
-      const secondSum = secondValues.reduce((sum, value) => sum + value, 0);
-      const firstCompare = useAverage && firstValues.length > 0 ? firstSum / firstValues.length : firstSum;
-      const secondCompare = useAverage && secondValues.length > 0 ? secondSum / secondValues.length : secondSum;
-      const change = computeMeaningfulPercentChange(secondCompare, firstCompare, unit);
+      const currentPerDay = values.length > 0 ? total / values.length : 0;
+      const priorTotal = priorValues.reduce((sum, value) => sum + value, 0);
+      const priorPerDay = priorValues.length > 0 ? priorTotal / priorValues.length : 0;
+      const change = computeMeaningfulPercentChange(currentPerDay, priorPerDay, unit);
 
       return {
         habitId: habit.habit_id,
@@ -427,7 +482,7 @@ export function buildMetricsBarData({
         avg: displayVal,
         unit,
         change,
-        changeLabel: change === undefined ? 'New' : undefined,
+        changeLabel: undefined,
         higherIsBetter,
         daysWithData: values.length,
         category: getMetricCategoryForHabit(habit.habit_name, habit.category),
@@ -443,18 +498,17 @@ export function buildMetricsBarData({
     const compValues = compLogs.map((row) => Number(row.active_hours || 0)).filter((value) => value > 0);
     if (compValues.length > 0) {
       const compTotal = compValues.reduce((sum, value) => sum + value, 0);
-      const midPoint = new Date((rangeFrom.getTime() + rangeTo.getTime()) / 2);
-      const compFirst = compLogs
-        .filter((row) => parseISO(String(row.day)) < midPoint)
+      const compPriorValues = computerActivityDaily
+        .filter((row) => {
+          const date = parseISO(String(row.day));
+          return date >= priorFrom && date < rangeFrom;
+        })
         .map((row) => Number(row.active_hours || 0))
         .filter((value) => value > 0);
-      const compSecond = compLogs
-        .filter((row) => parseISO(String(row.day)) >= midPoint)
-        .map((row) => Number(row.active_hours || 0))
-        .filter((value) => value > 0);
-      const compFirstTotal = compFirst.reduce((sum, value) => sum + value, 0);
-      const compSecondTotal = compSecond.reduce((sum, value) => sum + value, 0);
-      const compChange = computeMeaningfulPercentChange(compSecondTotal, compFirstTotal, 'hours');
+      const compCurrentPerDay = compValues.length > 0 ? compTotal / compValues.length : 0;
+      const compPriorTotal = compPriorValues.reduce((sum, value) => sum + value, 0);
+      const compPriorPerDay = compPriorValues.length > 0 ? compPriorTotal / compPriorValues.length : 0;
+      const compChange = computeMeaningfulPercentChange(compCurrentPerDay, compPriorPerDay, 'hours');
       barData.push({
         habitId: '__computer_activity__',
         name: COMPUTER_HABIT_DISPLAY_NAME,

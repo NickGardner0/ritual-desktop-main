@@ -11,6 +11,39 @@ interface ComputerTimeBarListProps {
   onRangeChange: (range: BarListRange) => void;
 }
 
+function rangeLabel(range: BarListRange): string | undefined {
+  if (range === 'ALL') return undefined;
+  return `vs prior ${range}`;
+}
+
+/**
+ * Merge raw rows that should appear as a single line in the UI.
+ *
+ * Upstream `getTopApps` can return multiple rows that share the same display
+ * name (e.g. "ritual-desktop" backed by both a dev and a release bundle id, or
+ * a process group whose bundle id changed). The bar list previously rendered
+ * those as duplicate rows with contradictory deltas; merge them by display
+ * name so each app/domain appears exactly once.
+ */
+function mergeByName<T extends { hours?: number }>(
+  rows: T[],
+  getName: (row: T) => string,
+): { name: string; hours: number; sources: T[] }[] {
+  const byName = new Map<string, { name: string; hours: number; sources: T[] }>();
+  for (const row of rows) {
+    const name = getName(row).trim();
+    if (!name) continue;
+    const existing = byName.get(name);
+    if (existing) {
+      existing.hours += row.hours || 0;
+      existing.sources.push(row);
+    } else {
+      byName.set(name, { name, hours: row.hours || 0, sources: [row] });
+    }
+  }
+  return [...byName.values()].sort((a, b) => b.hours - a.hours);
+}
+
 const BAR_LIST_ROW_LIMIT = 12;
 const BAR_LIST_COMPARE_FETCH_LIMIT = 100;
 
@@ -53,12 +86,12 @@ function computeAppOrDomainChange(currentHours: number, previousHours: number): 
   return undefined;
 }
 
-function getAppComparisonKey(app: { app_bundle_id?: string | null; app_name?: string | null }): string {
-  return String(app.app_bundle_id || app.app_name || 'Unknown').trim();
+function getAppDisplayName(app: { app_bundle_id?: string | null; app_name?: string | null }): string {
+  return String(app.app_name || app.app_bundle_id || 'Unknown');
 }
 
-function getDomainComparisonKey(domain: { domain?: string | null }): string {
-  return String(domain.domain || 'Unknown').trim().toLowerCase();
+function getDomainDisplayName(domain: { domain?: string | null }): string {
+  return String(domain.domain || 'Unknown').toLowerCase();
 }
 
 export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTimeBarListProps) {
@@ -66,28 +99,34 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
   const [domainsData, setDomainsData] = useState<BarListItem[]>([]);
   const fetchIdRef = useRef(0);
 
-  // Phase 1: Fetch full-range data (fast, shows results immediately)
+  // Phase 1: Fetch full-range data (fast, shows results immediately).
+  // Phase 2: Fetch the prior equivalent window for % change comparison.
   const fetchData = useCallback(async () => {
     const id = ++fetchIdRef.current;
     try {
       const { from, to } = getRangeDatesLocal(activeRange);
       const startDate = format(from, 'yyyy-MM-dd');
       const endDate = format(to, 'yyyy-MM-dd');
-      const [appsFull, domainsFull] = await Promise.all([
-        getTopApps({ startDate, endDate }, BAR_LIST_ROW_LIMIT),
-        getTopDomains({ startDate, endDate }, BAR_LIST_ROW_LIMIT),
+      const [appsFullRaw, domainsFullRaw] = await Promise.all([
+        getTopApps({ startDate, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
+        getTopDomains({ startDate, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
       ]);
 
       if (id !== fetchIdRef.current) return; // stale
 
-      // Show data immediately without % changes
+      // Merge upstream rows by display name so the same app/domain never
+      // appears twice in the rendered list.
+      const appsFull = mergeByName(appsFullRaw, getAppDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
+      const domainsFull = mergeByName(domainsFullRaw, getDomainDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
+
+      // Show data immediately without % changes.
       if (appsFull.length > 0) {
-        const maxHours = Math.max(...appsFull.map((a: any) => a.hours || 0), 0.01);
+        const maxHours = Math.max(...appsFull.map((a) => a.hours), 0.01);
         setAppsData(
           appsFull.map((app) => ({
-            name: app.app_name || app.app_bundle_id || 'Unknown',
-            value: formatHours(app.hours || 0),
-            barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
+            name: app.name,
+            value: formatHours(app.hours),
+            barPercent: Math.round((app.hours / maxHours) * 100),
           })),
         );
       } else {
@@ -95,91 +134,77 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       }
 
       if (domainsFull.length > 0) {
-        const maxHours = Math.max(...domainsFull.map((d) => d.hours || 0), 0.01);
+        const maxHours = Math.max(...domainsFull.map((d) => d.hours), 0.01);
         setDomainsData(
           domainsFull.map((domain) => ({
-            name: domain.domain || 'Unknown',
-            value: formatHours(domain.hours || 0),
-            barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
+            name: domain.name,
+            value: formatHours(domain.hours),
+            barPercent: Math.round((domain.hours / maxHours) * 100),
           })),
         );
       } else {
         setDomainsData([]);
       }
 
+      // Skip comparison entirely for ALL — there is no meaningful prior window.
+      if (activeRange === 'ALL') return;
+
       try {
-        // Phase 2: Fetch half-range data in background for % changes.
-        // If this slower compare phase fails, preserve the already-loaded rows.
+        // Phase 2: Fetch prior equivalent window. If this slower compare phase
+        // fails, preserve the already-loaded rows.
         if (id !== fetchIdRef.current) return; // stale
 
-        const midPoint = new Date((from.getTime() + to.getTime()) / 2);
-        const firstEnd = format(midPoint, 'yyyy-MM-dd');
-        const secondStart = format(new Date(midPoint.getTime() + 86400000), 'yyyy-MM-dd');
+        const windowMs = to.getTime() - from.getTime();
+        const priorTo = new Date(from.getTime() - 86400000); // day before current window
+        const priorFrom = new Date(priorTo.getTime() - windowMs);
+        const priorStartDate = format(priorFrom, 'yyyy-MM-dd');
+        const priorEndDate = format(priorTo, 'yyyy-MM-dd');
 
-        const [appsFirst, appsSecond, domainsFirst, domainsSecond] = await Promise.all([
-          getTopApps({ startDate, endDate: firstEnd }, BAR_LIST_COMPARE_FETCH_LIMIT),
-          getTopApps({ startDate: secondStart, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
-          getTopDomains({ startDate, endDate: firstEnd }, BAR_LIST_COMPARE_FETCH_LIMIT),
-          getTopDomains({ startDate: secondStart, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
+        const [appsPriorRaw, domainsPriorRaw] = await Promise.all([
+          getTopApps({ startDate: priorStartDate, endDate: priorEndDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
+          getTopDomains({ startDate: priorStartDate, endDate: priorEndDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
         ]);
 
         if (id !== fetchIdRef.current) return; // stale
 
+        const appsPriorByName = new Map<string, number>();
+        for (const merged of mergeByName(appsPriorRaw, getAppDisplayName)) {
+          appsPriorByName.set(merged.name, merged.hours);
+        }
+        const domainsPriorByName = new Map<string, number>();
+        for (const merged of mergeByName(domainsPriorRaw, getDomainDisplayName)) {
+          domainsPriorByName.set(merged.name, merged.hours);
+        }
+
         if (appsFull.length > 0) {
-          const firstMap = new Map<string, number>();
-          for (const a of appsFirst) {
-            const key = getAppComparisonKey(a);
-            firstMap.set(key, (firstMap.get(key) || 0) + (a.hours || 0));
-          }
-          const secondMap = new Map<string, number>();
-          for (const a of appsSecond) {
-            const key = getAppComparisonKey(a);
-            secondMap.set(key, (secondMap.get(key) || 0) + (a.hours || 0));
-          }
-          const maxHours = Math.max(...appsFull.map((a) => a.hours || 0), 0.01);
+          const maxHours = Math.max(...appsFull.map((a) => a.hours), 0.01);
           setAppsData(
             appsFull.map((app) => {
-              const name = app.app_name || app.app_bundle_id || 'Unknown';
-              const key = getAppComparisonKey(app);
-              const previousHours = firstMap.get(key) || 0;
-              const currentHours = secondMap.get(key) || 0;
-              const change = computeAppOrDomainChange(currentHours, previousHours);
+              const previousHours = appsPriorByName.get(app.name) || 0;
+              const change = computeAppOrDomainChange(app.hours, previousHours);
               return {
-                name,
-                value: formatHours(app.hours || 0),
+                name: app.name,
+                value: formatHours(app.hours),
                 change,
-                changeLabel: change === undefined && currentHours > 0 && previousHours <= 0 ? 'New' : undefined,
-                barPercent: Math.round(((app.hours || 0) / maxHours) * 100),
+                changeLabel: change === undefined && app.hours > 0 && previousHours <= 0 ? 'New' : undefined,
+                barPercent: Math.round((app.hours / maxHours) * 100),
               };
             }),
           );
         }
 
         if (domainsFull.length > 0) {
-          const firstMap = new Map<string, number>();
-          for (const d of domainsFirst) {
-            const key = getDomainComparisonKey(d);
-            firstMap.set(key, (firstMap.get(key) || 0) + (d.hours || 0));
-          }
-          const secondMap = new Map<string, number>();
-          for (const d of domainsSecond) {
-            const key = getDomainComparisonKey(d);
-            secondMap.set(key, (secondMap.get(key) || 0) + (d.hours || 0));
-          }
-          const maxHours = Math.max(...domainsFull.map((d) => d.hours || 0), 0.01);
+          const maxHours = Math.max(...domainsFull.map((d) => d.hours), 0.01);
           setDomainsData(
             domainsFull.map((domain) => {
-              const name = domain.domain || 'Unknown';
-              const key = getDomainComparisonKey(domain);
-              const previousHours = firstMap.get(key) || 0;
-              const currentHours = secondMap.get(key) || 0;
-              const change = computeAppOrDomainChange(currentHours, previousHours);
+              const previousHours = domainsPriorByName.get(domain.name) || 0;
+              const change = computeAppOrDomainChange(domain.hours, previousHours);
               return {
-                name,
-                value: formatHours(domain.hours || 0),
+                name: domain.name,
+                value: formatHours(domain.hours),
                 change,
-                changeLabel: change === undefined && currentHours > 0 && previousHours <= 0 ? 'New' : undefined,
-                barPercent: Math.round(((domain.hours || 0) / maxHours) * 100),
+                changeLabel: change === undefined && domain.hours > 0 && previousHours <= 0 ? 'New' : undefined,
+                barPercent: Math.round((domain.hours / maxHours) * 100),
               };
             }),
           );
@@ -214,6 +239,7 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       showRangeSelector
       activeRange={activeRange}
       onRangeChange={onRangeChange}
+      comparisonLabel={rangeLabel(activeRange)}
     />
   );
 }

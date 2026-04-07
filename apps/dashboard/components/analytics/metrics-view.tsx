@@ -759,7 +759,13 @@ export function MetricsView({
       if (!useWideRange) {
         const startDate = format(dateRange!.from!, 'yyyy-MM-dd');
         const endDate = format(dateRange!.to!, 'yyyy-MM-dd');
-        dailyParams.set('start_date', startDate);
+        // Extend the daily fetch back by one window length so the spark cards
+        // can compute "vs prior equivalent window" without a second round trip.
+        // The summary range still reflects the user-selected window only.
+        const windowMs = dateRange!.to!.getTime() - dateRange!.from!.getTime();
+        const priorFromDate = new Date(dateRange!.from!.getTime() - windowMs);
+        const dailyStartDate = format(priorFromDate, 'yyyy-MM-dd');
+        dailyParams.set('start_date', dailyStartDate);
         dailyParams.set('end_date', endDate);
         summaryParams.set('start_date', startDate);
         summaryParams.set('end_date', endDate);
@@ -1029,7 +1035,13 @@ export function MetricsView({
     }
 
     const { from, to } = getRangeDates(barListRange as RangeKey);
-    const startDate = format(from, 'yyyy-MM-dd');
+    // Fetch one extra window-length backwards so the bar list can compare the
+    // visible window against the prior equivalent window. ALL is excluded from
+    // the comparison (see buildMetricsBarData) so we don't double its payload.
+    const isAllRange = (barListRange as RangeKey) === 'ALL';
+    const windowMs = to.getTime() - from.getTime();
+    const fetchFrom = isAllRange ? from : new Date(from.getTime() - windowMs);
+    const startDate = format(fetchFrom, 'yyyy-MM-dd');
     const endDate = format(to, 'yyyy-MM-dd');
     const controller = new AbortController();
     const barListFetchKey = [
@@ -1155,8 +1167,18 @@ export function MetricsView({
     const hasExplicitRange = !!(dateRange?.from && dateRange?.to);
     // Keep the background computer-activity sparkline range bounded so it does not
     // trigger very large daily-series fetches during initial Metrics paint.
-    const startDate = format(hasExplicitRange ? dateRange!.from! : subDays(now, 90), 'yyyy-MM-dd');
-    const endDate = format(hasExplicitRange ? dateRange!.to! : now, 'yyyy-MM-dd');
+    // When the user picked a custom range, fetch one extra window-length
+    // backwards so the spark card can compare against the prior equivalent window.
+    const explicitFrom = hasExplicitRange ? dateRange!.from! : subDays(now, 90);
+    const explicitTo = hasExplicitRange ? dateRange!.to! : now;
+    const explicitWindowMs = hasExplicitRange
+      ? dateRange!.to!.getTime() - dateRange!.from!.getTime()
+      : 0;
+    const fetchFrom = hasExplicitRange
+      ? new Date(explicitFrom.getTime() - explicitWindowMs)
+      : explicitFrom;
+    const startDate = format(fetchFrom, 'yyyy-MM-dd');
+    const endDate = format(explicitTo, 'yyyy-MM-dd');
     const controller = new AbortController();
     let fetchTimer: ReturnType<typeof setTimeout> | null = null;
     const computerFetchKey = `${startDate}|${endDate}`;
@@ -1687,6 +1709,11 @@ export function MetricsView({
     differenceInDays(dateRange.to, dateRange.from) > 60
   ));
 
+  // When the user has explicitly selected a date range, pass it through so the
+  // spark cards compare that exact window vs the prior equivalent window.
+  const sparkRangeFrom = hasCustomDateRange ? dateRange!.from! : undefined;
+  const sparkRangeTo = hasCustomDateRange ? dateRange!.to! : undefined;
+
   const habitCardDataById = useMemo<Record<string, MetricCardData>>(() => {
     const next: Record<string, MetricCardData> = {};
     for (const habit of availableHabits) {
@@ -1697,19 +1724,26 @@ export function MetricsView({
         logs: analyticsData[habitId] || [],
         summary: summaryMetrics[habitId] || {},
         isWideRange,
+        rangeFrom: sparkRangeFrom,
+        rangeTo: sparkRangeTo,
       });
       if (card) {
         next[habitId] = card;
       }
     }
     return next;
-  }, [analyticsData, availableHabits, isWideRange, summaryMetrics]);
+  }, [analyticsData, availableHabits, isWideRange, summaryMetrics, sparkRangeFrom, sparkRangeTo]);
 
   const getHabitCardData = useCallback((habitId: string) => habitCardDataById[habitId] || null, [habitCardDataById]);
 
   const computerActivityCard = useMemo(
-    () => buildComputerActivityMetricCardData({ rows: computerActivityDaily, isWideRange }),
-    [computerActivityDaily, isWideRange],
+    () => buildComputerActivityMetricCardData({
+      rows: computerActivityDaily,
+      isWideRange,
+      rangeFrom: sparkRangeFrom,
+      rangeTo: sparkRangeTo,
+    }),
+    [computerActivityDaily, isWideRange, sparkRangeFrom, sparkRangeTo],
   );
 
   const getHeartRateExpandedData = React.useCallback(() => {
