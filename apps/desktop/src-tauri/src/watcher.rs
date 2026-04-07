@@ -522,9 +522,23 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let running_from_bundled_app = exe_dir
+        .as_ref()
+        .map(|path| path.to_string_lossy().contains(".app/Contents/MacOS"))
+        .unwrap_or(false);
 
-    // Prefer the bundled helper first in release builds so we do not
-    // accidentally launch a stale external copy from ~/.ritual/bin.
+    // On shipped macOS builds, prefer the stable external install path so
+    // Screen Recording permission survives app updates. We still refresh that
+    // external binary from the bundled watcher before resolution.
+    #[cfg(target_os = "macos")]
+    if running_from_bundled_app {
+        if let Some(external) = external_watcher_install_path() {
+            candidates.push(external);
+        }
+    }
+
+    // Prefer the bundled helper next so release builds can still run directly
+    // from the app bundle when no external install exists yet.
     if let Some(exe) = &exe_dir {
         let target = std::env::var("TARGET").unwrap_or_else(|_| String::new());
         if !target.is_empty() {
@@ -562,9 +576,11 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
         }
     }
 
-    // External installs are kept as the last-resort fallback only.
+    // External installs are kept as the last-resort fallback everywhere else.
     if let Some(external) = external_watcher_install_path() {
-        candidates.push(external);
+        if !candidates.iter().any(|candidate| candidate == &external) {
+            candidates.push(external);
+        }
     }
 
     candidates
