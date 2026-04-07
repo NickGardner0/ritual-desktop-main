@@ -394,7 +394,7 @@ export function HomeClient() {
               <div className="animate-in fade-in duration-500">
                 <div className="max-w-lg mx-auto text-left text-gray-900 px-8">
                   <p className="text-xl leading-relaxed">
-                    Ritual is a collection of self-tracking tools and integrations used to measure and quantify your behavior.
+                    Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior.
                   </p>
                   <p className="text-xl leading-relaxed mt-6">
                     As you connect your wearable devices and create logs in the app, the system quietly generates metadata. Over time, your scattered behavior and patterns become structured data that start to form a model of your life.
