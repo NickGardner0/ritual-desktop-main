@@ -8,7 +8,7 @@ members = [
 
 [package]
 name = "app"
-version = "0.1.16"
+version = "0.1.17"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -44,7 +44,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Unified database layer. Local semantic embeddings are opt-in now; default builds
 # keep the Turso-backed activity DB path without linking the local embedding model.
-ritual-db = { path = "crates/ritual-db", default-features = false }
+ritual-db = { path = "crates/ritual-db", default-features = false, features = ["legacy-sqlite-migration"] }
 libsql = "0.9"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
 

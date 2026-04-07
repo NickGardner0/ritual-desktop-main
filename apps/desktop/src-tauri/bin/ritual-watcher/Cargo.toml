@@ -19,13 +19,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
-rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Async runtime for JXA execution
 # (serde_json already included above for JSON parsing)
 
 # Unified database with vector search
-ritual-db = { path = "../../crates/ritual-db" }
+ritual-db = { path = "../../crates/ritual-db", default-features = false }
 
 # macOS specific
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -9,7 +9,6 @@ use ritual_db::blocking::BlockingDatabase;
 use ritual_db::{
     ActivityEvent, ContextSnapshot as RitualContextSnapshot, OcrFrame as RitualOcrFrame,
 };
-use rusqlite::{Connection, OpenFlags};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -41,6 +40,13 @@ impl WatcherDatabase {
             || lower.contains("database busy")
             || lower.contains("busy timeout")
             || lower.contains("sql_busy")
+    }
+
+    fn should_quarantine_after_open(message: &str) -> bool {
+        let lower = message.to_lowercase();
+        Self::is_corruption_error(message)
+            || lower.contains("quick_check reported")
+            || lower.contains("quick_check-failed")
     }
 
     fn db_artifact_paths(path: &Path) -> Vec<PathBuf> {
@@ -132,49 +138,27 @@ impl WatcherDatabase {
             return Ok(());
         }
 
-        let conn = match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
-            Ok(conn) => conn,
-            Err(err) => {
-                let err_text = err.to_string();
-                if Self::is_corruption_error(&err_text) {
-                    Self::quarantine_db_artifacts(
-                        path,
-                        &format!("preflight-open-failed: {}", err_text),
-                    )?;
-                    return Ok(());
-                }
-                return Err(format!(
-                    "Failed to preflight local activity DB {}: {}",
-                    path.display(),
-                    err_text
-                ));
-            }
-        };
+        Ok(())
+    }
 
-        let check: String = match conn.query_row("PRAGMA quick_check(1)", [], |row| row.get(0)) {
-            Ok(result) => result,
-            Err(err) => {
-                let err_text = err.to_string();
-                if Self::is_corruption_error(&err_text) {
-                    Self::quarantine_db_artifacts(
-                        path,
-                        &format!("quick_check-failed: {}", err_text),
-                    )?;
-                    return Ok(());
-                }
-                return Err(format!(
-                    "Failed to run quick_check on {}: {}",
-                    path.display(),
-                    err_text
-                ));
+    fn open_checked_db(path: &Path) -> std::result::Result<BlockingDatabase, String> {
+        let db = BlockingDatabase::open_with_path(path)
+            .map_err(|e| format!("Failed to open database: {}", e))?;
+
+        let check = db.quick_check().map_err(|e| {
+            let err_text = e.to_string();
+            if Self::is_corruption_error(&err_text) {
+                format!("quick_check-failed: {}", err_text)
+            } else {
+                format!("Failed to run quick_check on {}: {}", path.display(), err_text)
             }
-        };
+        })?;
 
         if check.trim() != "ok" {
-            Self::quarantine_db_artifacts(path, &format!("quick_check reported {}", check.trim()))?;
+            return Err(format!("quick_check reported {}", check.trim()));
         }
 
-        Ok(())
+        Ok(db)
     }
 
     fn with_write_retry<T, F>(&self, op_name: &str, mut op: F) -> std::result::Result<T, String>
@@ -217,18 +201,17 @@ impl WatcherDatabase {
         // The desktop host owns Turso sync/bootstrap. The watcher should write
         // to local activity.db only, otherwise two embedded replicas can race
         // each other and trigger WAL frame conflicts during sync.
-        let open_result = BlockingDatabase::open_with_path(&db_path)
-            .map_err(|e| format!("Failed to open database: {}", e));
-        let db = match open_result {
+        let db = match Self::open_checked_db(&db_path) {
             Ok(db) => db,
-            Err(err) if Self::is_corruption_error(&err) => {
+            Err(err) if Self::should_quarantine_after_open(&err) => {
                 warn!(
                     "[watcher-db] initial open failed with invalid local DB state, retrying after quarantine error={}",
                     err
                 );
                 Self::quarantine_db_artifacts(&db_path, &format!("open-failed: {}", err))?;
-                BlockingDatabase::open_with_path(&db_path)
-                    .map_err(|e| format!("Failed to reopen database after quarantine: {}", e))?
+                Self::open_checked_db(&db_path).map_err(|e| {
+                    format!("Failed to reopen database after quarantine: {}", e)
+                })?
             }
             Err(err) => return Err(err),
         };
