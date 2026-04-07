@@ -260,6 +260,75 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+#[cfg(target_os = "macos")]
+const VISION_CAPTURE_DENIED_COOLDOWN_MS: u64 = 10 * 60 * 1000;
+#[cfg(target_os = "macos")]
+const VISION_CAPTURE_FAILURE_COOLDOWN_MS: u64 = 60 * 1000;
+#[cfg(target_os = "macos")]
+const VISION_CAPTURE_HELPER_FAILURE_COOLDOWN_MS: u64 = 30 * 1000;
+#[cfg(target_os = "macos")]
+const VISION_CAPTURE_LOG_THROTTLE_MS: u64 = 60 * 1000;
+
+#[cfg(target_os = "macos")]
+static VISION_CAPTURE_DISABLED_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(target_os = "macos")]
+static VISION_CAPTURE_LAST_WARNING_MS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+fn vision_capture_log_block(reason: &str, cooldown_ms: u64) {
+    let now = now_ms();
+    let last = VISION_CAPTURE_LAST_WARNING_MS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) >= VISION_CAPTURE_LOG_THROTTLE_MS {
+        warn!(
+            "Skipping vision fallback for {}s: {}",
+            cooldown_ms / 1000,
+            reason
+        );
+        VISION_CAPTURE_LAST_WARNING_MS.store(now, Ordering::Relaxed);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn vision_capture_backoff_active(now: u64) -> bool {
+    now < VISION_CAPTURE_DISABLED_UNTIL_MS.load(Ordering::Relaxed)
+}
+
+#[cfg(target_os = "macos")]
+fn block_vision_capture(reason: &str, cooldown_ms: u64) {
+    let until = now_ms().saturating_add(cooldown_ms);
+    VISION_CAPTURE_DISABLED_UNTIL_MS.store(until, Ordering::Relaxed);
+    vision_capture_log_block(reason, cooldown_ms);
+}
+
+#[cfg(target_os = "macos")]
+fn unblock_vision_capture() {
+    VISION_CAPTURE_DISABLED_UNTIL_MS.store(0, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "macos")]
+fn screen_capture_access_granted() -> bool {
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+#[cfg(target_os = "macos")]
+fn screen_capture_denied_reason(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("declined tcc")
+        || lower.contains("user declined")
+        || lower.contains("not authorized")
+        || lower.contains("grant access")
+        || lower.contains("screen recording")
+        || lower.contains("screen capture")
+        || lower.contains("could not create image from display")
+        || lower.contains("capture error")
+}
+
 fn is_db_lock_error(message: &str) -> bool {
     let lower = message.to_lowercase();
     lower.contains("database is locked")
@@ -613,23 +682,91 @@ fn maybe_run_vision_ui_fallback(
     if !vision_worthy {
         return None;
     }
+    let now = now_ms();
+    if vision_capture_backoff_active(now) {
+        return None;
+    }
+    if !screen_capture_access_granted() {
+        block_vision_capture(
+            "screen capture preflight denied for the current watcher process",
+            VISION_CAPTURE_DENIED_COOLDOWN_MS,
+        );
+        return None;
+    }
     let screenshot_path = env::temp_dir().join(format!(
         "ritual-vision-fallback-{}-{}.png",
         std::process::id(),
-        now_ms()
+        now
     ));
-    let capture_status = std::process::Command::new("screencapture")
+    let capture_output = std::process::Command::new("screencapture")
         .args(["-x", screenshot_path.to_string_lossy().as_ref()])
-        .status()
-        .ok()?;
-    if !capture_status.success() {
+        .output()
+        .ok();
+    let capture_output = match capture_output {
+        Some(output) => output,
+        None => {
+            block_vision_capture(
+                "failed to spawn screencapture for vision fallback",
+                VISION_CAPTURE_FAILURE_COOLDOWN_MS,
+            );
+            return None;
+        }
+    };
+    let stderr = String::from_utf8_lossy(&capture_output.stderr);
+    if screen_capture_denied_reason(&stderr) {
+        let reason = if stderr.trim().is_empty() {
+            "screencapture reported denied screen capture access".to_string()
+        } else {
+            format!("screencapture denied access: {}", stderr.trim())
+        };
+        block_vision_capture(&reason, VISION_CAPTURE_DENIED_COOLDOWN_MS);
+        let _ = fs::remove_file(&screenshot_path);
+        return None;
+    }
+    if !capture_output.status.success() {
+        let cooldown_ms = if screen_capture_denied_reason(&stderr) {
+            VISION_CAPTURE_DENIED_COOLDOWN_MS
+        } else {
+            VISION_CAPTURE_FAILURE_COOLDOWN_MS
+        };
+        let reason = if stderr.trim().is_empty() {
+            format!(
+                "screencapture exited with status {}",
+                capture_output.status
+            )
+        } else {
+            format!("screencapture failed: {}", stderr.trim())
+        };
+        block_vision_capture(&reason, cooldown_ms);
+        let _ = fs::remove_file(&screenshot_path);
+        return None;
+    }
+    let screenshot_size = fs::metadata(&screenshot_path)
+        .ok()
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if screenshot_size == 0 {
+        block_vision_capture(
+            "screencapture returned no image data for vision fallback",
+            VISION_CAPTURE_FAILURE_COOLDOWN_MS,
+        );
         let _ = fs::remove_file(&screenshot_path);
         return None;
     }
     let output =
         vision_helper::run_vision_helper(&screenshot_path, app_bundle_id, app_name, window_title);
     let _ = fs::remove_file(&screenshot_path);
-    let output = output?;
+    let output = match output {
+        Some(output) => output,
+        None => {
+            block_vision_capture(
+                "vision helper could not parse OCR output from the screenshot",
+                VISION_CAPTURE_HELPER_FAILURE_COOLDOWN_MS,
+            );
+            return None;
+        }
+    };
+    unblock_vision_capture();
     let visible_text_raw = output.visible_text_raw.trim().to_string();
     let visible_text_norm = normalize_visible_text(&visible_text_raw);
     let ui_elements_json = elements_to_ui_elements_json(&output.elements);
@@ -2689,5 +2826,19 @@ mod tests {
 
         assert_eq!(action, SessionAction::Close);
         assert_eq!(reason, Some(SessionCloseReason::AfkStateChanged));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn detects_screen_capture_denial_signals() {
+        assert!(screen_capture_denied_reason(
+            "Error capturing screenshot: The user declined TCCs for application, window, display capture"
+        ));
+        assert!(screen_capture_denied_reason(
+            "Grant access to this application in Privacy & Security settings"
+        ));
+        assert!(!screen_capture_denied_reason(
+            "screencapture exited with status 1"
+        ));
     }
 }
