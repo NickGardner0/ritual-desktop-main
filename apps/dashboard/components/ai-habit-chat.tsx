@@ -161,14 +161,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const nativeVoiceSilenceAudioCtxRef = useRef<AudioContext | null>(null);
   const nativeVoiceSilenceRafRef = useRef<number | null>(null);
   const nativeVoiceHadSpeechRef = useRef(false);
-  const [voiceDebug, setVoiceDebug] = useState<{
-    rms: number;
-    armed: boolean;
-    sinceLoudMs: number;
-    lastPartial: string;
-    lastEvent: string;
-  }>({ rms: 0, armed: false, sinceLoudMs: 0, lastPartial: '', lastEvent: '' });
-
+  // Transcript-stability auto-stop: timestamp of the last time the partial changed.
+  const nativeVoicePartialLastChangeRef = useRef<number>(0);
+  const nativeVoicePartialLastValueRef = useRef<string>('');
   const { habits, habitLogs } = useHabits();
   const { user } = useUser();
   const { getToken } = useAuth();
@@ -742,74 +737,42 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     voiceInputModeRef.current = 'native';
     setIsListening(true);
 
-    // Parallel mic stream: powers both the waveform and the silence detector.
+    // Parallel mic stream: used purely to power the waveform visualization.
+    // (Audio-level silence detection is unreliable because Swift's AVAudioEngine
+    // effectively captures the mic and WebKit's getUserMedia returns a near-silent
+    // duplicate. We use transcript-stability auto-stop instead — see poll loop.)
+    nativeVoicePartialLastChangeRef.current = 0;
+    nativeVoicePartialLastValueRef.current = '';
     try {
       const vizStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       setAudioStream(vizStream);
-
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx: AudioContext = new AudioCtx();
-      nativeVoiceSilenceAudioCtxRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(vizStream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.2;
-      source.connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-
-      const SPEECH_ARM_RMS = 0.004;
-      const SPEECH_RMS = 0.0025;
-      const SILENCE_MS = 600;
-
-      let lastLoudAt = 0;
-      let stopTriggered = false;
-
-      const tick = () => {
-        if (voiceInputModeRef.current !== 'native' || stopTriggered) return;
-        analyser.getByteTimeDomainData(buf);
-        let sumSq = 0;
-        for (let i = 0; i < buf.length; i++) {
-          const n = (buf[i] - 128) / 128;
-          sumSq += n * n;
-        }
-        const rms = Math.sqrt(sumSq / buf.length);
-        const now = performance.now();
-
-        if (!nativeVoiceHadSpeechRef.current) {
-          if (rms > SPEECH_ARM_RMS) {
-            nativeVoiceHadSpeechRef.current = true;
-            lastLoudAt = now;
-          }
-        } else {
-          if (rms > SPEECH_RMS) {
-            lastLoudAt = now;
-          } else if (now - lastLoudAt > SILENCE_MS) {
-            stopTriggered = true;
-            setVoiceDebug((d) => ({ ...d, lastEvent: 'silence-stop' }));
-            stopVoiceRecording();
-            return;
-          }
-        }
-
-        setVoiceDebug((d) => ({
-          ...d,
-          rms: Number(rms.toFixed(3)),
-          armed: nativeVoiceHadSpeechRef.current,
-          sinceLoudMs: lastLoudAt ? Math.round(now - lastLoudAt) : 0,
-        }));
-        nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
-      };
-      nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
     } catch {
-      // Non-critical — waveform won't animate and we'll rely on 10s safety.
+      // Non-critical — waveform just won't animate.
     }
+
+    // Transcript-stability auto-stop: if the partial transcript hasn't advanced
+    // for PARTIAL_STABLE_MS while we have non-empty text, Swift has effectively
+    // finished recognizing — commit immediately instead of waiting for its final.
+    const PARTIAL_STABLE_MS = 700;
 
     nativeVoicePollRef.current = window.setInterval(() => {
       void (async () => {
         try {
           const state = await getNativeDesktopSpeechState();
+
+          // Staleness check fires on every tick regardless of new events.
+          if (
+            voiceInputModeRef.current === 'native' &&
+            nativeVoicePartialLastValueRef.current &&
+            nativeVoicePartialLastChangeRef.current &&
+            performance.now() - nativeVoicePartialLastChangeRef.current > PARTIAL_STABLE_MS
+          ) {
+            stopVoiceRecording();
+            return;
+          }
+
           if (!state.timestamp || state.timestamp <= nativeVoiceTimestampRef.current) {
             return;
           }
@@ -819,17 +782,15 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
             if (state.transcript?.trim()) {
               partialTranscriptRef.current = state.transcript;
               setPartialTranscript(state.transcript);
-              setVoiceDebug((d) => ({
-                ...d,
-                lastPartial: state.transcript!.slice(0, 40),
-                lastEvent: 'partial',
-              }));
+              if (state.transcript !== nativeVoicePartialLastValueRef.current) {
+                nativeVoicePartialLastValueRef.current = state.transcript;
+                nativeVoicePartialLastChangeRef.current = performance.now();
+              }
             }
             return;
           }
 
           if (state.event === 'ritual:speech:final') {
-            setVoiceDebug((d) => ({ ...d, lastEvent: 'swift-final' }));
             await resetNativeVoiceSession();
             partialTranscriptRef.current = null;
             setPartialTranscript(null);

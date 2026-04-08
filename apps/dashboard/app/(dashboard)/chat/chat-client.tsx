@@ -818,16 +818,11 @@ export function ChatClient() {
   const nativeVoiceSilenceRafRef = useRef<number | null>(null);
   const nativeVoiceSilenceTimerRef = useRef<number | null>(null);
   const nativeVoiceHadSpeechRef = useRef(false);
+  // Transcript-stability auto-stop tracking.
+  const nativeVoicePartialLastChangeRef = useRef<number>(0);
+  const nativeVoicePartialLastValueRef = useRef<string>('');
   const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
-  // Debug overlay state (only rendered while isListening)
-  const [voiceDebug, setVoiceDebug] = useState<{
-    rms: number;
-    armed: boolean;
-    sinceLoudMs: number;
-    lastPartial: string;
-    lastEvent: string;
-  }>({ rms: 0, armed: false, sinceLoudMs: 0, lastPartial: '', lastEvent: '' });
-  
+
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -1602,80 +1597,40 @@ export function ChatClient() {
     voiceInputModeRef.current = 'native';
     setIsListening(true);
 
-    // Open a parallel mic stream for waveform + client-side silence detection.
-    // SFSpeechRecognizer keeps firing "partial" events 2-4s after the user stops
-    // talking, so we can't rely on transcript cadence to detect end-of-speech.
-    // Instead, watch actual audio RMS and stop when it drops below threshold.
+    // Parallel mic stream used purely to power the waveform. (Audio-level silence
+    // detection is unreliable because Swift's AVAudioEngine effectively captures
+    // the mic and WebKit's getUserMedia returns a near-silent duplicate.) We
+    // detect end-of-speech via transcript stability in the poll loop below.
+    nativeVoicePartialLastChangeRef.current = 0;
+    nativeVoicePartialLastValueRef.current = '';
     try {
       const vizStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       setAudioStream(vizStream);
-
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx: AudioContext = new AudioCtx();
-      nativeVoiceSilenceAudioCtxRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(vizStream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.2;
-      source.connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-
-      // Voice gating thresholds — generous to tolerate ambient room noise.
-      const SPEECH_ARM_RMS = 0.004; // must cross this once before we arm silence
-      const SPEECH_RMS = 0.0025;    // anything above this counts as speech
-      const SILENCE_MS = 600;       // how long below SPEECH_RMS before stop
-
-      let lastLoudAt = 0;
-      let stopTriggered = false;
-
-      const tick = () => {
-        if (voiceInputModeRef.current !== 'native' || stopTriggered) return;
-        analyser.getByteTimeDomainData(buf);
-        let sumSq = 0;
-        for (let i = 0; i < buf.length; i++) {
-          const n = (buf[i] - 128) / 128;
-          sumSq += n * n;
-        }
-        const rms = Math.sqrt(sumSq / buf.length);
-        const now = performance.now();
-
-        if (!nativeVoiceHadSpeechRef.current) {
-          if (rms > SPEECH_ARM_RMS) {
-            nativeVoiceHadSpeechRef.current = true;
-            lastLoudAt = now;
-          }
-        } else {
-          if (rms > SPEECH_RMS) {
-            lastLoudAt = now;
-          } else if (now - lastLoudAt > SILENCE_MS) {
-            stopTriggered = true;
-            setVoiceDebug((d) => ({ ...d, lastEvent: 'silence-stop' }));
-            stopVoiceRecording();
-            return;
-          }
-        }
-
-        setVoiceDebug((d) => ({
-          ...d,
-          rms: Number(rms.toFixed(3)),
-          armed: nativeVoiceHadSpeechRef.current,
-          sinceLoudMs: lastLoudAt ? Math.round(now - lastLoudAt) : 0,
-        }));
-
-        nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
-      };
-      nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
     } catch {
-      // Non-critical — waveform just won't animate and we fall back to the
-      // 10s safety timeout + manual stop.
+      // Non-critical — waveform just won't animate.
     }
+
+    const PARTIAL_STABLE_MS = 700;
 
     nativeVoicePollRef.current = window.setInterval(() => {
       void (async () => {
         try {
           const state = await getNativeDesktopSpeechState();
+
+          // Transcript-stability auto-stop: fires on every tick regardless of
+          // whether a new event arrived from Swift.
+          if (
+            voiceInputModeRef.current === 'native' &&
+            nativeVoicePartialLastValueRef.current &&
+            nativeVoicePartialLastChangeRef.current &&
+            performance.now() - nativeVoicePartialLastChangeRef.current > PARTIAL_STABLE_MS
+          ) {
+            stopVoiceRecording();
+            return;
+          }
+
           if (!state.timestamp || state.timestamp <= nativeVoiceTimestampRef.current) {
             return;
           }
@@ -1685,17 +1640,15 @@ export function ChatClient() {
             if (state.transcript?.trim()) {
               partialTranscriptRef.current = state.transcript;
               setPartialTranscript(state.transcript);
-              setVoiceDebug((d) => ({
-                ...d,
-                lastPartial: state.transcript!.slice(0, 40),
-                lastEvent: 'partial',
-              }));
+              if (state.transcript !== nativeVoicePartialLastValueRef.current) {
+                nativeVoicePartialLastValueRef.current = state.transcript;
+                nativeVoicePartialLastChangeRef.current = performance.now();
+              }
             }
             return;
           }
 
           if (state.event === 'ritual:speech:final') {
-            setVoiceDebug((d) => ({ ...d, lastEvent: 'swift-final' }));
             await resetNativeVoiceSession();
             partialTranscriptRef.current = null;
             setPartialTranscript(null);
