@@ -813,6 +813,11 @@ export function ChatClient() {
   const nativeVoiceAutoStopRef = useRef<number | null>(null);
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
   const nativeVoiceTimestampRef = useRef(0);
+  // Audio-level silence detector (independent of Swift's partial cadence).
+  const nativeVoiceSilenceAudioCtxRef = useRef<AudioContext | null>(null);
+  const nativeVoiceSilenceRafRef = useRef<number | null>(null);
+  const nativeVoiceSilenceTimerRef = useRef<number | null>(null);
+  const nativeVoiceHadSpeechRef = useRef(false);
   const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
   
   // Voice style mode (Phase 4A - conversational responses)
@@ -1545,6 +1550,19 @@ export function ChatClient() {
       clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
       nativeVoiceFinalizeTimeoutRef.current = null;
     }
+    if (nativeVoiceSilenceRafRef.current) {
+      cancelAnimationFrame(nativeVoiceSilenceRafRef.current);
+      nativeVoiceSilenceRafRef.current = null;
+    }
+    if (nativeVoiceSilenceTimerRef.current) {
+      clearTimeout(nativeVoiceSilenceTimerRef.current);
+      nativeVoiceSilenceTimerRef.current = null;
+    }
+    if (nativeVoiceSilenceAudioCtxRef.current) {
+      nativeVoiceSilenceAudioCtxRef.current.close().catch(() => undefined);
+      nativeVoiceSilenceAudioCtxRef.current = null;
+    }
+    nativeVoiceHadSpeechRef.current = false;
   }, []);
 
   const resetNativeVoiceSession = useCallback(async () => {
@@ -1576,14 +1594,62 @@ export function ChatClient() {
     voiceInputModeRef.current = 'native';
     setIsListening(true);
 
-    // Open a parallel mic stream purely for waveform visualization
+    // Open a parallel mic stream for waveform + client-side silence detection.
+    // SFSpeechRecognizer keeps firing "partial" events 2-4s after the user stops
+    // talking, so we can't rely on transcript cadence to detect end-of-speech.
+    // Instead, watch actual audio RMS and stop when it drops below threshold.
     try {
       const vizStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       setAudioStream(vizStream);
+
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx: AudioContext = new AudioCtx();
+      nativeVoiceSilenceAudioCtxRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(vizStream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.2;
+      source.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+
+      // Tunables
+      const SILENCE_RMS = 0.012;   // below ~1.2% RMS counts as silence
+      const SILENCE_MS  = 600;     // silent window that triggers stop
+      const MIN_SPEECH_RMS = 0.02; // must cross this at least once before we arm
+
+      const tick = () => {
+        if (voiceInputModeRef.current !== 'native') return;
+        analyser.getByteTimeDomainData(buf);
+        // RMS of normalized time-domain samples
+        let sumSq = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const n = (buf[i] - 128) / 128;
+          sumSq += n * n;
+        }
+        const rms = Math.sqrt(sumSq / buf.length);
+
+        if (!nativeVoiceHadSpeechRef.current) {
+          if (rms > MIN_SPEECH_RMS) nativeVoiceHadSpeechRef.current = true;
+        } else if (rms < SILENCE_RMS) {
+          if (nativeVoiceSilenceTimerRef.current == null) {
+            nativeVoiceSilenceTimerRef.current = window.setTimeout(() => {
+              nativeVoiceSilenceTimerRef.current = null;
+              stopVoiceRecording();
+            }, SILENCE_MS);
+          }
+        } else if (nativeVoiceSilenceTimerRef.current != null) {
+          clearTimeout(nativeVoiceSilenceTimerRef.current);
+          nativeVoiceSilenceTimerRef.current = null;
+        }
+
+        nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
+      };
+      nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
     } catch {
-      // Non-critical — waveform just won't animate
+      // Non-critical — waveform just won't animate and we fall back to the
+      // 10s safety timeout + manual stop.
     }
 
     nativeVoicePollRef.current = window.setInterval(() => {
@@ -1599,15 +1665,6 @@ export function ChatClient() {
             if (state.transcript?.trim()) {
               partialTranscriptRef.current = state.transcript;
               setPartialTranscript(state.transcript);
-              // Reset auto-stop timer — once we have speech, use a shorter
-              // silence timeout so the transcript appears quickly after the
-              // user stops talking.
-              if (nativeVoiceAutoStopRef.current) {
-                clearTimeout(nativeVoiceAutoStopRef.current);
-              }
-              nativeVoiceAutoStopRef.current = window.setTimeout(() => {
-                stopVoiceRecording();
-              }, 600);
             }
             return;
           }
