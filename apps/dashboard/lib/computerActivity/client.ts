@@ -202,12 +202,15 @@ function shouldUseShortRangeNativeFallback(params: ComputerActivityRangeParams) 
 }
 
 function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRangeParams) {
-  return isTauri() && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
+  return isTauri()
+    && rangeIncludesLocalToday(params)
+    && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
 }
 
 function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
   if (!isTauri()) return true
-  return getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
+  return rangeIncludesLocalToday(params)
+    && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
 }
 
 function shiftDateString(dateString: string, days: number) {

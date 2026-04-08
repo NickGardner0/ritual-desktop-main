@@ -819,6 +819,14 @@ export function ChatClient() {
   const nativeVoiceSilenceTimerRef = useRef<number | null>(null);
   const nativeVoiceHadSpeechRef = useRef(false);
   const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
+  // Debug overlay state (only rendered while isListening)
+  const [voiceDebug, setVoiceDebug] = useState<{
+    rms: number;
+    armed: boolean;
+    sinceLoudMs: number;
+    lastPartial: string;
+    lastEvent: string;
+  }>({ rms: 0, armed: false, sinceLoudMs: 0, lastPartial: '', lastEvent: '' });
   
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
@@ -1643,10 +1651,18 @@ export function ChatClient() {
             lastLoudAt = now;
           } else if (now - lastLoudAt > SILENCE_MS) {
             stopTriggered = true;
+            setVoiceDebug((d) => ({ ...d, lastEvent: 'silence-stop' }));
             stopVoiceRecording();
             return;
           }
         }
+
+        setVoiceDebug((d) => ({
+          ...d,
+          rms: Number(rms.toFixed(3)),
+          armed: nativeVoiceHadSpeechRef.current,
+          sinceLoudMs: lastLoudAt ? Math.round(now - lastLoudAt) : 0,
+        }));
 
         nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
       };
@@ -1669,11 +1685,17 @@ export function ChatClient() {
             if (state.transcript?.trim()) {
               partialTranscriptRef.current = state.transcript;
               setPartialTranscript(state.transcript);
+              setVoiceDebug((d) => ({
+                ...d,
+                lastPartial: state.transcript!.slice(0, 40),
+                lastEvent: 'partial',
+              }));
             }
             return;
           }
 
           if (state.event === 'ritual:speech:final') {
+            setVoiceDebug((d) => ({ ...d, lastEvent: 'swift-final' }));
             await resetNativeVoiceSession();
             partialTranscriptRef.current = null;
             setPartialTranscript(null);
@@ -1956,9 +1978,12 @@ export function ChatClient() {
                     {suggestionList}
                   </div>
                   {isListening && (
-                    <div className="px-4 pb-1 flex justify-center">
+                    <div className="px-4 pb-1 flex flex-col items-center gap-1">
                       <div className="h-8 w-full max-w-[280px]">
                         <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
+                      </div>
+                      <div className="font-mono text-[10px] leading-tight text-neutral-500 tabular-nums">
+                        rms {voiceDebug.rms.toFixed(3)} · armed {voiceDebug.armed ? 'y' : 'n'} · silent {voiceDebug.sinceLoudMs}ms · {voiceDebug.lastEvent || 'idle'} · "{voiceDebug.lastPartial}"
                       </div>
                     </div>
                   )}
@@ -2339,9 +2364,12 @@ export function ChatClient() {
                     {suggestionList}
                   </div>
                   {isListening && (
-                    <div className="px-4 pb-1 flex justify-center">
+                    <div className="px-4 pb-1 flex flex-col items-center gap-1">
                       <div className="h-8 w-full max-w-[280px]">
                         <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
+                      </div>
+                      <div className="font-mono text-[10px] leading-tight text-neutral-500 tabular-nums">
+                        rms {voiceDebug.rms.toFixed(3)} · armed {voiceDebug.armed ? 'y' : 'n'} · silent {voiceDebug.sinceLoudMs}ms · {voiceDebug.lastEvent || 'idle'} · "{voiceDebug.lastPartial}"
                       </div>
                     </div>
                   )}
