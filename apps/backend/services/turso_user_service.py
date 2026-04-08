@@ -47,6 +47,7 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS context_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_uid TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         start_ts INTEGER NOT NULL,
@@ -65,6 +66,7 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS activity_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_uid TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         ts_start INTEGER NOT NULL,
@@ -85,6 +87,7 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS afk_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        afk_uid TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         ts_start INTEGER NOT NULL,
@@ -99,7 +102,9 @@ SCHEMA_STATEMENTS = (
         device_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         activity_event_id INTEGER,
+        activity_event_uid TEXT,
         session_id INTEGER,
+        session_uid TEXT,
         ts INTEGER NOT NULL,
         source_type TEXT NOT NULL,
         app_bundle_id TEXT NOT NULL,
@@ -130,7 +135,9 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS session_retrieval_docs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id INTEGER NOT NULL UNIQUE,
+        session_id INTEGER NOT NULL,
+        session_uid TEXT NOT NULL DEFAULT '',
+        logical_chunk_id TEXT NOT NULL DEFAULT '',
         device_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
         source_kind TEXT NOT NULL DEFAULT 'context_session',
@@ -201,20 +208,90 @@ SCHEMA_STATEMENTS = (
 
 INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_context_sessions_time ON context_sessions(start_ts, end_ts)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_sessions_session_uid ON context_sessions(session_uid) WHERE TRIM(COALESCE(session_uid, '')) != ''",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_ts_start ON activity_events(ts_start)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_ts_end ON activity_events(ts_end)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_user_device_ts ON activity_events(user_id, device_id, ts_start)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_domain ON activity_events(browser_domain)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_events_event_uid ON activity_events(event_uid) WHERE TRIM(COALESCE(event_uid, '')) != ''",
     "CREATE INDEX IF NOT EXISTS idx_afk_events_user_device_ts ON afk_events(user_id, device_id, ts_start)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_afk_events_afk_uid ON afk_events(afk_uid) WHERE TRIM(COALESCE(afk_uid, '')) != ''",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts ON context_snapshots(ts)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_app_ts ON context_snapshots(app_bundle_id, ts)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_domain_ts ON context_snapshots(browser_domain, ts)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_snapshots_dedup ON context_snapshots(dedup_key)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_ts ON context_snapshots(session_id, ts)",
+    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_activity_event_uid ON context_snapshots(activity_event_uid)",
+    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_uid ON context_snapshots(session_uid)",
     "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time ON session_retrieval_docs(chunk_start_ts, chunk_end_ts)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_retrieval_docs_logical_chunk_id ON session_retrieval_docs(logical_chunk_id) WHERE TRIM(COALESCE(logical_chunk_id, '')) != ''",
+    "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_session_uid ON session_retrieval_docs(session_uid)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_scope_range ON semantic_work_items(user_id, source_scope, range_start_ts, range_end_ts)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_time ON semantic_work_items(user_id, start_ts, end_ts)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_work_item_evidence_work_item ON semantic_work_item_evidence(work_item_id, timestamp)",
+)
+
+COLUMN_MIGRATIONS = (
+    ("context_sessions", "session_uid", "TEXT NOT NULL DEFAULT ''"),
+    ("activity_events", "event_uid", "TEXT NOT NULL DEFAULT ''"),
+    ("afk_events", "afk_uid", "TEXT NOT NULL DEFAULT ''"),
+    ("context_snapshots", "activity_event_uid", "TEXT"),
+    ("context_snapshots", "session_uid", "TEXT"),
+    ("session_retrieval_docs", "session_uid", "TEXT NOT NULL DEFAULT ''"),
+    ("session_retrieval_docs", "logical_chunk_id", "TEXT NOT NULL DEFAULT ''"),
+)
+
+BACKFILL_STATEMENTS = (
+    """
+    UPDATE activity_events
+    SET event_uid = printf('legacy-activity:%s:%s:%lld', device_id, user_id, id)
+    WHERE TRIM(COALESCE(event_uid, '')) = ''
+    """,
+    """
+    UPDATE afk_events
+    SET afk_uid = printf('legacy-afk:%s:%s:%lld', device_id, user_id, id)
+    WHERE TRIM(COALESCE(afk_uid, '')) = ''
+    """,
+    """
+    UPDATE context_sessions
+    SET session_uid = printf('legacy-session:%s:%s:%lld', device_id, user_id, id)
+    WHERE TRIM(COALESCE(session_uid, '')) = ''
+    """,
+    """
+    UPDATE context_snapshots
+    SET activity_event_uid = (
+        SELECT activity_events.event_uid
+        FROM activity_events
+        WHERE activity_events.id = context_snapshots.activity_event_id
+    )
+    WHERE activity_event_id IS NOT NULL
+      AND TRIM(COALESCE(activity_event_uid, '')) = ''
+    """,
+    """
+    UPDATE context_snapshots
+    SET session_uid = (
+        SELECT context_sessions.session_uid
+        FROM context_sessions
+        WHERE context_sessions.id = context_snapshots.session_id
+    )
+    WHERE session_id IS NOT NULL
+      AND TRIM(COALESCE(session_uid, '')) = ''
+    """,
+    """
+    UPDATE session_retrieval_docs
+    SET session_uid = (
+        SELECT context_sessions.session_uid
+        FROM context_sessions
+        WHERE context_sessions.id = session_retrieval_docs.session_id
+    )
+    WHERE TRIM(COALESCE(session_uid, '')) = ''
+    """,
+    """
+    UPDATE session_retrieval_docs
+    SET logical_chunk_id = printf('session-doc:%s', session_uid)
+    WHERE TRIM(COALESCE(logical_chunk_id, '')) = ''
+      AND TRIM(COALESCE(session_uid, '')) != ''
+    """,
 )
 
 
@@ -564,6 +641,32 @@ class TursoUserService:
             except FileNotFoundError:
                 continue
 
+    def _is_duplicate_column_error(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return "duplicate column name" in message or "already exists" in message
+
+    def _apply_column_migrations(self, conn: Any) -> None:
+        for table_name, column_name, column_sql in COLUMN_MIGRATIONS:
+            statement = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"
+            try:
+                conn.execute(statement)
+            except Exception as exc:
+                if self._is_duplicate_column_error(exc):
+                    continue
+                raise
+
+    def _apply_backfills(self, conn: Any) -> None:
+        for statement in BACKFILL_STATEMENTS:
+            conn.execute(statement)
+
+    def _apply_full_schema(self, conn: Any) -> None:
+        for statement in SCHEMA_STATEMENTS:
+            conn.execute(statement)
+        self._apply_column_migrations(conn)
+        self._apply_backfills(conn)
+        for statement in INDEX_STATEMENTS:
+            conn.execute(statement)
+
     def _open_remote_replica(self, db_path: Path, sync_url: str, auth_token: str):
         last_exc: Exception | None = None
         for attempt in range(1, REPLICA_OPEN_RETRY_LIMIT + 1):
@@ -603,10 +706,7 @@ class TursoUserService:
         def _apply_schema() -> None:
             conn = self._open_remote_replica(replica_path, sync_url, token)
             try:
-                for statement in SCHEMA_STATEMENTS:
-                    conn.execute(statement)
-                for statement in INDEX_STATEMENTS:
-                    conn.execute(statement)
+                self._apply_full_schema(conn)
                 conn.commit()
                 conn.sync()
             finally:
@@ -692,8 +792,7 @@ class TursoUserService:
         try:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
-            for statement in SCHEMA_STATEMENTS:
-                conn.execute(statement)
+            self._apply_full_schema(conn)
             conn.execute("ATTACH DATABASE ? AS source_db", (str(source_path),))
             tables = {
                 row[0]
@@ -742,6 +841,7 @@ class TursoUserService:
                 )
             conn.commit()
             conn.execute("DETACH DATABASE source_db")
+            self._apply_backfills(conn)
             for statement in INDEX_STATEMENTS:
                 conn.execute(statement)
             conn.commit()
@@ -988,24 +1088,14 @@ class TursoUserService:
                 return "stream not found" in message or attempt % 5 == 0
 
             try:
-                for statement in SCHEMA_STATEMENTS:
-                    try:
-                        remote.execute(statement)
-                    except Exception as exc:
-                        if _should_refresh_token(exc):
-                            remote = _reopen_remote(refresh_token=True)
-                            remote.execute(statement)
-                        else:
-                            raise
-                for statement in INDEX_STATEMENTS:
-                    try:
-                        remote.execute(statement)
-                    except Exception as exc:
-                        if _should_refresh_token(exc):
-                            remote = _reopen_remote(refresh_token=True)
-                            remote.execute(statement)
-                        else:
-                            raise
+                try:
+                    self._apply_full_schema(remote)
+                except Exception as exc:
+                    if _should_refresh_token(exc):
+                        remote = _reopen_remote(refresh_token=True)
+                        self._apply_full_schema(remote)
+                    else:
+                        raise
 
                 for table_name in MIGRATION_TABLES:
                     columns = [
@@ -1080,6 +1170,21 @@ class TursoUserService:
                                     )
                                     continue
                                 raise
+
+                try:
+                    self._apply_backfills(remote)
+                    remote.commit()
+                    remote.sync()
+                    remote = _reopen_remote()
+                except Exception as exc:
+                    if _should_refresh_token(exc):
+                        remote = _reopen_remote(refresh_token=True)
+                        self._apply_backfills(remote)
+                        remote.commit()
+                        remote.sync()
+                        remote = _reopen_remote()
+                    else:
+                        raise
 
                 counts: Dict[str, Dict[str, int]] = {}
                 for table_name in ("context_snapshots", "session_retrieval_docs", "context_sessions", "activity_events"):
@@ -1262,6 +1367,8 @@ class TursoUserService:
 
         if self.is_rollout_gate_user(user_id) and user.turso_migrated_at is None:
             raise TursoProvisioningError("Per-user Turso migration has not completed yet")
+
+        await self._ensure_remote_schema(user_id, user.turso_db_url, user.turso_db_name)
 
         token = await self._mint_database_token(
             user.turso_db_name,
