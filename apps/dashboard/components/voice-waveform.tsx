@@ -23,7 +23,7 @@ export function VoiceWaveform({
   isActive,
   audioStream,
   className,
-  barWidth = 4,
+  barWidth = 3,
   barGap = 2,
   barColor = '#000000',
   fadeEdges = true,
@@ -176,10 +176,10 @@ export function VoiceWaveform({
 
           // Hard silence gate: below this, draw nothing so quiet moments are
           // truly blank instead of a persistent row of tiny bars.
-          if (value < 0.12) continue;
+          if (value < 0.2) continue;
 
           const x = offsetX + i * step;
-          const barHeight = Math.max(3, value * height * 0.98);
+          const barHeight = Math.max(3, value * height * 0.82);
           const y = centerY - barHeight / 2;
 
           ctx.fillStyle = barColor;

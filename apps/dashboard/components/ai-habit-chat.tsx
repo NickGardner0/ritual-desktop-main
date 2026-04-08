@@ -390,8 +390,52 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     }
   }, [selectedSuggestionIndex, visibleSuggestions]);
 
+  // Convert spoken word-numbers to digits so the regex patterns below can
+  // handle transcripts like "I walked one mile" or "twenty two pages".
+  // Handles 0-99 plus common fractional words ("half", "a quarter").
+  const wordsToDigits = (text: string): string => {
+    const ones: Record<string, number> = {
+      zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+      seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+      thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+      seventeen: 17, eighteen: 18, nineteen: 19,
+    };
+    const tens: Record<string, number> = {
+      twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50,
+      sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+    };
+    let out = text;
+    // "twenty two" → 22
+    out = out.replace(
+      /\b(twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety)[\s-](one|two|three|four|five|six|seven|eight|nine)\b/gi,
+      (_, a: string, b: string) => String(tens[a.toLowerCase()] + ones[b.toLowerCase()]),
+    );
+    // standalone tens
+    out = out.replace(
+      /\b(twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety)\b/gi,
+      (m) => String(tens[m.toLowerCase()]),
+    );
+    // standalone ones / teens
+    out = out.replace(
+      /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b/gi,
+      (m) => String(ones[m.toLowerCase()]),
+    );
+    // "a hundred" / "one hundred"
+    out = out.replace(/\b(a|one)\s+hundred\b/gi, '100');
+    // fractional helpers
+    out = out.replace(/\bhalf\b/gi, '0.5');
+    out = out.replace(/\b(a\s+)?quarter\b/gi, '0.25');
+    // "a" before a unit, e.g. "walked a mile" → "walked 1 mile"
+    out = out.replace(
+      /\ba\s+(mile|miles|page|pages|hour|hours|minute|minutes|step|steps|kilometer|kilometers|km|rep|reps)\b/gi,
+      '1 $1',
+    );
+    return out;
+  };
+
   // Smart habit parsing that uses your actual habits
-  const parseHabitInput = (text: string) => {
+  const parseHabitInput = (rawText: string) => {
+    const text = wordsToDigits(rawText);
     const lowerText = text.toLowerCase();
 
     // Extract numbers and units from the text
