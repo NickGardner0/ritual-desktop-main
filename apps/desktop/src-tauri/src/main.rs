@@ -1109,6 +1109,7 @@ fn main() {
       ritual_database::text_search,
       ritual_database::check_migration_status,
       ritual_database::seed_memory_upload_outbox,
+      ritual_database::get_local_retrieval_health,
       ritual_database::get_memory_upload_outbox_stats,
       ritual_database::claim_memory_upload_outbox_batch,
       ritual_database::ack_memory_upload_outbox_batch,

@@ -53,9 +53,18 @@ fn main() {
         .and_then(|info| (info.pid == Some(pid)).then_some(info.window_title.as_deref()))
         .flatten();
 
-    match macos::dump_accessibility_context(pid, bundle_id, window_title, args.depth, args.max_children) {
+    match macos::dump_accessibility_context(
+        pid,
+        bundle_id,
+        window_title,
+        args.depth,
+        args.max_children,
+    ) {
         Ok(dump) => {
-            println!("{}", to_string_pretty(&dump).unwrap_or_else(|_| "{}".to_string()));
+            println!(
+                "{}",
+                to_string_pretty(&dump).unwrap_or_else(|_| "{}".to_string())
+            );
         }
         Err(err) => {
             eprintln!("{}", err);

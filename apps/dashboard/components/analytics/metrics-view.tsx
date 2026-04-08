@@ -193,6 +193,15 @@ type HeartRateSeriesRow = {
   sample_count: number;
 };
 
+type LocalMetricSummaryRow = {
+  habit_id: string;
+  habit_name: string;
+  unit: string;
+  total_value: number;
+  current_value: number;
+  days_with_data: number;
+};
+
 function getHeartRateBucket(rangeKey: RangeKey, rangeDays?: number): '1m' | 'hour' | 'day' {
   if (typeof rangeDays === 'number' && Number.isFinite(rangeDays)) {
     if (rangeDays <= 1) return '1m';
@@ -229,6 +238,130 @@ function isGranularHeartRateHabit(habit?: HabitData | null): boolean {
 
   if (integrationSource !== 'whoop') return false;
   return metricType === 'heart_rate' || metricType === 'hr' || habitName === 'heart rate';
+}
+
+function getMetricUnitLabel(habit: HabitData): string {
+  return String((habit as any)?.target_unit || habit.unit_type || (habit as any)?.unit || 'count');
+}
+
+function isCompletedMetricLogStatus(status?: string | null): boolean {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === '' || normalized === 'completed' || normalized === 'success';
+}
+
+function getMetricLogDateValue(log: { date?: string; completed_at?: string | null }): string | null {
+  if (typeof log.date === 'string' && log.date.trim()) {
+    return log.date.slice(0, 10);
+  }
+  if (typeof log.completed_at === 'string' && log.completed_at.trim()) {
+    return log.completed_at.slice(0, 10);
+  }
+  return null;
+}
+
+function getMetricLogNumericValue(habit: HabitData, log: { duration?: number | null; amount?: number | null }): number {
+  const unitLabel = getMetricUnitLabel(habit).toLowerCase();
+  const duration = Number(log.duration || 0);
+  const amount = Number(log.amount || 0);
+
+  if (duration > 0) {
+    if (unitLabel.includes('hour')) return duration / 3600;
+    if (unitLabel.includes('minute')) return duration / 60;
+    return duration;
+  }
+
+  if (amount > 0) return amount;
+  return 1;
+}
+
+function buildLocalMetricDailyRows(
+  habit: HabitData,
+  logs: Array<{
+    date?: string;
+    completed_at?: string | null;
+    status?: string | null;
+    duration?: number | null;
+    amount?: number | null;
+  }>,
+  minDateInclusive?: string,
+  maxDateInclusive?: string,
+): MetricDailyRow[] {
+  if (!habit.habit_id || !logs.length) return [];
+
+  const useMaxPerDay = isSleepLikeHabit(habit);
+  const dailyValues = new Map<string, number>();
+
+  for (const log of logs) {
+    if (!isCompletedMetricLogStatus(log.status)) continue;
+    const day = getMetricLogDateValue(log);
+    if (!day) continue;
+    if (minDateInclusive && day < minDateInclusive) continue;
+    if (maxDateInclusive && day > maxDateInclusive) continue;
+
+    const value = getMetricLogNumericValue(habit, log);
+    const previous = dailyValues.get(day) || 0;
+    dailyValues.set(day, useMaxPerDay ? Math.max(previous, value) : previous + value);
+  }
+
+  return Array.from(dailyValues.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, value]) => ({
+      habit_id: habit.habit_id,
+      date,
+      daily_value: value,
+      total_amount: value,
+      unit: getMetricUnitLabel(habit),
+      completed_count: value > 0 ? 1 : 0,
+    }));
+}
+
+function buildLocalMetricSummary(
+  habit: HabitData,
+  rows: MetricDailyRow[],
+): LocalMetricSummaryRow | null {
+  const values = rows
+    .map((row) => Number(row.daily_value ?? row.value ?? row.total_amount ?? 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (values.length === 0) return null;
+
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const average = total / values.length;
+
+  return {
+    habit_id: habit.habit_id,
+    habit_name: habit.habit_name,
+    unit: getMetricUnitLabel(habit),
+    total_value: total,
+    current_value: average,
+    days_with_data: values.length,
+  };
+}
+
+function hasUsableMetricSummary(summary?: Record<string, any> | null): boolean {
+  if (!summary) return false;
+
+  const totalValue = Number(summary.total_value ?? 0);
+  const currentValue = Number(summary.current_value ?? 0);
+  const daysWithData = Number(summary.days_with_data ?? 0);
+
+  return (
+    (Number.isFinite(totalValue) && totalValue > 0)
+    || (Number.isFinite(currentValue) && currentValue > 0)
+    || (Number.isFinite(daysWithData) && daysWithData > 0)
+  );
+}
+
+function dateRangeToBarListRange(range?: DateRange): BarListRange {
+  if (!range?.from || !range?.to) return 'ALL';
+
+  const totalDays = differenceInDays(range.to, range.from) + 1;
+  if (totalDays <= 7) return '1W';
+  if (totalDays <= 31) return '1M';
+  if (totalDays <= 92) return '3M';
+  if (totalDays <= 183) return '6M';
+  if (totalDays <= 366) return '1Y';
+  return 'ALL';
 }
 
 interface MetricsViewProps {
@@ -316,7 +449,7 @@ export function MetricsView({
   const { user, isLoaded: isUserLoaded } = useUser();
   
   // Use shared habits context instead of separate query
-  const { habits: contextHabits, isLoading: habitsLoading } = useHabits();
+  const { habits: contextHabits, habitLogs, isLoading: habitsLoading } = useHabits();
   
   // Transform habits to match expected format (habit_id instead of id)
   const transformedHabits = React.useMemo(() => 
@@ -376,7 +509,7 @@ export function MetricsView({
   const [barListSummaryMetrics, setBarListSummaryMetrics] = useState<Record<string, any>>(initialBarListSummaryMetrics ?? {});
 
   const [expandedTimeRange, setExpandedTimeRange] = useState<RangeKey>('1M');
-  const [barListRange, setBarListRange] = useState<BarListRange>('1M');
+  const [barListRange, setBarListRange] = useState<BarListRange>(() => dateRangeToBarListRange(dateRange));
   const [compareHabitId, setCompareHabitId] = useState<string | null>(null);
   const [comparisonLogs, setComparisonLogs] = useState<any[]>([]);
   const [loadingComparison, setLoadingComparison] = useState(false);
@@ -441,6 +574,11 @@ export function MetricsView({
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
 
+  const dateRangeSyncKey = dateRange?.from && dateRange?.to
+    ? `${dateRange.from.toISOString()}|${dateRange.to.toISOString()}`
+    : 'all-time';
+  const lastSyncedBarListRangeKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     perfInfo('metrics-view', 'mount', {
       has_date_range: Boolean(dateRange?.from),
@@ -500,6 +638,27 @@ export function MetricsView({
     [availableHabits, expandedHabit],
   );
   const expandedHabitUsesGranularHeartRate = isGranularHeartRateHabit(expandedHabitData);
+
+  const habitLogsByHabitId = useMemo(() => {
+    const grouped = new Map<string, typeof habitLogs>();
+    for (const log of habitLogs) {
+      if (!log?.habit_id) continue;
+      const habitId = String(log.habit_id);
+      const existing = grouped.get(habitId);
+      if (existing) {
+        existing.push(log);
+      } else {
+        grouped.set(habitId, [log]);
+      }
+    }
+    return grouped;
+  }, [habitLogs]);
+
+  useEffect(() => {
+    if (lastSyncedBarListRangeKeyRef.current === dateRangeSyncKey) return;
+    lastSyncedBarListRangeKeyRef.current = dateRangeSyncKey;
+    setBarListRange(dateRangeToBarListRange(dateRange));
+  }, [dateRange, dateRangeSyncKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -709,6 +868,151 @@ export function MetricsView({
       }
     }
   }, [availableHabits, selectedHabits.length, setSelectedHabits]);
+
+  const localCardFallbackData = useMemo(() => {
+    const now = new Date();
+    const hasExplicitRange = Boolean(dateRange?.from && dateRange?.to);
+    const selectedFrom = hasExplicitRange ? dateRange!.from! : subDays(now, DEFAULT_METRICS_SUMMARY_DAYS);
+    const selectedTo = hasExplicitRange ? dateRange!.to! : now;
+    const comparisonWindowMs = hasExplicitRange ? selectedTo.getTime() - selectedFrom.getTime() : 0;
+    const dailyFrom = hasExplicitRange
+      ? new Date(selectedFrom.getTime() - comparisonWindowMs)
+      : subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS);
+    const dailyFromDate = format(dailyFrom, 'yyyy-MM-dd');
+    const summaryFromDate = format(selectedFrom, 'yyyy-MM-dd');
+    const summaryToDate = format(selectedTo, 'yyyy-MM-dd');
+
+    const analyticsDataByHabit: Record<string, MetricDailyRow[]> = {};
+    const summaryByHabit: Record<string, LocalMetricSummaryRow> = {};
+
+    for (const habit of filteredHabits) {
+      const logs = habitLogsByHabitId.get(habit.habit_id) || [];
+      const dailyRows = buildLocalMetricDailyRows(
+        habit,
+        logs,
+        dailyFromDate,
+        summaryToDate,
+      );
+      const summaryRows = buildLocalMetricDailyRows(
+        habit,
+        logs,
+        summaryFromDate,
+        summaryToDate,
+      );
+      const summary = buildLocalMetricSummary(habit, summaryRows);
+
+      if (dailyRows.length > 0) {
+        analyticsDataByHabit[habit.habit_id] = dailyRows;
+      }
+      if (summary) {
+        summaryByHabit[habit.habit_id] = summary;
+      }
+    }
+
+    return {
+      analyticsDataByHabit,
+      summaryByHabit,
+    };
+  }, [
+    dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
+    filteredHabits,
+    habitLogsByHabitId,
+  ]);
+
+  const localBarListFallbackData = useMemo(() => {
+    const { from, to } = getRangeDates(barListRange as RangeKey);
+    const isAllRange = (barListRange as RangeKey) === 'ALL';
+    const windowMs = to.getTime() - from.getTime();
+    const fetchFrom = isAllRange ? from : new Date(from.getTime() - windowMs);
+    const dailyFromDate = format(fetchFrom, 'yyyy-MM-dd');
+    const summaryFromDate = format(from, 'yyyy-MM-dd');
+    const summaryToDate = format(to, 'yyyy-MM-dd');
+
+    const analyticsDataByHabit: Record<string, MetricDailyRow[]> = {};
+    const summaryByHabit: Record<string, LocalMetricSummaryRow> = {};
+
+    for (const habit of filteredHabits) {
+      const logs = habitLogsByHabitId.get(habit.habit_id) || [];
+      const dailyRows = buildLocalMetricDailyRows(
+        habit,
+        logs,
+        dailyFromDate,
+        summaryToDate,
+      );
+      const summaryRows = buildLocalMetricDailyRows(
+        habit,
+        logs,
+        summaryFromDate,
+        summaryToDate,
+      );
+      const summary = buildLocalMetricSummary(habit, summaryRows);
+
+      if (dailyRows.length > 0) {
+        analyticsDataByHabit[habit.habit_id] = dailyRows;
+      }
+      if (summary) {
+        summaryByHabit[habit.habit_id] = summary;
+      }
+    }
+
+    return {
+      analyticsDataByHabit,
+      summaryByHabit,
+    };
+  }, [barListRange, filteredHabits, habitLogsByHabitId]);
+
+  const mergedCardAnalyticsData = useMemo(() => {
+    const merged: Record<string, MetricDailyRow[]> = { ...analyticsData };
+    for (const habit of filteredHabits) {
+      if (!merged[habit.habit_id]?.length) {
+        const fallbackRows = localCardFallbackData.analyticsDataByHabit[habit.habit_id];
+        if (fallbackRows?.length) {
+          merged[habit.habit_id] = fallbackRows;
+        }
+      }
+    }
+    return merged;
+  }, [analyticsData, filteredHabits, localCardFallbackData.analyticsDataByHabit]);
+
+  const mergedCardSummaryMetrics = useMemo(() => {
+    const merged: Record<string, any> = { ...summaryMetrics };
+    for (const habit of filteredHabits) {
+      if (!hasUsableMetricSummary(merged[habit.habit_id])) {
+        const fallbackSummary = localCardFallbackData.summaryByHabit[habit.habit_id];
+        if (fallbackSummary) {
+          merged[habit.habit_id] = fallbackSummary;
+        }
+      }
+    }
+    return merged;
+  }, [filteredHabits, localCardFallbackData.summaryByHabit, summaryMetrics]);
+
+  const mergedBarListAnalyticsData = useMemo(() => {
+    const merged: Record<string, MetricDailyRow[]> = { ...barListAnalyticsData };
+    for (const habit of filteredHabits) {
+      if (!merged[habit.habit_id]?.length) {
+        const fallbackRows = localBarListFallbackData.analyticsDataByHabit[habit.habit_id];
+        if (fallbackRows?.length) {
+          merged[habit.habit_id] = fallbackRows;
+        }
+      }
+    }
+    return merged;
+  }, [barListAnalyticsData, filteredHabits, localBarListFallbackData.analyticsDataByHabit]);
+
+  const mergedBarListSummaryMetrics = useMemo(() => {
+    const merged: Record<string, any> = { ...barListSummaryMetrics };
+    for (const habit of filteredHabits) {
+      if (!hasUsableMetricSummary(merged[habit.habit_id])) {
+        const fallbackSummary = localBarListFallbackData.summaryByHabit[habit.habit_id];
+        if (fallbackSummary) {
+          merged[habit.habit_id] = fallbackSummary;
+        }
+      }
+    }
+    return merged;
+  }, [barListSummaryMetrics, filteredHabits, localBarListFallbackData.summaryByHabit]);
 
   // Fetch canonical daily values + summary (Tinybird first, Python fallback only on failure)
   useEffect(() => {
@@ -1721,8 +2025,8 @@ export function MetricsView({
       if (!habitId || isComputerHabitName(habit.habit_name)) continue;
       const card = buildHabitMetricCardData({
         habit,
-        logs: analyticsData[habitId] || [],
-        summary: summaryMetrics[habitId] || {},
+        logs: mergedCardAnalyticsData[habitId] || [],
+        summary: mergedCardSummaryMetrics[habitId] || {},
         isWideRange,
         rangeFrom: sparkRangeFrom,
         rangeTo: sparkRangeTo,
@@ -1732,7 +2036,7 @@ export function MetricsView({
       }
     }
     return next;
-  }, [analyticsData, availableHabits, isWideRange, summaryMetrics, sparkRangeFrom, sparkRangeTo]);
+  }, [availableHabits, isWideRange, mergedCardAnalyticsData, mergedCardSummaryMetrics, sparkRangeFrom, sparkRangeTo]);
 
   const getHabitCardData = useCallback((habitId: string) => habitCardDataById[habitId] || null, [habitCardDataById]);
 
@@ -1962,23 +2266,23 @@ export function MetricsView({
     const { from: rangeFrom, to: rangeTo } = getRangeDates(barListRange as RangeKey);
     const habitBarData = buildMetricsBarData({
       habits: filteredHabits,
-      analyticsDataByHabit: barListAnalyticsData,
-      summaryByHabit: barListSummaryMetrics,
+      analyticsDataByHabit: mergedBarListAnalyticsData,
+      summaryByHabit: mergedBarListSummaryMetrics,
       rangeFrom,
       rangeTo,
       computerActivityDaily,
     });
-    const streakData = buildMetricStreakData(habitBarData, barListAnalyticsData);
+    const streakData = buildMetricStreakData(habitBarData, mergedBarListAnalyticsData);
     return {
       habitBarData,
       streakData,
     };
   }, [
-    barListAnalyticsData,
     barListRange,
-    barListSummaryMetrics,
     computerActivityDaily,
     filteredHabits,
+    mergedBarListAnalyticsData,
+    mergedBarListSummaryMetrics,
   ]);
 
   const habitBarItems = useMemo<BarListItem[]>(() => {

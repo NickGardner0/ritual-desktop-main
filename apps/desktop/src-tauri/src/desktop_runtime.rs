@@ -583,10 +583,7 @@ async fn fetch_turso_sync_config(
 
         let mut last_error: Option<String> = None;
         for attempt in 0..TURSO_SYNC_FETCH_RETRY_ATTEMPTS {
-            let response = client
-                .get(&url)
-                .bearer_auth(&auth_token)
-                .send();
+            let response = client.get(&url).bearer_auth(&auth_token).send();
 
             match response {
                 Ok(response) => {

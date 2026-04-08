@@ -11,8 +11,7 @@ use tracing::debug;
 
 use crate::error::{DatabaseError, Result};
 use crate::types::{
-    ActivityEvent, AppSummary, DailySummary, DomainSummary, 
-    FocusMetrics, LastEvent,
+    ActivityEvent, AppSummary, DailySummary, DomainSummary, FocusMetrics, LastEvent,
 };
 
 /// Activity operations for the database
@@ -25,69 +24,80 @@ impl<'a> ActivityOps<'a> {
     pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
-    
+
     // ========================================================================
     // ACTIVITY EVENT OPERATIONS
     // ========================================================================
-    
+
     /// Insert a new activity event and return its ID
     pub async fn insert_activity_event(&self, event: &ActivityEvent) -> Result<i64> {
-        self.conn.execute(
-            r#"
+        self.conn
+            .execute(
+                r#"
             INSERT INTO activity_events (
                 device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                 window_title, window_title_hash, window_owner_pid, is_afk,
                 browser_url, browser_domain, is_incognito, source, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
-            libsql::params![
-                event.device_id.clone(),
-                event.user_id.clone(),
-                event.ts_start,
-                event.ts_end,
-                event.app_bundle_id.clone(),
-                event.app_name.clone(),
-                event.window_title.clone(),
-                event.window_title_hash.clone(),
-                event.window_owner_pid,
-                if event.is_afk { 1i64 } else { 0i64 },
-                event.browser_url.clone(),
-                event.browser_domain.clone(),
-                if event.is_incognito { 1i64 } else { 0i64 },
-                event.source.clone(),
-                event.created_at,
-            ]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        // Get the last inserted row ID
-        let mut rows = self.conn.query("SELECT last_insert_rowid()", ())
+                libsql::params![
+                    event.device_id.clone(),
+                    event.user_id.clone(),
+                    event.ts_start,
+                    event.ts_end,
+                    event.app_bundle_id.clone(),
+                    event.app_name.clone(),
+                    event.window_title.clone(),
+                    event.window_title_hash.clone(),
+                    event.window_owner_pid,
+                    if event.is_afk { 1i64 } else { 0i64 },
+                    event.browser_url.clone(),
+                    event.browser_domain.clone(),
+                    if event.is_incognito { 1i64 } else { 0i64 },
+                    event.source.clone(),
+                    event.created_at,
+                ],
+            )
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        let id = rows.next()
+
+        // Get the last inserted row ID
+        let mut rows = self
+            .conn
+            .query("SELECT last_insert_rowid()", ())
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        let id = rows
+            .next()
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
-        
+
         debug!("Inserted activity event with id {}", id);
         Ok(id)
     }
-    
+
     /// Update the end time of an activity event (heartbeat pattern)
     pub async fn update_event_end_time(&self, event_id: i64, ts_end: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE activity_events SET ts_end = ? WHERE id = ?",
-            libsql::params![ts_end, event_id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+        self.conn
+            .execute(
+                "UPDATE activity_events SET ts_end = ? WHERE id = ?",
+                libsql::params![ts_end, event_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         Ok(())
     }
-    
+
     /// Get the last event for a device (for heartbeat merging)
     pub async fn get_last_event(&self, device_id: &str) -> Result<Option<LastEvent>> {
-        let mut rows = self.conn.query(
-            r#"
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT id, ts_start, ts_end, app_bundle_id, window_title, window_title_hash,
                    browser_url, browser_domain, is_afk
             FROM activity_events
@@ -95,15 +105,29 @@ impl<'a> ActivityOps<'a> {
             ORDER BY ts_end DESC
             LIMIT 1
             "#,
-            libsql::params![device_id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        if let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+                libsql::params![device_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             Ok(Some(LastEvent {
-                id: row.get(0).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_start: row.get(1).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row.get(2).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_bundle_id: row.get(3).map_err(|e| DatabaseError::Query(e.to_string()))?,
+                id: row
+                    .get(0)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ts_start: row
+                    .get(1)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ts_end: row
+                    .get(2)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                app_bundle_id: row
+                    .get(3)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
                 window_title: row.get(4).ok(),
                 window_title_hash: row.get(5).ok(),
                 browser_url: row.get(6).ok(),
@@ -114,27 +138,37 @@ impl<'a> ActivityOps<'a> {
             Ok(None)
         }
     }
-    
+
     /// Get an activity event by ID
     pub async fn get_activity_event(&self, id: i64) -> Result<Option<ActivityEvent>> {
-        let mut rows = self.conn.query(
-            r#"
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
             FROM activity_events
             WHERE id = ?
             "#,
-            libsql::params![id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         self.row_to_activity_event(&mut rows).await
     }
-    
+
     /// Get recent activity events for a device
-    pub async fn get_recent_events(&self, device_id: &str, limit: i64) -> Result<Vec<ActivityEvent>> {
-        let mut rows = self.conn.query(
-            r#"
+    pub async fn get_recent_events(
+        &self,
+        device_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ActivityEvent>> {
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
@@ -143,12 +177,14 @@ impl<'a> ActivityOps<'a> {
             ORDER BY ts_start DESC
             LIMIT ?
             "#,
-            libsql::params![device_id, limit]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![device_id, limit],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         self.rows_to_activity_events(&mut rows).await
     }
-    
+
     /// Get activity events in a time range
     pub async fn get_events_in_range(
         &self,
@@ -156,8 +192,10 @@ impl<'a> ActivityOps<'a> {
         ts_start: i64,
         ts_end: i64,
     ) -> Result<Vec<ActivityEvent>> {
-        let mut rows = self.conn.query(
-            r#"
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
@@ -165,37 +203,48 @@ impl<'a> ActivityOps<'a> {
             WHERE device_id = ? AND ts_end > ? AND ts_start < ?
             ORDER BY ts_start ASC
             "#,
-            libsql::params![device_id, ts_start, ts_end]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![device_id, ts_start, ts_end],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         self.rows_to_activity_events(&mut rows).await
     }
-    
+
     /// Get event count for a device
     pub async fn get_event_count(&self, device_id: &str) -> Result<i64> {
-        let mut rows = self.conn.query(
-            "SELECT COUNT(*) FROM activity_events WHERE device_id = ?",
-            libsql::params![device_id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        let count = rows.next()
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT COUNT(*) FROM activity_events WHERE device_id = ?",
+                libsql::params![device_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        let count = rows
+            .next()
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
-        
+
         Ok(count)
     }
-    
+
     /// Delete old events (retention policy)
     pub async fn delete_old_events(&self, days: i64) -> Result<i64> {
         let cutoff_ms = chrono::Utc::now().timestamp_millis() - (days * 24 * 60 * 60 * 1000);
-        
-        let result = self.conn.execute(
-            "DELETE FROM activity_events WHERE ts_end < ?",
-            libsql::params![cutoff_ms]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+
+        let result = self
+            .conn
+            .execute(
+                "DELETE FROM activity_events WHERE ts_end < ?",
+                libsql::params![cutoff_ms],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         Ok(result as i64)
     }
 
@@ -206,8 +255,10 @@ impl<'a> ActivityOps<'a> {
         stale_before_ts: i64,
         max_span_ms: i64,
     ) -> Result<i64> {
-        let result = self.conn.execute(
-            r#"
+        let result = self
+            .conn
+            .execute(
+                r#"
             UPDATE activity_events
             SET ts_end = ts_start + ?
             WHERE device_id = ?
@@ -216,8 +267,10 @@ impl<'a> ActivityOps<'a> {
               AND (ts_end - ts_start) > ?
               AND ts_end <= ?
             "#,
-            libsql::params![max_span_ms, device_id, max_span_ms, stale_before_ts],
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
+                libsql::params![max_span_ms, device_id, max_span_ms, stale_before_ts],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
 
         Ok(result as i64)
     }
@@ -229,8 +282,10 @@ impl<'a> ActivityOps<'a> {
         device_id: &str,
         lookback_ts: i64,
     ) -> Result<i64> {
-        let result = self.conn.execute(
-            r#"
+        let result = self
+            .conn
+            .execute(
+                r#"
             DELETE FROM activity_events
             WHERE id IN (
                 SELECT victim.id
@@ -255,16 +310,18 @@ impl<'a> ActivityOps<'a> {
                   AND victim.ts_start >= ?
             )
             "#,
-            libsql::params![device_id, lookback_ts],
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
+                libsql::params![device_id, lookback_ts],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
 
         Ok(result as i64)
     }
-    
+
     // ========================================================================
     // AFK EVENT OPERATIONS
     // ========================================================================
-    
+
     /// Insert or update an AFK event
     pub async fn upsert_afk_event(
         &self,
@@ -275,10 +332,12 @@ impl<'a> ActivityOps<'a> {
         status: &str,
     ) -> Result<i64> {
         let now = chrono::Utc::now().timestamp_millis();
-        
+
         // Try to update existing event with same status
-        let updated = self.conn.execute(
-            r#"
+        let updated = self
+            .conn
+            .execute(
+                r#"
             UPDATE afk_events 
             SET ts_end = ?
             WHERE id = (
@@ -287,59 +346,74 @@ impl<'a> ActivityOps<'a> {
                 ORDER BY ts_end DESC LIMIT 1
             )
             "#,
-            libsql::params![ts_end, device_id, status]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![ts_end, device_id, status],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         if updated > 0 {
             // Return the updated row id
-            let mut rows = self.conn.query(
-                "SELECT id FROM afk_events WHERE device_id = ? ORDER BY ts_end DESC LIMIT 1",
-                libsql::params![device_id]
-            ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-            
-            let id = rows.next()
+            let mut rows = self
+                .conn
+                .query(
+                    "SELECT id FROM afk_events WHERE device_id = ? ORDER BY ts_end DESC LIMIT 1",
+                    libsql::params![device_id],
+                )
+                .await
+                .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+            let id = rows
+                .next()
                 .await
                 .map_err(|e| DatabaseError::Query(e.to_string()))?
                 .map(|row| row.get::<i64>(0).unwrap_or(0))
                 .unwrap_or(0);
-            
+
             return Ok(id);
         }
-        
+
         // Insert new event
         self.conn.execute(
             "INSERT INTO afk_events (device_id, user_id, ts_start, ts_end, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             libsql::params![device_id, user_id, ts_start, ts_end, status, now]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        let mut rows = self.conn.query("SELECT last_insert_rowid()", ())
+
+        let mut rows = self
+            .conn
+            .query("SELECT last_insert_rowid()", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        let id = rows.next()
+
+        let id = rows
+            .next()
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
-        
+
         Ok(id)
     }
-    
+
     /// Delete old AFK events
     pub async fn delete_old_afk_events(&self, days: i64) -> Result<i64> {
         let cutoff_ms = chrono::Utc::now().timestamp_millis() - (days * 24 * 60 * 60 * 1000);
-        
-        let result = self.conn.execute(
-            "DELETE FROM afk_events WHERE ts_end < ?",
-            libsql::params![cutoff_ms]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+
+        let result = self
+            .conn
+            .execute(
+                "DELETE FROM afk_events WHERE ts_end < ?",
+                libsql::params![cutoff_ms],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         Ok(result as i64)
     }
-    
+
     /// Get database statistics (for diagnostics)
     pub async fn get_db_stats(&self) -> Result<crate::blocking::DbStats> {
-        let event_count: i64 = self.conn
+        let event_count: i64 = self
+            .conn
             .query("SELECT COUNT(*) FROM activity_events", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
@@ -348,8 +422,9 @@ impl<'a> ActivityOps<'a> {
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
-        
-        let afk_count: i64 = self.conn
+
+        let afk_count: i64 = self
+            .conn
             .query("SELECT COUNT(*) FROM afk_events", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
@@ -358,8 +433,9 @@ impl<'a> ActivityOps<'a> {
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
-        
-        let oldest_event_ts: Option<i64> = self.conn
+
+        let oldest_event_ts: Option<i64> = self
+            .conn
             .query("SELECT MIN(ts_start) FROM activity_events", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
@@ -367,8 +443,9 @@ impl<'a> ActivityOps<'a> {
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .and_then(|row| row.get::<i64>(0).ok());
-        
-        let newest_event_ts: Option<i64> = self.conn
+
+        let newest_event_ts: Option<i64> = self
+            .conn
             .query("SELECT MAX(ts_end) FROM activity_events", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
@@ -376,9 +453,10 @@ impl<'a> ActivityOps<'a> {
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .and_then(|row| row.get::<i64>(0).ok());
-        
+
         // Get database file size via PRAGMA
-        let page_count: i64 = self.conn
+        let page_count: i64 = self
+            .conn
             .query("PRAGMA page_count", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
@@ -387,8 +465,9 @@ impl<'a> ActivityOps<'a> {
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
-        
-        let page_size: i64 = self.conn
+
+        let page_size: i64 = self
+            .conn
             .query("PRAGMA page_size", ())
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
@@ -397,7 +476,7 @@ impl<'a> ActivityOps<'a> {
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(4096);
-        
+
         Ok(crate::blocking::DbStats {
             event_count,
             afk_count,
@@ -406,43 +485,57 @@ impl<'a> ActivityOps<'a> {
             db_size_bytes: page_count * page_size,
         })
     }
-    
+
     // ========================================================================
     // HEARTBEAT OPERATIONS
     // ========================================================================
-    
+
     /// Update the heartbeat timestamp for a device
     pub async fn update_heartbeat(&self, device_id: &str, timestamp: i64) -> Result<()> {
-        self.conn.execute(
-            r#"
+        self.conn
+            .execute(
+                r#"
             INSERT INTO watcher_heartbeat (device_id, last_seen_ts)
             VALUES (?, ?)
             ON CONFLICT(device_id) DO UPDATE SET last_seen_ts = ?
             "#,
-            libsql::params![device_id, timestamp, timestamp]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![device_id, timestamp, timestamp],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         Ok(())
     }
-    
+
     /// Get the last heartbeat timestamp for a device
     pub async fn get_last_heartbeat(&self, device_id: &str) -> Result<Option<i64>> {
-        let mut rows = self.conn.query(
-            "SELECT last_seen_ts FROM watcher_heartbeat WHERE device_id = ?",
-            libsql::params![device_id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        if let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
-            Ok(Some(row.get(0).map_err(|e| DatabaseError::Query(e.to_string()))?))
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT last_seen_ts FROM watcher_heartbeat WHERE device_id = ?",
+                libsql::params![device_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
+            Ok(Some(
+                row.get(0)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+            ))
         } else {
             Ok(None)
         }
     }
-    
+
     // ========================================================================
     // SUMMARY AND ANALYTICS OPERATIONS
     // ========================================================================
-    
+
     /// Get app usage summary for a time range
     pub async fn get_app_summary(
         &self,
@@ -450,8 +543,10 @@ impl<'a> ActivityOps<'a> {
         ts_start: i64,
         ts_end: i64,
     ) -> Result<Vec<AppSummary>> {
-        let mut rows = self.conn.query(
-            r#"
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT 
                 app_bundle_id,
                 app_name,
@@ -465,12 +560,18 @@ impl<'a> ActivityOps<'a> {
             GROUP BY app_bundle_id
             ORDER BY total_ms DESC
             "#,
-            libsql::params![device_id, ts_start, ts_end]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![device_id, ts_start, ts_end],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         let mut summaries = Vec::new();
-        
-        while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             summaries.push(AppSummary {
                 bundle_id: row.get(0).unwrap_or_default(),
                 app_name: row.get(1).unwrap_or_default(),
@@ -478,10 +579,10 @@ impl<'a> ActivityOps<'a> {
                 total_ms: row.get(3).unwrap_or(0),
             });
         }
-        
+
         Ok(summaries)
     }
-    
+
     /// Get domain usage summary for a time range
     pub async fn get_domain_summary(
         &self,
@@ -489,8 +590,10 @@ impl<'a> ActivityOps<'a> {
         ts_start: i64,
         ts_end: i64,
     ) -> Result<Vec<DomainSummary>> {
-        let mut rows = self.conn.query(
-            r#"
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT 
                 browser_domain,
                 COUNT(*) as event_count,
@@ -504,22 +607,28 @@ impl<'a> ActivityOps<'a> {
             GROUP BY browser_domain
             ORDER BY total_ms DESC
             "#,
-            libsql::params![device_id, ts_start, ts_end]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![device_id, ts_start, ts_end],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         let mut summaries = Vec::new();
-        
-        while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             summaries.push(DomainSummary {
                 domain: row.get(0).unwrap_or_default(),
                 event_count: row.get(1).unwrap_or(0),
                 total_ms: row.get(2).unwrap_or(0),
             });
         }
-        
+
         Ok(summaries)
     }
-    
+
     /// Get daily summary statistics
     pub async fn get_daily_summary(
         &self,
@@ -542,8 +651,12 @@ impl<'a> ActivityOps<'a> {
             "#,
             libsql::params![device_id, ts_start, ts_end]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
-        if let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             Ok(DailySummary {
                 date: chrono::Utc::now().format("%Y-%m-%d").to_string(),
                 device_id: device_id.to_string(),
@@ -565,7 +678,7 @@ impl<'a> ActivityOps<'a> {
             })
         }
     }
-    
+
     /// Get focus and productivity metrics
     pub async fn get_focus_metrics(
         &self,
@@ -573,26 +686,34 @@ impl<'a> ActivityOps<'a> {
         ts_start: i64,
         ts_end: i64,
     ) -> Result<FocusMetrics> {
-        let mut rows = self.conn.query(
-            r#"
+        let mut rows = self
+            .conn
+            .query(
+                r#"
             SELECT ts_start, ts_end, app_bundle_id, is_afk
             FROM activity_events
             WHERE device_id = ? AND ts_start >= ? AND ts_start < ? AND is_afk = 0
             ORDER BY ts_start ASC
             "#,
-            libsql::params![device_id, ts_start, ts_end]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-        
+                libsql::params![device_id, ts_start, ts_end],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         let mut events: Vec<(i64, i64, String)> = Vec::new();
-        
-        while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             events.push((
                 row.get(0).unwrap_or(0),
                 row.get(1).unwrap_or(0),
                 row.get(2).unwrap_or_default(),
             ));
         }
-        
+
         if events.is_empty() {
             return Ok(FocusMetrics {
                 context_switches: 0,
@@ -602,17 +723,17 @@ impl<'a> ActivityOps<'a> {
                 deep_work_time_ms: 0,
             });
         }
-        
+
         let mut context_switches = 0i64;
         let mut longest_focus_session_ms = 0i64;
         let mut focus_sessions_30min_plus = 0i64;
         let mut fragmented_time_ms = 0i64;
         let mut deep_work_time_ms = 0i64;
         let mut last_app: Option<String> = None;
-        
+
         for (start, end, app) in &events {
             let duration = end - start;
-            
+
             // Track context switches (app changes)
             if let Some(ref prev_app) = last_app {
                 if prev_app != app {
@@ -620,24 +741,24 @@ impl<'a> ActivityOps<'a> {
                 }
             }
             last_app = Some(app.clone());
-            
+
             // Track focus sessions
             if duration > longest_focus_session_ms {
                 longest_focus_session_ms = duration;
             }
-            
+
             // 30+ minute sessions
             if duration >= 30 * 60 * 1000 {
                 focus_sessions_30min_plus += 1;
                 deep_work_time_ms += duration;
             }
-            
+
             // Fragmented time (< 2 minutes)
             if duration < 2 * 60 * 1000 {
                 fragmented_time_ms += duration;
             }
         }
-        
+
         Ok(FocusMetrics {
             context_switches,
             longest_focus_session_ms,
@@ -646,22 +767,44 @@ impl<'a> ActivityOps<'a> {
             deep_work_time_ms,
         })
     }
-    
+
     // ========================================================================
     // HELPER METHODS
     // ========================================================================
-    
+
     /// Convert a single row to ActivityEvent
-    async fn row_to_activity_event(&self, rows: &mut libsql::Rows) -> Result<Option<ActivityEvent>> {
-        if let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+    async fn row_to_activity_event(
+        &self,
+        rows: &mut libsql::Rows,
+    ) -> Result<Option<ActivityEvent>> {
+        if let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             Ok(Some(ActivityEvent {
-                id: Some(row.get(0).map_err(|e| DatabaseError::Query(e.to_string()))?),
-                device_id: row.get(1).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                user_id: row.get(2).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_start: row.get(3).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row.get(4).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_bundle_id: row.get(5).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_name: row.get(6).map_err(|e| DatabaseError::Query(e.to_string()))?,
+                id: Some(
+                    row.get(0)
+                        .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ),
+                device_id: row
+                    .get(1)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                user_id: row
+                    .get(2)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ts_start: row
+                    .get(3)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ts_end: row
+                    .get(4)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                app_bundle_id: row
+                    .get(5)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                app_name: row
+                    .get(6)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
                 window_title: row.get(7).ok(),
                 window_title_hash: row.get(8).ok(),
                 window_owner_pid: row.get(9).ok(),
@@ -676,20 +819,39 @@ impl<'a> ActivityOps<'a> {
             Ok(None)
         }
     }
-    
+
     /// Convert multiple rows to Vec<ActivityEvent>
     async fn rows_to_activity_events(&self, rows: &mut libsql::Rows) -> Result<Vec<ActivityEvent>> {
         let mut events = Vec::new();
-        
-        while let Some(row) = rows.next().await.map_err(|e| DatabaseError::Query(e.to_string()))? {
+
+        while let Some(row) = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+        {
             events.push(ActivityEvent {
-                id: Some(row.get(0).map_err(|e| DatabaseError::Query(e.to_string()))?),
-                device_id: row.get(1).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                user_id: row.get(2).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_start: row.get(3).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row.get(4).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_bundle_id: row.get(5).map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_name: row.get(6).map_err(|e| DatabaseError::Query(e.to_string()))?,
+                id: Some(
+                    row.get(0)
+                        .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ),
+                device_id: row
+                    .get(1)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                user_id: row
+                    .get(2)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ts_start: row
+                    .get(3)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                ts_end: row
+                    .get(4)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                app_bundle_id: row
+                    .get(5)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                app_name: row
+                    .get(6)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
                 window_title: row.get(7).ok(),
                 window_title_hash: row.get(8).ok(),
                 window_owner_pid: row.get(9).ok(),
@@ -701,7 +863,7 @@ impl<'a> ActivityOps<'a> {
                 created_at: row.get(15).unwrap_or(0),
             });
         }
-        
+
         Ok(events)
     }
 }
@@ -711,124 +873,103 @@ mod tests {
     use super::*;
     use libsql::Builder;
     use tempfile::TempDir;
-    
+
     async fn create_test_db() -> (libsql::Database, Connection, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let db = Builder::new_local(db_path.to_str().unwrap())
             .build()
             .await
             .unwrap();
-        
+
         let conn = db.connect().unwrap();
-        
+
         // Initialize schema
         crate::schema::initialize_schema(&conn).await.unwrap();
-        
+
         (db, conn, temp_dir)
     }
-    
+
     #[tokio::test]
     async fn test_insert_and_get_activity_event() {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = ActivityOps::new(&conn);
-        
-        let event = ActivityEvent::new(
-            "device1",
-            "user1",
-            1000,
-            2000,
-            "com.test.app",
-            "Test App",
-        );
-        
+
+        let event = ActivityEvent::new("device1", "user1", 1000, 2000, "com.test.app", "Test App");
+
         let id = ops.insert_activity_event(&event).await.unwrap();
         assert!(id > 0);
-        
+
         let retrieved = ops.get_activity_event(id).await.unwrap();
         assert!(retrieved.is_some());
-        
+
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.device_id, "device1");
         assert_eq!(retrieved.app_bundle_id, "com.test.app");
     }
-    
+
     #[tokio::test]
     async fn test_update_event_end_time() {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = ActivityOps::new(&conn);
-        
-        let event = ActivityEvent::new(
-            "device1",
-            "user1",
-            1000,
-            2000,
-            "com.test.app",
-            "Test App",
-        );
-        
+
+        let event = ActivityEvent::new("device1", "user1", 1000, 2000, "com.test.app", "Test App");
+
         let id = ops.insert_activity_event(&event).await.unwrap();
-        
+
         ops.update_event_end_time(id, 3000).await.unwrap();
-        
+
         let retrieved = ops.get_activity_event(id).await.unwrap().unwrap();
         assert_eq!(retrieved.ts_end, 3000);
     }
-    
+
     #[tokio::test]
     async fn test_get_last_event() {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = ActivityOps::new(&conn);
-        
+
         // No events initially
         let last = ops.get_last_event("device1").await.unwrap();
         assert!(last.is_none());
-        
+
         // Insert an event
-        let event = ActivityEvent::new(
-            "device1",
-            "user1",
-            1000,
-            2000,
-            "com.test.app",
-            "Test App",
-        );
+        let event = ActivityEvent::new("device1", "user1", 1000, 2000, "com.test.app", "Test App");
         ops.insert_activity_event(&event).await.unwrap();
-        
+
         // Now should have last event
         let last = ops.get_last_event("device1").await.unwrap();
         assert!(last.is_some());
         assert_eq!(last.unwrap().app_bundle_id, "com.test.app");
     }
-    
+
     #[tokio::test]
     async fn test_heartbeat() {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = ActivityOps::new(&conn);
-        
+
         // No heartbeat initially
         let hb = ops.get_last_heartbeat("device1").await.unwrap();
         assert!(hb.is_none());
-        
+
         // Update heartbeat
         ops.update_heartbeat("device1", 1000).await.unwrap();
-        
+
         let hb = ops.get_last_heartbeat("device1").await.unwrap();
         assert_eq!(hb, Some(1000));
-        
+
         // Update again
         ops.update_heartbeat("device1", 2000).await.unwrap();
-        
+
         let hb = ops.get_last_heartbeat("device1").await.unwrap();
         assert_eq!(hb, Some(2000));
     }
-    
+
     #[tokio::test]
     async fn test_app_summary() {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = ActivityOps::new(&conn);
-        
+
         // Insert some events
         for i in 0..5 {
             let mut event = ActivityEvent::new(
@@ -842,7 +983,7 @@ mod tests {
             event.is_afk = false;
             ops.insert_activity_event(&event).await.unwrap();
         }
-        
+
         let summary = ops.get_app_summary("device1", 0, 10000).await.unwrap();
         assert!(!summary.is_empty());
         assert_eq!(summary[0].bundle_id, "com.test.app");

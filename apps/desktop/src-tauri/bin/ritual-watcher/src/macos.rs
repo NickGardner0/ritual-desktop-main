@@ -500,9 +500,18 @@ fn is_known_window_chrome_noise(
     // Common browser chrome noise
     if matches!(
         lowered.as_str(),
-        "back" | "forward" | "reload" | "share" | "extensions" | "downloads"
-            | "new tab" | "close tab" | "bookmark this tab" | "show all tabs"
-            | "address and search bar" | "search or enter website name"
+        "back"
+            | "forward"
+            | "reload"
+            | "share"
+            | "extensions"
+            | "downloads"
+            | "new tab"
+            | "close tab"
+            | "bookmark this tab"
+            | "show all tabs"
+            | "address and search bar"
+            | "search or enter website name"
     ) {
         return true;
     }
@@ -1563,16 +1572,42 @@ pub fn get_focused_text_info(
             let is_browser = is_browser_context(bundle_id, window_title);
             let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
             let is_electron_editor = is_editor
-                && (bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex"));
+                && (bundle.contains("cursor")
+                    || bundle.contains("code")
+                    || bundle.contains("codex"));
             // Browsers have deeply nested DOMs — need higher budgets to reach page content
-            let mut node_budget = if is_electron_editor { 60 } else if is_browser { 50 } else if is_editor { 40 } else { 24 };
+            let mut node_budget = if is_electron_editor {
+                60
+            } else if is_browser {
+                50
+            } else if is_editor {
+                40
+            } else {
+                24
+            };
             collect_visible_descendants(
                 window_element,
                 &mut candidates,
                 &mut visited,
                 &mut node_budget,
-                if is_electron_editor { 5 } else if is_browser { 4 } else if is_editor { 3 } else { 2 },
-                if is_electron_editor { 24 } else if is_browser { 20 } else if is_editor { 16 } else { 14 },
+                if is_electron_editor {
+                    5
+                } else if is_browser {
+                    4
+                } else if is_editor {
+                    3
+                } else {
+                    2
+                },
+                if is_electron_editor {
+                    24
+                } else if is_browser {
+                    20
+                } else if is_editor {
+                    16
+                } else {
+                    14
+                },
             );
             CFRelease(window_element as *const _);
         }
@@ -1590,11 +1625,13 @@ pub fn get_focused_text_info(
             // For Cursor/Code/Codex, use deeper traversal since Electron-based
             // editors have deeply nested AX trees where code content hides
             let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
-            let (depth, children) = if bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex") {
-                (4, 20) // Deeper + wider traversal for Electron editors
-            } else {
-                (2, 10)
-            };
+            let (depth, children) =
+                if bundle.contains("cursor") || bundle.contains("code") || bundle.contains("codex")
+                {
+                    (4, 20) // Deeper + wider traversal for Electron editors
+                } else {
+                    (2, 10)
+                };
             collect_related_process_candidates(pid, bundle_id, &mut candidates, depth, children);
         }
 

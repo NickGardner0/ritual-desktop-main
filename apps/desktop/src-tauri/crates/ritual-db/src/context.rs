@@ -923,24 +923,38 @@ fn extract_contextual_artifacts(text: &str) -> ExtractedArtifacts {
     use std::collections::HashSet;
 
     let file_extensions = [
-        ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".toml", ".json",
-        ".yaml", ".yml", ".sql", ".css", ".scss", ".html", ".sh", ".swift",
-        ".go", ".rb", ".java", ".c", ".cpp", ".h",
+        ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".toml", ".json", ".yaml", ".yml",
+        ".sql", ".css", ".scss", ".html", ".sh", ".swift", ".go", ".rb", ".java", ".c", ".cpp",
+        ".h",
     ];
 
     let command_prefixes = [
-        "cargo ", "npm ", "pnpm ", "pytest ", "python ", "uv ", "git ",
-        "bun ", "make ", "docker ", "brew ",
+        "cargo ", "npm ", "pnpm ", "pytest ", "python ", "uv ", "git ", "bun ", "make ", "docker ",
+        "brew ",
     ];
 
     let error_markers = [
-        "fatal:", "error:", "panic:", "exception:", "failed:", "crash:",
-        "traceback:", "abort:", "fatal ", "error ", "panic ",
+        "fatal:",
+        "error:",
+        "panic:",
+        "exception:",
+        "failed:",
+        "crash:",
+        "traceback:",
+        "abort:",
+        "fatal ",
+        "error ",
+        "panic ",
     ];
 
     let git_ops = [
-        "git push", "git pull", "git commit", "git merge", "git rebase",
-        "git checkout", "git stash",
+        "git push",
+        "git pull",
+        "git commit",
+        "git merge",
+        "git rebase",
+        "git checkout",
+        "git stash",
     ];
 
     let mut files: HashSet<String> = HashSet::new();
@@ -952,7 +966,9 @@ fn extract_contextual_artifacts(text: &str) -> ExtractedArtifacts {
 
     // Extract file references
     for word in text.split_whitespace() {
-        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
+        let clean = word.trim_matches(|c: char| {
+            !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-'
+        });
         for ext in &file_extensions {
             if clean.ends_with(ext) && clean.len() > ext.len() + 1 && files.len() < 16 {
                 files.insert(clean.to_string());
@@ -966,7 +982,11 @@ fn extract_contextual_artifacts(text: &str) -> ExtractedArtifacts {
             if commands.len() >= 8 {
                 break;
             }
-            let snippet: String = text[idx..].chars().take(60).take_while(|c| *c != '\n').collect();
+            let snippet: String = text[idx..]
+                .chars()
+                .take(60)
+                .take_while(|c| *c != '\n')
+                .collect();
             let trimmed = snippet.trim();
             if !trimmed.is_empty() {
                 commands.insert(trimmed.to_string());
@@ -980,7 +1000,11 @@ fn extract_contextual_artifacts(text: &str) -> ExtractedArtifacts {
             if errors.len() >= 6 {
                 break;
             }
-            let snippet: String = text[idx..].chars().take(80).take_while(|c| *c != '\n').collect();
+            let snippet: String = text[idx..]
+                .chars()
+                .take(80)
+                .take_while(|c| *c != '\n')
+                .collect();
             let trimmed = snippet.trim();
             if !trimmed.is_empty() {
                 errors.insert(trimmed.to_string());

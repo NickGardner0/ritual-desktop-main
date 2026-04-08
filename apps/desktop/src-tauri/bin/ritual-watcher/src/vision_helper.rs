@@ -63,10 +63,11 @@ pub fn resolve_vision_helper_path() -> Option<PathBuf> {
         if let Some(exe_dir) = exe_path.parent() {
             if let Some(ref triple) = target {
                 candidates.push(exe_dir.join(format!("ritual-vision-helper-{triple}")));
-                candidates.push(exe_dir.join(format!("../Resources/ritual-vision-helper-{triple}")));
-                candidates.push(
-                    exe_dir.join(format!("../Resources/binaries/ritual-vision-helper-{triple}"))
-                );
+                candidates
+                    .push(exe_dir.join(format!("../Resources/ritual-vision-helper-{triple}")));
+                candidates.push(exe_dir.join(format!(
+                    "../Resources/binaries/ritual-vision-helper-{triple}"
+                )));
             }
             candidates.push(exe_dir.join("ritual-vision-helper"));
             candidates.push(exe_dir.join("../Resources/ritual-vision-helper"));

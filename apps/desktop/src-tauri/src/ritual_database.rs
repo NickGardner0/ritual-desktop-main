@@ -1640,7 +1640,7 @@ pub struct TextSearchResult {
 /// Emit a one-line startup snapshot for cloud-memory upload readiness.
 pub fn log_startup_pipeline_snapshot() -> Result<(), String> {
     RUNTIME.block_on(async {
-        let guard = get_db().await?;
+        let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
 
@@ -1768,6 +1768,15 @@ pub struct MemoryUploadOutboxAckResult {
     pub failed_updates: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalRetrievalHealthStats {
+    pub latest_context_snapshots_ts: Option<i64>,
+    pub latest_session_retrieval_docs_ts: Option<i64>,
+    pub context_snapshot_count: i64,
+    pub session_retrieval_doc_count: i64,
+    pub memory_upload_outbox: MemoryUploadOutboxStats,
+}
+
 /// Seed upload outbox rows from session_retrieval_docs for cloud ingestion.
 #[tauri::command]
 pub fn seed_memory_upload_outbox(
@@ -1779,7 +1788,7 @@ pub fn seed_memory_upload_outbox(
             origin.as_deref(),
             "tauri:seed_memory_upload_outbox:unknown",
         );
-        let guard = get_db().await?;
+        let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
         let now = Utc::now().timestamp_millis();
@@ -1938,7 +1947,7 @@ pub fn get_memory_upload_outbox_stats(
             "tauri:get_memory_upload_outbox_stats:unknown",
         );
         log_db_command("get_memory_upload_outbox_stats", &origin, "");
-        let guard = get_db().await?;
+        let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
 
@@ -1978,6 +1987,115 @@ pub fn get_memory_upload_outbox_stats(
     })
 }
 
+/// Read local retrieval freshness directly from the live desktop activity DB.
+#[tauri::command]
+pub fn get_local_retrieval_health(
+    origin: Option<String>,
+) -> Result<LocalRetrievalHealthStats, String> {
+    RUNTIME.block_on(async {
+        let origin = normalize_db_command_origin(
+            origin.as_deref(),
+            "tauri:get_local_retrieval_health:unknown",
+        );
+        log_db_command("get_local_retrieval_health", &origin, "");
+
+        let guard = get_activity_db().await?;
+        let db = require_db_ref(guard.as_ref())?;
+        let conn = db.connection().await;
+
+        let mut context_rows = conn
+            .query(
+                "SELECT MAX(ts) AS latest_ts, COUNT(*) AS total_count FROM context_snapshots",
+                (),
+            )
+            .await
+            .map_err(|e| format!("Failed to read context snapshot health: {}", e))?;
+        let context_row = context_rows
+            .next()
+            .await
+            .map_err(|e| format!("Failed reading context snapshot health row: {}", e))?;
+
+        let mut session_rows = conn
+            .query(
+                "SELECT MAX(chunk_end_ts) AS latest_ts, COUNT(*) AS total_count FROM session_retrieval_docs",
+                (),
+            )
+            .await
+            .map_err(|e| format!("Failed to read session retrieval health: {}", e))?;
+        let session_row = session_rows
+            .next()
+            .await
+            .map_err(|e| format!("Failed reading session retrieval health row: {}", e))?;
+
+        let mut outbox_rows = conn
+            .query(
+                r#"
+                SELECT
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+                    SUM(CASE WHEN status = 'uploading' THEN 1 ELSE 0 END) AS uploading_count,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_count,
+                    COUNT(*) AS total_count,
+                    MIN(CASE WHEN status IN ('pending','failed') THEN created_at ELSE NULL END) AS oldest_pending_created_at,
+                    MAX(CASE WHEN status = 'uploaded' THEN updated_at ELSE NULL END) AS newest_uploaded_at
+                FROM memory_upload_outbox
+                "#,
+                (),
+            )
+            .await
+            .map_err(|e| format!("Failed to read memory upload outbox health: {}", e))?;
+        let outbox_row = outbox_rows
+            .next()
+            .await
+            .map_err(|e| format!("Failed reading memory upload outbox health row: {}", e))?;
+
+        Ok(LocalRetrievalHealthStats {
+            latest_context_snapshots_ts: context_row
+                .as_ref()
+                .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
+            latest_session_retrieval_docs_ts: session_row
+                .as_ref()
+                .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
+            context_snapshot_count: context_row
+                .as_ref()
+                .and_then(|row| row.get::<i64>(1).ok())
+                .unwrap_or(0),
+            session_retrieval_doc_count: session_row
+                .as_ref()
+                .and_then(|row| row.get::<i64>(1).ok())
+                .unwrap_or(0),
+            memory_upload_outbox: MemoryUploadOutboxStats {
+                pending: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(0).ok())
+                    .unwrap_or(0),
+                uploading: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(1).ok())
+                    .unwrap_or(0),
+                failed: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(2).ok())
+                    .unwrap_or(0),
+                uploaded: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(3).ok())
+                    .unwrap_or(0),
+                total: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(4).ok())
+                    .unwrap_or(0),
+                oldest_pending_created_at: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<Option<i64>>(5).ok().flatten()),
+                newest_uploaded_at: outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<Option<i64>>(6).ok().flatten()),
+            },
+        })
+    })
+}
+
 /// Claim a batch of outbox rows for upload processing.
 #[tauri::command]
 pub fn claim_memory_upload_outbox_batch(
@@ -1989,7 +2107,7 @@ pub fn claim_memory_upload_outbox_batch(
             origin.as_deref(),
             "tauri:claim_memory_upload_outbox_batch:unknown",
         );
-        let guard = get_db().await?;
+        let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
         let now = Utc::now().timestamp_millis();
@@ -2136,7 +2254,7 @@ pub fn ack_memory_upload_outbox_batch(
             });
         }
 
-        let guard = get_db().await?;
+        let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
         let now = Utc::now().timestamp_millis();

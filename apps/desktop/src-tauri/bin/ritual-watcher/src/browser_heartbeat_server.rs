@@ -27,7 +27,10 @@ pub const DEFAULT_PORT: u16 = 8766;
 const SESSION_TIMEOUT_MS: u64 = 45_000; // 45 seconds (extension sends every 20s)
 /// Reject or clamp timestamps that are clearly invalid (clock skew / stale replay)
 const MAX_CLIENT_CLOCK_SKEW_MS: u64 = 60_000; // 60s future skew
-const MAX_BACKFILL_AGE_MS: u64 = 24 * 60 * 60 * 1000; // 24h
+// Keep the accepted backfill window tight. The extension sends heartbeats every
+// ~20s, so anything more than a couple of minutes old is more likely to be a
+// resumed/stale tab timestamp than legitimate backfill.
+const MAX_BACKFILL_AGE_MS: u64 = 2 * 60 * 1000; // 2 minutes
 /// Throttle write frequency when merging many heartbeats into the same session.
 /// We still keep the in-memory timestamp current and flush on close.
 const MERGE_DB_FLUSH_INTERVAL_MS: u64 = 12_000;
@@ -463,13 +466,29 @@ fn push_unique_fragment(
 
 fn browser_capture_components_json(heartbeat: &BrowserHeartbeat) -> Option<String> {
     let mut components = vec!["browser_tab".to_string()];
-    if heartbeat.document_title.as_deref().unwrap_or("").trim().is_empty() {
+    if heartbeat
+        .document_title
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
         // no-op
     } else {
         components.push("document_title".to_string());
     }
-    if heartbeat.visible_text_raw.as_deref().unwrap_or("").trim().is_empty()
-        && heartbeat.visible_text_norm.as_deref().unwrap_or("").trim().is_empty()
+    if heartbeat
+        .visible_text_raw
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+        && heartbeat
+            .visible_text_norm
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
     {
         // no-op
     } else {
@@ -606,7 +625,12 @@ fn sanitized_visible_text(heartbeat: &BrowserHeartbeat) -> (String, String) {
         );
     }
     for heading in heartbeat.headings.iter().take(12) {
-        push_unique_fragment(&mut fragments, &mut seen, &format!("Heading: {heading}"), 260);
+        push_unique_fragment(
+            &mut fragments,
+            &mut seen,
+            &format!("Heading: {heading}"),
+            260,
+        );
     }
     for block in heartbeat.semantic_blocks.iter().take(16) {
         push_unique_fragment(&mut fragments, &mut seen, block, 420);
@@ -1341,6 +1365,13 @@ mod tests {
             normalize_heartbeat_timestamp(client_ts, received_at),
             received_at
         );
+    }
+
+    #[test]
+    fn timestamp_normalization_rejects_old_extension_heartbeat() {
+        let received_at: u64 = 1_000_000;
+        let client_ts = Some(received_at - MAX_BACKFILL_AGE_MS - 1);
+        assert_eq!(normalize_heartbeat_timestamp(client_ts, received_at), received_at);
     }
 
     #[test]

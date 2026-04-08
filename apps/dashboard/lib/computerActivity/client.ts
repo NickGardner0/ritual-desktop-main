@@ -70,6 +70,8 @@ export interface AggregatedComputerStatsResponse {
 const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 65000
 const DESKTOP_DAILY_TIMEOUT_MS = 65000
 const SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS = 2
+const DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS = 7
+const DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS = 7
 const summaryCache = new Map<string, ComputerSummaryResponse>()
 const dailyCache = new Map<string, ComputerDailyResponseRow[]>()
 const appsCache = new Map<string, TopAppResponseRow[]>()
@@ -199,6 +201,106 @@ function shouldUseShortRangeNativeFallback(params: ComputerActivityRangeParams) 
   return rangeIncludesLocalToday(params) && getInclusiveRangeDays(params) <= SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS
 }
 
+function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRangeParams) {
+  return isTauri() && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
+}
+
+function shiftDateString(dateString: string, days: number) {
+  const date = new Date(`${dateString}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+async function getDesktopLocalDailyRows(
+  params: ComputerActivityRangeParams,
+): Promise<ComputerDailyResponseRow[]> {
+  return normalizeDailyRows(
+    await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
+  ).map((row) => ({ ...row, source: row.source || 'tauri_fallback' }))
+}
+
+function buildSummaryFromDailyRows(
+  rows: ComputerDailyResponseRow[],
+  source: string,
+): ComputerSummaryResponse {
+  const totalActiveMs = rows.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0)
+  const totalEvents = rows.reduce((sum, row) => sum + Math.max(0, Number(row.events_count || 0)), 0)
+  const daysTracked = rows.filter((row) => Math.max(0, Number(row.active_ms || 0)) > 0).length
+
+  return {
+    total_active_ms: totalActiveMs,
+    total_afk_ms: 0,
+    total_hours: totalActiveMs / (1000 * 60 * 60),
+    total_events: totalEvents,
+    days_tracked: daysTracked,
+    unique_apps: 0,
+    unique_domains: 0,
+    avg_daily_hours: daysTracked > 0 ? totalActiveMs / (1000 * 60 * 60) / daysTracked : 0,
+    source,
+  }
+}
+
+async function applyDesktopRecentSummaryCorrection(
+  params: ComputerActivityRangeParams,
+  summary: ComputerSummaryResponse,
+): Promise<ComputerSummaryResponse> {
+  if (!isTauri()) return summary
+
+  const today = getLocalTodayDateString()
+  const correctionStart = shiftDateString(today, -(DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS - 1))
+  const overlapStart = params.startDate > correctionStart ? params.startDate : correctionStart
+  const overlapEnd = params.endDate < today ? params.endDate : today
+
+  if (overlapStart > overlapEnd) {
+    return summary
+  }
+
+  const correctionParams = { startDate: overlapStart, endDate: overlapEnd }
+  const [backendDailyPayload, localDailyRows] = await Promise.all([
+    fetchWatcherStatsJson<{ data?: any[] }>('/api/watcher/stats/daily', {
+      start_date: overlapStart,
+      end_date: overlapEnd,
+    }),
+    getDesktopLocalDailyRows(correctionParams),
+  ])
+
+  const backendRows = normalizeDailyRows(Array.isArray(backendDailyPayload?.data) ? backendDailyPayload.data : [])
+  const backendByDay = new Map(backendRows.map((row) => [row.day, row]))
+  const localByDay = new Map(localDailyRows.map((row) => [row.day, row]))
+  const allDays = Array.from(new Set([...backendByDay.keys(), ...localByDay.keys()]))
+
+  let correctionMs = 0
+  let backendPositiveDays = 0
+  let localPositiveDays = 0
+
+  for (const day of allDays) {
+    const backendMs = Math.max(0, Number(backendByDay.get(day)?.active_ms || 0))
+    const localMs = Math.max(0, Number(localByDay.get(day)?.active_ms || 0))
+    correctionMs += localMs - backendMs
+    if (backendMs > 0) backendPositiveDays += 1
+    if (localMs > 0) localPositiveDays += 1
+  }
+
+  if (correctionMs === 0 && backendPositiveDays === localPositiveDays) {
+    return summary
+  }
+
+  const correctedActiveMs = Math.max(0, Math.round(summary.total_active_ms + correctionMs))
+  return {
+    ...summary,
+    total_active_ms: correctedActiveMs,
+    total_hours: correctedActiveMs / (1000 * 60 * 60),
+    days_tracked: Math.max(
+      0,
+      Math.max(0, Number(summary.days_tracked || 0)) + (localPositiveDays - backendPositiveDays),
+    ),
+    source: 'backend_plus_recent_tauri',
+  }
+}
+
 function shouldSupplementTodayFromLocal(
   params: ComputerActivityRangeParams,
   backendRows: ComputerDailyResponseRow[],
@@ -241,6 +343,25 @@ export async function getComputerTimeDaily(
   const stopTimer = startPerfTimer('computer-activity-client', 'getComputerTimeDaily', {
     params,
   })
+
+  if (shouldPreferRecentDesktopLocalTruth(params)) {
+    try {
+      const localRows = await getDesktopLocalDailyRows(params)
+      dailyCache.set(cacheKey, localRows)
+      perfInfo('computer-activity-client', 'daily-desktop-local-truth', {
+        params,
+        row_count: localRows.length,
+      })
+      stopTimer({ success: true, source: 'tauri_recent_truth', row_count: localRows.length })
+      return localRows
+    } catch (error) {
+      perfWarn('computer-activity-client', 'daily-desktop-local-truth-failed', {
+        params,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   try {
     const payload = await fetchWatcherStatsJson<{ data?: any[] }>(
       '/api/watcher/stats/daily',
@@ -520,6 +641,32 @@ export async function getComputerTimeSummary(
   const stopTimer = startPerfTimer('computer-activity-client', 'getComputerTimeSummary', {
     params,
   })
+
+  if (shouldPreferRecentDesktopLocalTruth(params)) {
+    try {
+      const localRows = await getDesktopLocalDailyRows(params)
+      const localSummary = buildSummaryFromDailyRows(localRows, 'tauri_recent_truth')
+      if (localSummary.total_active_ms > 0 || localRows.length > 0) {
+        summaryCache.set(cacheKey, localSummary)
+        perfInfo('computer-activity-client', 'summary-desktop-local-truth', {
+          params,
+          total_active_ms: localSummary.total_active_ms,
+        })
+        stopTimer({
+          success: true,
+          source: 'tauri_recent_truth',
+          total_active_ms: localSummary.total_active_ms,
+        })
+        return localSummary
+      }
+    } catch (error) {
+      perfWarn('computer-activity-client', 'summary-desktop-local-truth-failed', {
+        params,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   try {
     const payload = await fetchWatcherStatsJson<{ data?: any }>(
       '/api/watcher/stats/summary',
@@ -556,6 +703,27 @@ export async function getComputerTimeSummary(
         total_active_ms: summary.total_active_ms,
       })
       return summary
+    }
+
+    const correctedSummary = await applyDesktopRecentSummaryCorrection(params, summary)
+    if (
+      correctedSummary.total_active_ms !== summary.total_active_ms ||
+      correctedSummary.days_tracked !== summary.days_tracked ||
+      correctedSummary.source !== summary.source
+    ) {
+      summaryCache.set(cacheKey, correctedSummary)
+      perfInfo('computer-activity-client', 'summary-applied-recent-desktop-correction', {
+        params,
+        backend_total_active_ms: summary.total_active_ms,
+        corrected_total_active_ms: correctedSummary.total_active_ms,
+        source: correctedSummary.source,
+      })
+      stopTimer({
+        success: true,
+        source: correctedSummary.source,
+        total_active_ms: correctedSummary.total_active_ms,
+      })
+      return correctedSummary
     }
 
     const includesToday = rangeIncludesLocalToday(params)

@@ -246,6 +246,7 @@ export function OverviewView({
   const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>(initialOverviewStats ?? {});
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsResolved, setStatsResolved] = useState(hasInitialOverviewStats);
+  const [statsRangeKey, setStatsRangeKey] = useState<string>('all-time');
 
   // History scrubber state
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
@@ -254,6 +255,7 @@ export function OverviewView({
   const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
   const [computerActivityResolved, setComputerActivityResolved] = useState(false);
   const [computerActivitySummary, setComputerActivitySummary] = useState<ComputerSummaryState | null>(null);
+  const [computerRangeKey, setComputerRangeKey] = useState<string>('all-time');
   const lastGoodComputerActivityRef = useRef<ComputerDailyRow[]>([]);
   const firstUsablePaintLoggedRef = useRef(false);
   const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -263,6 +265,13 @@ export function OverviewView({
     if (!user?.id) return null;
     return `ritual:overview-stats:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
   }, [user?.id]);
+
+  const activeRangeKey = useMemo(() => {
+    if (!dateRange?.from) return 'all-time';
+    const fromKey = format(dateRange.from, 'yyyy-MM-dd');
+    const toKey = format(dateRange.to ?? dateRange.from, 'yyyy-MM-dd');
+    return `${fromKey}:${toKey}`;
+  }, [dateRange?.from, dateRange?.to]);
 
   const overviewComputerCacheKey = useMemo(() => {
     if (!user?.id) return null;
@@ -303,21 +312,35 @@ export function OverviewView({
   );
 
   const effectiveCachedStats = useMemo(() => {
-    if (statsResolved || Object.keys(cachedStats).length > 0) {
+    if (statsRangeKey === activeRangeKey && (statsResolved || Object.keys(cachedStats).length > 0)) {
       return cachedStats;
     }
-    return bootstrappedCachedStats;
-  }, [bootstrappedCachedStats, cachedStats, statsResolved]);
+    return activeRangeKey === 'all-time' ? bootstrappedCachedStats : {};
+  }, [activeRangeKey, bootstrappedCachedStats, cachedStats, statsRangeKey, statsResolved]);
 
   const effectiveComputerActivityDaily = useMemo(() => {
-    if (computerActivityResolved || computerActivityDaily.length > 0) {
+    if (computerRangeKey === activeRangeKey && (computerActivityResolved || computerActivityDaily.length > 0)) {
       return computerActivityDaily;
     }
-    return bootstrappedComputerActivityDaily;
+    return activeRangeKey === 'all-time' ? bootstrappedComputerActivityDaily : [];
   }, [
+    activeRangeKey,
     bootstrappedComputerActivityDaily,
     computerActivityDaily,
+    computerRangeKey,
     computerActivityResolved,
+  ]);
+
+  const effectiveComputerActivitySummary = useMemo(() => {
+    if (computerRangeKey === activeRangeKey && computerActivitySummary) {
+      return computerActivitySummary;
+    }
+    return activeRangeKey === 'all-time' ? bootstrappedComputerActivitySummary : null;
+  }, [
+    activeRangeKey,
+    bootstrappedComputerActivitySummary,
+    computerActivitySummary,
+    computerRangeKey,
   ]);
 
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
@@ -377,38 +400,44 @@ export function OverviewView({
     );
   }, [overviewComputerCacheKey, overviewStatsCacheKey]);
 
-  // Clear cached stats when date range changes so stale all-time data
-  // doesn't display while the date-filtered API call is in flight
+  // Reset current-scope state when the selected range changes so stale rows
+  // from a previous scope never bleed into the next render.
   useEffect(() => {
-    if (!dateRange?.from) return;
     setCachedStats({});
     setStatsResolved(false);
-  }, [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
+    setStatsRangeKey(activeRangeKey);
+    setComputerActivityDaily([]);
+    setComputerActivityResolved(false);
+    setComputerActivitySummary(null);
+    setComputerRangeKey(activeRangeKey);
+  }, [activeRangeKey]);
 
   useEffect(() => {
-    if (dateRange?.from) return;
-    if (computerActivityDaily.length > 0) return;
+    if (activeRangeKey !== 'all-time') return;
+    if (computerRangeKey === activeRangeKey && computerActivityDaily.length > 0) return;
     if (bootstrappedComputerActivityDaily.length > 0) {
       perfInfo('overview-view', 'restore-computer-cache', {
         cache_key: overviewComputerCacheKey,
         row_count: bootstrappedComputerActivityDaily.length,
       });
       setComputerActivityDaily(bootstrappedComputerActivityDaily);
+      setComputerRangeKey('all-time');
       lastGoodComputerActivityRef.current = bootstrappedComputerActivityDaily;
     }
-  }, [bootstrappedComputerActivityDaily, computerActivityDaily.length, dateRange?.from, overviewComputerCacheKey]);
+  }, [activeRangeKey, bootstrappedComputerActivityDaily, computerActivityDaily.length, computerRangeKey, overviewComputerCacheKey]);
 
   useEffect(() => {
-    if (dateRange?.from) return;
-    if (computerActivitySummary) return;
+    if (activeRangeKey !== 'all-time') return;
+    if (computerRangeKey === activeRangeKey && computerActivitySummary) return;
     if (bootstrappedComputerActivitySummary) {
       perfInfo('overview-view', 'restore-computer-summary-cache', {
         cache_key: overviewComputerCacheKey,
         total_active_ms: Number(bootstrappedComputerActivitySummary.total_active_ms || 0),
       });
       setComputerActivitySummary(bootstrappedComputerActivitySummary);
+      setComputerRangeKey('all-time');
     }
-  }, [bootstrappedComputerActivitySummary, computerActivitySummary, dateRange?.from, overviewComputerCacheKey]);
+  }, [activeRangeKey, bootstrappedComputerActivitySummary, computerActivitySummary, computerRangeKey, overviewComputerCacheKey]);
 
   // Fetch stats from Python analytics API
   useEffect(() => {
@@ -425,6 +454,7 @@ export function OverviewView({
         has_date_range: Boolean(dateRange?.from),
       });
       try {
+        const requestRangeKey = activeRangeKey;
         setStatsResolved(false);
         setStatsLoading(true);
         const token = await getToken();
@@ -464,6 +494,7 @@ export function OverviewView({
           result.habits.forEach(stat => {
             statsMap[stat.id] = stat;
           });
+          setStatsRangeKey(requestRangeKey);
           setCachedStats(statsMap);
 
           if (typeof window !== 'undefined' && !dateRange?.from && overviewStatsCacheKey) {
@@ -499,7 +530,7 @@ export function OverviewView({
     };
 
     fetchStats();
-  }, [dateRange, getToken, habitLogs.length, habits, hasInitialOverviewStats]);
+  }, [activeRangeKey, dateRange, getToken, habitLogs.length, habits, hasInitialOverviewStats, overviewStatsCacheKey]);
 
   useEffect(() => {
     if (!userLoaded || !isSignedIn || !user) return;
@@ -513,6 +544,7 @@ export function OverviewView({
         has_date_range: Boolean(dateRange?.from),
       });
       try {
+        const requestRangeKey = activeRangeKey;
         setComputerActivityResolved(false);
         const now = new Date();
         // When "All time" (dateRange undefined), use 3-year range like habit stats
@@ -539,18 +571,8 @@ export function OverviewView({
           if (controller.signal.aborted) return;
           const normalizedRows = Array.isArray(rows) ? rows : [];
           const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0);
-
-          const rowsToPersist = hasMeaningfulRows
-            ? normalizedRows
-            : (lastGoodComputerActivityRef.current.length > 0 ? lastGoodComputerActivityRef.current : normalizedRows);
-
-          if (hasMeaningfulRows || computerActivityDaily.length === 0) {
-            setComputerActivityDaily(normalizedRows);
-          }
-
-          if (hasMeaningfulRows) {
-            lastGoodComputerActivityRef.current = normalizedRows;
-          }
+          setComputerRangeKey(requestRangeKey);
+          setComputerActivityDaily(normalizedRows);
 
           setComputerActivitySummary({
             total_active_ms: normalizedRows.reduce((sum, row) => sum + Number(row.active_ms || 0), 0),
@@ -559,12 +581,12 @@ export function OverviewView({
             days_tracked: normalizedRows.filter((row) => Number(row.active_ms || 0) > 0).length,
           })
 
-          if (typeof window !== 'undefined' && overviewComputerCacheKey) {
+          if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
             window.localStorage.setItem(
               overviewComputerCacheKey,
               JSON.stringify({
                 timestamp: Date.now(),
-                rows: rowsToPersist,
+                rows: normalizedRows,
               }),
             );
           }
@@ -573,7 +595,6 @@ export function OverviewView({
             mode: 'daily-range',
             row_count: normalizedRows.length,
             meaningful_rows: hasMeaningfulRows,
-            used_last_good_rows: !hasMeaningfulRows && rowsToPersist.length > 0,
           });
           return;
         } else {
@@ -609,6 +630,7 @@ export function OverviewView({
           }),
         );
         if (controller.signal.aborted) return;
+        setComputerRangeKey(requestRangeKey);
         setComputerActivitySummary({
           total_active_ms: Number(summary.total_active_ms || 0),
           total_hours: Number(summary.total_hours || 0),
@@ -661,6 +683,7 @@ export function OverviewView({
             const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0)
             if (!hasMeaningfulRows) return
             lastGoodComputerActivityRef.current = normalizedRows
+            setComputerRangeKey(requestRangeKey)
             setComputerActivityDaily(normalizedRows)
             if (typeof window !== 'undefined' && overviewComputerCacheKey) {
               window.localStorage.setItem(
@@ -724,7 +747,7 @@ export function OverviewView({
         clearInterval(refreshTimer);
       }
     };
-  }, [bootstrappedComputerActivityDaily, bootstrappedComputerActivitySummary, computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), habits, isDesktopShell, overviewComputerCacheKey, userLoaded, isSignedIn, user]);
+  }, [activeRangeKey, bootstrappedComputerActivityDaily, bootstrappedComputerActivitySummary, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), habits, isDesktopShell, overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   useEffect(() => {
     if (firstUsablePaintLoggedRef.current) return;
@@ -1034,21 +1057,21 @@ export function OverviewView({
 
       if (isComputerHabitName(habit.name)) {
         const rows = effectiveComputerActivityDaily;
-        const totalHours = !dateRange?.from && computerActivitySummary
-          ? Number(computerActivitySummary.total_hours || 0)
+        const totalHours = !dateRange?.from && effectiveComputerActivitySummary
+          ? Number(effectiveComputerActivitySummary.total_hours || 0)
           : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
 
-        if (rows.length === 0 && computerActivitySummary) {
+        if (rows.length === 0 && effectiveComputerActivitySummary) {
           next.set(habitId, {
             display: `${formatHabitStatNumber(totalHours)} Hours`,
             stats: {
               unitLabel: 'Hours',
-              sumFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.total_hours || 0))} Hours`,
-              avgFormatted: `${formatHabitStatNumber(Number(computerActivitySummary.avg_daily_hours || 0))} Hours`,
+              sumFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.total_hours || 0))} Hours`,
+              avgFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.avg_daily_hours || 0))} Hours`,
               minFormatted: '—',
               maxFormatted: '—',
               stdDevFormatted: '—',
-              daysWithData: Number(computerActivitySummary.days_tracked || 0),
+              daysWithData: Number(effectiveComputerActivitySummary.days_tracked || 0),
             },
           });
           continue;
@@ -1115,8 +1138,8 @@ export function OverviewView({
   }, [
     habits,
     orderedHabits,
-    computerActivitySummary,
     dateRange?.from?.toISOString(),
+    effectiveComputerActivitySummary,
     effectiveCachedStats,
     effectiveComputerActivityDaily,
     formatHabitStatNumber,

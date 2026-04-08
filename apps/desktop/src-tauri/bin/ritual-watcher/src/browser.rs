@@ -129,10 +129,7 @@ pub fn get_browser_info(bundle_id: &str) -> BrowserInfo {
     // Native NSAppleScript polling has been the strongest crash suspect in the
     // release watcher, so keep it opt-in while we verify the safer hybrid path.
     if !native_browser_applescript_enabled() {
-        trace!(
-            "Native browser AppleScript disabled for {}",
-            bundle_id
-        );
+        trace!("Native browser AppleScript disabled for {}", bundle_id);
         return BrowserInfo::default();
     }
 

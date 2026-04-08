@@ -354,11 +354,10 @@ fn run_recorder(config: &RecorderConfig, running: Arc<AtomicBool>) -> Result<()>
         };
         metrics.record_dedup_time(dedup_start.elapsed());
 
-        let activity = get_current_activity_from_watcher(
-            config.watcher_db_path.to_str().unwrap_or_default(),
-        )
-        .ok()
-        .flatten();
+        let activity =
+            get_current_activity_from_watcher(config.watcher_db_path.to_str().unwrap_or_default())
+                .ok()
+                .flatten();
         let focus_signature = capture_result
             .focused_window
             .as_ref()
