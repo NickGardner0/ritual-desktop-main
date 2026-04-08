@@ -155,6 +155,19 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
   const nativeVoiceTimestampRef = useRef(0);
   const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
+  // Mirror of partialTranscript readable from stale closures.
+  const partialTranscriptRef = useRef<string | null>(null);
+  // Audio-level silence detector state
+  const nativeVoiceSilenceAudioCtxRef = useRef<AudioContext | null>(null);
+  const nativeVoiceSilenceRafRef = useRef<number | null>(null);
+  const nativeVoiceHadSpeechRef = useRef(false);
+  const [voiceDebug, setVoiceDebug] = useState<{
+    rms: number;
+    armed: boolean;
+    sinceLoudMs: number;
+    lastPartial: string;
+    lastEvent: string;
+  }>({ rms: 0, armed: false, sinceLoudMs: 0, lastPartial: '', lastEvent: '' });
 
   const { habits, habitLogs } = useHabits();
   const { user } = useUser();
@@ -677,6 +690,15 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   };
 
   const clearNativeVoiceTimers = useCallback(() => {
+    if (nativeVoiceSilenceRafRef.current) {
+      cancelAnimationFrame(nativeVoiceSilenceRafRef.current);
+      nativeVoiceSilenceRafRef.current = null;
+    }
+    if (nativeVoiceSilenceAudioCtxRef.current) {
+      nativeVoiceSilenceAudioCtxRef.current.close().catch(() => undefined);
+      nativeVoiceSilenceAudioCtxRef.current = null;
+    }
+    nativeVoiceHadSpeechRef.current = false;
     if (nativeVoicePollRef.current) {
       clearInterval(nativeVoicePollRef.current);
       nativeVoicePollRef.current = null;
@@ -720,14 +742,68 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     voiceInputModeRef.current = 'native';
     setIsListening(true);
 
-    // Open a parallel mic stream purely for waveform visualization
+    // Parallel mic stream: powers both the waveform and the silence detector.
     try {
       const vizStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       setAudioStream(vizStream);
+
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx: AudioContext = new AudioCtx();
+      nativeVoiceSilenceAudioCtxRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(vizStream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.2;
+      source.connect(analyser);
+      const buf = new Uint8Array(analyser.fftSize);
+
+      const SPEECH_ARM_RMS = 0.05;
+      const SPEECH_RMS = 0.035;
+      const SILENCE_MS = 600;
+
+      let lastLoudAt = 0;
+      let stopTriggered = false;
+
+      const tick = () => {
+        if (voiceInputModeRef.current !== 'native' || stopTriggered) return;
+        analyser.getByteTimeDomainData(buf);
+        let sumSq = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const n = (buf[i] - 128) / 128;
+          sumSq += n * n;
+        }
+        const rms = Math.sqrt(sumSq / buf.length);
+        const now = performance.now();
+
+        if (!nativeVoiceHadSpeechRef.current) {
+          if (rms > SPEECH_ARM_RMS) {
+            nativeVoiceHadSpeechRef.current = true;
+            lastLoudAt = now;
+          }
+        } else {
+          if (rms > SPEECH_RMS) {
+            lastLoudAt = now;
+          } else if (now - lastLoudAt > SILENCE_MS) {
+            stopTriggered = true;
+            setVoiceDebug((d) => ({ ...d, lastEvent: 'silence-stop' }));
+            stopVoiceRecording();
+            return;
+          }
+        }
+
+        setVoiceDebug((d) => ({
+          ...d,
+          rms: Number(rms.toFixed(3)),
+          armed: nativeVoiceHadSpeechRef.current,
+          sinceLoudMs: lastLoudAt ? Math.round(now - lastLoudAt) : 0,
+        }));
+        nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
+      };
+      nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
     } catch {
-      // Non-critical — waveform just won't animate
+      // Non-critical — waveform won't animate and we'll rely on 10s safety.
     }
 
     nativeVoicePollRef.current = window.setInterval(() => {
@@ -741,20 +817,21 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
           if (state.event === 'ritual:speech:partial') {
             if (state.transcript?.trim()) {
+              partialTranscriptRef.current = state.transcript;
               setPartialTranscript(state.transcript);
-              // Reset auto-stop timer — user is still speaking
-              if (nativeVoiceAutoStopRef.current) {
-                clearTimeout(nativeVoiceAutoStopRef.current);
-                nativeVoiceAutoStopRef.current = window.setTimeout(() => {
-                  stopVoiceRecording();
-                }, 3000);
-              }
+              setVoiceDebug((d) => ({
+                ...d,
+                lastPartial: state.transcript!.slice(0, 40),
+                lastEvent: 'partial',
+              }));
             }
             return;
           }
 
           if (state.event === 'ritual:speech:final') {
+            setVoiceDebug((d) => ({ ...d, lastEvent: 'swift-final' }));
             await resetNativeVoiceSession();
+            partialTranscriptRef.current = null;
             setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
@@ -790,11 +867,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           setError(`Voice error: ${pollError?.message || 'Unknown native speech error'}`);
         }
       })();
-    }, 200);
+    }, 75);
 
+    // Hard safety: force-stop after 15s if the silence detector never fires.
     nativeVoiceAutoStopRef.current = window.setTimeout(() => {
       stopVoiceRecording();
-    }, 3000);
+    }, 15000);
   }, [resetNativeVoiceSession]);
 
   // Voice recording
@@ -911,21 +989,40 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
       }
 
+      // Commit the live partial transcript from the ref immediately; don't wait
+      // for Swift's lagging final event. Read from a ref so the poll-interval
+      // and silence-detector closures both see the latest value.
+      const liveTranscript = partialTranscriptRef.current?.trim();
+      partialTranscriptRef.current = null;
       setIsListening(false);
-      setIsProcessingVoice(true);
+      if (liveTranscript) {
+        setInput(liveTranscript);
+        setPartialTranscript(null);
+        setIsProcessingVoice(false);
+        setTimeout(() => textareaRef.current?.focus(), 0);
+      } else {
+        setIsProcessingVoice(true);
+      }
 
       void stopNativeDesktopSpeechRecognition()
         .catch((error: any) => {
-          setError(`Voice error: ${error?.message || 'Failed to stop native speech recognition.'}`);
+          if (!liveTranscript) {
+            setError(`Voice error: ${error?.message || 'Failed to stop native speech recognition.'}`);
+          }
           return Promise.resolve();
         })
         .finally(() => {
+          if (liveTranscript) {
+            void resetNativeVoiceSession();
+            voiceInputModeRef.current = null;
+            return;
+          }
           nativeVoiceFinalizeTimeoutRef.current = window.setTimeout(() => {
             void resetNativeVoiceSession();
             setIsProcessingVoice(false);
             voiceInputModeRef.current = null;
             setError('No speech detected. Please try again.');
-          }, 1500);
+          }, 800);
         });
       return;
     }
@@ -1563,8 +1660,15 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
             {/* Input Area */}
             <div className="mb-1 relative">
               {(isListening || isProcessingVoice) ? (
-                <div className="w-full h-[42px] flex items-center justify-center">
-                  <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
+                <div className="w-full flex flex-col items-center justify-center gap-1">
+                  <div className="w-full h-[42px] flex items-center justify-center">
+                    <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
+                  </div>
+                  {isListening && (
+                    <div className="font-mono text-[10px] leading-tight text-neutral-500 tabular-nums">
+                      rms {voiceDebug.rms.toFixed(3)} · armed {voiceDebug.armed ? 'y' : 'n'} · silent {voiceDebug.sinceLoudMs}ms · {voiceDebug.lastEvent || 'idle'} · "{voiceDebug.lastPartial}"
+                    </div>
+                  )}
                 </div>
               ) : (
                 <textarea
