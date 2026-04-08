@@ -205,6 +205,11 @@ function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRangeParams
   return isTauri() && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
 }
 
+function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
+  if (!isTauri()) return true
+  return getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
+}
+
 function shiftDateString(dateString: string, days: number) {
   const date = new Date(`${dateString}T00:00:00`)
   date.setDate(date.getDate() + days)
@@ -381,6 +386,13 @@ export async function getComputerTimeDaily(
     }
 
     if (backendRows.length === 0 && isTauri()) {
+      if (!shouldAllowDesktopLocalFallback(params)) {
+        perfWarn('computer-activity-client', 'daily-empty-backend-desktop-fallback-suppressed', {
+          params,
+          range_days: getInclusiveRangeDays(params),
+        })
+        throw new Error('backend daily returned empty for large desktop range')
+      }
       perfWarn('computer-activity-client', 'daily-empty-backend-fallback-local', { params })
       const localRows = normalizeDailyRows(
         await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
@@ -431,6 +443,18 @@ export async function getComputerTimeDaily(
       })
       throw error
     }
+  }
+
+  if (!shouldAllowDesktopLocalFallback(params)) {
+    perfWarn('computer-activity-client', 'daily-hard-fallback-suppressed', {
+      params,
+      range_days: getInclusiveRangeDays(params),
+    })
+    stopTimer({
+      success: false,
+      source: 'backend_required_large_range',
+    })
+    throw new Error('backend daily unavailable for large desktop range')
   }
 
   perfWarn('computer-activity-client', 'daily-hard-fallback-local', { params })
@@ -508,6 +532,19 @@ export async function getTopApps(
       })
       throw error
     }
+  }
+
+  if (!shouldAllowDesktopLocalFallback(params)) {
+    perfWarn('computer-activity-client', 'top-apps-local-fallback-suppressed', {
+      params,
+      limit,
+      range_days: getInclusiveRangeDays(params),
+    })
+    stopTimer({
+      success: false,
+      source: 'backend_required_large_range',
+    })
+    throw new Error('backend top apps unavailable for large desktop range')
   }
 
   perfWarn('computer-activity-client', 'top-apps-local-fallback', {
@@ -605,6 +642,19 @@ export async function getTopDomains(
       })
       throw error
     }
+  }
+
+  if (!shouldAllowDesktopLocalFallback(params)) {
+    perfWarn('computer-activity-client', 'top-domains-local-fallback-suppressed', {
+      params,
+      limit,
+      range_days: getInclusiveRangeDays(params),
+    })
+    stopTimer({
+      success: false,
+      source: 'backend_required_large_range',
+    })
+    throw new Error('backend top domains unavailable for large desktop range')
   }
 
   perfWarn('computer-activity-client', 'top-domains-local-fallback', {
@@ -817,6 +867,18 @@ export async function getComputerTimeSummary(
       })
       throw error
     }
+  }
+
+  if (!shouldAllowDesktopLocalFallback(params)) {
+    perfWarn('computer-activity-client', 'summary-local-fallback-suppressed', {
+      params,
+      range_days: getInclusiveRangeDays(params),
+    })
+    stopTimer({
+      success: false,
+      source: 'backend_required_large_range',
+    })
+    throw new Error('backend summary unavailable for large desktop range')
   }
 
   perfWarn('computer-activity-client', 'summary-local-fallback', { params })
