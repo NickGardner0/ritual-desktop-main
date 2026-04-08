@@ -2,14 +2,12 @@
 
 import { cn } from "@/lib/utils";
 import { useUser, useClerk } from "@clerk/nextjs";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useState, useRef } from "react";
@@ -57,7 +55,13 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
     setActive(false);
   };
 
-  const getUserInitials = () => {
+  const getUserInitial = () => {
+    const firstName = user?.firstName?.trim();
+    if (firstName) return firstName.charAt(0).toUpperCase();
+
+    const fullName = user?.fullName?.trim();
+    if (fullName) return fullName.charAt(0).toUpperCase();
+
     const email = user?.primaryEmailAddress?.emailAddress;
     if (!email) return 'R';
     return email.charAt(0).toUpperCase();
@@ -75,9 +79,8 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-8 w-8 rounded-none hover:bg-transparent p-0">
             <Avatar className="h-8 w-8 rounded-none">
-              <AvatarImage src={user?.imageUrl} alt={getUserName()} />
-              <AvatarFallback className="text-xs rounded-none bg-[#6366F1] text-white">
-                {getUserInitials()}
+              <AvatarFallback className="text-xs rounded-none bg-[#3d3b30] text-white">
+                {getUserInitial()}
               </AvatarFallback>
             </Avatar>
           </Button>
@@ -135,9 +138,8 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         onClick={() => setActive(!isActive)}
       >
         <Avatar className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] flex-shrink-0">
-          <AvatarImage src={user?.imageUrl} />
-          <AvatarFallback className="rounded-none w-[32px] h-[32px]">
-            <span className="text-xs font-medium">{getUserInitials()}</span>
+          <AvatarFallback className="rounded-none w-[32px] h-[32px] bg-[#3d3b30] text-white">
+            <span className="text-xs font-medium">{getUserInitial()}</span>
           </AvatarFallback>
         </Avatar>
         {isExpanded && (
