@@ -340,7 +340,7 @@ PARSING RULES:
 1. Extract EVERY trackable activity from the message
 2. For each activity, identify:
    - habit_hint: key word to match (e.g., "walk", "meditate", "workout")
-   - value: numeric amount (default 1 if "did", "completed", etc.)
+   - value: numeric amount — ALWAYS a number, never null. Default to 1 if unclear.
    - unit: the unit mentioned (minutes, hours, miles, pages, etc.)
    - date: parsed date or "${today}" if not specified
    - notes: original text fragment
@@ -355,6 +355,18 @@ PARSING RULES:
 
 5. Handle ranges:
    - "walked 3-4 miles" → value: 3.5
+
+6. Handle SPOKEN word-numbers — convert to digits:
+   - "one mile" → value: 1, unit: miles
+   - "a mile" → value: 1, unit: miles
+   - "twenty two pages" → value: 22, unit: pages
+   - "half a mile" → value: 0.5, unit: miles
+   - "a hundred pushups" → value: 100, unit: count
+   - "thirty minutes" → value: 30, unit: minutes
+
+7. Be generous with habit_hint extraction. Pull the main action verb or noun
+   even if the phrasing is conversational ("I just walked one mile" → habit_hint: "walk").
+   The server does fuzzy matching against the user's habits.
 
 EXAMPLES:
 "I walked 4 miles today" →
@@ -387,6 +399,28 @@ EXAMPLES:
   }]
 }
 
+"I just walked one mile" →
+{
+  "intents": [{
+    "habit_hint": "walk",
+    "value": 1,
+    "unit": "miles",
+    "date": "${today}",
+    "notes": "I just walked one mile"
+  }]
+}
+
+"Read twenty two pages tonight" →
+{
+  "intents": [{
+    "habit_hint": "read",
+    "value": 22,
+    "unit": "pages",
+    "date": "${today}",
+    "notes": "Read twenty two pages tonight"
+  }]
+}
+
 Non-trackable input →
 {
   "intents": [],
@@ -415,7 +449,7 @@ Non-trackable input →
     });
 
     const parsed = result.object;
-    logger.info('📝 Parsed intents:', parsed.intents.length);
+    logger.info('📝 Parsed intents:', JSON.stringify(parsed.intents));
 
     // No intents found
     if (!parsed.intents || parsed.intents.length === 0) {
@@ -459,6 +493,18 @@ Non-trackable input →
         unit_compatible: unitCompat.compatible,
         unit_error: unitCompat.error,
         converted_value: convertedValue ?? undefined
+      });
+
+      logger.info('🎯 Intent resolution', {
+        hint: intent.habit_hint,
+        value: intent.value,
+        unit: intent.unit,
+        resolved_habit: resolution.habit_name,
+        match_type: resolution.match_type,
+        confidence: resolution.confidence,
+        needs_clarification: resolution.needs_clarification,
+        unit_compatible: unitCompat.compatible,
+        unit_error: unitCompat.error,
       });
     }
 
