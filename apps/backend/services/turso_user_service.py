@@ -208,14 +208,14 @@ SCHEMA_STATEMENTS = (
 
 INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_context_sessions_time ON context_sessions(start_ts, end_ts)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_sessions_session_uid ON context_sessions(session_uid) WHERE TRIM(COALESCE(session_uid, '')) != ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_sessions_session_uid ON context_sessions(session_uid)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_ts_start ON activity_events(ts_start)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_ts_end ON activity_events(ts_end)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_user_device_ts ON activity_events(user_id, device_id, ts_start)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_domain ON activity_events(browser_domain)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_events_event_uid ON activity_events(event_uid) WHERE TRIM(COALESCE(event_uid, '')) != ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_events_event_uid ON activity_events(event_uid)",
     "CREATE INDEX IF NOT EXISTS idx_afk_events_user_device_ts ON afk_events(user_id, device_id, ts_start)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_afk_events_afk_uid ON afk_events(afk_uid) WHERE TRIM(COALESCE(afk_uid, '')) != ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_afk_events_afk_uid ON afk_events(afk_uid)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts ON context_snapshots(ts)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_app_ts ON context_snapshots(app_bundle_id, ts)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_domain_ts ON context_snapshots(browser_domain, ts)",
@@ -224,7 +224,7 @@ INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_activity_event_uid ON context_snapshots(activity_event_uid)",
     "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_uid ON context_snapshots(session_uid)",
     "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time ON session_retrieval_docs(chunk_start_ts, chunk_end_ts)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_retrieval_docs_logical_chunk_id ON session_retrieval_docs(logical_chunk_id) WHERE TRIM(COALESCE(logical_chunk_id, '')) != ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_retrieval_docs_logical_chunk_id ON session_retrieval_docs(logical_chunk_id)",
     "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_session_uid ON session_retrieval_docs(session_uid)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_scope_range ON semantic_work_items(user_id, source_scope, range_start_ts, range_end_ts)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_time ON semantic_work_items(user_id, start_ts, end_ts)",
@@ -239,6 +239,7 @@ COLUMN_MIGRATIONS = (
     ("context_snapshots", "session_uid", "TEXT"),
     ("session_retrieval_docs", "session_uid", "TEXT NOT NULL DEFAULT ''"),
     ("session_retrieval_docs", "logical_chunk_id", "TEXT NOT NULL DEFAULT ''"),
+    ("session_retrieval_docs", "provider_doc_id", "TEXT DEFAULT NULL"),
 )
 
 BACKFILL_STATEMENTS = (
@@ -659,10 +660,143 @@ class TursoUserService:
         for statement in BACKFILL_STATEMENTS:
             conn.execute(statement)
 
+    def _table_sql(self, conn: Any, table_name: str) -> str:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        if not row:
+            return ""
+        return str(row[0] or "")
+
+    def _table_exists(self, conn: Any, table_name: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        return row is not None
+
+    def _next_backup_table_name(self, conn: Any, base_name: str) -> str:
+        candidate = base_name
+        suffix = 1
+        while self._table_exists(conn, candidate):
+            candidate = f"{base_name}_{suffix}"
+            suffix += 1
+        return candidate
+
+    def _repair_session_retrieval_docs_schema(self, conn: Any) -> None:
+        sql = self._table_sql(conn, "session_retrieval_docs")
+        if not sql:
+            return
+
+        normalized = re.sub(r"\s+", " ", sql.strip().lower())
+        if "session_id integer not null unique" not in normalized:
+            return
+
+        backup_table = self._next_backup_table_name(
+            conn, "session_retrieval_docs_legacy_unique_session_id"
+        )
+
+        logger.warning(
+            "Repairing legacy session_retrieval_docs schema; preserving backup table as %s",
+            backup_table,
+        )
+
+        conn.execute(f"ALTER TABLE session_retrieval_docs RENAME TO {backup_table}")
+        conn.execute("DROP INDEX IF EXISTS idx_session_retrieval_docs_time")
+        conn.execute("DROP INDEX IF EXISTS idx_session_retrieval_docs_logical_chunk_id")
+        conn.execute("DROP INDEX IF EXISTS idx_session_retrieval_docs_session_uid")
+
+        conn.execute(
+            """
+            CREATE TABLE session_retrieval_docs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                session_uid TEXT NOT NULL DEFAULT '',
+                logical_chunk_id TEXT NOT NULL DEFAULT '',
+                device_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                source_kind TEXT NOT NULL DEFAULT 'context_session',
+                chunk_start_ts INTEGER NOT NULL,
+                chunk_end_ts INTEGER NOT NULL,
+                app_name TEXT,
+                browser_domain TEXT,
+                window_title TEXT,
+                document_title TEXT,
+                raw_visible_text TEXT NOT NULL DEFAULT '',
+                contextual_retrieval_text TEXT NOT NULL DEFAULT '',
+                capture_quality REAL NOT NULL DEFAULT 0.0,
+                context_version INTEGER NOT NULL DEFAULT 1,
+                session_position INTEGER NOT NULL DEFAULT 0,
+                session_count INTEGER NOT NULL DEFAULT 1,
+                embedded_at INTEGER DEFAULT NULL,
+                provider_doc_id TEXT DEFAULT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            f"""
+            INSERT INTO session_retrieval_docs (
+                id,
+                session_id,
+                session_uid,
+                logical_chunk_id,
+                device_id,
+                user_id,
+                source_kind,
+                chunk_start_ts,
+                chunk_end_ts,
+                app_name,
+                browser_domain,
+                window_title,
+                document_title,
+                raw_visible_text,
+                contextual_retrieval_text,
+                capture_quality,
+                context_version,
+                session_position,
+                session_count,
+                embedded_at,
+                provider_doc_id,
+                created_at,
+                updated_at
+            )
+            SELECT
+                id,
+                session_id,
+                session_uid,
+                logical_chunk_id,
+                device_id,
+                user_id,
+                source_kind,
+                chunk_start_ts,
+                chunk_end_ts,
+                app_name,
+                browser_domain,
+                window_title,
+                document_title,
+                raw_visible_text,
+                contextual_retrieval_text,
+                capture_quality,
+                context_version,
+                session_position,
+                session_count,
+                embedded_at,
+                provider_doc_id,
+                created_at,
+                updated_at
+            FROM {backup_table}
+            """
+        )
+
     def _apply_full_schema(self, conn: Any) -> None:
         for statement in SCHEMA_STATEMENTS:
             conn.execute(statement)
         self._apply_column_migrations(conn)
+        self._repair_session_retrieval_docs_schema(conn)
         self._apply_backfills(conn)
         for statement in INDEX_STATEMENTS:
             conn.execute(statement)
