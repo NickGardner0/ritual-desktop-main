@@ -305,9 +305,10 @@ func stop_speech_recognition() -> Bool {
         // a more accurate final result instead of cancelling mid-recognition.
         request?.endAudio()
 
-        // Brief grace period for the task to produce a final result, then cancel.
+        // We already emitted the final transcript above, so cancel the task
+        // promptly — no need to wait for additional recognition cycles.
         let capturedTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             capturedTask?.cancel()
         }
 

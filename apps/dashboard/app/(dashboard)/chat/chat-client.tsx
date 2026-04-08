@@ -807,6 +807,8 @@ export function ChatClient() {
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [partialTranscript, setPartialTranscript] = useState<string | null>(null);
+  // Mirror of partialTranscript readable from stale closures (poll loop, auto-stop).
+  const partialTranscriptRef = useRef<string | null>(null);
   const nativeVoicePollRef = useRef<number | null>(null);
   const nativeVoiceAutoStopRef = useRef<number | null>(null);
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
@@ -1595,6 +1597,7 @@ export function ChatClient() {
 
           if (state.event === 'ritual:speech:partial') {
             if (state.transcript?.trim()) {
+              partialTranscriptRef.current = state.transcript;
               setPartialTranscript(state.transcript);
               // Reset auto-stop timer — once we have speech, use a shorter
               // silence timeout so the transcript appears quickly after the
@@ -1611,6 +1614,7 @@ export function ChatClient() {
 
           if (state.event === 'ritual:speech:final') {
             await resetNativeVoiceSession();
+            partialTranscriptRef.current = null;
             setPartialTranscript(null);
             setIsListening(false);
             setIsProcessingVoice(false);
@@ -1769,7 +1773,10 @@ export function ChatClient() {
 
       // Commit whatever partial transcript we already have *immediately* so the
       // user sees their text without waiting for Swift's final-event round trip.
-      const liveTranscript = partialTranscript?.trim();
+      // Read from the ref so callers from stale closures (poll loop, auto-stop)
+      // see the latest value.
+      const liveTranscript = partialTranscriptRef.current?.trim();
+      partialTranscriptRef.current = null;
       setIsListening(false);
       if (liveTranscript) {
         setInput(liveTranscript);
