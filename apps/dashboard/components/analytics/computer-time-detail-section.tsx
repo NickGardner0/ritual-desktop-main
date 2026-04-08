@@ -167,27 +167,47 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
           summaryResult.status === 'fulfilled'
             ? Math.max(0, Number(summaryResult.value.total_active_ms || 0))
             : 0
+        const mergeByLabel = <T extends { key: string; label: string; valueMs: number; eventCount: number }>(
+          rows: T[],
+        ): T[] => {
+          const byLabel = new Map<string, T>()
+          for (const row of rows) {
+            const k = row.label.trim().toLowerCase()
+            const existing = byLabel.get(k)
+            if (existing) {
+              existing.valueMs += row.valueMs
+              existing.eventCount += row.eventCount
+            } else {
+              byLabel.set(k, { ...row })
+            }
+          }
+          return [...byLabel.values()].sort((a, b) => b.valueMs - a.valueMs)
+        }
         const topApps =
           topAppsResult.status === 'fulfilled'
-            ? topAppsResult.value
-                .filter((row) => Number(row.total_active_ms || 0) > 0)
-                .map((row) => ({
-                  key: row.app_bundle_id || row.app_name || 'unknown-app',
-                  label: row.app_name || row.app_bundle_id || 'Unknown App',
-                  valueMs: Math.max(0, Number(row.total_active_ms || 0)),
-                  eventCount: Math.max(0, Number(row.total_events || 0)),
-                }))
+            ? mergeByLabel(
+                topAppsResult.value
+                  .filter((row) => Number(row.total_active_ms || 0) > 0)
+                  .map((row) => ({
+                    key: row.app_bundle_id || row.app_name || 'unknown-app',
+                    label: row.app_name || row.app_bundle_id || 'Unknown App',
+                    valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+                    eventCount: Math.max(0, Number(row.total_events || 0)),
+                  })),
+              )
             : []
         const topDomains =
           topDomainsResult.status === 'fulfilled'
-            ? topDomainsResult.value
-                .filter((row) => Number(row.total_active_ms || 0) > 0)
-                .map((row) => ({
-                  key: row.domain || 'unknown-domain',
-                  label: row.domain || 'Unknown',
-                  valueMs: Math.max(0, Number(row.total_active_ms || 0)),
-                  eventCount: Math.max(0, Number(row.total_events || 0)),
-                }))
+            ? mergeByLabel(
+                topDomainsResult.value
+                  .filter((row) => Number(row.total_active_ms || 0) > 0)
+                  .map((row) => ({
+                    key: row.domain || 'unknown-domain',
+                    label: row.domain || 'Unknown',
+                    valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+                    eventCount: Math.max(0, Number(row.total_events || 0)),
+                  })),
+              )
             : []
 
         setSummaryActiveMs(summary)

@@ -11,11 +11,6 @@ interface ComputerTimeBarListProps {
   onRangeChange: (range: BarListRange) => void;
 }
 
-function rangeLabel(range: BarListRange): string | undefined {
-  if (range === 'ALL') return undefined;
-  return `vs prior ${range}`;
-}
-
 /**
  * Merge raw rows that should appear as a single line in the UI.
  *
@@ -239,7 +234,6 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       showRangeSelector
       activeRange={activeRange}
       onRangeChange={onRangeChange}
-      comparisonLabel={rangeLabel(activeRange)}
     />
   );
 }

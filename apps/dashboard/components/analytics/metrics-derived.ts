@@ -181,6 +181,9 @@ export function inferHigherIsBetter(habitName: string, unit?: string): boolean |
   if (name.includes('stress')) return false;
   if (name.includes('anxiety')) return false;
   if (name.includes('idle') || name.includes('sedentary') || name.includes('sitting')) return false;
+  if (name.includes('spending') || name.includes('expense') || name.includes('cost') || u.includes('dollar') || u.includes('usd') || u.includes('$')) return false;
+  if (name.includes('heart rate') || name.includes('resting hr') || name.includes('bpm')) return false;
+  if (name.includes('weight') && (u.includes('lb') || u.includes('kg'))) return false;
 
   if (name.includes('sleep') && (u.includes('hour') || u.includes('min'))) return true;
   if (name.includes('workout') || name.includes('exercise') || name.includes('training')) return true;
@@ -474,7 +477,13 @@ export function buildMetricsBarData({
       const currentPerDay = values.length > 0 ? total / values.length : 0;
       const priorTotal = priorValues.reduce((sum, value) => sum + value, 0);
       const priorPerDay = priorValues.length > 0 ? priorTotal / priorValues.length : 0;
-      const change = computeMeaningfulPercentChange(currentPerDay, priorPerDay, unit);
+      // Require a comparable prior baseline: at least 3 non-zero days AND at
+      // least half the current window's coverage. Otherwise the % is noise.
+      const priorIsComparable =
+        priorValues.length >= 3 && priorValues.length >= Math.ceil(values.length / 2);
+      const change = priorIsComparable
+        ? computeMeaningfulPercentChange(currentPerDay, priorPerDay, unit)
+        : undefined;
 
       return {
         habitId: habit.habit_id,
@@ -507,7 +516,11 @@ export function buildMetricsBarData({
       const compCurrentPerDay = compValues.length > 0 ? compTotal / compValues.length : 0;
       const compPriorTotal = compPriorValues.reduce((sum, value) => sum + value, 0);
       const compPriorPerDay = compPriorValues.length > 0 ? compPriorTotal / compPriorValues.length : 0;
-      const compChange = computeMeaningfulPercentChange(compCurrentPerDay, compPriorPerDay, 'hours');
+      const compPriorIsComparable =
+        compPriorValues.length >= 3 && compPriorValues.length >= Math.ceil(compValues.length / 2);
+      const compChange = compPriorIsComparable
+        ? computeMeaningfulPercentChange(compCurrentPerDay, compPriorPerDay, 'hours')
+        : undefined;
       barData.push({
         habitId: '__computer_activity__',
         name: COMPUTER_HABIT_DISPLAY_NAME,

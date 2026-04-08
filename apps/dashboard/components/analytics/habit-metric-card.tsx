@@ -118,7 +118,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   const changeColorClass = isNeutral
     ? 'text-[rgba(39,37,30,0.65)]'
     : (isImprovement ? 'text-[#136A22]' : 'text-[#A23544]');
-  const sparkTrend = trend;
+  const sparkTrend: 'up' | 'down' | 'neutral' = isNeutral ? 'neutral' : (isImprovement ? 'up' : 'down');
 
   const formattedChange = isNeutral ? null : formatPercentChange(numericChange);
   const numericAbsoluteChange = Number(absoluteChange ?? 0);
