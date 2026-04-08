@@ -1614,34 +1614,38 @@ export function ChatClient() {
       source.connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
 
-      // Tunables
-      const SILENCE_RMS = 0.012;   // below ~1.2% RMS counts as silence
-      const SILENCE_MS  = 600;     // silent window that triggers stop
-      const MIN_SPEECH_RMS = 0.02; // must cross this at least once before we arm
+      // Voice gating thresholds — generous to tolerate ambient room noise.
+      const SPEECH_ARM_RMS = 0.05;  // must cross this once before we arm silence
+      const SPEECH_RMS = 0.035;     // anything above this counts as speech
+      const SILENCE_MS = 600;       // how long below SPEECH_RMS before stop
+
+      let lastLoudAt = 0;
+      let stopTriggered = false;
 
       const tick = () => {
-        if (voiceInputModeRef.current !== 'native') return;
+        if (voiceInputModeRef.current !== 'native' || stopTriggered) return;
         analyser.getByteTimeDomainData(buf);
-        // RMS of normalized time-domain samples
         let sumSq = 0;
         for (let i = 0; i < buf.length; i++) {
           const n = (buf[i] - 128) / 128;
           sumSq += n * n;
         }
         const rms = Math.sqrt(sumSq / buf.length);
+        const now = performance.now();
 
         if (!nativeVoiceHadSpeechRef.current) {
-          if (rms > MIN_SPEECH_RMS) nativeVoiceHadSpeechRef.current = true;
-        } else if (rms < SILENCE_RMS) {
-          if (nativeVoiceSilenceTimerRef.current == null) {
-            nativeVoiceSilenceTimerRef.current = window.setTimeout(() => {
-              nativeVoiceSilenceTimerRef.current = null;
-              stopVoiceRecording();
-            }, SILENCE_MS);
+          if (rms > SPEECH_ARM_RMS) {
+            nativeVoiceHadSpeechRef.current = true;
+            lastLoudAt = now;
           }
-        } else if (nativeVoiceSilenceTimerRef.current != null) {
-          clearTimeout(nativeVoiceSilenceTimerRef.current);
-          nativeVoiceSilenceTimerRef.current = null;
+        } else {
+          if (rms > SPEECH_RMS) {
+            lastLoudAt = now;
+          } else if (now - lastLoudAt > SILENCE_MS) {
+            stopTriggered = true;
+            stopVoiceRecording();
+            return;
+          }
         }
 
         nativeVoiceSilenceRafRef.current = requestAnimationFrame(tick);
