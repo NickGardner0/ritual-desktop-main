@@ -231,8 +231,6 @@ fn should_skip_immediate_turso_refresh<R: Runtime>(app: &AppHandle<R>) -> bool {
     let activity_ready = matches!(
         database.activity.status,
         crate::ritual_database::DatabaseConnectionState::ReadyLocal
-            | crate::ritual_database::DatabaseConnectionState::ReadyReplica
-            | crate::ritual_database::DatabaseConnectionState::DegradedLocal
     );
 
     if !activity_ready {
@@ -301,12 +299,10 @@ async fn build_runtime_state<R: Runtime>(
     let memory_ready = matches!(
         database.memory.status,
         crate::ritual_database::DatabaseConnectionState::ReadyLocal
-            | crate::ritual_database::DatabaseConnectionState::ReadyReplica
     );
     let activity_ready_for_upload = matches!(
         database.activity.status,
         crate::ritual_database::DatabaseConnectionState::ReadyLocal
-            | crate::ritual_database::DatabaseConnectionState::ReadyReplica
     );
     let memory_cloud_upload_allowed =
         auth.token_ready && auth.user_id.is_some() && memory_ready && activity_ready_for_upload;
@@ -748,6 +744,7 @@ async fn refresh_turso_sync_config<R: Runtime + 'static>(
                 Some("desktop_runtime:refresh_turso_sync_config"),
             )
             .await?;
+            crate::cloud_sync::trigger_cloud_sync_now(app.clone());
 
             update_auth_state(&app, |state| {
                 state.last_turso_sync_at_ms = Some(Utc::now().timestamp_millis());

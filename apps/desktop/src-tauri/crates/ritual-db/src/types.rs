@@ -5,6 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 
+fn new_logical_uid(prefix: &str) -> String {
+    let ts = chrono::Utc::now().timestamp_millis();
+    let entropy = rand::random::<u64>();
+    format!("{prefix}_{ts:016x}_{entropy:016x}")
+}
+
 // ============================================================
 // ACTIVITY TYPES (from watcher)
 // ============================================================
@@ -13,6 +19,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivityEvent {
     pub id: Option<i64>,
+    pub event_uid: String,
     pub device_id: String,
     pub user_id: String,
     pub ts_start: i64,
@@ -42,6 +49,7 @@ impl ActivityEvent {
     ) -> Self {
         Self {
             id: None,
+            event_uid: new_logical_uid("activity"),
             device_id: device_id.into(),
             user_id: user_id.into(),
             ts_start,
@@ -70,6 +78,7 @@ impl ActivityEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AfkEvent {
     pub id: Option<i64>,
+    pub afk_uid: String,
     pub device_id: String,
     pub user_id: String,
     pub ts_start: i64,
@@ -142,7 +151,9 @@ pub struct ContextSnapshot {
     pub device_id: String,
     pub user_id: String,
     pub activity_event_id: Option<i64>,
+    pub activity_event_uid: Option<String>,
     pub session_id: Option<i64>,
+    pub session_uid: Option<String>,
     pub ts: i64,
     pub source_type: String,
     pub app_bundle_id: String,
@@ -185,7 +196,9 @@ impl ContextSnapshot {
             device_id: device_id.into(),
             user_id: user_id.into(),
             activity_event_id: None,
+            activity_event_uid: None,
             session_id: None,
+            session_uid: None,
             ts,
             source_type: source_type.into(),
             app_bundle_id: app_bundle_id.into(),
@@ -218,6 +231,7 @@ impl ContextSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSession {
     pub id: Option<i64>,
+    pub session_uid: String,
     pub device_id: String,
     pub user_id: String,
     pub start_ts: i64,
@@ -243,6 +257,7 @@ impl ContextSession {
         let now = chrono::Utc::now().timestamp_millis();
         Self {
             id: None,
+            session_uid: new_logical_uid("context_session"),
             device_id: device_id.into(),
             user_id: user_id.into(),
             start_ts,
@@ -265,6 +280,8 @@ impl ContextSession {
 pub struct SessionRetrievalDoc {
     pub id: Option<i64>,
     pub session_id: i64,
+    pub session_uid: String,
+    pub logical_chunk_id: String,
     pub device_id: String,
     pub user_id: String,
     pub source_kind: String,
@@ -296,6 +313,8 @@ impl SessionRetrievalDoc {
         Self {
             id: None,
             session_id,
+            session_uid: String::new(),
+            logical_chunk_id: String::new(),
             device_id: device_id.into(),
             user_id: user_id.into(),
             source_kind: "context_session".to_string(),
@@ -582,7 +601,7 @@ impl SyncStatus {
 
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "synced" => SyncStatus::Synced,
+            "synced" | "uploaded" => SyncStatus::Synced,
             "failed" => SyncStatus::Failed,
             _ => SyncStatus::Pending,
         }
@@ -596,8 +615,59 @@ pub struct QueuedSyncItem {
     pub entry_type: String,
     pub event_id: i64,
     pub ts_end: Option<i64>,
+    pub user_id: Option<String>,
+    pub device_id: Option<String>,
+    pub entity_uid: Option<String>,
+    pub op_kind: Option<String>,
+    pub payload_json: Option<String>,
     pub retry_count: i64,
     pub status: SyncStatus,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CloudSyncStatus {
+    Pending,
+    Uploading,
+    Failed,
+    Uploaded,
+}
+
+impl CloudSyncStatus {
+    pub fn from_str(value: &str) -> Self {
+        match value.to_lowercase().as_str() {
+            "uploading" => Self::Uploading,
+            "failed" => Self::Failed,
+            "uploaded" => Self::Uploaded,
+            _ => Self::Pending,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Uploading => "uploading",
+            Self::Failed => "failed",
+            Self::Uploaded => "uploaded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudSyncOutboxItem {
+    pub id: i64,
+    pub user_id: String,
+    pub device_id: String,
+    pub entity_type: String,
+    pub entity_uid: String,
+    pub op_kind: String,
+    pub payload_json: String,
+    pub status: CloudSyncStatus,
+    pub retry_count: i64,
+    pub next_retry_at: Option<i64>,
+    pub last_error: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

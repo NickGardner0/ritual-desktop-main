@@ -19,26 +19,24 @@ export type DesktopRuntimeInfo = {
 export type DesktopDatabaseStateKind =
   | 'uninitialized'
   | 'ready_local'
-  | 'ready_replica'
-  | 'degraded_local'
-  | 'failed_transient'
   | 'reloading';
 
 export type DesktopDatabaseHandleState = {
   status: DesktopDatabaseStateKind;
   dbPath: string;
   lastError?: string | null;
-  replicaFailReason?: string | null;
 };
 
 export type DesktopDatabaseRuntimeState = {
   memory: DesktopDatabaseHandleState;
   activity: DesktopDatabaseHandleState;
   tursoSyncConfigured: boolean;
-  tursoCircuitBreakerActive: boolean;
-  activityDbReloads: number;
-  replicaFailures: number;
-  circuitBreakerTrips: number;
+  localCaptureReady: boolean;
+  cloudSyncEnabled: boolean;
+  latestLocalEventTs?: number | null;
+  latestCloudSyncTs?: number | null;
+  cloudSyncBacklog: number;
+  cloudSyncLastError?: string | null;
 };
 
 export type DesktopWatcherLifecycleState =

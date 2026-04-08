@@ -18,6 +18,17 @@ async fn create_test_db() -> (RitualDatabase, TempDir) {
     (db, temp_dir)
 }
 
+async fn insert_test_activity_event(
+    db: &RitualDatabase,
+    ts_start: i64,
+    ts_end: i64,
+) -> i64 {
+    let event = ActivityEvent::new("device1", "user1", ts_start, ts_end, "com.test", "Test");
+    db.insert_activity_event(&event)
+        .await
+        .expect("Failed to insert test activity event")
+}
+
 // ============================================================================
 // DATABASE LIFECYCLE TESTS
 // ============================================================================
@@ -335,9 +346,8 @@ async fn test_sync_queue_basic() {
     let count = db.pending_sync_count().await.expect("Query failed");
     assert_eq!(count, 0);
 
-    // Queue events
-    db.queue_activity_sync(1).await.expect("Queue failed");
-    db.queue_activity_sync(2).await.expect("Queue failed");
+    let first_id = insert_test_activity_event(&db, 1000, 1500).await;
+    let second_id = insert_test_activity_event(&db, 2000, 2500).await;
 
     let count = db.pending_sync_count().await.expect("Query failed");
     assert_eq!(count, 2);
@@ -345,22 +355,28 @@ async fn test_sync_queue_basic() {
     // Get pending
     let pending = db.get_pending_sync(10).await.expect("Query failed");
     assert_eq!(pending.len(), 2);
+    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 0);
+
+    db.queue_activity_sync(first_id).await.expect("Queue failed");
+    db.queue_activity_sync(second_id).await.expect("Queue failed");
+    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 2);
 
     // Mark as synced
     db.mark_synced(pending[0].id).await.expect("Mark failed");
-
-    let count = db.pending_sync_count().await.expect("Query failed");
-    assert_eq!(count, 1);
+    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 1);
 }
 
 #[tokio::test]
 async fn test_sync_queue_deduplication() {
     let (db, _temp) = create_test_db().await;
 
+    let event_id = insert_test_activity_event(&db, 1000, 1500).await;
+    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 1);
+
     // Queue same event multiple times
-    db.queue_activity_sync(1).await.expect("Queue failed");
-    db.queue_activity_sync(1).await.expect("Queue failed");
-    db.queue_activity_sync(1).await.expect("Queue failed");
+    db.queue_activity_sync(event_id).await.expect("Queue failed");
+    db.queue_activity_sync(event_id).await.expect("Queue failed");
+    db.queue_activity_sync(event_id).await.expect("Queue failed");
 
     // Should only have one entry
     let count = db.pending_sync_count().await.expect("Query failed");
@@ -371,14 +387,18 @@ async fn test_sync_queue_deduplication() {
 async fn test_sync_queue_update_coalescing() {
     let (db, _temp) = create_test_db().await;
 
-    // Queue updates for same event
-    db.queue_activity_update(1, 1000)
+    let event_id = insert_test_activity_event(&db, 1000, 1500).await;
+
+    db.update_event_end_time(event_id, 2000)
+        .await
+        .expect("Update failed");
+    db.queue_activity_update(event_id, 2000)
         .await
         .expect("Queue failed");
-    db.queue_activity_update(1, 2000)
+    db.update_event_end_time(event_id, 3000)
         .await
-        .expect("Queue failed");
-    db.queue_activity_update(1, 3000)
+        .expect("Update failed");
+    db.queue_activity_update(event_id, 3000)
         .await
         .expect("Queue failed");
 

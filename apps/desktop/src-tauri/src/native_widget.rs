@@ -173,19 +173,11 @@ fn restore_env(entries: &[(&str, Option<String>)]) {
     }
 }
 
-async fn reload_activity_database_blocking(origin: String) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || {
-        crate::ritual_database::reload_activity_database_with_origin(&origin)
-    })
-    .await
-    .map_err(|e| format!("Failed to join activity database reload task: {e}"))?
-}
-
 async fn rollback_turso_config(
-    origin: &str,
+    _origin: &str,
     previous_config: &Option<TursoSyncConfig>,
     previous_env: &[(&str, Option<String>)],
-    watcher_restart_config: &Option<watcher::WatcherConfig>,
+    _watcher_restart_config: &Option<watcher::WatcherConfig>,
 ) -> Result<(), String> {
     if let Some(config) = previous_config {
         let _ = persist_turso_sync_config_file(config)?;
@@ -194,13 +186,6 @@ async fn rollback_turso_config(
         clear_turso_sync_config_file()?;
         restore_env(previous_env);
     }
-
-    reload_activity_database_blocking(format!("{origin}:rollback")).await?;
-
-    if let Some(config) = watcher_restart_config.clone() {
-        watcher::start_watcher(config).await?;
-    }
-
     Ok(())
 }
 
@@ -208,7 +193,6 @@ pub(crate) async fn apply_turso_sync_config_internal(
     config: TursoSyncConfig,
     origin: Option<&str>,
 ) -> Result<std::path::PathBuf, String> {
-    use crate::watcher;
     let origin = normalize_widget_command_origin(origin, "native_widget:apply_turso_sync_config");
 
     let previous_config = load_turso_sync_config()?;
@@ -242,60 +226,19 @@ pub(crate) async fn apply_turso_sync_config_internal(
     let config_file = persist_turso_sync_config_file(&config)?;
     apply_turso_env(Some(&config));
 
-    let runtime_state = crate::ritual_database::database_runtime_state_snapshot();
-    let runtime_initialized = !matches!(
-        runtime_state.memory.status,
-        crate::ritual_database::DatabaseConnectionState::Uninitialized
-            | crate::ritual_database::DatabaseConnectionState::Reloading
-    ) && !matches!(
-        runtime_state.activity.status,
-        crate::ritual_database::DatabaseConnectionState::Uninitialized
-            | crate::ritual_database::DatabaseConnectionState::Reloading
-    );
-    let activity_bootstrap_pending = crate::ritual_database::activity_replica_bootstrap_pending();
-    if previous_config.as_ref() == Some(&config)
-        && runtime_initialized
-        && !activity_bootstrap_pending
-    {
+    if previous_config.as_ref() == Some(&config) {
         nw_info!(
-            "⏭️ Skipping identical Turso sync config apply origin={} activity_status={:?}",
-            origin,
-            runtime_state.activity.status
+            "⏭️ Skipping identical Turso sync config apply origin={}",
+            origin
         );
         return Ok(config_file);
     }
 
-    let watcher_status = watcher::get_watcher_status().await;
-    let watcher_restart_config = if watcher_status.is_running {
-        Some(watcher::get_saved_watcher_config().ok_or_else(|| {
-            "Watcher is running but no saved watcher config is available for restart".to_string()
-        })?)
-    } else {
-        None
-    };
-
-    if watcher_restart_config.is_some() {
-        watcher::stop_watcher().await?;
-    }
-
     let apply_result: Result<(), String> = async {
-        crate::ritual_database::reset_activity_replica_circuit_breaker();
-        if crate::ritual_database::activity_replica_bootstrap_pending() {
-            nw_info!(
-                "🛠️ Bootstrapping activity replica from existing local activity.db origin={}",
-                origin
-            );
-            crate::ritual_database::bootstrap_activity_replica_if_needed(&format!(
-                "{origin}:bootstrap_activity_replica"
-            ))
-            .await?;
-        }
-        reload_activity_database_blocking(format!("{origin}:reload_activity_database")).await?;
-
-        if let Some(saved_config) = watcher_restart_config.clone() {
-            watcher::start_watcher(saved_config).await?;
-        }
-
+        nw_info!(
+            "✅ Applied Turso sync config for desktop cloud uploader only origin={}",
+            origin
+        );
         Ok(())
     }
     .await;
@@ -306,7 +249,7 @@ pub(crate) async fn apply_turso_sync_config_internal(
             &origin,
             &previous_config,
             &previous_env,
-            &watcher_restart_config,
+            &None,
         )
         .await
         {

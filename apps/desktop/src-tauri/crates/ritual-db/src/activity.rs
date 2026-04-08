@@ -35,12 +35,13 @@ impl<'a> ActivityOps<'a> {
             .execute(
                 r#"
             INSERT INTO activity_events (
-                device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
+                event_uid, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                 window_title, window_title_hash, window_owner_pid, is_afk,
                 browser_url, browser_domain, is_incognito, source, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
                 libsql::params![
+                    event.event_uid.clone(),
                     event.device_id.clone(),
                     event.user_id.clone(),
                     event.ts_start,
@@ -145,7 +146,7 @@ impl<'a> ActivityOps<'a> {
             .conn
             .query(
                 r#"
-            SELECT id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
+            SELECT id, event_uid, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
             FROM activity_events
@@ -169,7 +170,7 @@ impl<'a> ActivityOps<'a> {
             .conn
             .query(
                 r#"
-            SELECT id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
+            SELECT id, event_uid, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
             FROM activity_events
@@ -196,7 +197,7 @@ impl<'a> ActivityOps<'a> {
             .conn
             .query(
                 r#"
-            SELECT id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
+            SELECT id, event_uid, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                    window_title, window_title_hash, window_owner_pid, is_afk,
                    browser_url, browser_domain, is_incognito, source, created_at
             FROM activity_events
@@ -373,9 +374,16 @@ impl<'a> ActivityOps<'a> {
         }
 
         // Insert new event
+        let afk_uid = format!(
+            "legacy-afk:{}:{}:{}:{}",
+            device_id,
+            user_id,
+            ts_start,
+            status
+        );
         self.conn.execute(
-            "INSERT INTO afk_events (device_id, user_id, ts_start, ts_end, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            libsql::params![device_id, user_id, ts_start, ts_end, status, now]
+            "INSERT INTO afk_events (afk_uid, device_id, user_id, ts_start, ts_end, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            libsql::params![afk_uid, device_id, user_id, ts_start, ts_end, status, now]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
 
         let mut rows = self
@@ -787,33 +795,36 @@ impl<'a> ActivityOps<'a> {
                     row.get(0)
                         .map_err(|e| DatabaseError::Query(e.to_string()))?,
                 ),
-                device_id: row
+                event_uid: row
                     .get(1)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                user_id: row
+                device_id: row
                     .get(2)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_start: row
+                user_id: row
                     .get(3)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row
+                ts_start: row
                     .get(4)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_bundle_id: row
+                ts_end: row
                     .get(5)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_name: row
+                app_bundle_id: row
                     .get(6)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                window_title: row.get(7).ok(),
-                window_title_hash: row.get(8).ok(),
-                window_owner_pid: row.get(9).ok(),
-                is_afk: row.get::<i64>(10).unwrap_or(0) != 0,
-                browser_url: row.get(11).ok(),
-                browser_domain: row.get(12).ok(),
-                is_incognito: row.get::<i64>(13).unwrap_or(0) != 0,
-                source: row.get(14).unwrap_or_else(|_| "unknown".to_string()),
-                created_at: row.get(15).unwrap_or(0),
+                app_name: row
+                    .get(7)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                window_title: row.get(8).ok(),
+                window_title_hash: row.get(9).ok(),
+                window_owner_pid: row.get(10).ok(),
+                is_afk: row.get::<i64>(11).unwrap_or(0) != 0,
+                browser_url: row.get(12).ok(),
+                browser_domain: row.get(13).ok(),
+                is_incognito: row.get::<i64>(14).unwrap_or(0) != 0,
+                source: row.get(15).unwrap_or_else(|_| "unknown".to_string()),
+                created_at: row.get(16).unwrap_or(0),
             }))
         } else {
             Ok(None)
@@ -834,33 +845,36 @@ impl<'a> ActivityOps<'a> {
                     row.get(0)
                         .map_err(|e| DatabaseError::Query(e.to_string()))?,
                 ),
-                device_id: row
+                event_uid: row
                     .get(1)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                user_id: row
+                device_id: row
                     .get(2)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_start: row
+                user_id: row
                     .get(3)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row
+                ts_start: row
                     .get(4)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_bundle_id: row
+                ts_end: row
                     .get(5)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                app_name: row
+                app_bundle_id: row
                     .get(6)
                     .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                window_title: row.get(7).ok(),
-                window_title_hash: row.get(8).ok(),
-                window_owner_pid: row.get(9).ok(),
-                is_afk: row.get::<i64>(10).unwrap_or(0) != 0,
-                browser_url: row.get(11).ok(),
-                browser_domain: row.get(12).ok(),
-                is_incognito: row.get::<i64>(13).unwrap_or(0) != 0,
-                source: row.get(14).unwrap_or_else(|_| "unknown".to_string()),
-                created_at: row.get(15).unwrap_or(0),
+                app_name: row
+                    .get(7)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
+                window_title: row.get(8).ok(),
+                window_title_hash: row.get(9).ok(),
+                window_owner_pid: row.get(10).ok(),
+                is_afk: row.get::<i64>(11).unwrap_or(0) != 0,
+                browser_url: row.get(12).ok(),
+                browser_domain: row.get(13).ok(),
+                is_incognito: row.get::<i64>(14).unwrap_or(0) != 0,
+                source: row.get(15).unwrap_or_else(|_| "unknown".to_string()),
+                created_at: row.get(16).unwrap_or(0),
             });
         }
 
@@ -1035,6 +1049,7 @@ mod tests {
         ops.insert_activity_event(&first).await.unwrap();
 
         let mut duplicate = first.clone();
+        duplicate.event_uid = format!("{}_duplicate", duplicate.event_uid);
         duplicate.created_at += 1;
         ops.insert_activity_event(&duplicate).await.unwrap();
 
@@ -1065,6 +1080,7 @@ mod tests {
         ops.insert_activity_event(&first).await.unwrap();
 
         let mut longer = first.clone();
+        longer.event_uid = format!("{}_longer", longer.event_uid);
         longer.ts_end = 4_000;
         ops.insert_activity_event(&longer).await.unwrap();
 

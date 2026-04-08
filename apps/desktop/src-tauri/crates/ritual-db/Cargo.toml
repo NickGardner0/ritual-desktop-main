@@ -50,6 +50,9 @@ regex = "1.10"
 # Lazy static for compiled regexes
 once_cell = "1.19"
 
+# Stable logical IDs for cloud sync entities
+rand = "0.8"
+
 [dev-dependencies]
 tokio = { version = "1.35", features = ["full", "test-util"] }
 tempfile = "3.10"

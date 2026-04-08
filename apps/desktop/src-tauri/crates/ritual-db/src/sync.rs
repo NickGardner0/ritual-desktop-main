@@ -7,6 +7,7 @@
 //! - Daily rollup caching
 
 use libsql::Connection;
+use serde_json::Value;
 use tracing::{debug, info};
 
 use crate::error::{DatabaseError, Result};
@@ -34,78 +35,22 @@ impl<'a> SyncOps<'a> {
 
     /// Queue an activity event for full sync (new event)
     pub async fn queue_activity_sync(&self, event_id: i64) -> Result<()> {
-        let now = Self::now_ms();
-
-        // Check if this event is already queued as pending
-        let mut rows = self.conn.query(
-            "SELECT id FROM sync_queue WHERE event_id = ? AND entry_type = 'activity_create' AND status = 'pending'",
-            libsql::params![event_id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        if rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-            .is_some()
-        {
-            debug!("Event {} already queued for sync", event_id);
-            return Ok(());
+        let queued = self.force_activity_event_pending(event_id).await?;
+        if queued > 0 {
+            debug!("Queued activity event {} for cloud sync", event_id);
         }
-
-        self.conn.execute(
-            "INSERT INTO sync_queue (entry_type, event_id, status, created_at, updated_at) VALUES ('activity_create', ?, 'pending', ?, ?)",
-            libsql::params![event_id, now, now]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        debug!("Queued activity event {} for sync", event_id);
         Ok(())
     }
 
     /// Queue an activity update (end time extended)
     pub async fn queue_activity_update(&self, event_id: i64, ts_end: i64) -> Result<()> {
-        let now = Self::now_ms();
-
-        // Check if there's already a pending update for this event
-        let mut rows = self.conn.query(
-            "SELECT id FROM sync_queue WHERE event_id = ? AND entry_type = 'activity_update' AND status = 'pending'",
-            libsql::params![event_id]
-        ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        if let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-        {
-            // Update existing entry with new end time
-            let id: i64 = row
-                .get(0)
-                .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-            self.conn
-                .execute(
-                    "UPDATE sync_queue SET ts_end = ?, updated_at = ? WHERE id = ?",
-                    libsql::params![ts_end, now, id],
-                )
-                .await
-                .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-            debug!(
-                "Updated pending sync for event {} with new end time",
-                event_id
-            );
-        } else {
-            // Create new update entry
-            self.conn.execute(
-                "INSERT INTO sync_queue (entry_type, event_id, ts_end, status, created_at, updated_at) VALUES ('activity_update', ?, ?, 'pending', ?, ?)",
-                libsql::params![event_id, ts_end, now, now]
-            ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
-
+        let queued = self.force_activity_event_pending(event_id).await?;
+        if queued > 0 {
             debug!(
                 "Queued activity update for event {} (end: {})",
                 event_id, ts_end
             );
         }
-
         Ok(())
     }
 
@@ -114,7 +59,7 @@ impl<'a> SyncOps<'a> {
         let mut rows = self
             .conn
             .query(
-                "SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'",
+                "SELECT COUNT(*) FROM cloud_sync_outbox WHERE status = 'pending'",
                 (),
             )
             .await
@@ -132,17 +77,51 @@ impl<'a> SyncOps<'a> {
 
     /// Get pending items for sync (oldest first, with limit)
     pub async fn get_pending(&self, limit: i64) -> Result<Vec<QueuedSyncItem>> {
+        let now = Self::now_ms();
+        let stale_uploading_cutoff = now.saturating_sub(5 * 60 * 1000);
+        let reclaim_next_retry_at = now.saturating_add(15_000);
+
+        let _ = self
+            .conn
+            .execute(
+                r#"
+                UPDATE cloud_sync_outbox
+                SET status = 'failed',
+                    retry_count = COALESCE(retry_count, 0) + 1,
+                    next_retry_at = ?,
+                    last_error = 'stale_uploading_reclaimed',
+                    updated_at = ?
+                WHERE status = 'uploading'
+                  AND COALESCE(updated_at, 0) <= ?
+                "#,
+                libsql::params![reclaim_next_retry_at, now, stale_uploading_cutoff],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
         let mut rows = self
             .conn
             .query(
                 r#"
-            SELECT id, entry_type, event_id, ts_end, retry_count, status, created_at, updated_at
-            FROM sync_queue
-            WHERE status = 'pending'
+            SELECT
+                id,
+                user_id,
+                device_id,
+                entity_type,
+                entity_uid,
+                op_kind,
+                payload_json,
+                retry_count,
+                status,
+                created_at,
+                updated_at
+            FROM cloud_sync_outbox
+            WHERE status IN ('pending', 'failed')
+              AND COALESCE(next_retry_at, 0) <= ?
             ORDER BY created_at ASC
             LIMIT ?
             "#,
-                libsql::params![limit],
+                libsql::params![now, limit],
             )
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;
@@ -154,24 +133,30 @@ impl<'a> SyncOps<'a> {
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
         {
-            let status_str: String = row.get(5).unwrap_or_else(|_| "pending".to_string());
+            let id = row
+                .get::<i64>(0)
+                .map_err(|e| DatabaseError::Query(e.to_string()))?;
+            let status_str: String = row.get(8).unwrap_or_else(|_| "pending".to_string());
+            let claim_result = self
+                .conn
+                .execute(
+                    r#"
+                    UPDATE cloud_sync_outbox
+                    SET status = 'uploading',
+                        updated_at = ?
+                    WHERE id = ?
+                      AND status IN ('pending', 'failed')
+                      AND COALESCE(next_retry_at, 0) <= ?
+                    "#,
+                    libsql::params![now, id, now],
+                )
+                .await
+                .map_err(|e| DatabaseError::Query(e.to_string()))?;
+            if claim_result <= 0 {
+                continue;
+            }
 
-            items.push(QueuedSyncItem {
-                id: row
-                    .get(0)
-                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                entry_type: row
-                    .get(1)
-                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                event_id: row
-                    .get(2)
-                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row.get(3).ok(),
-                retry_count: row.get(4).unwrap_or(0),
-                status: SyncStatus::from_str(&status_str),
-                created_at: row.get(6).unwrap_or(0),
-                updated_at: row.get(7).unwrap_or(0),
-            });
+            items.push(queued_item_from_cloud_sync_row(&row, &status_str));
         }
 
         Ok(items)
@@ -180,7 +165,22 @@ impl<'a> SyncOps<'a> {
     /// Get a specific sync item by ID
     pub async fn get_sync_item(&self, id: i64) -> Result<Option<QueuedSyncItem>> {
         let mut rows = self.conn.query(
-            "SELECT id, entry_type, event_id, ts_end, retry_count, status, created_at, updated_at FROM sync_queue WHERE id = ?",
+            r#"
+            SELECT
+                id,
+                user_id,
+                device_id,
+                entity_type,
+                entity_uid,
+                op_kind,
+                payload_json,
+                retry_count,
+                status,
+                created_at,
+                updated_at
+            FROM cloud_sync_outbox
+            WHERE id = ?
+            "#,
             libsql::params![id]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
 
@@ -189,24 +189,8 @@ impl<'a> SyncOps<'a> {
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
         {
-            let status_str: String = row.get(5).unwrap_or_else(|_| "pending".to_string());
-
-            Ok(Some(QueuedSyncItem {
-                id: row
-                    .get(0)
-                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                entry_type: row
-                    .get(1)
-                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                event_id: row
-                    .get(2)
-                    .map_err(|e| DatabaseError::Query(e.to_string()))?,
-                ts_end: row.get(3).ok(),
-                retry_count: row.get(4).unwrap_or(0),
-                status: SyncStatus::from_str(&status_str),
-                created_at: row.get(6).unwrap_or(0),
-                updated_at: row.get(7).unwrap_or(0),
-            }))
+            let status_str: String = row.get(8).unwrap_or_else(|_| "pending".to_string());
+            Ok(Some(queued_item_from_cloud_sync_row(&row, &status_str)))
         } else {
             Ok(None)
         }
@@ -218,7 +202,7 @@ impl<'a> SyncOps<'a> {
 
         self.conn
             .execute(
-                "UPDATE sync_queue SET status = 'synced', updated_at = ? WHERE id = ?",
+                "UPDATE cloud_sync_outbox SET status = 'uploaded', last_error = NULL, next_retry_at = NULL, updated_at = ? WHERE id = ?",
                 libsql::params![now, queue_id],
             )
             .await
@@ -230,10 +214,28 @@ impl<'a> SyncOps<'a> {
     /// Mark an item as failed (will retry)
     pub async fn mark_failed(&self, queue_id: i64) -> Result<()> {
         let now = Self::now_ms();
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT retry_count FROM cloud_sync_outbox WHERE id = ?",
+                libsql::params![queue_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+        let retry_count = rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+            .and_then(|row| row.get::<i64>(0).ok())
+            .unwrap_or(0)
+            + 1;
+        let capped_retry = retry_count.clamp(1, 8);
+        let delay_ms = 15_000_i64.saturating_mul(1_i64 << (capped_retry - 1));
+        let next_retry_at = now.saturating_add(delay_ms);
 
         self.conn.execute(
-            "UPDATE sync_queue SET status = 'failed', retry_count = retry_count + 1, updated_at = ? WHERE id = ?",
-            libsql::params![now, queue_id]
+            "UPDATE cloud_sync_outbox SET status = 'failed', retry_count = ?, next_retry_at = ?, last_error = 'cloud_sync_failed', updated_at = ? WHERE id = ?",
+            libsql::params![retry_count, next_retry_at, now, queue_id]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
 
         Ok(())
@@ -245,7 +247,7 @@ impl<'a> SyncOps<'a> {
         let now = Self::now_ms();
 
         let result = self.conn.execute(
-            "UPDATE sync_queue SET status = 'pending', updated_at = ? WHERE status = 'failed' AND retry_count < ?",
+            "UPDATE cloud_sync_outbox SET status = 'pending', next_retry_at = NULL, updated_at = ? WHERE status = 'failed' AND retry_count < ?",
             libsql::params![now, max_retries]
         ).await.map_err(|e| DatabaseError::Query(e.to_string()))?;
 
@@ -263,7 +265,7 @@ impl<'a> SyncOps<'a> {
         let result = self
             .conn
             .execute(
-                "DELETE FROM sync_queue WHERE status = 'synced' AND updated_at < ?",
+                "DELETE FROM cloud_sync_outbox WHERE status = 'uploaded' AND updated_at < ?",
                 libsql::params![cutoff],
             )
             .await
@@ -281,7 +283,7 @@ impl<'a> SyncOps<'a> {
         let result = self
             .conn
             .execute(
-                "DELETE FROM sync_queue WHERE status = 'failed' AND retry_count >= ?",
+                "DELETE FROM cloud_sync_outbox WHERE status = 'failed' AND retry_count >= ?",
                 libsql::params![max_retries],
             )
             .await
@@ -434,6 +436,102 @@ impl<'a> SyncOps<'a> {
     }
 }
 
+fn queued_item_from_cloud_sync_row(row: &libsql::Row, status_str: &str) -> QueuedSyncItem {
+    let payload_json = row.get::<String>(6).ok();
+    let payload = payload_json
+        .as_ref()
+        .and_then(|value| serde_json::from_str::<Value>(value).ok());
+
+    QueuedSyncItem {
+        id: row.get(0).unwrap_or(0),
+        user_id: row.get::<String>(1).ok(),
+        device_id: row.get::<String>(2).ok(),
+        entry_type: row.get(3).unwrap_or_else(|_| "unknown".to_string()),
+        entity_uid: row.get::<String>(4).ok(),
+        op_kind: row.get::<String>(5).ok(),
+        payload_json,
+        event_id: payload
+            .as_ref()
+            .and_then(|value| value.get("id"))
+            .and_then(json_i64)
+            .unwrap_or(0),
+        ts_end: payload
+            .as_ref()
+            .and_then(|value| value.get("ts_end"))
+            .and_then(json_i64),
+        retry_count: row.get(7).unwrap_or(0),
+        status: SyncStatus::from_str(status_str),
+        created_at: row.get(9).unwrap_or(0),
+        updated_at: row.get(10).unwrap_or(0),
+    }
+}
+
+fn json_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|v| i64::try_from(v).ok()))
+        .or_else(|| value.as_str().and_then(|v| v.parse::<i64>().ok()))
+}
+
+impl<'a> SyncOps<'a> {
+    async fn force_activity_event_pending(&self, event_id: i64) -> Result<u64> {
+        let now = Self::now_ms();
+        self.conn
+            .execute(
+                r#"
+                INSERT INTO cloud_sync_outbox (
+                    user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                    status, retry_count, next_retry_at, last_error, created_at, updated_at
+                )
+                SELECT
+                    user_id,
+                    device_id,
+                    'activity_event',
+                    event_uid,
+                    'upsert',
+                    json_object(
+                        'id', id,
+                        'event_uid', event_uid,
+                        'device_id', device_id,
+                        'user_id', user_id,
+                        'ts_start', ts_start,
+                        'ts_end', ts_end,
+                        'app_bundle_id', app_bundle_id,
+                        'app_name', app_name,
+                        'window_title', window_title,
+                        'window_title_hash', window_title_hash,
+                        'window_owner_pid', window_owner_pid,
+                        'is_afk', is_afk,
+                        'browser_url', browser_url,
+                        'browser_domain', browser_domain,
+                        'is_incognito', is_incognito,
+                        'source', source,
+                        'created_at', created_at
+                    ),
+                    'pending',
+                    0,
+                    NULL,
+                    NULL,
+                    COALESCE(created_at, ?),
+                    ?
+                FROM activity_events
+                WHERE id = ?
+                  AND TRIM(COALESCE(event_uid, '')) != ''
+                ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                    payload_json = excluded.payload_json,
+                    status = 'pending',
+                    retry_count = 0,
+                    next_retry_at = NULL,
+                    last_error = NULL,
+                    updated_at = excluded.updated_at
+                "#,
+                libsql::params![now, now, event_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,6 +555,33 @@ mod tests {
         (db, conn, temp_dir)
     }
 
+    async fn insert_activity_event(
+        conn: &Connection,
+        id: i64,
+        event_uid: &str,
+        ts_end: i64,
+    ) {
+        conn.execute(
+            r#"
+            INSERT INTO activity_events (
+                id,
+                event_uid,
+                device_id,
+                user_id,
+                ts_start,
+                ts_end,
+                app_bundle_id,
+                app_name,
+                source,
+                created_at
+            ) VALUES (?, ?, 'device-1', 'user-1', 1000, ?, 'com.test.app', 'Test App', 'test', 1000)
+            "#,
+            libsql::params![id, event_uid, ts_end],
+        )
+        .await
+        .unwrap();
+    }
+
     #[tokio::test]
     async fn test_queue_activity_sync() {
         let (_db, conn, _temp) = create_test_db().await;
@@ -465,7 +590,10 @@ mod tests {
         // Initially no pending items
         assert_eq!(ops.pending_count().await.unwrap(), 0);
 
-        // Queue an event
+        insert_activity_event(&conn, 1, "event-1", 1500).await;
+        assert_eq!(ops.pending_count().await.unwrap(), 1);
+
+        // Explicitly forcing the same event should not duplicate the trigger-created row.
         ops.queue_activity_sync(1).await.unwrap();
         assert_eq!(ops.pending_count().await.unwrap(), 1);
 
@@ -473,7 +601,10 @@ mod tests {
         ops.queue_activity_sync(1).await.unwrap();
         assert_eq!(ops.pending_count().await.unwrap(), 1);
 
-        // Different event should increase
+        insert_activity_event(&conn, 2, "event-2", 2500).await;
+        assert_eq!(ops.pending_count().await.unwrap(), 2);
+
+        // Explicitly forcing a second event also should not duplicate it.
         ops.queue_activity_sync(2).await.unwrap();
         assert_eq!(ops.pending_count().await.unwrap(), 2);
     }
@@ -483,10 +614,24 @@ mod tests {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
 
+        insert_activity_event(&conn, 1, "event-1", 1500).await;
+
+        conn.execute(
+            "UPDATE activity_events SET ts_end = 2000 WHERE id = 1",
+            (),
+        )
+        .await
+        .unwrap();
         // Queue an update
         ops.queue_activity_update(1, 2000).await.unwrap();
         assert_eq!(ops.pending_count().await.unwrap(), 1);
 
+        conn.execute(
+            "UPDATE activity_events SET ts_end = 3000 WHERE id = 1",
+            (),
+        )
+        .await
+        .unwrap();
         // Update the same event - should update existing entry
         ops.queue_activity_update(1, 3000).await.unwrap();
         assert_eq!(ops.pending_count().await.unwrap(), 1);
@@ -502,16 +647,20 @@ mod tests {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
 
+        insert_activity_event(&conn, 1, "event-1", 1500).await;
+        insert_activity_event(&conn, 2, "event-2", 2500).await;
+
         // Queue events
         ops.queue_activity_sync(1).await.unwrap();
         ops.queue_activity_sync(2).await.unwrap();
 
         let pending = ops.get_pending(10).await.unwrap();
         assert_eq!(pending.len(), 2);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
 
         // Mark first as synced
         ops.mark_synced(pending[0].id).await.unwrap();
-        assert_eq!(ops.pending_count().await.unwrap(), 1);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
 
         // Mark second as failed
         ops.mark_failed(pending[1].id).await.unwrap();
@@ -527,6 +676,8 @@ mod tests {
     async fn test_reset_failed() {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
+
+        insert_activity_event(&conn, 1, "event-1", 1500).await;
 
         // Queue and fail an event
         ops.queue_activity_sync(1).await.unwrap();

@@ -43,17 +43,7 @@ struct LocalWatcherFreshness {
 }
 
 fn apply_turso_sync_env(command: &mut Command) {
-    if let Ok(sync_url) = std::env::var("TURSO_SYNC_URL") {
-        if !sync_url.trim().is_empty() {
-            command.env("TURSO_SYNC_URL", sync_url);
-        }
-    }
-
-    if let Ok(auth_token) = std::env::var("TURSO_AUTH_TOKEN") {
-        if !auth_token.trim().is_empty() {
-            command.env("TURSO_AUTH_TOKEN", auth_token);
-        }
-    }
+    let _ = command;
 }
 
 fn require_db<'a, T>(db: Option<&'a T>) -> Result<&'a T, String> {

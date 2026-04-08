@@ -13,7 +13,7 @@ use tracing::{debug, info};
 use crate::error::{DatabaseError, Result};
 
 /// Current schema version - increment when making breaking changes
-pub const SCHEMA_VERSION: i32 = 6;
+pub const SCHEMA_VERSION: i32 = 7;
 
 /// Initialize the complete database schema
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -33,6 +33,7 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
 
     // Create indexes
     create_indexes(conn).await?;
+    create_cloud_sync_triggers(conn).await?;
 
     // Create FTS tables and triggers
     create_fts_tables(conn).await?;
@@ -109,6 +110,7 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
 
         CREATE TABLE IF NOT EXISTS context_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_uid TEXT NOT NULL DEFAULT '',
             device_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             start_ts INTEGER NOT NULL,
@@ -129,7 +131,9 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
             device_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             activity_event_id INTEGER,
+            activity_event_uid TEXT,
             session_id INTEGER,
+            session_uid TEXT,
             ts INTEGER NOT NULL,
             source_type TEXT NOT NULL,
             app_bundle_id TEXT NOT NULL,
@@ -161,6 +165,8 @@ async fn create_memory_pipeline_tables(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS session_retrieval_docs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL UNIQUE,
+            session_uid TEXT NOT NULL DEFAULT '',
+            logical_chunk_id TEXT NOT NULL DEFAULT '',
             device_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             source_kind TEXT NOT NULL DEFAULT 'context_session',
@@ -292,6 +298,7 @@ async fn create_activity_tables(conn: &Connection) -> Result<()> {
         -- Activity events table
         CREATE TABLE IF NOT EXISTS activity_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_uid TEXT NOT NULL DEFAULT '',
             device_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             ts_start INTEGER NOT NULL,
@@ -312,6 +319,7 @@ async fn create_activity_tables(conn: &Connection) -> Result<()> {
         -- AFK events table
         CREATE TABLE IF NOT EXISTS afk_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            afk_uid TEXT NOT NULL DEFAULT '',
             device_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             ts_start INTEGER NOT NULL,
@@ -406,6 +414,22 @@ async fn create_sync_tables(conn: &Connection) -> Result<()> {
             ts_end INTEGER,
             status TEXT NOT NULL DEFAULT 'pending',
             retry_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS cloud_sync_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_uid TEXT NOT NULL,
+            op_kind TEXT NOT NULL DEFAULT 'upsert',
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            next_retry_at INTEGER,
+            last_error TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -533,12 +557,20 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_activity_events_summary 
             ON activity_events(device_id, ts_start, ts_end, is_afk);
 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_events_event_uid
+            ON activity_events(event_uid)
+            WHERE TRIM(COALESCE(event_uid, '')) != '';
+
         -- AFK event indexes
         CREATE INDEX IF NOT EXISTS idx_afk_events_device_ts 
             ON afk_events(device_id, ts_start);
         
         CREATE INDEX IF NOT EXISTS idx_afk_events_user_device_ts 
             ON afk_events(user_id, device_id, ts_start);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_afk_events_afk_uid
+            ON afk_events(afk_uid)
+            WHERE TRIM(COALESCE(afk_uid, '')) != '';
 
         -- OCR frame indexes
         CREATE INDEX IF NOT EXISTS idx_ocr_frames_timestamp 
@@ -567,6 +599,12 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_sync_queue_event 
             ON sync_queue(event_id, entry_type);
 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cloud_sync_outbox_entity
+            ON cloud_sync_outbox(entity_type, entity_uid, op_kind);
+
+        CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status
+            ON cloud_sync_outbox(status, next_retry_at, updated_at);
+
         CREATE INDEX IF NOT EXISTS idx_capture_events_raw_status_ts
             ON capture_events_raw(ingest_status, ts_event DESC);
 
@@ -588,11 +626,28 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_ts
             ON context_snapshots(session_id, ts);
 
+        CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_uid_ts
+            ON context_snapshots(session_uid, ts);
+
+        CREATE INDEX IF NOT EXISTS idx_context_snapshots_activity_uid_ts
+            ON context_snapshots(activity_event_uid, ts);
+
         CREATE INDEX IF NOT EXISTS idx_context_sessions_time
             ON context_sessions(start_ts, end_ts);
 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_context_sessions_session_uid
+            ON context_sessions(session_uid)
+            WHERE TRIM(COALESCE(session_uid, '')) != '';
+
         CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time
             ON session_retrieval_docs(chunk_start_ts, chunk_end_ts);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_retrieval_docs_logical_chunk
+            ON session_retrieval_docs(logical_chunk_id)
+            WHERE TRIM(COALESCE(logical_chunk_id, '')) != '';
+
+        CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_session_uid
+            ON session_retrieval_docs(session_uid, chunk_end_ts DESC);
 
         CREATE INDEX IF NOT EXISTS idx_entities_user_norm
             ON entities(user_id, normalized_name);
@@ -630,6 +685,527 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
         
         CREATE INDEX IF NOT EXISTS idx_segment_frames_frame 
             ON segment_frames(frame_id);
+        "#,
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    Ok(())
+}
+
+async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> {
+    debug!("Creating cloud sync triggers");
+
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS activity_events_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS activity_events_cloud_sync_au;
+        DROP TRIGGER IF EXISTS afk_events_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS afk_events_cloud_sync_au;
+        DROP TRIGGER IF EXISTS context_sessions_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS context_sessions_cloud_sync_au;
+        DROP TRIGGER IF EXISTS context_snapshots_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS context_snapshots_cloud_sync_au;
+        DROP TRIGGER IF EXISTS session_retrieval_docs_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS session_retrieval_docs_cloud_sync_au;
+
+        CREATE TRIGGER activity_events_cloud_sync_ai
+        AFTER INSERT ON activity_events
+        WHEN TRIM(COALESCE(NEW.event_uid, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'activity_event',
+                NEW.event_uid,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'event_uid', NEW.event_uid,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'ts_start', NEW.ts_start,
+                    'ts_end', NEW.ts_end,
+                    'app_bundle_id', NEW.app_bundle_id,
+                    'app_name', NEW.app_name,
+                    'window_title', NEW.window_title,
+                    'window_title_hash', NEW.window_title_hash,
+                    'window_owner_pid', NEW.window_owner_pid,
+                    'is_afk', NEW.is_afk,
+                    'browser_url', NEW.browser_url,
+                    'browser_domain', NEW.browser_domain,
+                    'is_incognito', NEW.is_incognito,
+                    'source', NEW.source,
+                    'created_at', NEW.created_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER activity_events_cloud_sync_au
+        AFTER UPDATE ON activity_events
+        WHEN TRIM(COALESCE(NEW.event_uid, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'activity_event',
+                NEW.event_uid,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'event_uid', NEW.event_uid,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'ts_start', NEW.ts_start,
+                    'ts_end', NEW.ts_end,
+                    'app_bundle_id', NEW.app_bundle_id,
+                    'app_name', NEW.app_name,
+                    'window_title', NEW.window_title,
+                    'window_title_hash', NEW.window_title_hash,
+                    'window_owner_pid', NEW.window_owner_pid,
+                    'is_afk', NEW.is_afk,
+                    'browser_url', NEW.browser_url,
+                    'browser_domain', NEW.browser_domain,
+                    'is_incognito', NEW.is_incognito,
+                    'source', NEW.source,
+                    'created_at', NEW.created_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER afk_events_cloud_sync_ai
+        AFTER INSERT ON afk_events
+        WHEN TRIM(COALESCE(NEW.afk_uid, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'afk_event',
+                NEW.afk_uid,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'afk_uid', NEW.afk_uid,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'ts_start', NEW.ts_start,
+                    'ts_end', NEW.ts_end,
+                    'status', NEW.status,
+                    'created_at', NEW.created_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER afk_events_cloud_sync_au
+        AFTER UPDATE ON afk_events
+        WHEN TRIM(COALESCE(NEW.afk_uid, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'afk_event',
+                NEW.afk_uid,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'afk_uid', NEW.afk_uid,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'ts_start', NEW.ts_start,
+                    'ts_end', NEW.ts_end,
+                    'status', NEW.status,
+                    'created_at', NEW.created_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER context_sessions_cloud_sync_ai
+        AFTER INSERT ON context_sessions
+        WHEN TRIM(COALESCE(NEW.session_uid, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'context_session',
+                NEW.session_uid,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'session_uid', NEW.session_uid,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'start_ts', NEW.start_ts,
+                    'end_ts', NEW.end_ts,
+                    'primary_app_bundle_id', NEW.primary_app_bundle_id,
+                    'primary_app_name', NEW.primary_app_name,
+                    'primary_domain', NEW.primary_domain,
+                    'dominant_title', NEW.dominant_title,
+                    'representative_text', NEW.representative_text,
+                    'coverage_score', NEW.coverage_score,
+                    'snapshot_count', NEW.snapshot_count,
+                    'created_at', NEW.created_at,
+                    'updated_at', NEW.updated_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER context_sessions_cloud_sync_au
+        AFTER UPDATE ON context_sessions
+        WHEN TRIM(COALESCE(NEW.session_uid, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'context_session',
+                NEW.session_uid,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'session_uid', NEW.session_uid,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'start_ts', NEW.start_ts,
+                    'end_ts', NEW.end_ts,
+                    'primary_app_bundle_id', NEW.primary_app_bundle_id,
+                    'primary_app_name', NEW.primary_app_name,
+                    'primary_domain', NEW.primary_domain,
+                    'dominant_title', NEW.dominant_title,
+                    'representative_text', NEW.representative_text,
+                    'coverage_score', NEW.coverage_score,
+                    'snapshot_count', NEW.snapshot_count,
+                    'created_at', NEW.created_at,
+                    'updated_at', NEW.updated_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER context_snapshots_cloud_sync_ai
+        AFTER INSERT ON context_snapshots
+        WHEN TRIM(COALESCE(NEW.dedup_key, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'context_snapshot',
+                NEW.dedup_key,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'activity_event_id', NEW.activity_event_id,
+                    'activity_event_uid', NEW.activity_event_uid,
+                    'session_id', NEW.session_id,
+                    'session_uid', NEW.session_uid,
+                    'ts', NEW.ts,
+                    'source_type', NEW.source_type,
+                    'app_bundle_id', NEW.app_bundle_id,
+                    'app_name', NEW.app_name,
+                    'window_title', NEW.window_title,
+                    'browser_url', NEW.browser_url,
+                    'browser_domain', NEW.browser_domain,
+                    'tab_title', NEW.tab_title,
+                    'document_title', NEW.document_title,
+                    'visible_text_raw', NEW.visible_text_raw,
+                    'visible_text_norm', NEW.visible_text_norm,
+                    'capture_quality', NEW.capture_quality,
+                    'capture_components_json', NEW.capture_components_json,
+                    'ax_richness_score', NEW.ax_richness_score,
+                    'selected_text_present', NEW.selected_text_present,
+                    'document_path', NEW.document_path,
+                    'ax_source', NEW.ax_source,
+                    'capture_trigger', NEW.capture_trigger,
+                    'trigger_to_snapshot_ms', NEW.trigger_to_snapshot_ms,
+                    'ui_elements_json', NEW.ui_elements_json,
+                    'dedup_key', NEW.dedup_key,
+                    'is_sensitive_redacted', NEW.is_sensitive_redacted,
+                    'created_at', NEW.created_at,
+                    'updated_at', NEW.updated_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER context_snapshots_cloud_sync_au
+        AFTER UPDATE ON context_snapshots
+        WHEN TRIM(COALESCE(NEW.dedup_key, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'context_snapshot',
+                NEW.dedup_key,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'activity_event_id', NEW.activity_event_id,
+                    'activity_event_uid', NEW.activity_event_uid,
+                    'session_id', NEW.session_id,
+                    'session_uid', NEW.session_uid,
+                    'ts', NEW.ts,
+                    'source_type', NEW.source_type,
+                    'app_bundle_id', NEW.app_bundle_id,
+                    'app_name', NEW.app_name,
+                    'window_title', NEW.window_title,
+                    'browser_url', NEW.browser_url,
+                    'browser_domain', NEW.browser_domain,
+                    'tab_title', NEW.tab_title,
+                    'document_title', NEW.document_title,
+                    'visible_text_raw', NEW.visible_text_raw,
+                    'visible_text_norm', NEW.visible_text_norm,
+                    'capture_quality', NEW.capture_quality,
+                    'capture_components_json', NEW.capture_components_json,
+                    'ax_richness_score', NEW.ax_richness_score,
+                    'selected_text_present', NEW.selected_text_present,
+                    'document_path', NEW.document_path,
+                    'ax_source', NEW.ax_source,
+                    'capture_trigger', NEW.capture_trigger,
+                    'trigger_to_snapshot_ms', NEW.trigger_to_snapshot_ms,
+                    'ui_elements_json', NEW.ui_elements_json,
+                    'dedup_key', NEW.dedup_key,
+                    'is_sensitive_redacted', NEW.is_sensitive_redacted,
+                    'created_at', NEW.created_at,
+                    'updated_at', NEW.updated_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER session_retrieval_docs_cloud_sync_ai
+        AFTER INSERT ON session_retrieval_docs
+        WHEN TRIM(COALESCE(NEW.logical_chunk_id, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'session_retrieval_doc',
+                NEW.logical_chunk_id,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'session_id', NEW.session_id,
+                    'session_uid', NEW.session_uid,
+                    'logical_chunk_id', NEW.logical_chunk_id,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'source_kind', NEW.source_kind,
+                    'chunk_start_ts', NEW.chunk_start_ts,
+                    'chunk_end_ts', NEW.chunk_end_ts,
+                    'app_name', NEW.app_name,
+                    'browser_domain', NEW.browser_domain,
+                    'window_title', NEW.window_title,
+                    'document_title', NEW.document_title,
+                    'raw_visible_text', NEW.raw_visible_text,
+                    'contextual_retrieval_text', NEW.contextual_retrieval_text,
+                    'capture_quality', NEW.capture_quality,
+                    'context_version', NEW.context_version,
+                    'session_position', NEW.session_position,
+                    'session_count', NEW.session_count,
+                    'embedded_at', NEW.embedded_at,
+                    'provider_doc_id', NEW.provider_doc_id,
+                    'created_at', NEW.created_at,
+                    'updated_at', NEW.updated_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER session_retrieval_docs_cloud_sync_au
+        AFTER UPDATE ON session_retrieval_docs
+        WHEN TRIM(COALESCE(NEW.logical_chunk_id, '')) != ''
+        BEGIN
+            INSERT INTO cloud_sync_outbox (
+                user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                status, retry_count, next_retry_at, last_error, created_at, updated_at
+            ) VALUES (
+                NEW.user_id,
+                NEW.device_id,
+                'session_retrieval_doc',
+                NEW.logical_chunk_id,
+                'upsert',
+                json_object(
+                    'id', NEW.id,
+                    'session_id', NEW.session_id,
+                    'session_uid', NEW.session_uid,
+                    'logical_chunk_id', NEW.logical_chunk_id,
+                    'device_id', NEW.device_id,
+                    'user_id', NEW.user_id,
+                    'source_kind', NEW.source_kind,
+                    'chunk_start_ts', NEW.chunk_start_ts,
+                    'chunk_end_ts', NEW.chunk_end_ts,
+                    'app_name', NEW.app_name,
+                    'browser_domain', NEW.browser_domain,
+                    'window_title', NEW.window_title,
+                    'document_title', NEW.document_title,
+                    'raw_visible_text', NEW.raw_visible_text,
+                    'contextual_retrieval_text', NEW.contextual_retrieval_text,
+                    'capture_quality', NEW.capture_quality,
+                    'context_version', NEW.context_version,
+                    'session_position', NEW.session_position,
+                    'session_count', NEW.session_count,
+                    'embedded_at', NEW.embedded_at,
+                    'provider_doc_id', NEW.provider_doc_id,
+                    'created_at', NEW.created_at,
+                    'updated_at', NEW.updated_at
+                ),
+                'pending',
+                0,
+                NULL,
+                NULL,
+                COALESCE(NEW.created_at, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            )
+            ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
+                payload_json = excluded.payload_json,
+                status = 'pending',
+                retry_count = 0,
+                next_retry_at = NULL,
+                last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
         "#,
     )
     .await
@@ -982,6 +1558,132 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         ()
     ).await;
 
+    add_column_if_missing(conn, "activity_events", "event_uid", "TEXT NOT NULL DEFAULT ''").await?;
+    add_column_if_missing(conn, "afk_events", "afk_uid", "TEXT NOT NULL DEFAULT ''").await?;
+    add_column_if_missing(conn, "context_sessions", "session_uid", "TEXT NOT NULL DEFAULT ''")
+        .await?;
+    add_column_if_missing(conn, "context_snapshots", "activity_event_uid", "TEXT").await?;
+    add_column_if_missing(conn, "context_snapshots", "session_uid", "TEXT").await?;
+    add_column_if_missing(conn, "session_retrieval_docs", "session_uid", "TEXT NOT NULL DEFAULT ''")
+        .await?;
+    add_column_if_missing(
+        conn,
+        "session_retrieval_docs",
+        "logical_chunk_id",
+        "TEXT NOT NULL DEFAULT ''",
+    )
+    .await?;
+    create_sync_tables(conn).await?;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE activity_events
+        SET event_uid = printf(
+            'legacy-activity:%s:%s:%lld',
+            COALESCE(device_id, ''),
+            COALESCE(user_id, ''),
+            id
+        )
+        WHERE event_uid IS NULL OR TRIM(event_uid) = ''
+        "#,
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE afk_events
+        SET afk_uid = printf(
+            'legacy-afk:%s:%s:%lld',
+            COALESCE(device_id, ''),
+            COALESCE(user_id, ''),
+            id
+        )
+        WHERE afk_uid IS NULL OR TRIM(afk_uid) = ''
+        "#,
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE context_sessions
+        SET session_uid = printf(
+            'legacy-session:%s:%s:%lld',
+            COALESCE(device_id, ''),
+            COALESCE(user_id, ''),
+            id
+        )
+        WHERE session_uid IS NULL OR TRIM(session_uid) = ''
+        "#,
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE context_snapshots
+        SET activity_event_uid = (
+            SELECT activity_events.event_uid
+            FROM activity_events
+            WHERE activity_events.id = context_snapshots.activity_event_id
+        )
+        WHERE activity_event_id IS NOT NULL
+          AND (activity_event_uid IS NULL OR TRIM(activity_event_uid) = '')
+        "#,
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE context_snapshots
+        SET session_uid = (
+            SELECT context_sessions.session_uid
+            FROM context_sessions
+            WHERE context_sessions.id = context_snapshots.session_id
+        )
+        WHERE session_id IS NOT NULL
+          AND (session_uid IS NULL OR TRIM(session_uid) = '')
+        "#,
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE session_retrieval_docs
+        SET session_uid = (
+            SELECT context_sessions.session_uid
+            FROM context_sessions
+            WHERE context_sessions.id = session_retrieval_docs.session_id
+        )
+        WHERE session_uid IS NULL OR TRIM(session_uid) = ''
+        "#,
+            (),
+        )
+        .await;
+
+    let _ = conn
+        .execute(
+            r#"
+        UPDATE session_retrieval_docs
+        SET logical_chunk_id = printf('session-doc:%s', session_uid)
+        WHERE (logical_chunk_id IS NULL OR TRIM(logical_chunk_id) = '')
+          AND TRIM(COALESCE(session_uid, '')) != ''
+        "#,
+            (),
+        )
+        .await;
+
+    backfill_cloud_sync_outbox(conn).await?;
+
     debug!("Schema migrations complete");
     Ok(())
 }
@@ -1020,6 +1722,246 @@ async fn add_column_if_missing(
             .await
             .map_err(|e| DatabaseError::Schema(e.to_string()))?;
     }
+
+    Ok(())
+}
+
+async fn backfill_cloud_sync_outbox(conn: &Connection) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO cloud_sync_outbox (
+            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        )
+        SELECT
+            user_id,
+            device_id,
+            'activity_event',
+            event_uid,
+            'upsert',
+            json_object(
+                'id', id,
+                'event_uid', event_uid,
+                'device_id', device_id,
+                'user_id', user_id,
+                'ts_start', ts_start,
+                'ts_end', ts_end,
+                'app_bundle_id', app_bundle_id,
+                'app_name', app_name,
+                'window_title', window_title,
+                'window_title_hash', window_title_hash,
+                'window_owner_pid', window_owner_pid,
+                'is_afk', is_afk,
+                'browser_url', browser_url,
+                'browser_domain', browser_domain,
+                'is_incognito', is_incognito,
+                'source', source,
+                'created_at', created_at
+            ),
+            'pending',
+            0,
+            NULL,
+            NULL,
+            created_at,
+            ?
+        FROM activity_events
+        WHERE TRIM(COALESCE(event_uid, '')) != ''
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO cloud_sync_outbox (
+            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        )
+        SELECT
+            user_id,
+            device_id,
+            'afk_event',
+            afk_uid,
+            'upsert',
+            json_object(
+                'id', id,
+                'afk_uid', afk_uid,
+                'device_id', device_id,
+                'user_id', user_id,
+                'ts_start', ts_start,
+                'ts_end', ts_end,
+                'status', status,
+                'created_at', created_at
+            ),
+            'pending',
+            0,
+            NULL,
+            NULL,
+            created_at,
+            ?
+        FROM afk_events
+        WHERE TRIM(COALESCE(afk_uid, '')) != ''
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO cloud_sync_outbox (
+            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        )
+        SELECT
+            user_id,
+            device_id,
+            'context_session',
+            session_uid,
+            'upsert',
+            json_object(
+                'id', id,
+                'session_uid', session_uid,
+                'device_id', device_id,
+                'user_id', user_id,
+                'start_ts', start_ts,
+                'end_ts', end_ts,
+                'primary_app_bundle_id', primary_app_bundle_id,
+                'primary_app_name', primary_app_name,
+                'primary_domain', primary_domain,
+                'dominant_title', dominant_title,
+                'representative_text', representative_text,
+                'coverage_score', coverage_score,
+                'snapshot_count', snapshot_count,
+                'created_at', created_at,
+                'updated_at', updated_at
+            ),
+            'pending',
+            0,
+            NULL,
+            NULL,
+            created_at,
+            ?
+        FROM context_sessions
+        WHERE TRIM(COALESCE(session_uid, '')) != ''
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO cloud_sync_outbox (
+            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        )
+        SELECT
+            user_id,
+            device_id,
+            'context_snapshot',
+            dedup_key,
+            'upsert',
+            json_object(
+                'id', id,
+                'device_id', device_id,
+                'user_id', user_id,
+                'activity_event_id', activity_event_id,
+                'activity_event_uid', activity_event_uid,
+                'session_id', session_id,
+                'session_uid', session_uid,
+                'ts', ts,
+                'source_type', source_type,
+                'app_bundle_id', app_bundle_id,
+                'app_name', app_name,
+                'window_title', window_title,
+                'browser_url', browser_url,
+                'browser_domain', browser_domain,
+                'tab_title', tab_title,
+                'document_title', document_title,
+                'visible_text_raw', visible_text_raw,
+                'visible_text_norm', visible_text_norm,
+                'capture_quality', capture_quality,
+                'capture_components_json', capture_components_json,
+                'ax_richness_score', ax_richness_score,
+                'selected_text_present', selected_text_present,
+                'document_path', document_path,
+                'ax_source', ax_source,
+                'capture_trigger', capture_trigger,
+                'trigger_to_snapshot_ms', trigger_to_snapshot_ms,
+                'ui_elements_json', ui_elements_json,
+                'dedup_key', dedup_key,
+                'is_sensitive_redacted', is_sensitive_redacted,
+                'created_at', created_at,
+                'updated_at', updated_at
+            ),
+            'pending',
+            0,
+            NULL,
+            NULL,
+            created_at,
+            ?
+        FROM context_snapshots
+        WHERE TRIM(COALESCE(dedup_key, '')) != ''
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO cloud_sync_outbox (
+            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        )
+        SELECT
+            user_id,
+            device_id,
+            'session_retrieval_doc',
+            logical_chunk_id,
+            'upsert',
+            json_object(
+                'id', id,
+                'session_id', session_id,
+                'session_uid', session_uid,
+                'logical_chunk_id', logical_chunk_id,
+                'device_id', device_id,
+                'user_id', user_id,
+                'source_kind', source_kind,
+                'chunk_start_ts', chunk_start_ts,
+                'chunk_end_ts', chunk_end_ts,
+                'app_name', app_name,
+                'browser_domain', browser_domain,
+                'window_title', window_title,
+                'document_title', document_title,
+                'raw_visible_text', raw_visible_text,
+                'contextual_retrieval_text', contextual_retrieval_text,
+                'capture_quality', capture_quality,
+                'context_version', context_version,
+                'session_position', session_position,
+                'session_count', session_count,
+                'embedded_at', embedded_at,
+                'provider_doc_id', provider_doc_id,
+                'created_at', created_at,
+                'updated_at', updated_at
+            ),
+            'pending',
+            0,
+            NULL,
+            NULL,
+            created_at,
+            ?
+        FROM session_retrieval_docs
+        WHERE TRIM(COALESCE(logical_chunk_id, '')) != ''
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
 
     Ok(())
 }

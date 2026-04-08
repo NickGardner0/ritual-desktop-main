@@ -49,25 +49,9 @@ impl BlockingDatabase {
         Self::open(&DatabaseConfig::with_path(db_path))
     }
 
-    /// Open the activity database, enabling Turso embedded-replica sync when
-    /// the sidecar process was launched with Turso env vars.
+    /// Open the activity database as a strictly local operational store.
     pub fn open_activity_db_with_env(db_path: impl Into<PathBuf>) -> Result<Self> {
-        let db_path = db_path.into();
-        let sync_url = std::env::var("TURSO_SYNC_URL")
-            .ok()
-            .filter(|value| !value.trim().is_empty());
-        let auth_token = std::env::var("TURSO_AUTH_TOKEN")
-            .ok()
-            .filter(|value| !value.trim().is_empty());
-
-        let config = match (sync_url, auth_token) {
-            (Some(sync_url), Some(auth_token)) => {
-                DatabaseConfig::with_turso_sync(db_path, sync_url, auth_token)
-            }
-            _ => DatabaseConfig::with_path(db_path),
-        };
-
-        Self::open(&config)
+        Self::open(&DatabaseConfig::with_path(db_path))
     }
 
     /// Open the database with custom configuration

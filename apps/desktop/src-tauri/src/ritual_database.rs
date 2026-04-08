@@ -12,9 +12,8 @@ use chrono::Utc;
 use once_cell::sync::Lazy;
 use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::RwLock;
 
 use ritual_db::{blocking::BlockingDatabase, DatabaseConfig, RitualDatabase};
@@ -53,9 +52,6 @@ pub(crate) static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
 pub enum DatabaseConnectionState {
     Uninitialized,
     ReadyLocal,
-    ReadyReplica,
-    DegradedLocal,
-    FailedTransient,
     Reloading,
 }
 
@@ -65,7 +61,6 @@ pub struct DatabaseHandleRuntimeState {
     pub status: DatabaseConnectionState,
     pub db_path: String,
     pub last_error: Option<String>,
-    pub replica_fail_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,10 +69,12 @@ pub struct DatabaseRuntimeStateSnapshot {
     pub memory: DatabaseHandleRuntimeState,
     pub activity: DatabaseHandleRuntimeState,
     pub turso_sync_configured: bool,
-    pub turso_circuit_breaker_active: bool,
-    pub activity_db_reloads: u64,
-    pub replica_failures: u64,
-    pub circuit_breaker_trips: u64,
+    pub local_capture_ready: bool,
+    pub cloud_sync_enabled: bool,
+    pub latest_local_event_ts: Option<i64>,
+    pub latest_cloud_sync_ts: Option<i64>,
+    pub cloud_sync_backlog: i64,
+    pub cloud_sync_last_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,19 +148,19 @@ impl Default for DatabaseRuntimeStateSnapshot {
                 status: DatabaseConnectionState::Uninitialized,
                 db_path: get_memory_db_path().display().to_string(),
                 last_error: None,
-                replica_fail_reason: None,
             },
             activity: DatabaseHandleRuntimeState {
                 status: DatabaseConnectionState::Uninitialized,
                 db_path: get_activity_db_path().display().to_string(),
                 last_error: None,
-                replica_fail_reason: None,
             },
             turso_sync_configured: false,
-            turso_circuit_breaker_active: false,
-            activity_db_reloads: 0,
-            replica_failures: 0,
-            circuit_breaker_trips: 0,
+            local_capture_ready: false,
+            cloud_sync_enabled: false,
+            latest_local_event_ts: None,
+            latest_cloud_sync_ts: None,
+            cloud_sync_backlog: 0,
+            cloud_sync_last_error: None,
         }
     }
 }
@@ -204,18 +201,9 @@ where
 
     if previous.activity != current.activity {
         db_info!(
-            "📓 activity.db state -> {:?} error={:?} replica_fail_reason={:?}",
+            "📓 activity.db state -> {:?} error={:?}",
             current.activity.status,
-            current.activity.last_error,
-            current.activity.replica_fail_reason
-        );
-    }
-
-    if previous.turso_circuit_breaker_active != current.turso_circuit_breaker_active {
-        db_info!(
-            "🛑 activity.db Turso circuit breaker -> active={} reason={:?}",
-            current.turso_circuit_breaker_active,
-            current.activity.replica_fail_reason
+            current.activity.last_error
         );
     }
 }
@@ -223,57 +211,35 @@ where
 fn set_memory_runtime_state(status: DatabaseConnectionState, last_error: Option<String>) {
     mutate_runtime_state(|state| {
         state.turso_sync_configured = turso_sync_env_configured();
+        state.cloud_sync_enabled = state.turso_sync_configured;
         state.memory.status = status;
         state.memory.last_error = last_error;
-        state.memory.replica_fail_reason = None;
     });
 }
 
-fn set_activity_runtime_state(
-    status: DatabaseConnectionState,
-    last_error: Option<String>,
-    replica_fail_reason: Option<String>,
-) {
+fn set_activity_runtime_state(status: DatabaseConnectionState, last_error: Option<String>) {
     mutate_runtime_state(|state| {
         state.turso_sync_configured = turso_sync_env_configured();
+        state.cloud_sync_enabled = state.turso_sync_configured;
+        state.local_capture_ready = matches!(status, DatabaseConnectionState::ReadyLocal);
         state.activity.status = status;
         state.activity.last_error = last_error;
-        state.activity.replica_fail_reason = replica_fail_reason;
     });
 }
 
-fn set_activity_circuit_breaker(active: bool, reason: Option<String>) {
+pub fn record_cloud_sync_runtime_state(
+    latest_local_event_ts: Option<i64>,
+    latest_cloud_sync_ts: Option<i64>,
+    cloud_sync_backlog: i64,
+    cloud_sync_last_error: Option<String>,
+) {
     mutate_runtime_state(|state| {
-        state.turso_sync_configured = turso_sync_env_configured();
-        if active && !state.turso_circuit_breaker_active {
-            state.circuit_breaker_trips = state.circuit_breaker_trips.saturating_add(1);
-        }
-        state.turso_circuit_breaker_active = active;
-        if reason.is_some() {
-            state.activity.replica_fail_reason = reason;
-        } else if !active {
-            state.activity.replica_fail_reason = None;
-        }
+        state.cloud_sync_enabled = state.turso_sync_configured;
+        state.latest_local_event_ts = latest_local_event_ts;
+        state.latest_cloud_sync_ts = latest_cloud_sync_ts;
+        state.cloud_sync_backlog = cloud_sync_backlog.max(0);
+        state.cloud_sync_last_error = cloud_sync_last_error;
     });
-}
-
-fn increment_activity_reload_metric() {
-    mutate_runtime_state(|state| {
-        state.activity_db_reloads = state.activity_db_reloads.saturating_add(1);
-    });
-}
-
-fn increment_replica_failure_metric() {
-    mutate_runtime_state(|state| {
-        state.replica_failures = state.replica_failures.saturating_add(1);
-    });
-}
-
-fn activity_circuit_breaker_active() -> bool {
-    DB_RUNTIME_STATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .turso_circuit_breaker_active
 }
 
 pub fn database_runtime_state_snapshot() -> DatabaseRuntimeStateSnapshot {
@@ -281,675 +247,6 @@ pub fn database_runtime_state_snapshot() -> DatabaseRuntimeStateSnapshot {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
-}
-
-pub fn reset_activity_replica_circuit_breaker() {
-    set_activity_circuit_breaker(false, None);
-}
-
-fn classify_replica_failure(error: &str) -> &'static str {
-    let normalized = error.to_ascii_lowercase();
-    if normalized.contains("unauthorized") {
-        "unauthorized"
-    } else if normalized.contains("walconflict")
-        || normalized.contains("wal frame insert conflict")
-        || normalized.contains("insert error (frame=")
-    {
-        "replica_sync_conflict"
-    } else if normalized.contains("metadata file does not")
-        || normalized.contains("db file does not")
-        || normalized.contains("local state is incorrect")
-        || normalized.contains("database disk image is malformed")
-        || normalized.contains("file is not a database")
-        || normalized.contains("not a database")
-    {
-        "invalid_local_replica_state"
-    } else if normalized.contains("sync error") {
-        "sync_error"
-    } else {
-        "replica_open_failed"
-    }
-}
-
-fn replica_failure_is_corruption(error: &str) -> bool {
-    let normalized = error.to_ascii_lowercase();
-    normalized.contains("database disk image is malformed")
-        || normalized.contains("file is not a database")
-        || normalized.contains("not a database")
-}
-
-fn activity_replica_info_path() -> PathBuf {
-    PathBuf::from(format!("{}-info", get_activity_db_path().display()))
-}
-
-fn local_activity_history_exists() -> bool {
-    local_activity_artifact_paths()
-        .into_iter()
-        .any(|path| path.exists())
-}
-
-pub fn activity_replica_bootstrap_pending() -> bool {
-    turso_sync_env_configured() && !activity_replica_info_path().exists()
-}
-
-#[derive(Debug, Clone)]
-struct QuarantinedReplicaArtifact {
-    original: PathBuf,
-    quarantined: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-struct BootstrappedActivityArtifact {
-    original: PathBuf,
-    bootstrapped: PathBuf,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ActivityBootstrapTablePlan {
-    name: &'static str,
-    conflict_target: &'static str,
-}
-
-const ACTIVITY_BOOTSTRAP_TABLES: [ActivityBootstrapTablePlan; 5] = [
-    ActivityBootstrapTablePlan {
-        name: "activity_events",
-        conflict_target: "id",
-    },
-    ActivityBootstrapTablePlan {
-        name: "afk_events",
-        conflict_target: "id",
-    },
-    ActivityBootstrapTablePlan {
-        name: "context_sessions",
-        conflict_target: "id",
-    },
-    ActivityBootstrapTablePlan {
-        name: "context_snapshots",
-        conflict_target: "dedup_key",
-    },
-    ActivityBootstrapTablePlan {
-        name: "session_retrieval_docs",
-        conflict_target: "session_id",
-    },
-];
-
-fn activity_replica_artifact_paths() -> Vec<PathBuf> {
-    let db_path = get_activity_db_path();
-    let db_path_string = db_path.display().to_string();
-
-    vec![
-        db_path,
-        PathBuf::from(format!("{db_path_string}-shm")),
-        PathBuf::from(format!("{db_path_string}-wal")),
-        PathBuf::from(format!("{db_path_string}-info")),
-    ]
-}
-
-fn local_activity_artifact_paths() -> Vec<PathBuf> {
-    let db_path = get_activity_db_path();
-    let db_path_string = db_path.display().to_string();
-
-    vec![
-        db_path,
-        PathBuf::from(format!("{db_path_string}-shm")),
-        PathBuf::from(format!("{db_path_string}-wal")),
-    ]
-}
-
-fn maybe_checkpoint_local_activity_wal(context: &str) {
-    let db_path = get_activity_db_path();
-    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
-
-    if !db_path.exists() || !wal_path.exists() {
-        return;
-    }
-
-    let conn = match SqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-    {
-        Ok(conn) => conn,
-        Err(error) => {
-            log::warn!(
-                "[DB] Skipping activity WAL checkpoint context={} db_path={} error={}",
-                context,
-                db_path.display(),
-                error
-            );
-            return;
-        }
-    };
-
-    if let Err(error) = conn.busy_timeout(Duration::from_secs(2)) {
-        log::warn!(
-            "[DB] Failed to set busy_timeout before activity WAL checkpoint context={} db_path={} error={}",
-            context,
-            db_path.display(),
-            error
-        );
-        return;
-    }
-
-    match conn.query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i64>(2)?,
-        ))
-    }) {
-        Ok((busy, log_frames, checkpointed_frames)) => {
-            db_info!(
-                "🧹 Activity WAL checkpoint context={} busy={} log_frames={} checkpointed_frames={}",
-                context,
-                busy,
-                log_frames,
-                checkpointed_frames
-            );
-        }
-        Err(error) => {
-            log::warn!(
-                "[DB] Activity WAL checkpoint failed context={} db_path={} error={}",
-                context,
-                db_path.display(),
-                error
-            );
-        }
-    }
-}
-
-fn cleanup_activity_replica_artifacts() -> Result<(), String> {
-    for path in activity_replica_artifact_paths() {
-        if !path.exists() {
-            continue;
-        }
-
-        if path.is_dir() {
-            std::fs::remove_dir_all(&path).map_err(|e| {
-                format!(
-                    "Failed to remove activity replica artifact directory {}: {}",
-                    path.display(),
-                    e
-                )
-            })?;
-        } else {
-            std::fs::remove_file(&path).map_err(|e| {
-                format!(
-                    "Failed to remove activity replica artifact {}: {}",
-                    path.display(),
-                    e
-                )
-            })?;
-        }
-    }
-
-    Ok(())
-}
-
-fn stash_local_activity_for_bootstrap() -> Result<Option<Vec<BootstrappedActivityArtifact>>, String>
-{
-    let existing_paths: Vec<PathBuf> = local_activity_artifact_paths()
-        .into_iter()
-        .filter(|path| path.exists())
-        .collect();
-
-    if existing_paths.is_empty() {
-        return Ok(None);
-    }
-
-    let ritual_dir = get_ritual_dir();
-    let bootstrap_dir = ritual_dir
-        .join("bootstrap")
-        .join(format!("activity-local-{}", Utc::now().timestamp_millis()));
-    std::fs::create_dir_all(&bootstrap_dir).map_err(|e| {
-        format!(
-            "Failed to create activity bootstrap directory {}: {}",
-            bootstrap_dir.display(),
-            e
-        )
-    })?;
-
-    let mut moved = Vec::with_capacity(existing_paths.len());
-    for original in existing_paths {
-        let file_name = original.file_name().ok_or_else(|| {
-            format!(
-                "Failed to determine file name for activity bootstrap artifact {}",
-                original.display()
-            )
-        })?;
-        let bootstrapped = bootstrap_dir.join(file_name);
-        std::fs::rename(&original, &bootstrapped).map_err(|e| {
-            format!(
-                "Failed to move activity bootstrap artifact {} -> {}: {}",
-                original.display(),
-                bootstrapped.display(),
-                e
-            )
-        })?;
-        moved.push(BootstrappedActivityArtifact {
-            original,
-            bootstrapped,
-        });
-    }
-
-    db_info!(
-        "📦 Stashed {} local activity artifact(s) for replica bootstrap at {}",
-        moved.len(),
-        bootstrap_dir.display()
-    );
-
-    Ok(Some(moved))
-}
-
-fn restore_bootstrapped_activity_artifacts(
-    artifacts: &[BootstrappedActivityArtifact],
-) -> Result<(), String> {
-    cleanup_activity_replica_artifacts()?;
-
-    for artifact in artifacts.iter().rev() {
-        if !artifact.bootstrapped.exists() {
-            continue;
-        }
-
-        std::fs::rename(&artifact.bootstrapped, &artifact.original).map_err(|e| {
-            format!(
-                "Failed to restore bootstrapped activity artifact {} -> {}: {}",
-                artifact.bootstrapped.display(),
-                artifact.original.display(),
-                e
-            )
-        })?;
-    }
-
-    if let Some(parent) = artifacts
-        .first()
-        .and_then(|artifact| artifact.bootstrapped.parent())
-    {
-        let _ = std::fs::remove_dir(parent);
-    }
-
-    db_info!(
-        "↩️ Restored {} local activity bootstrap artifact(s)",
-        artifacts.len()
-    );
-
-    Ok(())
-}
-
-fn sqlite_table_columns(
-    conn: &SqliteConnection,
-    schema: &str,
-    table: &str,
-) -> Result<Vec<String>, String> {
-    let pragma = format!("PRAGMA {}.table_info({})", schema, table);
-    let mut stmt = conn.prepare(&pragma).map_err(|e| {
-        format!(
-            "Failed to prepare table_info for {}.{}: {}",
-            schema, table, e
-        )
-    })?;
-    let rows = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|e| format!("Failed to query table_info for {}.{}: {}", schema, table, e))?;
-
-    let mut columns = Vec::new();
-    for row in rows {
-        columns.push(
-            row.map_err(|e| format!("Failed reading table_info for {}.{}: {}", schema, table, e))?,
-        );
-    }
-    Ok(columns)
-}
-
-fn copy_bootstrap_table_into_replica(
-    conn: &SqliteConnection,
-    plan: ActivityBootstrapTablePlan,
-    target_user_id: Option<&str>,
-) -> Result<usize, String> {
-    if !table_exists_in_schema(conn, "bootstrap", plan.name)? {
-        return Ok(0);
-    }
-
-    let target_columns = sqlite_table_columns(conn, "main", plan.name)?;
-    let source_columns = sqlite_table_columns(conn, "bootstrap", plan.name)?;
-    let common_columns: Vec<String> = target_columns
-        .into_iter()
-        .filter(|column| source_columns.iter().any(|source| source == column))
-        .collect();
-
-    if common_columns.is_empty() {
-        return Ok(0);
-    }
-
-    let has_user_id = common_columns.iter().any(|column| column == "user_id");
-    let insert_columns = common_columns.join(", ");
-    let select_expressions = common_columns
-        .iter()
-        .map(|column| {
-            if column == "user_id" && target_user_id.is_some() {
-                "?1 AS user_id".to_string()
-            } else {
-                format!("bootstrap.{}", column)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let update_assignments = common_columns
-        .iter()
-        .filter(|column| column.as_str() != "id")
-        .map(|column| format!("{0}=excluded.{0}", column))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    if update_assignments.is_empty() {
-        return Ok(0);
-    }
-
-    let where_clause = if has_user_id && target_user_id.is_some() {
-        "WHERE COALESCE(NULLIF(bootstrap.user_id, ''), ?2) = ?3"
-    } else {
-        ""
-    };
-
-    let sql = format!(
-        "INSERT INTO {table} ({insert_columns}) \
-         SELECT {select_expressions} \
-         FROM bootstrap.{table} AS bootstrap \
-         {where_clause} \
-         ON CONFLICT({conflict_target}) DO UPDATE SET {update_assignments}",
-        table = plan.name,
-        conflict_target = plan.conflict_target,
-    );
-
-    let rows_changed = match (has_user_id, target_user_id) {
-        (true, Some(user_id)) => conn
-            .execute(&sql, rusqlite::params![user_id, user_id, user_id])
-            .map_err(|e| format!("Failed bootstrapping table {}: {}", plan.name, e))?,
-        _ => conn
-            .execute(&sql, [])
-            .map_err(|e| format!("Failed bootstrapping table {}: {}", plan.name, e))?,
-    };
-
-    Ok(rows_changed)
-}
-
-fn import_bootstrap_activity_into_replica(
-    replica_path: &Path,
-    bootstrap_source_path: &Path,
-    target_user_id: Option<&str>,
-) -> Result<(), String> {
-    let conn = SqliteConnection::open_with_flags(
-        replica_path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI,
-    )
-    .map_err(|e| {
-        format!(
-            "Failed opening replica activity DB {} for bootstrap import: {}",
-            replica_path.display(),
-            e
-        )
-    })?;
-
-    conn.execute_batch("PRAGMA busy_timeout=30000; PRAGMA foreign_keys=OFF;")
-        .map_err(|e| format!("Failed configuring replica bootstrap pragmas: {}", e))?;
-    conn.execute(
-        "ATTACH DATABASE ?1 AS bootstrap",
-        [bootstrap_source_path.to_string_lossy().to_string()],
-    )
-    .map_err(|e| {
-        format!(
-            "Failed attaching bootstrap source {}: {}",
-            bootstrap_source_path.display(),
-            e
-        )
-    })?;
-
-    conn.execute_batch("BEGIN IMMEDIATE;")
-        .map_err(|e| format!("Failed starting activity bootstrap transaction: {}", e))?;
-
-    let result = (|| -> Result<(), String> {
-        for plan in ACTIVITY_BOOTSTRAP_TABLES {
-            let changed = copy_bootstrap_table_into_replica(&conn, plan, target_user_id)?;
-            db_info!(
-                "📥 Bootstrapped table {} changed_rows={} target_user_id={:?}",
-                plan.name,
-                changed,
-                target_user_id
-            );
-        }
-        Ok(())
-    })();
-
-    match result {
-        Ok(()) => {
-            conn.execute_batch("COMMIT; DETACH DATABASE bootstrap; PRAGMA foreign_keys=ON;")
-                .map_err(|e| format!("Failed finalizing activity bootstrap import: {}", e))?;
-            Ok(())
-        }
-        Err(error) => {
-            let _ =
-                conn.execute_batch("ROLLBACK; DETACH DATABASE bootstrap; PRAGMA foreign_keys=ON;");
-            Err(error)
-        }
-    }
-}
-
-fn bootstrap_activity_replica_if_needed_blocking(origin: &str) -> Result<bool, String> {
-    if !activity_replica_bootstrap_pending() {
-        return Ok(false);
-    }
-
-    let existing_local_activity = local_activity_history_exists();
-    if !existing_local_activity {
-        db_info!(
-            "🆕 No existing local activity.db artifacts found; allowing fresh replica bootstrap origin={}",
-            origin
-        );
-        return Ok(false);
-    }
-
-    let target_user_id = resolve_active_identity().map(|identity| identity.user_id);
-    let stashed = stash_local_activity_for_bootstrap()?.unwrap_or_default();
-    let bootstrap_source_path = stashed
-        .iter()
-        .find(|artifact| artifact.original == get_activity_db_path())
-        .map(|artifact| artifact.bootstrapped.clone())
-        .ok_or_else(|| "Failed to locate stashed bootstrap source activity.db".to_string())?;
-
-    let activity_config = DatabaseConfig::with_turso_sync(
-        get_activity_db_path(),
-        std::env::var("TURSO_SYNC_URL").unwrap_or_default(),
-        std::env::var("TURSO_AUTH_TOKEN").unwrap_or_default(),
-    );
-
-    maybe_checkpoint_local_activity_wal("bootstrap_activity_replica");
-
-    let initial_replica = match BlockingDatabase::open(&activity_config) {
-        Ok(db) => db,
-        Err(error) => {
-            restore_bootstrapped_activity_artifacts(&stashed)?;
-            return Err(format!(
-                "Failed to initialize fresh activity replica before bootstrap import: {}",
-                error
-            ));
-        }
-    };
-
-    if let Err(error) = initial_replica.sync() {
-        drop(initial_replica);
-        restore_bootstrapped_activity_artifacts(&stashed)?;
-        return Err(format!(
-            "Failed to sync fresh activity replica before bootstrap import: {}",
-            error
-        ));
-    }
-    drop(initial_replica);
-
-    if let Err(error) = import_bootstrap_activity_into_replica(
-        &get_activity_db_path(),
-        &bootstrap_source_path,
-        target_user_id.as_deref(),
-    ) {
-        cleanup_activity_replica_artifacts()?;
-        restore_bootstrapped_activity_artifacts(&stashed)?;
-        return Err(format!(
-            "Failed importing local activity history into fresh replica: {}",
-            error
-        ));
-    }
-
-    let final_replica = match BlockingDatabase::open(&activity_config) {
-        Ok(db) => db,
-        Err(error) => {
-            cleanup_activity_replica_artifacts()?;
-            restore_bootstrapped_activity_artifacts(&stashed)?;
-            return Err(format!(
-                "Failed reopening activity replica after bootstrap import: {}",
-                error
-            ));
-        }
-    };
-
-    if let Err(error) = final_replica.sync() {
-        drop(final_replica);
-        cleanup_activity_replica_artifacts()?;
-        restore_bootstrapped_activity_artifacts(&stashed)?;
-        return Err(format!(
-            "Failed syncing activity replica after bootstrap import: {}",
-            error
-        ));
-    }
-
-    drop(final_replica);
-
-    db_info!(
-        "✅ Bootstrapped activity replica from local activity.db origin={} bootstrap_source={} target_user_id={:?}",
-        origin,
-        bootstrap_source_path.display(),
-        target_user_id
-    );
-
-    Ok(true)
-}
-
-pub async fn bootstrap_activity_replica_if_needed(origin: &str) -> Result<bool, String> {
-    let origin = origin.to_string();
-    let task_origin = origin.clone();
-    tokio::task::spawn_blocking(move || bootstrap_activity_replica_if_needed_blocking(&task_origin))
-        .await
-        .map_err(|error| {
-            format!(
-                "Failed to join activity replica bootstrap task origin={}: {}",
-                origin, error
-            )
-        })?
-}
-
-fn quarantine_invalid_activity_replica_state() -> Result<Vec<QuarantinedReplicaArtifact>, String> {
-    let ritual_dir = get_ritual_dir();
-    let quarantine_dir = ritual_dir.join("quarantine").join(format!(
-        "activity-replica-{}",
-        Utc::now().timestamp_millis()
-    ));
-    let artifact_paths = activity_replica_artifact_paths();
-    let existing_paths: Vec<PathBuf> = artifact_paths
-        .into_iter()
-        .filter(|path| path.exists())
-        .collect();
-
-    if existing_paths.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    std::fs::create_dir_all(&quarantine_dir).map_err(|e| {
-        format!(
-            "Failed to create activity replica quarantine dir {}: {}",
-            quarantine_dir.display(),
-            e
-        )
-    })?;
-
-    let mut quarantined = Vec::with_capacity(existing_paths.len());
-    for original in existing_paths {
-        let file_name = original.file_name().ok_or_else(|| {
-            format!(
-                "Failed to determine file name for activity replica artifact {}",
-                original.display()
-            )
-        })?;
-        let target = quarantine_dir.join(file_name);
-        std::fs::rename(&original, &target).map_err(|e| {
-            format!(
-                "Failed to quarantine activity replica artifact {} -> {}: {}",
-                original.display(),
-                target.display(),
-                e
-            )
-        })?;
-        quarantined.push(QuarantinedReplicaArtifact {
-            original,
-            quarantined: target,
-        });
-    }
-
-    db_info!(
-        "🧹 Quarantined {} activity replica artifact(s) at {}",
-        quarantined.len(),
-        quarantine_dir.display()
-    );
-
-    Ok(quarantined)
-}
-
-fn restore_quarantined_activity_replica_state(
-    quarantined: &[QuarantinedReplicaArtifact],
-) -> Result<(), String> {
-    for artifact in quarantined.iter().rev() {
-        if !artifact.quarantined.exists() {
-            continue;
-        }
-
-        if artifact.original.exists() {
-            if artifact.original.is_dir() {
-                std::fs::remove_dir_all(&artifact.original).map_err(|e| {
-                    format!(
-                        "Failed to remove restored activity replica dir {}: {}",
-                        artifact.original.display(),
-                        e
-                    )
-                })?;
-            } else {
-                std::fs::remove_file(&artifact.original).map_err(|e| {
-                    format!(
-                        "Failed to remove restored activity replica file {}: {}",
-                        artifact.original.display(),
-                        e
-                    )
-                })?;
-            }
-        }
-
-        std::fs::rename(&artifact.quarantined, &artifact.original).map_err(|e| {
-            format!(
-                "Failed to restore activity replica artifact {} -> {}: {}",
-                artifact.quarantined.display(),
-                artifact.original.display(),
-                e
-            )
-        })?;
-    }
-
-    if let Some(parent) = quarantined
-        .first()
-        .and_then(|artifact| artifact.quarantined.parent())
-    {
-        let _ = std::fs::remove_dir(parent);
-    }
-
-    db_info!(
-        "↩️ Restored {} quarantined activity replica artifact(s) for local fallback",
-        quarantined.len()
-    );
-
-    Ok(())
 }
 
 async fn open_memory_database() -> Result<RitualDatabase, String> {
@@ -960,271 +257,11 @@ async fn open_memory_database() -> Result<RitualDatabase, String> {
     })
 }
 
-async fn open_local_activity_database(
-    status: DatabaseConnectionState,
-    last_error: Option<String>,
-    fail_reason: Option<String>,
-) -> Result<
-    (
-        RitualDatabase,
-        DatabaseConnectionState,
-        Option<String>,
-        Option<String>,
-    ),
-    String,
-> {
+async fn open_activity_database() -> Result<RitualDatabase, String> {
     let local_config = DatabaseConfig::with_path(get_activity_db_path());
-    let db = RitualDatabase::open(&local_config).await.map_err(|e| {
+    RitualDatabase::open(&local_config).await.map_err(|e| {
         db_error!("❌ Failed to initialize local activity database: {}", e);
         format!("Failed to initialize local activity database: {}", e)
-    })?;
-
-    Ok((db, status, last_error, fail_reason))
-}
-
-async fn open_activity_database_for_startup() -> Result<
-    (
-        RitualDatabase,
-        DatabaseConnectionState,
-        Option<String>,
-        Option<String>,
-    ),
-    String,
-> {
-    let sync_configured = turso_sync_env_configured();
-    let circuit_broken = activity_circuit_breaker_active();
-
-    if !sync_configured || circuit_broken {
-        let status = if circuit_broken {
-            DatabaseConnectionState::DegradedLocal
-        } else {
-            DatabaseConnectionState::ReadyLocal
-        };
-        let reason = if circuit_broken {
-            database_runtime_state_snapshot()
-                .activity
-                .replica_fail_reason
-        } else {
-            None
-        };
-        return open_local_activity_database(status, None, reason).await;
-    }
-
-    if local_activity_history_exists() {
-        let fail_reason = if activity_replica_bootstrap_pending() {
-            "replica_bootstrap_pending"
-        } else {
-            "replica_startup_deferred"
-        };
-
-        db_info!(
-            "⏭️ Deferring activity replica open until after initial render; opening local activity.db first reason={}",
-            fail_reason
-        );
-
-        return open_local_activity_database(
-            DatabaseConnectionState::ReadyLocal,
-            None,
-            Some(fail_reason.to_string()),
-        )
-        .await;
-    }
-
-    open_activity_database_with_fallback().await
-}
-
-async fn open_activity_database_with_fallback() -> Result<
-    (
-        RitualDatabase,
-        DatabaseConnectionState,
-        Option<String>,
-        Option<String>,
-    ),
-    String,
-> {
-    let sync_configured = turso_sync_env_configured();
-    let circuit_broken = activity_circuit_breaker_active();
-
-    if !sync_configured || circuit_broken {
-        let status = if circuit_broken {
-            DatabaseConnectionState::DegradedLocal
-        } else {
-            DatabaseConnectionState::ReadyLocal
-        };
-        let reason = if circuit_broken {
-            database_runtime_state_snapshot()
-                .activity
-                .replica_fail_reason
-        } else {
-            None
-        };
-        return open_local_activity_database(status, None, reason).await;
-    }
-
-    if activity_replica_bootstrap_pending() {
-        if local_activity_history_exists() {
-            db_info!(
-                "⏭️ Deferring activity replica bootstrap until after initial render; opening local activity.db first"
-            );
-            return open_local_activity_database(
-                DatabaseConnectionState::ReadyLocal,
-                None,
-                Some("replica_bootstrap_pending".to_string()),
-            )
-            .await;
-        }
-
-        db_info!("🆕 Activity replica bootstrap not required; opening embedded replica directly");
-    }
-
-    maybe_checkpoint_local_activity_wal("activity_replica_open");
-
-    let activity_config = DatabaseConfig::with_turso_sync(
-        get_activity_db_path(),
-        std::env::var("TURSO_SYNC_URL").unwrap_or_default(),
-        std::env::var("TURSO_AUTH_TOKEN").unwrap_or_default(),
-    );
-
-    match RitualDatabase::open(&activity_config).await {
-        Ok(db) => Ok((db, DatabaseConnectionState::ReadyReplica, None, None)),
-        Err(replica_error) => {
-            let initial_replica_error = replica_error.to_string();
-            let mut replica_error = initial_replica_error.clone();
-            let mut fail_reason = classify_replica_failure(&replica_error).to_string();
-            let retain_quarantine_on_retry_failure =
-                replica_failure_is_corruption(&initial_replica_error);
-            increment_replica_failure_metric();
-
-            if fail_reason == "invalid_local_replica_state" {
-                db_info!(
-                    "🧹 Attempting one-time activity replica recovery by quarantining inconsistent local files"
-                );
-
-                let quarantined = quarantine_invalid_activity_replica_state()?;
-                if !quarantined.is_empty() {
-                    match RitualDatabase::open(&activity_config).await {
-                        Ok(db) => {
-                            db_info!(
-                                "✅ Activity replica recovered after quarantining inconsistent local state"
-                            );
-                            return Ok((db, DatabaseConnectionState::ReadyReplica, None, None));
-                        }
-                        Err(retry_error) => {
-                            let retry_error = retry_error.to_string();
-                            let retry_fail_reason =
-                                classify_replica_failure(&retry_error).to_string();
-
-                            if retain_quarantine_on_retry_failure {
-                                let quarantine_path = quarantined
-                                    .first()
-                                    .and_then(|artifact| artifact.quarantined.parent())
-                                    .map(|path| path.display().to_string())
-                                    .unwrap_or_else(|| "<unknown>".to_string());
-                                db_error!(
-                                    "❌ Activity replica remained corrupted after quarantine retry; keeping quarantined artifacts out of the live path quarantine_dir={}",
-                                    quarantine_path
-                                );
-                                replica_error = format!(
-                                    "{}; retry after quarantine failed: {}; quarantined corrupted artifacts retained at {}",
-                                    initial_replica_error, retry_error, quarantine_path
-                                );
-                            } else {
-                                if let Err(restore_error) =
-                                    restore_quarantined_activity_replica_state(&quarantined)
-                                {
-                                    replica_error = format!(
-                                        "{}; retry after quarantine failed: {}; restore failed: {}",
-                                        initial_replica_error, retry_error, restore_error
-                                    );
-                                } else {
-                                    replica_error = format!(
-                                        "{}; retry after quarantine failed: {}",
-                                        initial_replica_error, retry_error
-                                    );
-                                }
-                            }
-
-                            fail_reason = retry_fail_reason;
-                        }
-                    }
-                }
-            }
-
-            let trip_circuit_breaker = fail_reason != "replica_sync_conflict";
-            if trip_circuit_breaker {
-                set_activity_circuit_breaker(true, Some(fail_reason.clone()));
-            }
-            db_error!(
-                "❌ Failed to initialize activity replica; falling back to local-only mode: {}",
-                replica_error
-            );
-
-            let local_result = open_local_activity_database(
-                if trip_circuit_breaker {
-                    DatabaseConnectionState::DegradedLocal
-                } else {
-                    DatabaseConnectionState::ReadyLocal
-                },
-                Some(replica_error),
-                Some(fail_reason),
-            )
-            .await;
-
-            local_result.map_err(|local_error| {
-                db_error!(
-                    "❌ Local-only activity fallback also failed: {}",
-                    local_error
-                );
-                local_error
-            })
-        }
-    }
-}
-
-pub fn finalize_deferred_activity_replica_bootstrap_with_origin(
-    origin: &str,
-) -> Result<bool, String> {
-    let origin = normalize_db_command_origin(
-        Some(origin),
-        "native:finalize_deferred_activity_replica_bootstrap",
-    );
-    let snapshot = database_runtime_state_snapshot();
-    let deferred_reason = snapshot.activity.replica_fail_reason.clone();
-    let bootstrap_pending = activity_replica_bootstrap_pending();
-    let should_upgrade_local_startup = matches!(
-        deferred_reason.as_deref(),
-        Some("replica_bootstrap_pending")
-            | Some("replica_startup_deferred")
-            | Some("replica_sync_conflict")
-    );
-
-    if !turso_sync_env_configured() || activity_circuit_breaker_active() {
-        return Ok(false);
-    }
-
-    if !bootstrap_pending && !should_upgrade_local_startup {
-        return Ok(false);
-    }
-
-    RUNTIME.block_on(async {
-        db_info!(
-            "🚚 Finalizing deferred activity replica startup origin={}",
-            origin
-        );
-
-        let bootstrapped = if bootstrap_pending {
-            bootstrap_activity_replica_if_needed(&format!("{origin}:bootstrap_activity_replica"))
-                .await?
-        } else {
-            false
-        };
-
-        reload_activity_database_async_with_origin(&format!(
-            "{origin}:reload_activity_database_after_bootstrap"
-        ))
-        .await?;
-
-        Ok(bootstrapped || should_upgrade_local_startup)
     })
 }
 
@@ -1421,7 +458,7 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
         }
 
         if !activity_ready {
-            set_activity_runtime_state(DatabaseConnectionState::Reloading, None, None);
+            set_activity_runtime_state(DatabaseConnectionState::Reloading, None);
             db_info!("📂 Opening live activity.db handle origin={}", origin);
         }
 
@@ -1437,7 +474,7 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
                 if activity_ready {
                     None
                 } else {
-                    Some(open_activity_database_for_startup().await)
+                    Some(open_activity_database().await)
                 }
             }
         );
@@ -1456,12 +493,12 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
         }
 
         if let Some(activity_result) = activity_result {
-            let (activity_db, status, fallback_error, fail_reason) = activity_result?;
+            let activity_db = activity_result?;
             let mut activity_guard = ACTIVITY_DB.write().await;
             if activity_guard.is_none() {
                 *activity_guard = Some(activity_db);
             }
-            set_activity_runtime_state(status, fallback_error, fail_reason);
+            set_activity_runtime_state(DatabaseConnectionState::ReadyLocal, None);
             db_info!(
                 "✅ Activity database initialized at {:?}",
                 get_activity_db_path()
@@ -1470,53 +507,6 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
 
         Ok(())
     })
-}
-
-pub async fn reload_activity_database_async_with_origin(origin: &str) -> Result<(), String> {
-    let origin = normalize_db_command_origin(Some(origin), "native:reload_activity_database");
-    if let Err(err) = ensure_split_local_databases() {
-        db_error!(
-            "⚠️ Split DB preparation failed before activity reload origin={}: {}",
-            origin,
-            err
-        );
-    }
-
-    db_info!("🔄 reload_activity_database origin={}", origin);
-    let previous_state = database_runtime_state_snapshot().activity.clone();
-    set_activity_runtime_state(DatabaseConnectionState::Reloading, None, None);
-    db_info!("📂 Opening live activity.db handle origin={}", origin);
-
-    let reload_result = open_activity_database_with_fallback().await;
-    let (activity_db, status, fallback_error, fail_reason) = match reload_result {
-        Ok(result) => result,
-        Err(error) => {
-            mutate_runtime_state(|state| {
-                state.activity = DatabaseHandleRuntimeState {
-                    last_error: Some(error.clone()),
-                    ..previous_state.clone()
-                };
-            });
-            return Err(error);
-        }
-    };
-
-    let mut activity_guard = ACTIVITY_DB.write().await;
-    let previous = activity_guard.take();
-    *activity_guard = Some(activity_db);
-    drop(previous);
-
-    increment_activity_reload_metric();
-    set_activity_runtime_state(status, fallback_error, fail_reason);
-    db_info!(
-        "✅ Activity database reloaded at {:?}",
-        get_activity_db_path()
-    );
-    Ok(())
-}
-
-pub fn reload_activity_database_with_origin(origin: &str) -> Result<(), String> {
-    RUNTIME.block_on(reload_activity_database_async_with_origin(origin))
 }
 
 /// Get database or return error
@@ -1774,6 +764,8 @@ pub struct LocalRetrievalHealthStats {
     pub latest_session_retrieval_docs_ts: Option<i64>,
     pub context_snapshot_count: i64,
     pub session_retrieval_doc_count: i64,
+    pub latest_activity_event_ts: Option<i64>,
+    pub cloud_sync_outbox: MemoryUploadOutboxStats,
     pub memory_upload_outbox: MemoryUploadOutboxStats,
 }
 
@@ -2027,6 +1019,40 @@ pub fn get_local_retrieval_health(
             .await
             .map_err(|e| format!("Failed reading session retrieval health row: {}", e))?;
 
+        let mut activity_rows = conn
+            .query(
+                "SELECT MAX(ts_end) AS latest_ts FROM activity_events",
+                (),
+            )
+            .await
+            .map_err(|e| format!("Failed to read activity event health: {}", e))?;
+        let activity_row = activity_rows
+            .next()
+            .await
+            .map_err(|e| format!("Failed reading activity event health row: {}", e))?;
+
+        let mut cloud_outbox_rows = conn
+            .query(
+                r#"
+                SELECT
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+                    SUM(CASE WHEN status = 'uploading' THEN 1 ELSE 0 END) AS uploading_count,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_count,
+                    COUNT(*) AS total_count,
+                    MIN(CASE WHEN status IN ('pending','failed') THEN created_at ELSE NULL END) AS oldest_pending_created_at,
+                    MAX(CASE WHEN status = 'uploaded' THEN updated_at ELSE NULL END) AS newest_uploaded_at
+                FROM cloud_sync_outbox
+                "#,
+                (),
+            )
+            .await
+            .map_err(|e| format!("Failed to read cloud sync outbox health: {}", e))?;
+        let cloud_outbox_row = cloud_outbox_rows
+            .next()
+            .await
+            .map_err(|e| format!("Failed reading cloud sync outbox health row: {}", e))?;
+
         let mut outbox_rows = conn
             .query(
                 r#"
@@ -2056,6 +1082,9 @@ pub fn get_local_retrieval_health(
             latest_session_retrieval_docs_ts: session_row
                 .as_ref()
                 .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
+            latest_activity_event_ts: activity_row
+                .as_ref()
+                .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
             context_snapshot_count: context_row
                 .as_ref()
                 .and_then(|row| row.get::<i64>(1).ok())
@@ -2064,6 +1093,34 @@ pub fn get_local_retrieval_health(
                 .as_ref()
                 .and_then(|row| row.get::<i64>(1).ok())
                 .unwrap_or(0),
+            cloud_sync_outbox: MemoryUploadOutboxStats {
+                pending: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(0).ok())
+                    .unwrap_or(0),
+                uploading: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(1).ok())
+                    .unwrap_or(0),
+                failed: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(2).ok())
+                    .unwrap_or(0),
+                uploaded: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(3).ok())
+                    .unwrap_or(0),
+                total: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<i64>(4).ok())
+                    .unwrap_or(0),
+                oldest_pending_created_at: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<Option<i64>>(5).ok().flatten()),
+                newest_uploaded_at: cloud_outbox_row
+                    .as_ref()
+                    .and_then(|row| row.get::<Option<i64>>(6).ok().flatten()),
+            },
             memory_upload_outbox: MemoryUploadOutboxStats {
                 pending: outbox_row
                     .as_ref()

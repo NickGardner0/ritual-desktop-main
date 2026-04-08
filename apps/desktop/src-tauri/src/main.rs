@@ -4,6 +4,7 @@
 
 mod desktop_observability;
 mod desktop_runtime;
+mod cloud_sync;
 mod native_widget;
 #[cfg(feature = "native-recorder")]
 mod recorder;
@@ -297,6 +298,7 @@ fn spawn_watcher_watchdog() {
 fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let startup_started_at = Instant::now();
+        let mut database_ready = false;
 
         // Let the webview paint before doing heavier native startup work so the
         // main app finishes launching faster and the Dock icon settles sooner.
@@ -326,6 +328,7 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
         .await
         {
             Ok(Ok(())) => {
+                database_ready = true;
                 info!(
                     duration_ms = db_init_started_at.elapsed().as_millis() as u64,
                     "Ritual unified database ready"
@@ -344,40 +347,6 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
                     }
                 }
                 info!("Local semantic bridge and local embedding startup disabled in cloud-first mode");
-
-                let deferred_bootstrap_started_at = Instant::now();
-                match tauri::async_runtime::spawn_blocking(|| {
-                    ritual_database::finalize_deferred_activity_replica_bootstrap_with_origin(
-                        "startup",
-                    )
-                })
-                .await
-                {
-                    Ok(Ok(true)) => {
-                        info!(
-                            duration_ms =
-                                deferred_bootstrap_started_at.elapsed().as_millis() as u64,
-                            "Deferred activity replica bootstrap completed"
-                        );
-                    }
-                    Ok(Ok(false)) => {}
-                    Ok(Err(error)) => {
-                        warn!(
-                            error = %error,
-                            duration_ms = deferred_bootstrap_started_at.elapsed().as_millis()
-                                as u64,
-                            "Deferred activity replica bootstrap failed"
-                        );
-                    }
-                    Err(error) => {
-                        warn!(
-                            error = %error,
-                            duration_ms = deferred_bootstrap_started_at.elapsed().as_millis()
-                                as u64,
-                            "Deferred activity replica bootstrap task failed"
-                        );
-                    }
-                }
             }
             Ok(Err(error)) => {
                 warn!(
@@ -393,6 +362,10 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
                     "Ritual database init task failed"
                 );
             }
+        }
+
+        if database_ready {
+            cloud_sync::spawn_cloud_sync_worker(app.clone());
         }
 
         if let Some(config) = read_watcher_config() {

@@ -83,7 +83,11 @@ impl<'a> ContextOps<'a> {
         };
 
         let mut row = snapshot.clone();
+        if let Some(activity_event_id) = row.activity_event_id {
+            row.activity_event_uid = self.load_activity_event_uid(activity_event_id).await?;
+        }
         row.session_id = Some(session_id);
+        row.session_uid = self.load_context_session_uid(session_id).await?;
 
         self.conn
             .execute(
@@ -92,7 +96,9 @@ impl<'a> ContextOps<'a> {
                     device_id,
                     user_id,
                     activity_event_id,
+                    activity_event_uid,
                     session_id,
+                    session_uid,
                     ts,
                     source_type,
                     app_bundle_id,
@@ -117,13 +123,15 @@ impl<'a> ContextOps<'a> {
                     is_sensitive_redacted,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                 libsql::params![
                     row.device_id,
                     row.user_id,
                     row.activity_event_id,
+                    row.activity_event_uid,
                     row.session_id,
+                    row.session_uid,
                     row.ts,
                     row.source_type,
                     row.app_bundle_id,
@@ -179,7 +187,9 @@ impl<'a> ContextOps<'a> {
                     device_id,
                     user_id,
                     activity_event_id,
+                    activity_event_uid,
                     session_id,
+                    session_uid,
                     ts,
                     source_type,
                     app_bundle_id,
@@ -238,6 +248,8 @@ impl<'a> ContextOps<'a> {
                 SELECT
                     id,
                     session_id,
+                    session_uid,
+                    logical_chunk_id,
                     device_id,
                     user_id,
                     source_kind,
@@ -304,7 +316,9 @@ impl<'a> ContextOps<'a> {
                     device_id,
                     user_id,
                     activity_event_id,
+                    activity_event_uid,
                     session_id,
+                    session_uid,
                     ts,
                     source_type,
                     app_bundle_id,
@@ -356,6 +370,7 @@ impl<'a> ContextOps<'a> {
                 r#"
                 SELECT
                     id,
+                    session_uid,
                     device_id,
                     user_id,
                     start_ts,
@@ -404,6 +419,7 @@ impl<'a> ContextOps<'a> {
             .execute(
                 r#"
                 INSERT INTO context_sessions (
+                    session_uid,
                     device_id,
                     user_id,
                     start_ts,
@@ -417,9 +433,10 @@ impl<'a> ContextOps<'a> {
                     snapshot_count,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 "#,
                 libsql::params![
+                    session.session_uid,
                     session.device_id,
                     session.user_id,
                     session.start_ts,
@@ -590,6 +607,7 @@ impl<'a> ContextOps<'a> {
         let raw_text = self.collect_session_raw_text(session_id).await?;
         let contextual_text = build_contextual_text(&session, &raw_text);
         let updated_at = chrono::Utc::now().timestamp_millis();
+        let logical_chunk_id = format!("session-doc:{}", session.session_uid);
 
         let mut existing_rows = self
             .conn
@@ -615,7 +633,9 @@ impl<'a> ContextOps<'a> {
                 .execute(
                     r#"
                     UPDATE session_retrieval_docs
-                    SET chunk_start_ts = ?,
+                    SET session_uid = ?,
+                        logical_chunk_id = ?,
+                        chunk_start_ts = ?,
                         chunk_end_ts = ?,
                         app_name = ?,
                         browser_domain = ?,
@@ -629,6 +649,8 @@ impl<'a> ContextOps<'a> {
                     WHERE id = ?
                     "#,
                     libsql::params![
+                        session.session_uid.clone(),
+                        logical_chunk_id.clone(),
                         session.start_ts,
                         session.end_ts,
                         session.primary_app_name.clone(),
@@ -651,6 +673,8 @@ impl<'a> ContextOps<'a> {
                     r#"
                     INSERT INTO session_retrieval_docs (
                         session_id,
+                        session_uid,
+                        logical_chunk_id,
                         device_id,
                         user_id,
                         source_kind,
@@ -668,10 +692,12 @@ impl<'a> ContextOps<'a> {
                         session_count,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, 'context_session', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, 'context_session', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
                     "#,
                     libsql::params![
                         session_id,
+                        session.session_uid,
+                        logical_chunk_id,
                         session.device_id,
                         session.user_id,
                         session.start_ts,
@@ -701,6 +727,7 @@ impl<'a> ContextOps<'a> {
                 r#"
                 SELECT
                     id,
+                    session_uid,
                     device_id,
                     user_id,
                     start_ts,
@@ -727,6 +754,50 @@ impl<'a> ContextOps<'a> {
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?
             .map(|row| row_to_context_session(&row)))
+    }
+
+    async fn load_context_session_uid(&self, session_id: i64) -> Result<Option<String>> {
+        if session_id <= 0 {
+            return Ok(None);
+        }
+
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT session_uid FROM context_sessions WHERE id = ? LIMIT 1",
+                libsql::params![session_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+            .and_then(|row| row.get::<String>(0).ok())
+            .filter(|value| !value.trim().is_empty()))
+    }
+
+    async fn load_activity_event_uid(&self, activity_event_id: i64) -> Result<Option<String>> {
+        if activity_event_id <= 0 {
+            return Ok(None);
+        }
+
+        let mut rows = self
+            .conn
+            .query(
+                "SELECT event_uid FROM activity_events WHERE id = ? LIMIT 1",
+                libsql::params![activity_event_id],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(rows
+            .next()
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?
+            .and_then(|row| row.get::<String>(0).ok())
+            .filter(|value| !value.trim().is_empty()))
     }
 
     async fn collect_session_raw_text(&self, session_id: i64) -> Result<String> {
@@ -1187,50 +1258,53 @@ fn row_to_context_snapshot(row: &libsql::Row) -> ContextSnapshot {
         device_id: row.get(1).unwrap_or_default(),
         user_id: row.get(2).unwrap_or_default(),
         activity_event_id: row.get(3).ok(),
-        session_id: row.get(4).ok(),
-        ts: row.get(5).unwrap_or(0),
-        source_type: row.get(6).unwrap_or_default(),
-        app_bundle_id: row.get(7).unwrap_or_default(),
-        app_name: row.get(8).unwrap_or_default(),
-        window_title: row.get(9).ok(),
-        browser_url: row.get(10).ok(),
-        browser_domain: row.get(11).ok(),
-        tab_title: row.get(12).ok(),
-        document_title: row.get(13).ok(),
-        visible_text_raw: row.get(14).unwrap_or_default(),
-        visible_text_norm: row.get(15).unwrap_or_default(),
-        capture_quality: row.get(16).unwrap_or(0.0),
-        capture_components_json: row.get(17).ok(),
-        ax_richness_score: row.get(18).unwrap_or(0.0),
-        selected_text_present: row.get::<i64>(19).unwrap_or(0) != 0,
-        document_path: row.get(20).ok(),
-        ax_source: row.get(21).ok(),
-        capture_trigger: row.get(22).ok(),
-        trigger_to_snapshot_ms: row.get(23).ok(),
-        ui_elements_json: row.get(24).ok(),
-        dedup_key: row.get(25).unwrap_or_default(),
-        is_sensitive_redacted: row.get::<i64>(26).unwrap_or(0) != 0,
-        created_at: row.get(27).unwrap_or(0),
-        updated_at: row.get(28).unwrap_or(0),
+        activity_event_uid: row.get(4).ok(),
+        session_id: row.get(5).ok(),
+        session_uid: row.get(6).ok(),
+        ts: row.get(7).unwrap_or(0),
+        source_type: row.get(8).unwrap_or_default(),
+        app_bundle_id: row.get(9).unwrap_or_default(),
+        app_name: row.get(10).unwrap_or_default(),
+        window_title: row.get(11).ok(),
+        browser_url: row.get(12).ok(),
+        browser_domain: row.get(13).ok(),
+        tab_title: row.get(14).ok(),
+        document_title: row.get(15).ok(),
+        visible_text_raw: row.get(16).unwrap_or_default(),
+        visible_text_norm: row.get(17).unwrap_or_default(),
+        capture_quality: row.get(18).unwrap_or(0.0),
+        capture_components_json: row.get(19).ok(),
+        ax_richness_score: row.get(20).unwrap_or(0.0),
+        selected_text_present: row.get::<i64>(21).unwrap_or(0) != 0,
+        document_path: row.get(22).ok(),
+        ax_source: row.get(23).ok(),
+        capture_trigger: row.get(24).ok(),
+        trigger_to_snapshot_ms: row.get(25).ok(),
+        ui_elements_json: row.get(26).ok(),
+        dedup_key: row.get(27).unwrap_or_default(),
+        is_sensitive_redacted: row.get::<i64>(28).unwrap_or(0) != 0,
+        created_at: row.get(29).unwrap_or(0),
+        updated_at: row.get(30).unwrap_or(0),
     }
 }
 
 fn row_to_context_session(row: &libsql::Row) -> ContextSession {
     ContextSession {
         id: row.get(0).ok(),
-        device_id: row.get(1).unwrap_or_default(),
-        user_id: row.get(2).unwrap_or_default(),
-        start_ts: row.get(3).unwrap_or(0),
-        end_ts: row.get(4).unwrap_or(0),
-        primary_app_bundle_id: row.get(5).ok(),
-        primary_app_name: row.get(6).ok(),
-        primary_domain: row.get(7).ok(),
-        dominant_title: row.get(8).ok(),
-        representative_text: row.get(9).ok(),
-        coverage_score: row.get(10).unwrap_or(0.0),
-        snapshot_count: row.get(11).unwrap_or(0),
-        created_at: row.get(12).unwrap_or(0),
-        updated_at: row.get(13).unwrap_or(0),
+        session_uid: row.get(1).unwrap_or_default(),
+        device_id: row.get(2).unwrap_or_default(),
+        user_id: row.get(3).unwrap_or_default(),
+        start_ts: row.get(4).unwrap_or(0),
+        end_ts: row.get(5).unwrap_or(0),
+        primary_app_bundle_id: row.get(6).ok(),
+        primary_app_name: row.get(7).ok(),
+        primary_domain: row.get(8).ok(),
+        dominant_title: row.get(9).ok(),
+        representative_text: row.get(10).ok(),
+        coverage_score: row.get(11).unwrap_or(0.0),
+        snapshot_count: row.get(12).unwrap_or(0),
+        created_at: row.get(13).unwrap_or(0),
+        updated_at: row.get(14).unwrap_or(0),
     }
 }
 
@@ -1238,23 +1312,25 @@ fn row_to_session_retrieval_doc(row: &libsql::Row) -> SessionRetrievalDoc {
     SessionRetrievalDoc {
         id: row.get(0).ok(),
         session_id: row.get(1).unwrap_or(0),
-        device_id: row.get(2).unwrap_or_default(),
-        user_id: row.get(3).unwrap_or_default(),
-        source_kind: row.get(4).unwrap_or_default(),
-        chunk_start_ts: row.get(5).unwrap_or(0),
-        chunk_end_ts: row.get(6).unwrap_or(0),
-        app_name: row.get(7).ok(),
-        browser_domain: row.get(8).ok(),
-        window_title: row.get(9).ok(),
-        document_title: row.get(10).ok(),
-        raw_visible_text: row.get(11).unwrap_or_default(),
-        contextual_retrieval_text: row.get(12).unwrap_or_default(),
-        capture_quality: row.get(13).unwrap_or(0.0),
-        context_version: row.get(14).unwrap_or(1),
-        session_position: row.get(15).unwrap_or(0),
-        session_count: row.get(16).unwrap_or(1),
-        created_at: row.get(17).unwrap_or(0),
-        updated_at: row.get(18).unwrap_or(0),
+        session_uid: row.get(2).unwrap_or_default(),
+        logical_chunk_id: row.get(3).unwrap_or_default(),
+        device_id: row.get(4).unwrap_or_default(),
+        user_id: row.get(5).unwrap_or_default(),
+        source_kind: row.get(6).unwrap_or_default(),
+        chunk_start_ts: row.get(7).unwrap_or(0),
+        chunk_end_ts: row.get(8).unwrap_or(0),
+        app_name: row.get(9).ok(),
+        browser_domain: row.get(10).ok(),
+        window_title: row.get(11).ok(),
+        document_title: row.get(12).ok(),
+        raw_visible_text: row.get(13).unwrap_or_default(),
+        contextual_retrieval_text: row.get(14).unwrap_or_default(),
+        capture_quality: row.get(15).unwrap_or(0.0),
+        context_version: row.get(16).unwrap_or(1),
+        session_position: row.get(17).unwrap_or(0),
+        session_count: row.get(18).unwrap_or(1),
+        created_at: row.get(19).unwrap_or(0),
+        updated_at: row.get(20).unwrap_or(0),
     }
 }
 

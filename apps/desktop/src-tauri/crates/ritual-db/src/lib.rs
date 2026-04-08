@@ -77,13 +77,13 @@ pub struct DatabaseConfig {
     pub enable_embeddings: bool,
     /// Maximum number of connections in the pool (not used for embedded, but for future)
     pub max_connections: u32,
-    /// Turso cloud sync URL (e.g., "libsql://ritual-xxx.turso.io").
-    /// When set together with `sync_auth_token`, the database opens as an
-    /// embedded replica that auto-syncs to Turso cloud.
+    /// Turso cloud sync URL for the desktop uploader (e.g., "libsql://ritual-xxx.turso.io").
+    /// The operational local database always opens as a plain local database;
+    /// desktop cloud sync uses a separate remote-only connection.
     pub sync_url: Option<String>,
-    /// Turso auth token (JWT) for cloud sync.
+    /// Turso auth token (JWT) for desktop cloud sync.
     pub sync_auth_token: Option<String>,
-    /// Sync interval in seconds (default 30). Only used when sync_url is set.
+    /// Legacy sync interval placeholder kept for config compatibility.
     pub sync_interval_secs: u64,
 }
 
@@ -121,9 +121,7 @@ impl DatabaseConfig {
         }
     }
 
-    /// Create a config with Turso cloud sync enabled.
-    /// The database will operate as an embedded replica: writes go to the
-    /// local file first (fast, offline-capable), then auto-sync to Turso cloud.
+    /// Create a config with Turso cloud uploader credentials attached.
     pub fn with_turso_sync(
         db_path: impl Into<PathBuf>,
         sync_url: String,
@@ -164,11 +162,9 @@ pub struct RitualDatabase {
 impl RitualDatabase {
     /// Open or create the database at the configured path.
     ///
-    /// When `sync_url` and `sync_auth_token` are set in the config, the
-    /// database opens as a Turso embedded replica: writes land in the local
-    /// file first (fast, works offline) and are automatically synced to
-    /// Turso cloud on a background interval. Otherwise falls back to a
-    /// plain local SQLite database.
+    /// Ritual's operational databases always open locally. Cloud durability is
+    /// handled by a separate uploader that talks to Turso over a remote-only
+    /// connection, rather than turning the live capture file into a replica.
     pub async fn open(config: &DatabaseConfig) -> Result<Self> {
         info!("Opening Ritual database at: {:?}", config.db_path);
 
@@ -179,26 +175,11 @@ impl RitualDatabase {
                 .map_err(|e| DatabaseError::Io(e.to_string()))?;
         }
 
-        // Build the database — embedded replica when Turso is configured,
-        // plain local SQLite otherwise.
         let db_path_str = config.db_path.to_str().unwrap();
-        let db = match (&config.sync_url, &config.sync_auth_token) {
-            (Some(url), Some(token)) if !url.is_empty() && !token.is_empty() => {
-                info!(
-                    "Opening as Turso embedded replica (sync every {}s)",
-                    config.sync_interval_secs
-                );
-                Builder::new_remote_replica(db_path_str, url.clone(), token.clone())
-                    .sync_interval(std::time::Duration::from_secs(config.sync_interval_secs))
-                    .build()
-                    .await
-                    .map_err(|e| DatabaseError::Connection(format!("Turso replica: {}", e)))?
-            }
-            _ => Builder::new_local(db_path_str)
-                .build()
-                .await
-                .map_err(|e| DatabaseError::Connection(e.to_string()))?,
-        };
+        let db = Builder::new_local(db_path_str)
+            .build()
+            .await
+            .map_err(|e| DatabaseError::Connection(e.to_string()))?;
 
         let conn = db
             .connect()
@@ -275,12 +256,8 @@ impl RitualDatabase {
         self.conn.read().await
     }
 
-    /// Explicitly sync an embedded replica with its remote Turso database.
+    /// Legacy no-op kept for compatibility with older callers.
     pub async fn sync(&self) -> Result<()> {
-        self.db
-            .sync()
-            .await
-            .map_err(|e| DatabaseError::Connection(format!("Turso sync: {}", e)))?;
         Ok(())
     }
 
@@ -368,7 +345,7 @@ impl RitualDatabase {
 
         let sync_queue_pending: i64 = conn
             .query(
-                "SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'",
+                "SELECT COUNT(*) FROM cloud_sync_outbox WHERE status IN ('pending', 'failed', 'uploading')",
                 (),
             )
             .await
