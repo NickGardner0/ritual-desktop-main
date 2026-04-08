@@ -921,7 +921,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
       const ARM_RMS = 0.03;
       const SPEECH_RMS = 0.015;
-      const SILENCE_MS = 800;
+      const SILENCE_MS = 550;
       let armed = false;
       let lastLoudAt = 0;
       let triggered = false;

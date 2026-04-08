@@ -172,14 +172,18 @@ export function VoiceWaveform({
           const envelope = 1 - distFromCenter * 0.35;
 
           const mixed = (overall * 0.45 + local * 0.55 + wobble) * envelope;
-          const value = Math.max(0.06, Math.min(1, mixed * sensitivity));
+          const value = Math.min(1, mixed * sensitivity);
+
+          // Hard silence gate: below this, draw nothing so quiet moments are
+          // truly blank instead of a persistent row of tiny bars.
+          if (value < 0.12) continue;
 
           const x = offsetX + i * step;
-          const barHeight = Math.max(2, value * height * 0.98);
+          const barHeight = Math.max(3, value * height * 0.98);
           const y = centerY - barHeight / 2;
 
           ctx.fillStyle = barColor;
-          ctx.globalAlpha = value > 0.12 ? 0.45 + value * 0.55 : 0.32;
+          ctx.globalAlpha = 0.55 + value * 0.45;
           ctx.fillRect(x, y, barWidth, barHeight);
         }
       }
