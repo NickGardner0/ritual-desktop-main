@@ -608,6 +608,13 @@
     background-color: #ffffff !important;
   }
 
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile {
+    background: #3d3b30 !important;
+    background-color: #3d3b30 !important;
+    color: #ffffff !important;
+  }
+
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider {
     border-color: #dcdad2 !important;

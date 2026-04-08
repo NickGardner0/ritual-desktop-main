@@ -124,12 +124,12 @@ export function RootProviders({ children }: { children: ReactNode }) {
             userProfile: {
               elements: {
                 modalBackdrop: '!fixed !inset-0 bg-black/20 backdrop-blur-[2px]',
-                modalContent: '!fixed !left-1/2 !top-1/2 !z-[130] !w-[min(420px,calc(100vw-2rem))] !max-w-[420px] !-translate-x-1/2 !-translate-y-1/2 !rounded-sm !border !border-gray-200 !bg-white !shadow-xl !overflow-hidden',
-                rootBox: '!w-full !max-w-[420px] mx-auto',
+                modalContent: '!fixed !left-1/2 !top-1/2 !z-[130] !w-[min(720px,calc(100vw-2rem))] !max-w-[720px] !-translate-x-1/2 !-translate-y-1/2 !rounded-sm !border !border-gray-200 !bg-white !shadow-xl !overflow-hidden',
+                rootBox: '!w-full !max-w-[720px] mx-auto',
                 card: '!shadow-none !rounded-none !border-0',
                 navbar: 'hidden',
                 navbarMobileMenuRow: 'hidden',
-                pageScrollBox: '!max-h-[min(460px,calc(100vh-6rem))]',
+                pageScrollBox: '!max-h-[min(560px,calc(100vh-5rem))]',
               },
             },
           }}

@@ -138,7 +138,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         onClick={() => setActive(!isActive)}
       >
         <Avatar className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] flex-shrink-0">
-          <AvatarFallback className="rounded-none w-[32px] h-[32px] bg-[#3d3b30] text-white">
+          <AvatarFallback className="team-avatar-tile rounded-none w-[32px] h-[32px] bg-[#3d3b30] text-white">
             <span className="text-xs font-medium">{getUserInitial()}</span>
           </AvatarFallback>
         </Avatar>
