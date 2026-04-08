@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from 'react';
+import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -81,16 +82,28 @@ export function DesktopBootstrapClient({
         if (!response.ok) {
           setBackendStatus('error');
           setBackendMessage(`Backend readiness returned HTTP ${response.status}.`);
+          void recordDesktopShellEvent('desktop.bootstrap.backend_not_ready', 'warn', {
+            status: response.status,
+            backendBase: PYTHON_API_BASE,
+          });
           return;
         }
 
         setBackendStatus('ready');
         setBackendMessage('Backend reported ready.');
+        void recordDesktopShellEvent('desktop.bootstrap.backend_ready', 'info', {
+          backendBase: PYTHON_API_BASE,
+          targetPath,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unknown backend bootstrap failure.';
         setBackendStatus('error');
         setBackendMessage(message);
+        void recordDesktopShellEvent('desktop.bootstrap.backend_check_failed', 'warn', {
+          backendBase: PYTHON_API_BASE,
+          error: message,
+        });
       } finally {
         window.clearTimeout(timeoutId);
       }
@@ -113,6 +126,10 @@ export function DesktopBootstrapClient({
     const timer = window.setTimeout(() => {
       const nextTarget = new URL('/sign-in', window.location.origin);
       nextTarget.searchParams.set('redirect_url', targetPath);
+      void recordDesktopShellEvent('desktop.bootstrap.redirect_sign_in', 'info', {
+        targetPath,
+        redirectUrl: `${nextTarget.pathname}${nextTarget.search}`,
+      });
       window.location.replace(`${nextTarget.pathname}${nextTarget.search}`);
     }, 150);
 
@@ -127,6 +144,11 @@ export function DesktopBootstrapClient({
 
     const timer = window.setTimeout(() => {
       setShowDiagnostics(true);
+      void recordDesktopShellEvent('desktop.bootstrap.diagnostics_shown', 'warn', {
+        backendStatus,
+        backendMessage,
+        targetPath,
+      });
       void showMainWindow();
     }, 8000);
 
@@ -186,7 +208,12 @@ export function DesktopBootstrapClient({
           <button
             type="button"
             className="rounded-full bg-[#1d1a16] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#2d2720]"
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              void recordDesktopShellEvent('desktop.bootstrap.reload_clicked', 'info', {
+                backendStatus,
+              });
+              window.location.reload();
+            }}
           >
             Reload bootstrap
           </button>
@@ -195,6 +222,10 @@ export function DesktopBootstrapClient({
             className="rounded-full border border-black/10 px-5 py-3 text-sm font-medium text-[#1d1a16] transition hover:bg-black/5"
             onClick={() => {
               setIsNavigating(true);
+              void recordDesktopShellEvent('desktop.bootstrap.continue_anyway', 'warn', {
+                backendStatus,
+                targetPath,
+              });
               window.location.replace(targetPath);
             }}
           >

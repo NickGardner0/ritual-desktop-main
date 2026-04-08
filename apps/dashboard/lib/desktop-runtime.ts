@@ -1,3 +1,5 @@
+import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
+import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
 import { isTauri } from '@/lib/tauri-utils';
 
 export type UpdateManifest = {
@@ -169,11 +171,6 @@ export function getDesktopCompatibilityIssue(
   return null;
 }
 
-async function invokeDesktopCommand<T>(command: string): Promise<T> {
-  const { invoke } = await import('@tauri-apps/api/tauri');
-  return invoke<T>(command);
-}
-
 export function buildDesktopCommandOrigin(scope: string): string {
   const trimmedScope = scope.trim() || 'unknown';
   if (typeof window === 'undefined') {
@@ -194,8 +191,16 @@ export async function desktopFrontendReady(): Promise<DesktopRuntimeInfo | null>
   if (!isTauri()) return null;
 
   try {
-    return await invokeDesktopCommand<DesktopRuntimeInfo>('desktop_frontend_ready');
+    const result = await invokeDesktopCommand<DesktopRuntimeInfo>('desktop_frontend_ready');
+    void recordDesktopShellEvent('desktop.frontend_ready', 'info', {
+      version: result?.version ?? null,
+      environment: result?.environment ?? null,
+    });
+    return result;
   } catch (error) {
+    void recordDesktopShellEvent('desktop.frontend_ready.failed', 'warn', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     console.warn('Desktop runtime handshake unavailable:', error);
     return null;
   }
@@ -240,14 +245,23 @@ export async function desktopSetAuthToken(input: {
 }): Promise<DesktopRuntimeState | null> {
   if (!isTauri()) return null;
 
-  const { invoke } = await import('@tauri-apps/api/tauri');
   try {
-    return await invoke<DesktopRuntimeState>('desktop_set_auth_token', {
+    const result = await invokeDesktopCommand<DesktopRuntimeState>('desktop_set_auth_token', {
       token: input.token,
       userId: input.userId ?? null,
       backendBase: input.backendBase ?? null,
     });
+    void recordDesktopShellEvent('desktop.auth_handoff.succeeded', 'info', {
+      hasUserId: Boolean(input.userId),
+      backendBase: input.backendBase ?? null,
+    });
+    return result;
   } catch (error) {
+    void recordDesktopShellEvent('desktop.auth_handoff.failed', 'error', {
+      hasUserId: Boolean(input.userId),
+      backendBase: input.backendBase ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
     console.warn('Desktop auth handoff unavailable:', error);
     return null;
   }

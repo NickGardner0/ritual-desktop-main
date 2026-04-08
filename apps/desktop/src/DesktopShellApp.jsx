@@ -1,6 +1,9 @@
-import { invoke } from '@tauri-apps/api/tauri';
-import { shell } from '@tauri-apps/api';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  invokeDesktopShellCommand,
+  openDesktopShellExternalUrl,
+  recordDesktopShellEvent,
+} from './desktop-shell-bridge';
 
 const RETRY_COPY = {
   idle: 'Preparing Ritual…',
@@ -25,47 +28,70 @@ export function DesktopShellApp() {
 
   const revealFallbackUi = useCallback(async () => {
     setShowFallbackUi(true);
+    void recordDesktopShellEvent('desktop.shell.fallback_ui_shown', 'warn', {
+      state,
+    });
     if (hasRequestedRevealRef.current) return;
     hasRequestedRevealRef.current = true;
     try {
-      await invoke('show_main_window');
+      await invokeDesktopShellCommand('show_main_window');
     } catch (error) {
       console.error('Failed to show Ritual desktop shell fallback UI:', error);
     }
-  }, []);
+  }, [state]);
 
   const loadHostedApp = useCallback(async () => {
     setState('checking');
     setError('');
+    void recordDesktopShellEvent('desktop.shell.bootstrap_check_started', 'info', {
+      hasCachedConfig: Boolean(bootstrapConfig),
+    });
 
     try {
       const config =
         bootstrapConfig ??
-        (await invoke('get_desktop_shell_bootstrap_config'));
+        (await invokeDesktopShellCommand('get_desktop_shell_bootstrap_config'));
 
       if (!bootstrapConfig) {
         setBootstrapConfig(config);
+        void recordDesktopShellEvent('desktop.shell.bootstrap_config_loaded', 'info', {
+          appOrigin: config.appOrigin,
+          bootstrapUrl: config.bootstrapUrl,
+          environment: config.environment,
+        });
       }
 
       if (navigator.onLine === false) {
         setState('offline');
+        void recordDesktopShellEvent('desktop.shell.offline', 'warn', {
+          bootstrapUrl: config.bootstrapUrl,
+        });
         void revealFallbackUi();
         return;
       }
 
-      const reachable = await invoke('check_desktop_hosted_app_reachable', {
+      const reachable = await invokeDesktopShellCommand('check_desktop_hosted_app_reachable', {
         url: config.bootstrapUrl,
       });
 
       if (!reachable) {
         setState('failed');
+        void recordDesktopShellEvent('desktop.shell.hosted_unreachable', 'warn', {
+          bootstrapUrl: config.bootstrapUrl,
+        });
         void revealFallbackUi();
         return;
       }
 
+      void recordDesktopShellEvent('desktop.shell.redirect_started', 'info', {
+        bootstrapUrl: config.bootstrapUrl,
+      });
       window.location.replace(config.bootstrapUrl);
     } catch (loadError) {
       console.error('Failed to bootstrap Ritual desktop shell:', loadError);
+      void recordDesktopShellEvent('desktop.shell.bootstrap_failed', 'error', {
+        error: formatError(loadError),
+      });
       setError(formatError(loadError));
       setState('failed');
       void revealFallbackUi();
@@ -75,14 +101,22 @@ export function DesktopShellApp() {
   useEffect(() => {
     let mounted = true;
 
-    invoke('get_desktop_shell_bootstrap_config')
+    invokeDesktopShellCommand('get_desktop_shell_bootstrap_config')
       .then((config) => {
         if (!mounted) return;
         setBootstrapConfig(config);
+        void recordDesktopShellEvent('desktop.shell.bootstrap_prefetched', 'info', {
+          appOrigin: config.appOrigin,
+          bootstrapUrl: config.bootstrapUrl,
+          environment: config.environment,
+        });
       })
       .catch((configError) => {
         console.error('Failed to load Ritual desktop shell config:', configError);
         if (!mounted) return;
+        void recordDesktopShellEvent('desktop.shell.bootstrap_config_failed', 'error', {
+          error: formatError(configError),
+        });
         setError(formatError(configError));
         setState('failed');
         void revealFallbackUi();
@@ -135,9 +169,16 @@ export function DesktopShellApp() {
   const handleOpenInBrowser = useCallback(async () => {
     if (!bootstrapConfig) return;
     try {
-      await shell.open(bootstrapConfig.bootstrapUrl);
+      void recordDesktopShellEvent('desktop.shell.open_in_browser', 'info', {
+        bootstrapUrl: bootstrapConfig.bootstrapUrl,
+      });
+      await openDesktopShellExternalUrl(bootstrapConfig.bootstrapUrl);
     } catch (shellError) {
       console.error('Failed to open Ritual in browser:', shellError);
+      void recordDesktopShellEvent('desktop.shell.open_in_browser_failed', 'warn', {
+        bootstrapUrl: bootstrapConfig.bootstrapUrl,
+        error: formatError(shellError),
+      });
       window.open(bootstrapConfig.bootstrapUrl, '_blank', 'noopener,noreferrer');
     }
   }, [bootstrapConfig]);
@@ -157,7 +198,12 @@ export function DesktopShellApp() {
           <button
             type="button"
             className="shell__button shell__button--primary"
-            onClick={() => void loadHostedApp()}
+            onClick={() => {
+              void recordDesktopShellEvent('desktop.shell.retry_clicked', 'info', {
+                state,
+              });
+              void loadHostedApp();
+            }}
             disabled={!bootstrapConfig || state === 'checking'}
           >
             {state === 'checking' ? 'Checking…' : 'Retry'}

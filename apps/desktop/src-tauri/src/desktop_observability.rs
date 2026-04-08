@@ -1,7 +1,8 @@
 use once_cell::sync::OnceCell;
+use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{error, info, warn};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -54,6 +55,45 @@ pub fn init_desktop_observability() -> Result<(), String> {
         log_dir = %log_dir.display(),
         "Desktop observability initialized"
     );
+
+    Ok(())
+}
+
+fn payload_to_log_string(payload: Option<Value>) -> String {
+    let serialized = payload
+        .and_then(|value| serde_json::to_string(&value).ok())
+        .unwrap_or_else(|| "null".to_string());
+
+    const MAX_LEN: usize = 2048;
+    if serialized.len() > MAX_LEN {
+        format!("{}…", &serialized[..MAX_LEN])
+    } else {
+        serialized
+    }
+}
+
+#[tauri::command]
+pub fn desktop_record_shell_event(
+    name: String,
+    level: Option<String>,
+    data: Option<Value>,
+) -> Result<(), String> {
+    let event_name = name.trim();
+    if event_name.is_empty() {
+        return Err("Desktop shell event name is required".to_string());
+    }
+
+    let payload = payload_to_log_string(data);
+    match level
+        .unwrap_or_else(|| "info".to_string())
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "error" => error!(event = event_name, payload = %payload, "desktop.shell"),
+        "warn" | "warning" => warn!(event = event_name, payload = %payload, "desktop.shell"),
+        _ => info!(event = event_name, payload = %payload, "desktop.shell"),
+    }
 
     Ok(())
 }

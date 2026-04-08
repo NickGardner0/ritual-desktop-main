@@ -46,6 +46,65 @@ const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
 
+#[derive(Clone, Copy, Debug)]
+enum DesktopShellNavGateMode {
+    Off,
+    Report,
+    Enforce,
+}
+
+impl DesktopShellNavGateMode {
+    fn from_env() -> Self {
+        match read_nonempty_env("RITUAL_DESKTOP_NAV_GATE_MODE")
+            .unwrap_or_else(|| "off".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "report" => Self::Report,
+            "enforce" => Self::Enforce,
+            _ => Self::Off,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Report => "report",
+            Self::Enforce => "enforce",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DesktopShellFeatureFlags {
+    nav_gate_mode: DesktopShellNavGateMode,
+    shell_heartbeat_enabled: bool,
+    shell_auto_recover_enabled: bool,
+    deep_link_v2_enabled: bool,
+}
+
+impl DesktopShellFeatureFlags {
+    fn from_env() -> Self {
+        Self {
+            nav_gate_mode: DesktopShellNavGateMode::from_env(),
+            shell_heartbeat_enabled: env_flag_enabled("RITUAL_DESKTOP_SHELL_HEARTBEAT"),
+            shell_auto_recover_enabled: env_flag_enabled("RITUAL_DESKTOP_SHELL_AUTO_RECOVER"),
+            deep_link_v2_enabled: env_flag_enabled("RITUAL_DESKTOP_DEEPLINK_V2"),
+        }
+    }
+
+    fn log_effective_values(&self) {
+        info!(
+            nav_gate_mode = self.nav_gate_mode.as_str(),
+            shell_heartbeat_enabled = self.shell_heartbeat_enabled,
+            shell_auto_recover_enabled = self.shell_auto_recover_enabled,
+            deep_link_v2_enabled = self.deep_link_v2_enabled,
+            "Desktop shell feature flags loaded"
+        );
+    }
+}
+
 fn read_nonempty_env(name: &str) -> Option<String> {
     env::var(name)
         .ok()
@@ -992,6 +1051,8 @@ fn main() {
 
     let startup_started_at = Instant::now();
     info!("Starting Ritual desktop app");
+    let shell_feature_flags = DesktopShellFeatureFlags::from_env();
+    shell_feature_flags.log_effective_values();
 
     let quit = CustomMenuItem::new("quit".to_string(), "Quit");
     let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
@@ -1002,6 +1063,7 @@ fn main() {
     tauri::Builder::default()
     .plugin(tauri_plugin_context_menu::init())
     .manage(SidebarWindowState::default())
+    .manage(shell_feature_flags)
     .manage(desktop_runtime::DesktopShellState::default())
     // Only expose native macOS features - auth is handled by Clerk
     .invoke_handler(tauri::generate_handler![
@@ -1069,6 +1131,7 @@ fn main() {
       // Desktop shell bootstrap commands
       get_desktop_shell_bootstrap_config,
       check_desktop_hosted_app_reachable,
+      desktop_observability::desktop_record_shell_event,
       // Desktop runtime / updater commands
       desktop_runtime::get_desktop_runtime_info,
       desktop_runtime::get_desktop_runtime_state,

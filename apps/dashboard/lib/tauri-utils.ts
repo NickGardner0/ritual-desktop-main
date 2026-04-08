@@ -2,6 +2,9 @@
  * Tauri utility functions for desktop app
  */
 
+import { invokeDesktopCommand, openDesktopExternalUrl } from '@/lib/desktop-bridge/commands';
+import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+
 /**
  * Check if the app is running in Tauri
  */
@@ -12,7 +15,7 @@ export function isTauri(): boolean {
   const hasTauriGlobal = Boolean(w.__TAURI__);
   const hasTauriIpc = Boolean(w.__TAURI_IPC__);
   const hasDesktopUA = userAgent.includes('RitualDesktop/');
-  const result = hasTauriGlobal || hasTauriIpc || hasDesktopUA;
+  const result = isDesktopTauriRuntime();
   console.log(`[isTauri] result=${result} | __TAURI__=${hasTauriGlobal} | __TAURI_IPC__=${hasTauriIpc} | UA=${hasDesktopUA} | userAgent="${userAgent.substring(0, 80)}"`);
   return result;
 }
@@ -61,9 +64,7 @@ export async function showMainWindow(): Promise<void> {
   if (!isTauri() || windowShown) return;
   
   try {
-    // Try using our custom Tauri command first
-    const { invoke } = await import('@tauri-apps/api/tauri');
-    await invoke('show_main_window');
+    await invokeDesktopCommand('show_main_window');
     windowShown = true;
     console.log('✅ Main window shown via Tauri command');
   } catch (error) {
@@ -85,17 +86,16 @@ export async function showMainWindow(): Promise<void> {
  */
 export async function openInBrowser(url: string): Promise<void> {
   if (!isTauri()) {
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
     return;
   }
 
   try {
-    const { shell } = await import('@tauri-apps/api');
-    await shell.open(url);
+    await openDesktopExternalUrl(url);
   } catch (error) {
     console.error('Failed to open URL in browser:', error);
     // Fallback to window.open
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
 
