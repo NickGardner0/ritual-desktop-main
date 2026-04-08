@@ -1623,8 +1623,8 @@ export function ChatClient() {
       const buf = new Uint8Array(analyser.fftSize);
 
       // Voice gating thresholds — generous to tolerate ambient room noise.
-      const SPEECH_ARM_RMS = 0.05;  // must cross this once before we arm silence
-      const SPEECH_RMS = 0.035;     // anything above this counts as speech
+      const SPEECH_ARM_RMS = 0.004; // must cross this once before we arm silence
+      const SPEECH_RMS = 0.0025;    // anything above this counts as speech
       const SILENCE_MS = 600;       // how long below SPEECH_RMS before stop
 
       let lastLoudAt = 0;
@@ -1981,9 +1981,6 @@ export function ChatClient() {
                     <div className="px-4 pb-1 flex flex-col items-center gap-1">
                       <div className="h-8 w-full max-w-[280px]">
                         <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
-                      </div>
-                      <div className="font-mono text-[10px] leading-tight text-neutral-500 tabular-nums">
-                        rms {voiceDebug.rms.toFixed(3)} · armed {voiceDebug.armed ? 'y' : 'n'} · silent {voiceDebug.sinceLoudMs}ms · {voiceDebug.lastEvent || 'idle'} · "{voiceDebug.lastPartial}"
                       </div>
                     </div>
                   )}
@@ -2367,9 +2364,6 @@ export function ChatClient() {
                     <div className="px-4 pb-1 flex flex-col items-center gap-1">
                       <div className="h-8 w-full max-w-[280px]">
                         <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.5} barWidth={4} barGap={2} />
-                      </div>
-                      <div className="font-mono text-[10px] leading-tight text-neutral-500 tabular-nums">
-                        rms {voiceDebug.rms.toFixed(3)} · armed {voiceDebug.armed ? 'y' : 'n'} · silent {voiceDebug.sinceLoudMs}ms · {voiceDebug.lastEvent || 'idle'} · "{voiceDebug.lastPartial}"
                       </div>
                     </div>
                   )}

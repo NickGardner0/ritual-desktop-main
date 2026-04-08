@@ -759,8 +759,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       source.connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
 
-      const SPEECH_ARM_RMS = 0.05;
-      const SPEECH_RMS = 0.035;
+      const SPEECH_ARM_RMS = 0.004;
+      const SPEECH_RMS = 0.0025;
       const SILENCE_MS = 600;
 
       let lastLoudAt = 0;
@@ -1664,11 +1664,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   <div className="w-full h-[42px] flex items-center justify-center">
                     <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
                   </div>
-                  {isListening && (
-                    <div className="font-mono text-[10px] leading-tight text-neutral-500 tabular-nums">
-                      rms {voiceDebug.rms.toFixed(3)} · armed {voiceDebug.armed ? 'y' : 'n'} · silent {voiceDebug.sinceLoudMs}ms · {voiceDebug.lastEvent || 'idle'} · "{voiceDebug.lastPartial}"
-                    </div>
-                  )}
                 </div>
               ) : (
                 <textarea
