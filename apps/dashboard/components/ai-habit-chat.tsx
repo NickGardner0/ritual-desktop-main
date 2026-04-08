@@ -1620,13 +1620,13 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           <div className="px-5 pt-3 pb-3">
             {/* Input Area */}
             <div className="mb-1 relative">
-              {isListening ? (
+              {isListening && audioStream ? (
                 <div className="w-full flex flex-col items-center justify-center gap-1">
                   <div className="w-full h-[42px] flex items-center justify-center">
-                    <VoiceWaveform isActive={isListening} audioStream={audioStream} className="h-10 w-full" />
+                    <VoiceWaveform isActive={true} audioStream={audioStream} className="h-10 w-full" />
                   </div>
                 </div>
-              ) : isProcessingVoice ? (
+              ) : isListening || isProcessingVoice ? (
                 <div className="w-full h-[42px]" aria-hidden />
               ) : (
                 <textarea

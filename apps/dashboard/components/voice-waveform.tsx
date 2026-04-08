@@ -182,24 +182,9 @@ export function VoiceWaveform({
           ctx.globalAlpha = value > 0.12 ? 0.45 + value * 0.55 : 0.32;
           ctx.fillRect(x, y, barWidth, barHeight);
         }
-      } else {
-        // Idle state: deterministic voice-like sine pattern — centered
-        for (let i = 0; i < visualizerBarCount; i++) {
-          const normalizedPos = Math.abs((i - halfCount) / halfCount);
-          const wave1 = Math.sin(normalizedPos * Math.PI * 3) * 0.3;
-          const wave2 = Math.sin(normalizedPos * Math.PI * 7) * 0.15;
-          const wave3 = Math.cos(normalizedPos * Math.PI * 11) * 0.1;
-          const value = Math.max(0.15, 0.3 + wave1 + wave2 + wave3);
-
-          const x = offsetX + i * step;
-          const barHeight = Math.max(2, value * height * 0.6);
-          const y = centerY - barHeight / 2;
-
-          ctx.fillStyle = barColor;
-          ctx.globalAlpha = 0.3 + value * 0.3;
-          ctx.fillRect(x, y, barWidth, barHeight);
-        }
       }
+      // No idle fallback — when inactive or no analyser, leave the canvas
+      // blank so we never flash a fake waveform while recognition finalizes.
 
       // Edge fading on the visualizer region
       if (fadeEdges && fadeWidth > 0 && maxVisualizerWidth > 0) {
