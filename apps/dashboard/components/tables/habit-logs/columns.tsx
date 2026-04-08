@@ -217,8 +217,13 @@ export const CategoryCell = memo(({ category }: { category: string }) => {
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className={cn('h-2.5 w-2.5 shrink-0 rounded-[3px]', getCategoryFillClass(category))} />
-      <span className="block truncate text-[13px] font-normal text-neutral-600">
+      <span
+        className={cn(
+          'inline-block h-3 w-3 shrink-0 self-center rounded-none align-middle',
+          getCategoryFillClass(category),
+        )}
+      />
+      <span className="block truncate text-[14px] font-normal text-neutral-900">
         {normalizedCategory}
       </span>
     </div>
@@ -249,7 +254,7 @@ export const SourceCell = memo(({ source, habitName }: { source?: string; habitN
   const displaySource = source || 'manual';
 
   return (
-    <span className="block min-w-0 truncate text-[14px] text-neutral-500">
+    <span className="block min-w-0 truncate text-[14px] font-normal text-neutral-900">
       {formatSourceLabel(displaySource, habitName)}
     </span>
   );

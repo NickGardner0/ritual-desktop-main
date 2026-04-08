@@ -3,8 +3,6 @@
 import { formatISO, parseISO } from 'date-fns';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
-  Search,
-  SlidersHorizontal,
   Plus,
   Trash2,
   CalendarRange,
@@ -776,11 +774,17 @@ export function HabitLogsSearchFilter({
     <div ref={containerRef} className="relative w-full max-w-[350px]">
       <DropdownMenu open={isFilterOpen} onOpenChange={setIsFilterOpen}>
         <form onSubmit={handleSearchSubmit} className="relative">
-          <Search className="pointer-events-none absolute left-4 top-[10px] h-4 w-4 stroke-[1.75] text-neutral-700" />
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            className="pointer-events-none absolute left-4 top-[10px] h-4 w-4 fill-current text-neutral-700"
+          >
+            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+          </svg>
           <Input
             ref={inputRef}
             placeholder="Search habits, logs, notes..."
-            className="h-9 w-full rounded-none border-black/10 pl-10 pr-9 text-sm text-neutral-900 placeholder:text-neutral-400 focus-visible:border-neutral-300 focus-visible:ring-0"
+            className="h-9 w-full rounded-sm border-black/10 pl-10 pr-9 text-sm text-neutral-900 placeholder:text-neutral-400 focus-visible:border-neutral-300 focus-visible:ring-0"
             value={searchInput}
             onChange={handleSearchChange}
             onFocus={() => setShowSuggestions(true)}
@@ -805,7 +809,13 @@ export function HabitLogsSearchFilter({
               )}
               aria-label="Filters"
             >
-              <SlidersHorizontal className="h-4 w-4 stroke-[1.75]" />
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                className="h-4 w-4 fill-current"
+              >
+                <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z" />
+              </svg>
             </button>
           </DropdownMenuTrigger>
         </form>

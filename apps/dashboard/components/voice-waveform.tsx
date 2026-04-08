@@ -23,14 +23,14 @@ export function VoiceWaveform({
   isActive,
   audioStream,
   className,
-  barWidth = 3,
-  barGap = 1,
+  barWidth = 4,
+  barGap = 2,
   barColor = '#000000',
   fadeEdges = true,
   fadeWidth = 24,
-  sensitivity = 1.8,
-  smoothingTimeConstant = 0.75,
-  fftSize = 256,
+  sensitivity = 2.6,
+  smoothingTimeConstant = 0.65,
+  fftSize = 512,
 }: VoiceWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,7 +128,7 @@ export function VoiceWaveform({
       const centerX = width / 2;
 
       // Only draw bars in the center portion of the canvas
-      const maxVisualizerWidth = Math.min(width, 240);
+      const maxVisualizerWidth = Math.min(width, 280);
       const visualizerBarCount = Math.floor(maxVisualizerWidth / step);
       const halfCount = Math.floor(visualizerBarCount / 2);
       const offsetX = centerX - (visualizerBarCount * step) / 2;
@@ -140,33 +140,46 @@ export function VoiceWaveform({
         const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
         analyserRef.current.getByteFrequencyData(dataArray);
 
-        // Focus on voice frequencies (skip very low and very high)
-        const startFreq = Math.floor(dataArray.length * 0.05);
-        const endFreq = Math.floor(dataArray.length * 0.5);
+        // Focus on the voice band but include enough high range for sibilants.
+        const startFreq = Math.floor(dataArray.length * 0.03);
+        const endFreq = Math.floor(dataArray.length * 0.6);
         const relevantData = dataArray.slice(startFreq, endFreq);
 
-        // Build symmetric bars: mirror left ← center → right
-        const bars: number[] = [];
-        for (let i = halfCount - 1; i >= 0; i--) {
-          const dataIndex = Math.floor((i / halfCount) * relevantData.length);
-          const value = Math.min(1, (relevantData[dataIndex] / 255) * sensitivity);
-          bars.push(Math.max(0.05, value));
-        }
-        for (let i = 0; i < halfCount; i++) {
-          const dataIndex = Math.floor((i / halfCount) * relevantData.length);
-          const value = Math.min(1, (relevantData[dataIndex] / 255) * sensitivity);
-          bars.push(Math.max(0.05, value));
-        }
+        // Overall energy across the whole voice band — drives every bar so the
+        // edges respond too, not just the center.
+        let sum = 0;
+        for (let i = 0; i < relevantData.length; i++) sum += relevantData[i];
+        const overall = (sum / relevantData.length) / 255;
 
-        // Draw active bars — centered in canvas
-        for (let i = 0; i < visualizerBarCount && i < bars.length; i++) {
-          const value = bars[i];
+        const t = performance.now() / 1000;
+
+        for (let i = 0; i < visualizerBarCount; i++) {
+          // Per-bar frequency sample, distributed across the band.
+          const freqPos = i / Math.max(1, visualizerBarCount - 1);
+          const dataIndex = Math.floor(freqPos * (relevantData.length - 1));
+          const localRaw = relevantData[dataIndex] / 255;
+          // High-frequency EQ boost compensates for voice spectrum roll-off so
+          // bars on the right (sibilants) react too.
+          const eqBoost = 1 + freqPos * 1.6;
+          const local = Math.min(1, localRaw * eqBoost);
+
+          // Per-bar wobble keyed off overall energy so silent bars stay quiet
+          // but every bar moves while speaking.
+          const wobble = (Math.sin(t * 6 + i * 0.55) * 0.5 + 0.5) * overall * 0.55;
+
+          // Symmetric center-bias envelope so the visualizer still has a shape.
+          const distFromCenter = Math.abs(i - halfCount) / halfCount;
+          const envelope = 1 - distFromCenter * 0.35;
+
+          const mixed = (overall * 0.45 + local * 0.55 + wobble) * envelope;
+          const value = Math.max(0.06, Math.min(1, mixed * sensitivity));
+
           const x = offsetX + i * step;
-          const barHeight = Math.max(2, value * height * 0.95);
+          const barHeight = Math.max(2, value * height * 0.98);
           const y = centerY - barHeight / 2;
 
           ctx.fillStyle = barColor;
-          ctx.globalAlpha = value > 0.1 ? 0.4 + value * 0.6 : 0.3;
+          ctx.globalAlpha = value > 0.12 ? 0.45 + value * 0.55 : 0.32;
           ctx.fillRect(x, y, barWidth, barHeight);
         }
       } else {

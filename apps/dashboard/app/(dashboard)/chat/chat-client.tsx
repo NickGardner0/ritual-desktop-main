@@ -1604,7 +1604,7 @@ export function ChatClient() {
               }
               nativeVoiceAutoStopRef.current = window.setTimeout(() => {
                 stopVoiceRecording();
-              }, 3000);
+              }, 600);
             }
             return;
           }
@@ -1646,7 +1646,7 @@ export function ChatClient() {
           setVoiceError(`Voice error: ${pollError?.message || 'Unknown native speech error'}`);
         }
       })();
-    }, 200);
+    }, 75);
 
     nativeVoiceAutoStopRef.current = window.setTimeout(() => {
       stopVoiceRecording();
@@ -1767,15 +1767,34 @@ export function ChatClient() {
         clearTimeout(nativeVoiceFinalizeTimeoutRef.current);
       }
 
+      // Commit whatever partial transcript we already have *immediately* so the
+      // user sees their text without waiting for Swift's final-event round trip.
+      const liveTranscript = partialTranscript?.trim();
       setIsListening(false);
-      setIsProcessingVoice(true);
+      if (liveTranscript) {
+        setInput(liveTranscript);
+        setPartialTranscript(null);
+        setIsProcessingVoice(false);
+        setTimeout(() => textareaRef.current?.focus(), 0);
+      } else {
+        setIsProcessingVoice(true);
+      }
 
       void stopNativeDesktopSpeechRecognition()
         .catch((error: any) => {
-          setVoiceError(`Voice error: ${error?.message || 'Failed to stop native speech recognition.'}`);
+          if (!liveTranscript) {
+            setVoiceError(`Voice error: ${error?.message || 'Failed to stop native speech recognition.'}`);
+          }
           return Promise.resolve();
         })
         .finally(() => {
+          // If we already committed a live transcript, just tear down quietly
+          // and ignore the lagging final event.
+          if (liveTranscript) {
+            void resetNativeVoiceSession();
+            voiceInputModeRef.current = null;
+            return;
+          }
           nativeVoiceFinalizeTimeoutRef.current = window.setTimeout(() => {
             void resetNativeVoiceSession();
             setIsProcessingVoice(false);

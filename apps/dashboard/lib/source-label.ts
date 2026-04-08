@@ -6,7 +6,7 @@ const SOURCE_LABEL_MAP: Record<string, string> = {
   ritual_watcher: 'Watcher',
   ritual_watcher_projection: 'Watcher',
   ritual_watcher_projection_v1: 'Watcher',
-  whoop: 'WHOOP',
+  whoop: 'Whoop',
 };
 
 const DEMO_SOURCE_BY_HABIT: Record<string, string> = {
@@ -15,7 +15,7 @@ const DEMO_SOURCE_BY_HABIT: Record<string, string> = {
   'daily walk': 'Apple Health',
   'morning workout': 'Apple Health',
   'screen time': 'Apple Health',
-  'sleep duration': 'WHOOP',
+  'sleep duration': 'Whoop',
   coding: 'Watcher',
   'computer time': 'Watcher',
   'daily reading': 'Manual',
