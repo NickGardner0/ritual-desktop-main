@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { logger } from '@/lib/logger';
 
+const HABIT_LOGGING_TRANSCRIPTION_PROMPT = [
+  'This is a verbatim transcription for a personal habit logging app.',
+  'Prefer exact words, numbers, durations, dates, and units.',
+  'Use Arabic numerals when clear, such as 1 hour, 30 minutes, 250 mg, 8000 steps, 3 miles, 20 dollars, 120 BPM, 10 pages.',
+  'Habit names and phrases may include coding, computer time, screen time, caffeine, nicotine, sleep, workout, reading, spending, heart rate, steps, and car miles.',
+  'Do not paraphrase. Transcribe what the speaker said as accurately as possible in English.',
+].join(' ');
+
 export async function POST(req: NextRequest) {
   try {
     // Require authentication
@@ -58,6 +66,9 @@ export async function POST(req: NextRequest) {
     }
 
     apiFormData.append('model', modelName);
+    apiFormData.append('language', 'en');
+    apiFormData.append('temperature', '0');
+    apiFormData.append('prompt', HABIT_LOGGING_TRANSCRIPTION_PROMPT);
 
     const startTime = Date.now();
     const response = await fetch(apiUrl, {

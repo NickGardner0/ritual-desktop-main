@@ -39,6 +39,7 @@ export function VoiceWaveform({
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const animationRef = useRef<number>(0);
   const cachedRectRef = useRef({ width: 0, height: 0 });
+  const barLevelsRef = useRef<Float32Array>(new Float32Array(0));
 
   // Handle canvas resizing
   useEffect(() => {
@@ -133,6 +134,10 @@ export function VoiceWaveform({
       const halfCount = Math.floor(visualizerBarCount / 2);
       const offsetX = centerX - (visualizerBarCount * step) / 2;
 
+      if (barLevelsRef.current.length !== visualizerBarCount) {
+        barLevelsRef.current = new Float32Array(visualizerBarCount);
+      }
+
       ctx.clearRect(0, 0, width, height);
 
       if (isActive && analyserRef.current) {
@@ -173,17 +178,24 @@ export function VoiceWaveform({
 
           const mixed = (overall * 0.45 + local * 0.55 + wobble) * envelope;
           const value = Math.min(1, mixed * sensitivity);
+          const prevLevel = barLevelsRef.current[i] || 0;
+          const attack = value > prevLevel ? 0.38 : 0.16;
+          const smoothedLevel = prevLevel + (value - prevLevel) * attack;
+          barLevelsRef.current[i] = smoothedLevel;
 
           // Hard silence gate: below this, draw nothing so quiet moments are
           // truly blank instead of a persistent row of tiny bars.
-          if (value < 0.2) continue;
+          if (smoothedLevel < 0.12) {
+            barLevelsRef.current[i] = prevLevel * 0.82;
+            continue;
+          }
 
           const x = offsetX + i * step;
-          const barHeight = Math.max(3, value * height * 0.82);
+          const barHeight = Math.max(3, smoothedLevel * height * 0.88);
           const y = centerY - barHeight / 2;
 
           ctx.fillStyle = barColor;
-          ctx.globalAlpha = 0.55 + value * 0.45;
+          ctx.globalAlpha = 0.52 + smoothedLevel * 0.48;
           ctx.fillRect(x, y, barWidth, barHeight);
         }
       }
