@@ -216,18 +216,9 @@ export const CategoryCell = memo(({ category }: { category: string }) => {
   const normalizedCategory = normalizeCategoryLabel(category);
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span
-        className={cn(
-          'inline-block h-3 w-3 shrink-0 rounded-none',
-          getCategoryFillClass(category),
-        )}
-        style={{ marginTop: '-1px' }}
-      />
-      <span className="block truncate text-[14px] font-normal leading-none text-neutral-900">
-        {normalizedCategory}
-      </span>
-    </div>
+    <span className="block truncate text-[14px] font-normal text-neutral-900">
+      {normalizedCategory}
+    </span>
   );
 });
 CategoryCell.displayName = 'CategoryCell';

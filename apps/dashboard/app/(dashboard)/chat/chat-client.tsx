@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X, Check } from 'lucide-react';
-import { useStickToBottom } from 'use-stick-to-bottom';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -870,11 +869,9 @@ export function ChatClient() {
   // Tool execution status for shimmer → checkmark UI
   const [toolStatus, setToolStatus] = useState<{ label: string; done: boolean } | null>(null);
 
-  // Stick-to-bottom scroll behavior
-  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom({
-    initial: 'smooth',
-    resize: 'smooth',
-  });
+  // Scroll refs
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const latestUserMessageRef = useRef<HTMLDivElement>(null);
 
   // Resizable side panel state
   const [canvasWidth, setCanvasWidth] = useState(DEFAULT_CANVAS_WIDTH);
@@ -1400,7 +1397,12 @@ export function ChatClient() {
     void sendMessage(normalizedQuestion);
   }, [initialQuestion, isLoadingConversation, sendMessage]);
 
-  // Scroll handled by use-stick-to-bottom via scrollRef/contentRef
+  // Scroll the latest user message into view when a new query is sent
+  useEffect(() => {
+    if (messages.length > 0 && isLoading) {
+      latestUserMessageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [messages.length, isLoading]);
 
   useEffect(() => {
     if (!textareaRef.current) return;
@@ -2434,12 +2436,15 @@ export function ChatClient() {
         <div ref={scrollRef} className="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
           {/* Chat content - centered in available space */}
-          <div ref={contentRef} className={cn(
+          <div className={cn(
             "pb-32 min-w-0 transition-all duration-300 mx-auto px-8 pt-8",
             canvasData ? "w-full max-w-none" : "max-w-[680px]"
           )}>
-            {messages.map((message, messageIndex) => (
-              <div key={message.id}>
+            {messages.map((message, messageIndex) => {
+              // Find if this is the last user message
+              const isLastUserMessage = message.role === 'user' && !messages.slice(messageIndex + 1).some(m => m.role === 'user');
+              return (
+              <div key={message.id} ref={isLastUserMessage ? latestUserMessageRef : undefined}>
                 {message.role === 'user' ? (
                   <h1 className="text-2xl font-medium text-gray-900 leading-snug mb-6">
                     {message.content}
@@ -2473,8 +2478,9 @@ export function ChatClient() {
                   </div>
                 )}
               </div>
-            ))}
-            
+            );
+            })}
+
             {streamingContent && (
               <div className="mb-8">
                 <Response className="text-[14px] leading-[1.55] text-[#535353]">

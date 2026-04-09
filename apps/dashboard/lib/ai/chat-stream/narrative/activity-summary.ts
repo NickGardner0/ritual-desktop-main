@@ -626,11 +626,26 @@ function sanitizeCalendarStyleActivitySummary(text: string): string {
 
   const cleaned = stripped.join('\n').trim();
 
-  return cleaned
+  const sanitized = cleaned
     .replace(/\bHere'?s a rundown of what you (?:were up to|accomplished)(?: (?:today|yesterday|on [^!.\n]+))?!?\s*/gi, '')
     .replace(/\bLet me dig through [^.!?\n]+[.!?]?\s*/gi, '')
     .replace(/\bLooked through your context\b\s*›?/gi, '')
     .trim();
+
+  // Ensure standalone title-like lines are bold-wrapped.
+  // A title line is short (<100 chars), not already bold, not a bullet, not italic-only,
+  // and followed by a paragraph or italic time range.
+  return sanitized.replace(
+    /^(?!\s*[-*•]|\s*\*\*)([A-Z][^\n]{3,96})$/gm,
+    (match, title) => {
+      // Skip lines that look like sentences (end with period, contain commas with clauses)
+      if (/[.!?]$/.test(title.trim())) return match;
+      // Skip lines that are mostly lowercase prose
+      const words = title.trim().split(/\s+/);
+      if (words.length > 10) return match;
+      return `**${title.trim()}**`;
+    },
+  );
 }
 
 function getStorySortTimestamp(item: any): number {
@@ -1106,6 +1121,7 @@ Rules:
 - Cover the full evidenced day from the earliest workstream to the latest one.
 - Keep the workstreams in chronological order.
 - Prefer 4-8 main workstreams. If there are extra small items, merge them into **Other things** bullet points.
+- CRITICAL: Every section title MUST use markdown bold syntax: **Title Here**. Never write a bare title without ** markers.
 - Each main workstream should use this format:
   **Specific title**
   *7:12 AM – 7:57 AM*
@@ -1203,6 +1219,7 @@ Your job:
 Output format:
 - Start directly with the work summary. No greeting or preamble.
 - If the scaffold spans multiple dayparts or time blocks, use chronological section labels like **Morning**, **Midday**, **Afternoon**, **Evening** and nest the workstreams underneath them in order.
+- CRITICAL: Every section title MUST use markdown bold syntax: **Title Here**. Never write a bare title without ** markers. This is a hard formatting requirement.
 - For each main workstream:
   **Specific title**
   *7:12 AM – 7:57 AM*

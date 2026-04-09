@@ -147,7 +147,7 @@ const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: num
   category: { size: 155, minSize: 100, maxSize: 300 },
   source: { size: 140, minSize: 90, maxSize: 300 },
   notes: { size: 195, minSize: 120, maxSize: 400 },
-  actions: { size: 80, minSize: 80, maxSize: 80 },
+  actions: { size: 72, minSize: 72, maxSize: 72 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
@@ -675,7 +675,7 @@ export function HabitLogsDataTable({
   isFetchingMore,
 }: DataTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
-  const [activeRowIndex, setActiveRowIndex] = useState<number>(0);
+  const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
   const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(readStoredColumnWidths);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
@@ -1131,7 +1131,7 @@ export function HabitLogsDataTable({
                             headerCellPadding,
                             getAlignmentClass(layout?.align),
                             stickyClass,
-                            header.id === 'select' && 'text-center',
+                            (header.id === 'select' || header.id === 'actions') && 'justify-center text-center',
                           )}
                           style={getStickyStyle(header.id)}
                         >
