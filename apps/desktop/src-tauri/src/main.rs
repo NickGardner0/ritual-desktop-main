@@ -45,6 +45,8 @@ const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
+#[cfg(target_os = "macos")]
+const DESKTOP_DEEP_LINK_IDENTIFIER: &str = "com.ritual.desktop";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -231,6 +233,35 @@ fn build_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
         bootstrap_url,
         callback_url,
     }
+}
+
+fn is_supported_desktop_deep_link(raw: &str) -> bool {
+    let trimmed = raw.trim();
+    trimmed.starts_with("ritual://") || trimmed.starts_with("com.ritual.desktop://")
+}
+
+fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn handle_desktop_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, raw: String) {
+    let trimmed = raw.trim().to_string();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    if !is_supported_desktop_deep_link(&trimmed) {
+        warn!(payload = %trimmed, "Ignoring unsupported deep link payload");
+        return;
+    }
+
+    info!(payload = %trimmed, "Desktop deep link received");
+    focus_main_window(app);
+    desktop_runtime::emit_auth_deep_link(app, trimmed);
 }
 
 #[tauri::command]
@@ -1049,6 +1080,9 @@ fn main() {
         eprintln!("Failed to initialize desktop observability: {error}");
     }
 
+    #[cfg(target_os = "macos")]
+    tauri_plugin_deep_link::prepare(DESKTOP_DEEP_LINK_IDENTIFIER);
+
     let startup_started_at = Instant::now();
     info!("Starting Ritual desktop app");
     let shell_feature_flags = DesktopShellFeatureFlags::from_env();
@@ -1183,8 +1217,15 @@ fn main() {
     .setup(|app| {
       let setup_started_at = Instant::now();
       desktop_runtime::register_runtime_signal_monitor(app.handle());
-      // Handle deep link URLs (ritual://)
-      let handle = app.handle();
+
+      #[cfg(target_os = "macos")]
+      {
+        let deep_link_app = app.handle();
+        tauri_plugin_deep_link::listen(move |request| {
+          handle_desktop_auth_deep_link(&deep_link_app, request);
+        })
+        .map_err(|error| std::io::Error::other(format!("Failed to register desktop deep link listener: {error}")))?;
+      }
 
       // Get the app URL based on environment (Midday pattern)
       let ritual_env = configured_ritual_env();
@@ -1337,31 +1378,6 @@ fn main() {
 
       desktop_runtime::emit_runtime_state_changed(app.handle());
       spawn_background_startup_tasks(app.handle());
-
-      #[cfg(target_os = "macos")]
-      {
-        app.listen_global("open-url", move |event| {
-          if let Some(payload) = event.payload() {
-            info!(payload = payload, "Deep link received");
-
-            // Forward the deep link to the hosted frontend.
-            if let Some(window) = handle.get_window("main") {
-              let _ = window.show();
-              let _ = window.set_focus();
-              let callback_url = with_query_param(
-                &build_desktop_shell_bootstrap_config().callback_url,
-                &format!("deepLink={}", urlencoding::encode(payload)),
-              );
-              let callback_url_json = serde_json::to_string(&callback_url)
-                .unwrap_or_else(|_| format!("\"{}\"", callback_url));
-              let _ = window.eval(&format!(
-                "window.location.href = {};",
-                callback_url_json
-              ));
-            }
-          }
-        });
-      }
 
       desktop_runtime::register_startup_update_check(app.handle());
       info!(

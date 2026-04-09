@@ -20,7 +20,7 @@ function parseCallbackState(searchParams: URLSearchParams, rawDeepLink: string |
     if (rawDeepLink) {
       const deepLinkUrl = new URL(decodeURIComponent(rawDeepLink));
 
-      if (deepLinkUrl.protocol !== 'ritual:') {
+      if (deepLinkUrl.protocol !== 'ritual:' && deepLinkUrl.protocol !== 'com.ritual.desktop:') {
         return {
           status: 'error',
           message: `Unexpected deep link protocol: ${deepLinkUrl.protocol}`,

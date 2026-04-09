@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use tauri::api::dialog::blocking::{ask, message};
 use tauri::{AppHandle, Manager, Runtime};
-use tracing::{instrument, warn};
+use tracing::{info, instrument, warn};
 
 const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
@@ -24,6 +24,7 @@ const TURSO_SYNC_FAILURE_RETRY_SECS: u64 = 30;
 pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
 pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
 pub const RUNTIME_STATE_CHANGED_EVENT: &str = "desktop://runtime-state-changed";
+pub const AUTH_DEEP_LINK_EVENT: &str = "desktop://auth-deep-link";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +82,7 @@ pub struct DesktopShellState {
     frontend_ready: Mutex<bool>,
     update_check_in_progress: Mutex<bool>,
     pending_update: Mutex<Option<PendingUpdateManifest>>,
+    pending_auth_deep_link: Mutex<Option<String>>,
     auth_state: Mutex<DesktopAuthState>,
     auth_generation: AtomicU64,
 }
@@ -91,6 +93,7 @@ impl Default for DesktopShellState {
             frontend_ready: Mutex::new(false),
             update_check_in_progress: Mutex::new(false),
             pending_update: Mutex::new(None),
+            pending_auth_deep_link: Mutex::new(None),
             auth_state: Mutex::new(DesktopAuthState::default()),
             auth_generation: AtomicU64::new(0),
         }
@@ -200,6 +203,45 @@ fn frontend_is_ready<R: Runtime>(app: &AppHandle<R>) -> bool {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     ready
+}
+
+fn take_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    app.state::<DesktopShellState>()
+        .pending_auth_deep_link
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+}
+
+fn store_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {
+    let state = app.state::<DesktopShellState>();
+    let mut pending = state
+        .pending_auth_deep_link
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *pending = Some(deep_link);
+}
+
+pub fn emit_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {
+    if frontend_is_ready(app) {
+        info!(deep_link = %deep_link, "Emitting desktop auth deep link to frontend");
+        let _ = app.emit_all(AUTH_DEEP_LINK_EVENT, deep_link);
+        return;
+    }
+
+    info!("Frontend not ready yet; queueing desktop auth deep link");
+    store_pending_auth_deep_link(app, deep_link);
+}
+
+pub fn flush_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
+    if !frontend_is_ready(app) {
+        return;
+    }
+
+    if let Some(pending) = take_pending_auth_deep_link(app) {
+        info!(deep_link = %pending, "Flushing queued desktop auth deep link");
+        let _ = app.emit_all(AUTH_DEEP_LINK_EVENT, pending);
+    }
 }
 
 fn normalize_backend_base(value: Option<String>) -> Option<String> {
@@ -814,6 +856,8 @@ pub fn desktop_frontend_ready<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeIn
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *frontend_ready = true;
     drop(frontend_ready);
+
+    flush_pending_auth_deep_link(&app);
 
     build_runtime_info(&app)
 }

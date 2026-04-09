@@ -10,6 +10,7 @@ import { OpenPanelProvider } from '@/components/openpanel-provider';
 import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
+import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 
 /**
@@ -91,6 +92,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
     <OpenPanelProvider>
       <QueryProvider>
         <HabitsProvider>
+          <DesktopAuthDeepLinkBridge />
           {!isDesktopBootstrap ? <MemoryCloudUploader /> : null}
           {children}
         </HabitsProvider>

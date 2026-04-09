@@ -16,6 +16,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>ritual</string>
+				<string>com.ritual.desktop</string>
 			</array>
 		</dict>
 	</array>

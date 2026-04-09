@@ -33,6 +33,7 @@ function DesktopOAuthBridgePageInner() {
   const searchParams = useSearchParams();
   const { isLoaded, user } = useUser();
   const [error, setError] = useState<string | null>(null);
+  const [deepLinkHref, setDeepLinkHref] = useState<string | null>(null);
   const startedRef = useRef(false);
   const providerError = useMemo(
     () => searchParams.get('error_description') || searchParams.get('error'),
@@ -59,7 +60,9 @@ function DesktopOAuthBridgePageInner() {
     const run = async () => {
       try {
         const ticket = await createDesktopSignInTicket();
-        window.location.replace(buildDeepLink(ticket));
+        const nextDeepLink = buildDeepLink(ticket);
+        setDeepLinkHref(nextDeepLink);
+        window.location.href = nextDeepLink;
       } catch (ticketError) {
         startedRef.current = false;
         setError(ticketError instanceof Error ? ticketError.message : 'Failed to return to Ritual.');
@@ -112,6 +115,19 @@ function DesktopOAuthBridgePageInner() {
         <p className="mt-3 text-sm leading-6 text-gray-600">
           Your browser finished Apple or Google sign-in. Ritual should reopen automatically to complete authentication.
         </p>
+        {deepLinkHref ? (
+          <div className="mt-6 space-y-3">
+            <a
+              href={deepLinkHref}
+              className="inline-flex rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
+            >
+              Open Ritual
+            </a>
+            <p className="text-xs leading-5 text-gray-500">
+              If Ritual did not reopen automatically, click Open Ritual. You can close this tab once the desktop app finishes signing in.
+            </p>
+          </div>
+        ) : null}
       </div>
     </main>
   );
