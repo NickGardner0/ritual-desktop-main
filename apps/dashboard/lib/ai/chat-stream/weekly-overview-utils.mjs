@@ -77,12 +77,16 @@ export function buildWeeklyOverviewCanvasPayload({
   endDate,
   days,
   allHabits,
+  overviewHabits,
   dailyByHabitId,
   watcherDailyRows,
   topApps,
   topDomains,
 }) {
-  const habitsWithDataRaw = (allHabits || []).filter(
+  const allHabitsWithDataRaw = (allHabits || []).filter(
+    (habit) => Number(habit.days_with_data || 0) > 0,
+  );
+  const habitsWithDataRaw = (overviewHabits || allHabitsWithDataRaw).filter(
     (habit) => Number(habit.days_with_data || 0) > 0,
   );
 
@@ -147,7 +151,7 @@ export function buildWeeklyOverviewCanvasPayload({
       days,
     },
     summary: {
-      habits_with_data: habits.length,
+      habits_with_data: allHabitsWithDataRaw.length,
       total_habits_tracked: (allHabits || []).length,
     },
     habits,

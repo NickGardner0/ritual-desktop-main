@@ -31,6 +31,24 @@ function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
 }
 
+function SidebarToggleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="2.75" y="4" width="18.5" height="16" rx="3.25" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M9.6 5.5V18.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <rect x="5.1" y="7.05" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+      <rect x="5.1" y="11.1" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+      <rect x="5.1" y="15.15" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+    </svg>
+  );
+}
+
 const MAX_VISIBLE_CHAT_SUGGESTIONS = 2;
 
 // TextShimmer component
@@ -836,6 +854,7 @@ export function ChatClient() {
   const [viewportWidth, setViewportWidth] = useState<number>(() => (
     typeof window !== 'undefined' ? window.innerWidth : 1400
   ));
+  const [headerLeftSlot, setHeaderLeftSlot] = useState<HTMLElement | null>(null);
   const [headerCenterSlot, setHeaderCenterSlot] = useState<HTMLElement | null>(null);
   const resizeStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const maxCanvasWidthForViewport = Math.min(
@@ -846,6 +865,7 @@ export function ChatClient() {
   const deferredInput = useDeferredValue(input.trim());
 
   useEffect(() => {
+    setHeaderLeftSlot(document.getElementById('header-left-slot'));
     setHeaderCenterSlot(document.getElementById('header-center-slot'));
   }, []);
 
@@ -1878,17 +1898,7 @@ export function ChatClient() {
   if (messages.length === 0 && isLoading && currentQuestion.trim()) {
     return (
       <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
-        {isSidebarCollapsed && (
-          <div className="absolute top-0.5 left-3 z-10 flex items-center gap-1">
-            <button
-              onClick={() => setIsSidebarCollapsed(false)}
-              className="flex h-9 w-9 items-center justify-center text-gray-500 hover:text-gray-700 transition-colors"
-              title="Expand sidebar"
-            >
-              <PanelRight className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+        {renderCollapsedSidebarToggle()}
 
         <div className="flex-1 min-w-0 overflow-x-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto">
@@ -2088,18 +2098,21 @@ export function ChatClient() {
     </AnimatePresence>
   );
 
-  const renderCollapsedSidebarToggle = () =>
-    isSidebarCollapsed ? (
-      <div className="absolute left-3 top-0.5 z-10">
+  function renderCollapsedSidebarToggle() {
+    return isSidebarCollapsed && headerLeftSlot
+      ? createPortal(
         <button
           onClick={() => setIsSidebarCollapsed(false)}
-          className="flex h-9 w-9 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
+          className="flex h-8 w-8 items-center justify-center -ml-1 text-[rgb(87,88,89)] transition-colors hover:text-[#2f2c25]"
           title="Expand sidebar"
         >
-          <PanelRight className="h-5 w-5" />
+          <SidebarToggleIcon className="h-[22px] w-[22px]" />
         </button>
-      </div>
-    ) : null;
+        ,
+        headerLeftSlot,
+      )
+      : null;
+  }
 
   // Empty state
   if (messages.length === 0 && !isLoading) {

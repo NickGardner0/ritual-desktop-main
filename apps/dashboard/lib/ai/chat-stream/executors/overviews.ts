@@ -8,6 +8,8 @@ import { fetchPythonApi, getTimezoneYmd, shiftYmd } from './shared-api';
 import type { LocalOverviewActivityBundle } from '../types';
 import { buildWeeklyOverviewCanvasPayload, getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 
+const MAX_WEEKLY_OVERVIEW_HABIT_DETAILS = 6;
+
 // ---------------------------------------------------------------------------
 // Local activity bundle selector
 // ---------------------------------------------------------------------------
@@ -23,6 +25,29 @@ function selectLocalOverviewActivityBundle(
     return candidate?.startDate === startDate && candidate?.endDate === endDate;
   });
   return (match as LocalOverviewActivityBundle) || null;
+}
+
+function selectWeeklyOverviewDetailHabits<T extends {
+  name?: string;
+  total?: number;
+  average?: number;
+  days_with_data?: number;
+  total_entries?: number;
+}>(habits: T[]): T[] {
+  return [...habits]
+    .sort((a, b) => {
+      const dayDelta = Number(b.days_with_data || 0) - Number(a.days_with_data || 0);
+      if (dayDelta !== 0) return dayDelta;
+
+      const entryDelta = Number(b.total_entries || 0) - Number(a.total_entries || 0);
+      if (entryDelta !== 0) return entryDelta;
+
+      const magnitudeDelta = Math.abs(Number(b.total || b.average || 0)) - Math.abs(Number(a.total || a.average || 0));
+      if (magnitudeDelta !== 0) return magnitudeDelta;
+
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    })
+    .slice(0, MAX_WEEKLY_OVERVIEW_HABIT_DETAILS);
 }
 
 // ---------------------------------------------------------------------------
@@ -87,9 +112,10 @@ export async function executeGetWeeklyOverview(token: string, params: {
 
     // Focus recap on habits with tracked data in this period.
     const habitsWithData = allHabits.filter((habit) => (habit.days_with_data || 0) > 0);
+    const detailedHabits = selectWeeklyOverviewDetailHabits(habitsWithData);
 
-    const breakdownResults = await Promise.allSettled(
-      habitsWithData.map(async (habit) => {
+    const breakdownPromise = Promise.allSettled(
+      detailedHabits.map(async (habit) => {
         const breakdown = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
           habit_id: habit.id,
           start_date: startDate,
@@ -101,49 +127,40 @@ export async function executeGetWeeklyOverview(token: string, params: {
       }),
     );
 
-    const dailyByHabitId = new Map<string, unknown[]>();
-    for (const item of breakdownResults) {
-      if (item.status !== 'fulfilled') continue;
-      const payload = item.value.breakdown;
-      if (payload?.success && Array.isArray(payload.data)) {
-        dailyByHabitId.set(item.value.habitId, payload.data);
-      }
-    }
-
     const localActivityBundle = selectLocalOverviewActivityBundle(localOverviewActivity, startDate, endDate);
 
-    let watcherDailyRows: any[] = [];
-    let topApps: any[] = [];
-    let topDomains: any[] = [];
+    const watcherPromise = (async () => {
+      if (localActivityBundle) {
+        return {
+          watcherDailyRows: Array.isArray(localActivityBundle.daily)
+            ? localActivityBundle.daily.map((row) => ({
+                day: row.day,
+                active_hours: Number(row.active_hours || 0),
+                events_count: Number(row.events_count || 0),
+                apps_count: Number(row.apps_count || 0),
+                source: localActivityBundle.source || 'cloud_first',
+              }))
+            : [],
+          topApps: Array.isArray(localActivityBundle.apps)
+            ? localActivityBundle.apps.slice(0, safeAppLimit).map((row) => ({
+                app_bundle_id: row.app_bundle_id,
+                app_name: row.app_name,
+                hours: Number(row.hours || 0),
+                total_events: Number(row.total_events || 0),
+                source: localActivityBundle.source || 'cloud_first',
+              }))
+            : [],
+          topDomains: Array.isArray(localActivityBundle.domains)
+            ? localActivityBundle.domains.slice(0, safeAppLimit).map((row) => ({
+                domain: row.domain,
+                hours: Number(row.hours || 0),
+                total_events: Number(row.total_events || 0),
+                source: localActivityBundle.source || 'cloud_first',
+              }))
+            : [],
+        };
+      }
 
-    if (localActivityBundle) {
-      watcherDailyRows = Array.isArray(localActivityBundle.daily)
-        ? localActivityBundle.daily.map((row) => ({
-            day: row.day,
-            active_hours: Number(row.active_hours || 0),
-            events_count: Number(row.events_count || 0),
-            apps_count: Number(row.apps_count || 0),
-            source: localActivityBundle.source || 'cloud_first',
-          }))
-        : [];
-      topApps = Array.isArray(localActivityBundle.apps)
-        ? localActivityBundle.apps.slice(0, safeAppLimit).map((row) => ({
-            app_bundle_id: row.app_bundle_id,
-            app_name: row.app_name,
-            hours: Number(row.hours || 0),
-            total_events: Number(row.total_events || 0),
-            source: localActivityBundle.source || 'cloud_first',
-          }))
-        : [];
-      topDomains = Array.isArray(localActivityBundle.domains)
-        ? localActivityBundle.domains.slice(0, safeAppLimit).map((row) => ({
-            domain: row.domain,
-            hours: Number(row.hours || 0),
-            total_events: Number(row.total_events || 0),
-            source: localActivityBundle.source || 'cloud_first',
-          }))
-        : [];
-    } else {
       const watcherRequests = await Promise.allSettled([
         fetchPythonApi('/api/watcher/stats/daily', token, {
           start_date: startDate,
@@ -165,10 +182,30 @@ export async function executeGetWeeklyOverview(token: string, params: {
       const topAppsResult = watcherRequests[1].status === 'fulfilled' ? watcherRequests[1].value : null;
       const topDomainsResult = watcherRequests[2].status === 'fulfilled' ? watcherRequests[2].value : null;
 
-      watcherDailyRows = Array.isArray(dailyWatcherResult?.data) ? dailyWatcherResult.data : [];
-      topApps = Array.isArray(topAppsResult?.data) ? topAppsResult.data : [];
-      topDomains = Array.isArray(topDomainsResult?.data) ? topDomainsResult.data : [];
+      return {
+        watcherDailyRows: Array.isArray(dailyWatcherResult?.data) ? dailyWatcherResult.data : [],
+        topApps: Array.isArray(topAppsResult?.data) ? topAppsResult.data : [],
+        topDomains: Array.isArray(topDomainsResult?.data) ? topDomainsResult.data : [],
+      };
+    })();
+
+    const [breakdownResults, watcherData] = await Promise.all([
+      breakdownPromise,
+      watcherPromise,
+    ]);
+
+    const dailyByHabitId = new Map<string, unknown[]>();
+    for (const item of breakdownResults) {
+      if (item.status !== 'fulfilled') continue;
+      const payload = item.value.breakdown;
+      if (payload?.success && Array.isArray(payload.data)) {
+        dailyByHabitId.set(item.value.habitId, payload.data);
+      }
     }
+
+    const watcherDailyRows = watcherData.watcherDailyRows;
+    const topApps = watcherData.topApps;
+    const topDomains = watcherData.topDomains;
     const computedDays = Number(dateRange.days || 0) > 0
       ? Number(dateRange.days)
       : (
@@ -187,6 +224,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
       endDate,
       days: computedDays,
       allHabits,
+      overviewHabits: detailedHabits,
       dailyByHabitId,
       watcherDailyRows,
       topApps,
