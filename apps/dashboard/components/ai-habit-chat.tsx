@@ -907,8 +907,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     punctuate: false,
     smartFormat: false,
     numerals: true,
-    endpointingMs: 350,
-    utteranceEndMs: 1000,
+    endpointingMs: 900,
+    utteranceEndMs: 1600,
     maxDurationMs: 15000,
     keyterms: [
       'Ritual',
@@ -1962,7 +1962,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                     aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
                   >
                     {isListening ? (
-                      <VoiceWaveformMini isActive={true} />
+                      <VoiceWaveformMini isActive={isListening} />
                     ) : isProcessingVoice ? (
                       <BrailleSpinner className="text-sm text-gray-900" />
                     ) : (

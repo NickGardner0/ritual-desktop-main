@@ -104,6 +104,9 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
   const timeoutRef = useRef<number | null>(null);
   const activeRef = useRef(false);
   const manualStopRef = useRef(false);
+  const queuedChunksRef = useRef<ArrayBuffer[]>([]);
+  const sessionCounterRef = useRef(0);
+  const sessionIdRef = useRef(0);
   const segmentBufferRef = useRef<string[]>([]);
   const interimRef = useRef('');
   const lastCommittedRef = useRef('');
@@ -130,7 +133,15 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     async ({ suppressError = true }: { suppressError?: boolean } = {}) => {
       activeRef.current = false;
       manualStopRef.current = false;
+      sessionIdRef.current = 0;
       clearTimer();
+      queuedChunksRef.current = [];
+      segmentBufferRef.current = [];
+      interimRef.current = '';
+      optionsRef.current.onInterimTranscriptChange?.(null);
+      optionsRef.current.onAudioStreamChange?.(null);
+      optionsRef.current.onListeningChange?.(false);
+      optionsRef.current.onProcessingChange?.(false);
 
       if (wsRef.current) {
         const ws = wsRef.current;
@@ -170,13 +181,6 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
       }
-
-      segmentBufferRef.current = [];
-      interimRef.current = '';
-      optionsRef.current.onInterimTranscriptChange?.(null);
-      optionsRef.current.onAudioStreamChange?.(null);
-      optionsRef.current.onListeningChange?.(false);
-      optionsRef.current.onProcessingChange?.(false);
     },
     [clearTimer],
   );
@@ -224,9 +228,19 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     gainNodeRef.current = gainNode;
 
     const sendPcmChunk = (chunk: Int16Array) => {
+      if (!chunk.length) return;
+      const copy = new Uint8Array(chunk.byteLength);
+      copy.set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+      const buffer = copy.buffer;
       const ws = wsRef.current;
-      if (!chunk.length || !ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(chunk.buffer.slice(0));
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(buffer);
+        return;
+      }
+      queuedChunksRef.current.push(buffer);
+      if (queuedChunksRef.current.length > 128) {
+        queuedChunksRef.current.splice(0, queuedChunksRef.current.length - 128);
+      }
     };
 
     if (audioContext.audioWorklet) {
@@ -269,14 +283,14 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     }
 
     await cleanup();
+    const sessionId = ++sessionCounterRef.current;
+    sessionIdRef.current = sessionId;
     lastCommittedRef.current = '';
     optionsRef.current.onError?.(null);
     optionsRef.current.onProcessingChange?.(true);
     optionsRef.current.onInterimTranscriptChange?.(null);
     segmentBufferRef.current = [];
     interimRef.current = '';
-
-    const token = await fetchDeepgramToken();
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -286,8 +300,39 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         autoGainControl: false,
       },
     });
+    if (sessionIdRef.current !== sessionId) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     streamRef.current = stream;
     optionsRef.current.onAudioStreamChange?.(stream);
+
+    try {
+      await connectAudioPipeline(stream);
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
+    if (sessionIdRef.current !== sessionId) {
+      await cleanup();
+      return;
+    }
+
+    activeRef.current = true;
+    optionsRef.current.onListeningChange?.(true);
+    optionsRef.current.onProcessingChange?.(false);
+
+    let token: string;
+    try {
+      token = await fetchDeepgramToken();
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
+    if (sessionIdRef.current !== sessionId) {
+      await cleanup();
+      return;
+    }
 
     const url = new URL('wss://api.deepgram.com/v1/listen');
     url.searchParams.set('model', optionsRef.current.model || 'nova-3');
@@ -325,6 +370,11 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
 
       ws.onopen = () => {
         window.clearTimeout(timeout);
+        const queued = queuedChunksRef.current.splice(0);
+        for (const chunk of queued) {
+          if (ws.readyState !== WebSocket.OPEN) break;
+          ws.send(chunk);
+        }
         resolve();
       };
 
@@ -332,18 +382,12 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         window.clearTimeout(timeout);
         reject(new Error('Deepgram connection failed'));
       };
+
+      ws.onclose = () => {
+        window.clearTimeout(timeout);
+        reject(new Error('Deepgram connection closed before ready'));
+      };
     });
-
-    try {
-      await connectAudioPipeline(stream);
-    } catch (error) {
-      await cleanup();
-      throw error;
-    }
-
-    activeRef.current = true;
-    optionsRef.current.onListeningChange?.(true);
-    optionsRef.current.onProcessingChange?.(false);
 
     ws.onmessage = (event) => {
       const payload = JSON.parse(String(event.data)) as DeepgramListenResult;
@@ -378,9 +422,6 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         emitInterim();
       }
 
-      if (payload.speech_final) {
-        void finalizeAndStop();
-      }
     };
 
     ws.onclose = () => {

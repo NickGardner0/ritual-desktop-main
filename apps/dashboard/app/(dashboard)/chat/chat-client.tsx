@@ -1760,8 +1760,8 @@ export function ChatClient() {
       punctuate: false,
       smartFormat: false,
       numerals: true,
-      endpointingMs: 350,
-      utteranceEndMs: 1000,
+      endpointingMs: 900,
+      utteranceEndMs: 1600,
       maxDurationMs: 15000,
       keyterms: [
         'Ritual',
@@ -2158,7 +2158,7 @@ export function ChatClient() {
                           aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
                         >
                           {isListening ? (
-                            <VoiceWaveformMini isActive={true} />
+                            <VoiceWaveformMini isActive={isListening} />
                           ) : isProcessingVoice ? (
                             <BrailleSpinner className="text-sm text-gray-900" />
                           ) : (
@@ -2381,13 +2381,13 @@ export function ChatClient() {
                             ? "text-gray-900"
                             : "text-gray-400 hover:text-gray-600 hover:bg-gray-200/50"
                         )}
-                        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
-                      >
-                        {isListening ? (
-                          <VoiceWaveformMini isActive={true} />
-                        ) : isProcessingVoice ? (
-                          <BrailleSpinner className="text-sm text-gray-900" />
-                        ) : (
+                      aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                    >
+                      {isListening ? (
+                        <VoiceWaveformMini isActive={isListening} />
+                      ) : isProcessingVoice ? (
+                        <BrailleSpinner className="text-sm text-gray-900" />
+                      ) : (
                           <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                         )}
                       </button>
@@ -2554,13 +2554,13 @@ export function ChatClient() {
                             : "text-gray-400 hover:text-gray-600",
                           "disabled:opacity-50"
                         )}
-                        aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
-                      >
-                        {isListening ? (
-                          <VoiceWaveformMini isActive={true} />
-                        ) : isProcessingVoice ? (
-                          <BrailleSpinner className="text-sm text-gray-900" />
-                        ) : (
+                      aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+                    >
+                      {isListening ? (
+                        <VoiceWaveformMini isActive={isListening} />
+                      ) : isProcessingVoice ? (
+                        <BrailleSpinner className="text-sm text-gray-900" />
+                      ) : (
                           <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
                         )}
                       </button>

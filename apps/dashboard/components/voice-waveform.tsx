@@ -264,6 +264,10 @@ export function VoiceWaveform({
 // ── Mini pulsing waveform (for compact button spaces) ─────────────
 
 export function VoiceWaveformMini({ isActive, className }: { isActive: boolean; className?: string }) {
+  if (!isActive) {
+    return null;
+  }
+
   return (
     <div className={cn("flex items-center justify-center gap-[2px]", className)}>
       {[0, 1, 2, 3].map((index) => (
