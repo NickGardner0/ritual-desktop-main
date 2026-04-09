@@ -466,7 +466,7 @@ export async function generateWeeklyOverviewNarrative(
         },
         {
           role: 'user',
-          content: `Write a useful recap for ${periodLabel}.\n\nAnchoring highlights:\n${highlights.map((line) => `- ${line}`).join('\n')}\n\nStructured overview data:\n${JSON.stringify(synthesisPayload, null, 2)}`,
+          content: `Write a useful recap for ${periodLabel}.\n\nAnchoring highlights:\n${highlights.map((line) => `- ${line}`).join('\n')}\n\nStructured overview data:\n${JSON.stringify(synthesisPayload)}`,
         },
       ],
     });
@@ -510,7 +510,7 @@ export async function* streamWeeklyOverviewNarrative(
         },
         {
           role: 'user',
-          content: `Write a useful recap for ${periodLabel}.\n\nAnchoring highlights:\n${highlights.map((line) => `- ${line}`).join('\n')}\n\nStructured overview data:\n${JSON.stringify(synthesisPayload, null, 2)}`,
+          content: `Write a useful recap for ${periodLabel}.\n\nAnchoring highlights:\n${highlights.map((line) => `- ${line}`).join('\n')}\n\nStructured overview data:\n${JSON.stringify(synthesisPayload)}`,
         },
       ],
     });

@@ -83,6 +83,24 @@ interface HabitOption {
   unit_type: string;
 }
 
+type InlineSuggestionOption =
+  | {
+      kind: 'suggestion';
+      key: string;
+      label: string;
+      sublabel?: string;
+      suggestion: ChatSuggestion;
+    }
+  | {
+      kind: 'clarification';
+      key: string;
+      label: string;
+      sublabel?: string;
+      clarificationIndex: number;
+      habitId: string;
+      habitName: string;
+    };
+
 interface BrailleSpinnerProps {
   name?: BrailleSpinnerName;
   className?: string;
@@ -142,7 +160,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   
   // Phase 5A: Multi-intent logging state
   const [clarifications, setClarifications] = useState<Clarification[]>([]);
-  const [clarificationDropdownIndex, setClarificationDropdownIndex] = useState<number | null>(null);
 
   // Suggestions state
   const [suggestions, setSuggestions] = useState<ChatSuggestion[]>([]);
@@ -381,15 +398,41 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     [suggestions],
   );
 
+  const clarificationOptions = useMemo<InlineSuggestionOption[]>(() => {
+    return clarifications.flatMap((clarification, clarificationIndex) =>
+      clarification.alternatives.map((alternative) => ({
+        kind: 'clarification' as const,
+        key: `clarification-${clarificationIndex}-${alternative.id}`,
+        label: `${alternative.name}${clarification.value != null ? ` — ${clarification.value} ${clarification.unit || ''}` : ''}`.trim(),
+        sublabel: `Use ${alternative.name} for "${clarification.habit_hint}"`,
+        clarificationIndex,
+        habitId: alternative.id,
+        habitName: alternative.name,
+      }))
+    );
+  }, [clarifications]);
+
+  const visibleInlineOptions = useMemo<InlineSuggestionOption[]>(
+    () => clarificationOptions.length > 0
+      ? clarificationOptions.slice(0, MAX_VISIBLE_INLINE_SUGGESTIONS)
+      : visibleSuggestions.map((suggestion, idx) => ({
+          kind: 'suggestion' as const,
+          key: `suggestion-${suggestion.type}-${idx}-${suggestion.text.slice(0, 20)}`,
+          label: suggestion.text,
+          suggestion,
+        })),
+    [clarificationOptions, visibleSuggestions],
+  );
+
   useEffect(() => {
-    if (visibleSuggestions.length === 0) {
+    if (visibleInlineOptions.length === 0) {
       if (selectedSuggestionIndex !== 0) setSelectedSuggestionIndex(0);
       return;
     }
-    if (selectedSuggestionIndex >= visibleSuggestions.length) {
+    if (selectedSuggestionIndex >= visibleInlineOptions.length) {
       setSelectedSuggestionIndex(0);
     }
-  }, [selectedSuggestionIndex, visibleSuggestions]);
+  }, [selectedSuggestionIndex, visibleInlineOptions]);
 
   // Convert spoken word-numbers to digits so the regex patterns below can
   // handle transcripts like "I walked one mile" or "twenty two pages".
@@ -473,10 +516,16 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     ];
 
     // Find the best matching habit from your actual habits
-    const findMatchingHabit = (text: string) => {
+    const findMatchingHabit = (text: string, detectedUnit?: string) => {
       const searchTerms = text.toLowerCase();
+      const detectedUnitLower = detectedUnit?.toLowerCase();
+      const candidateHabits = [...habits].sort((a, b) => {
+        const aUnitMatch = (a.unit_type || '').toLowerCase() === detectedUnitLower;
+        const bUnitMatch = (b.unit_type || '').toLowerCase() === detectedUnitLower;
+        return Number(bUnitMatch) - Number(aUnitMatch);
+      });
 
-      for (const habit of habits) {
+      for (const habit of candidateHabits) {
         const habitName = habit.name.toLowerCase();
         const habitWords = habitName.split(' ');
         const significantWords = habitWords.filter(word => word.length > 2);
@@ -523,7 +572,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       const match = text.match(pattern.regex);
       if (match) {
         const value = parseFloat(match[1]);
-        const matchingHabit = findMatchingHabit(text);
+        const matchingHabit = findMatchingHabit(text, pattern.unit);
 
         if (matchingHabit) {
           const durationInMinutes = pattern.isDuration 
@@ -568,8 +617,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     
     // Track AI chat message for logging mode
     trackAIChatMessageSent({ messageLength: inputText.length });
-
-    setInput('');
 
     // OPTIMISTIC UPDATE: Try to parse locally first for instant feedback
     const localParsed = parseHabitInput(inputText);
@@ -651,6 +698,14 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       // Handle clarifications needed
       if (result.clarifications && result.clarifications.length > 0) {
         setClarifications(result.clarifications);
+        setInput(inputText);
+        setIsFocused(true);
+        setSelectedSuggestionIndex(0);
+        setKeyboardSuggestionActive(false);
+        setTimeout(() => textareaRef.current?.focus(), 0);
+      } else if (result.success) {
+        setInput('');
+        setIsFocused(false);
       }
       
       // Show error if nothing worked
@@ -672,7 +727,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     if (!clarification) return;
     
     setIsLoading(true);
-    setClarificationDropdownIndex(null);
     
     try {
       const sessionToken = await getToken();
@@ -703,6 +757,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         if (result.success) {
           // Remove from clarifications
           setClarifications(prev => prev.filter((_, i) => i !== clarificationIndex));
+          setInput('');
+          setIsFocused(false);
           
           // Refresh dashboard + play sound (no popup)
           if (onHabitUpdate) {
@@ -731,11 +787,14 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       setIsLoading(false);
     }
   };
-  
-  // Phase 5A: Dismiss clarification
-  const dismissClarification = (index: number) => {
-    setClarifications(prev => prev.filter((_, i) => i !== index));
-  };
+
+  const handleInlineOptionSelect = useCallback((option: InlineSuggestionOption) => {
+    if (option.kind === 'clarification') {
+      handleClarificationSelect(option.clarificationIndex, option.habitId, option.habitName);
+      return;
+    }
+    handleSuggestionClick(option.suggestion);
+  }, [handleSuggestionClick, handleClarificationSelect]);
 
   const clearNativeVoiceTimers = useCallback(() => {
     if (nativeVoiceSilenceRafRef.current) {
@@ -1451,7 +1510,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const canUseSuggestions =
       isFocused &&
-      visibleSuggestions.length > 0 &&
+      visibleInlineOptions.length > 0 &&
       !error &&
       !isListening &&
       !isProcessingVoice &&
@@ -1461,26 +1520,26 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     if (canUseSuggestions && e.key === 'ArrowDown') {
       e.preventDefault();
       setKeyboardSuggestionActive(true);
-      setSelectedSuggestionIndex((prev) => (prev + 1) % visibleSuggestions.length);
+      setSelectedSuggestionIndex((prev) => (prev + 1) % visibleInlineOptions.length);
       return;
     }
 
     if (canUseSuggestions && e.key === 'ArrowUp') {
       e.preventDefault();
       setKeyboardSuggestionActive(true);
-      setSelectedSuggestionIndex((prev) => (prev - 1 + visibleSuggestions.length) % visibleSuggestions.length);
+      setSelectedSuggestionIndex((prev) => (prev - 1 + visibleInlineOptions.length) % visibleInlineOptions.length);
       return;
     }
 
-    if (canUseSuggestions && e.key === 'Tab' && visibleSuggestions[selectedSuggestionIndex]) {
+    if (canUseSuggestions && e.key === 'Tab' && visibleInlineOptions[selectedSuggestionIndex]) {
       e.preventDefault();
-      handleSuggestionClick(visibleSuggestions[selectedSuggestionIndex]);
+      handleInlineOptionSelect(visibleInlineOptions[selectedSuggestionIndex]);
       return;
     }
 
-    if (canUseSuggestions && e.key === 'Enter' && !e.shiftKey && keyboardSuggestionActive && visibleSuggestions[selectedSuggestionIndex]) {
+    if (canUseSuggestions && e.key === 'Enter' && !e.shiftKey && keyboardSuggestionActive && visibleInlineOptions[selectedSuggestionIndex]) {
       e.preventDefault();
-      handleSuggestionClick(visibleSuggestions[selectedSuggestionIndex]);
+      handleInlineOptionSelect(visibleInlineOptions[selectedSuggestionIndex]);
       return;
     }
 
@@ -1500,8 +1559,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   const showSuggestions =
     isFocused &&
-    input.trim().length > 0 &&
-    visibleSuggestions.length > 0 &&
+    (clarificationOptions.length > 0 || input.trim().length > 0) &&
+    visibleInlineOptions.length > 0 &&
     !error &&
     !isListening &&
     !isProcessingVoice &&
@@ -1510,74 +1569,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   return (
     <div className="w-full">
-      {/* Phase 5A: Clarification Modal */}
-      {clarifications.length > 0 && (
-        <div className="mb-3 border border-amber-200 bg-amber-50 shadow-sm">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              <span className="text-sm font-medium text-amber-800">
-                Which habit did you mean?
-              </span>
-            </div>
-            <div className="space-y-2">
-              {clarifications.map((clarification, idx) => (
-                <div key={idx} className="bg-white border border-amber-200 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-gray-700">
-                      &quot;{clarification.habit_hint}&quot; 
-                      {clarification.value && (
-                        <span className="text-gray-500">
-                          {' '}— {clarification.value} {clarification.unit}
-                        </span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => dismissClarification(idx)}
-                      className="text-gray-400 hover:text-gray-600 text-xs"
-                    >
-                      Skip
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setClarificationDropdownIndex(clarificationDropdownIndex === idx ? null : idx)}
-                      className="w-full flex items-center justify-between px-3 py-2 text-sm border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
-                    >
-                      <span className="text-gray-600">Select a habit...</span>
-                      <ChevronDown className={cn(
-                        "w-4 h-4 text-gray-400 transition-transform",
-                        clarificationDropdownIndex === idx && "rotate-180"
-                      )} />
-                    </button>
-                    {clarificationDropdownIndex === idx && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 shadow-lg max-h-48 overflow-y-auto">
-                        {clarification.alternatives.map((alt) => (
-                          <button
-                            key={alt.id}
-                            type="button"
-                            onClick={() => handleClarificationSelect(idx, alt.id, alt.name)}
-                            disabled={isLoading}
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50 flex items-center justify-between"
-                          >
-                            <span>{alt.name}</span>
-                            <span className="text-xs text-gray-400">
-                              {Math.round(alt.confidence * 100)}% match
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Screenshot Modal - Compact macOS-inspired */}
       {(isUploadingScreenshot || screenshotPreview) && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -1849,6 +1840,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   ref={textareaRef}
                   value={isListening && partialTranscript ? partialTranscript : input}
                   onChange={(e) => {
+                    if (clarifications.length > 0) {
+                      setClarifications([]);
+                    }
                     setInput(e.target.value);
                     setSelectedSuggestionIndex(0);
                     setKeyboardSuggestionActive(false);
@@ -1877,12 +1871,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               )}
             >
               <div className="max-h-[98px] overflow-y-auto border-t border-gray-200/70 pt-0.5">
-                {visibleSuggestions.map((suggestion, idx) => (
+                {visibleInlineOptions.map((option, idx) => (
                   <button
-                    key={`${suggestion.type}-${idx}-${suggestion.text.slice(0, 20)}`}
+                    key={option.key}
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleSuggestionClick(suggestion)}
+                    onClick={() => handleInlineOptionSelect(option)}
                     onMouseEnter={() => {
                       setSelectedSuggestionIndex(idx);
                       setKeyboardSuggestionActive(true);
@@ -1894,7 +1888,14 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                         : "text-gray-500 hover:text-gray-900"
                     )}
                   >
-                    <span className="truncate leading-snug">{suggestion.text}</span>
+                    <div className="min-w-0">
+                      <div className="truncate leading-snug">{option.label}</div>
+                      {option.kind === 'clarification' && option.sublabel && (
+                        <div className="truncate text-[11px] leading-snug text-gray-400">
+                          {option.sublabel}
+                        </div>
+                      )}
+                    </div>
                     <ArrowUpRight
                       className={cn(
                         "w-3 h-3 flex-shrink-0 transition-colors",

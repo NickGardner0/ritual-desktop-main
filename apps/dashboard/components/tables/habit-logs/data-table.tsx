@@ -147,7 +147,7 @@ const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: num
   category: { size: 155, minSize: 100, maxSize: 300 },
   source: { size: 140, minSize: 90, maxSize: 300 },
   notes: { size: 195, minSize: 120, maxSize: 400 },
-  actions: { size: 72, minSize: 72, maxSize: 72 },
+  actions: { size: 84, minSize: 84, maxSize: 84 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────

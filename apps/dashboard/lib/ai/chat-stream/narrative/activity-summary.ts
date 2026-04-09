@@ -614,9 +614,7 @@ function sanitizeCalendarStyleActivitySummary(text: string): string {
     const first = stripped[0].trim();
     if (
       first.length === 0 ||
-      /^let me dig through\b/i.test(first) ||
-      /^here'?s a rundown\b/i.test(first) ||
-      /^looked through your context\b/i.test(first)
+      /^(let me dig through|here'?s (a rundown|what you)|looked through your context|i'?ll walk you through|let me walk you through|looking at your|based on your)/i.test(first)
     ) {
       stripped.shift();
       continue;
@@ -628,24 +626,83 @@ function sanitizeCalendarStyleActivitySummary(text: string): string {
 
   const sanitized = cleaned
     .replace(/\bHere'?s a rundown of what you (?:were up to|accomplished)(?: (?:today|yesterday|on [^!.\n]+))?!?\s*/gi, '')
+    .replace(/\bHere'?s what you (?:got done|were up to|accomplished|worked on)[^.!?\n]*[.!?]?\s*/gi, '')
     .replace(/\bLet me dig through [^.!?\n]+[.!?]?\s*/gi, '')
     .replace(/\bLooked through your context\b\s*›?/gi, '')
+    .replace(/\bI'?ll walk you through [^.!?\n]+[.!?]?\s*/gi, '')
     .trim();
 
-  // Ensure standalone title-like lines are bold-wrapped.
-  // A title line is short (<100 chars), not already bold, not a bullet, not italic-only,
-  // and followed by a paragraph or italic time range.
-  return sanitized.replace(
-    /^(?!\s*[-*•]|\s*\*\*)([A-Z][^\n]{3,96})$/gm,
-    (match, title) => {
-      // Skip lines that look like sentences (end with period, contain commas with clauses)
-      if (/[.!?]$/.test(title.trim())) return match;
-      // Skip lines that are mostly lowercase prose
-      const words = title.trim().split(/\s+/);
-      if (words.length > 10) return match;
-      return `**${title.trim()}**`;
-    },
-  );
+  // Ensure section titles are bold-wrapped using context-aware detection.
+  // A title line is identified by being followed by an italic time range (*HH:MM...*)
+  // or a paragraph of prose, and being short enough to be a heading.
+  return ensureBoldSectionHeaders(sanitized);
+}
+
+/**
+ * Context-aware bold header enforcement.
+ * Walks lines and detects title-like lines by checking what follows:
+ * - Followed by an italic time range (e.g. *7:12 AM – 8:00 AM*)
+ * - Short line followed by a longer paragraph line
+ * - Daypart headers like "Morning", "Afternoon", etc.
+ */
+function ensureBoldSectionHeaders(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Already bold or a bullet/list item — keep as-is
+    if (!trimmed || /^\s*[-*•]/.test(trimmed) || /^\*\*/.test(trimmed)) {
+      result.push(line);
+      continue;
+    }
+
+    // Check if this looks like a section title that needs bolding
+    if (isSectionTitle(trimmed, lines, i)) {
+      result.push(`**${trimmed}**`);
+    } else {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+}
+
+function isSectionTitle(trimmed: string, lines: string[], index: number): boolean {
+  // Must start with a letter or digit
+  if (!/^[A-Za-z0-9]/.test(trimmed)) return false;
+
+  // Too long to be a title
+  if (trimmed.length > 100) return false;
+
+  // Too many words — likely a sentence
+  const words = trimmed.split(/\s+/);
+  if (words.length > 12) return false;
+
+  // Daypart headers (Morning, Afternoon, etc.) should always be bold
+  if (/^(Morning|Midday|Afternoon|Evening|Night|Other things:?)$/i.test(trimmed)) return true;
+
+  // Look at the next non-empty line
+  let nextLine = '';
+  for (let j = index + 1; j < lines.length && j <= index + 2; j++) {
+    if (lines[j].trim()) {
+      nextLine = lines[j].trim();
+      break;
+    }
+  }
+
+  // If followed by an italic time range like *7:12 AM – 8:00 AM*, this is a title
+  if (/^\*\d/.test(nextLine) || /^\*\d.*\*$/.test(nextLine)) return true;
+
+  // If followed by a longer paragraph (prose), and this line is short, it's likely a title
+  if (nextLine.length > trimmed.length && words.length <= 8 && !/[.!?]$/.test(trimmed)) return true;
+
+  // Short lines (<=6 words) that don't end with punctuation and aren't the last line
+  if (words.length <= 6 && !/[.!?]$/.test(trimmed) && index < lines.length - 1) return true;
+
+  return false;
 }
 
 function getStorySortTimestamp(item: any): number {

@@ -83,7 +83,14 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
         );
       }
 
-      // 2. Stream text content
+      // 2. Emit canvas tool data EARLY so the side panel appears immediately
+      if (options.canvasToolPayload) {
+        controller.enqueue(
+          encoder.encode(`__TOOL_DATA__${JSON.stringify(options.canvasToolPayload)}__END_TOOL_DATA__\n`),
+        );
+      }
+
+      // 3. Stream text content
       let fullText: string;
 
       if (options.source.type === 'complete') {
@@ -105,16 +112,9 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
         }
       }
 
-      // 3. Notify caller with full text (for persistence)
+      // 4. Notify caller with full text (for persistence)
       if (options.onComplete) {
         options.onComplete(fullText);
-      }
-
-      // 4. Emit canvas tool data
-      if (options.canvasToolPayload) {
-        controller.enqueue(
-          encoder.encode(`\n__TOOL_DATA__${JSON.stringify(options.canvasToolPayload)}__END_TOOL_DATA__\n`),
-        );
       }
 
       controller.close();

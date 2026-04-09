@@ -96,11 +96,30 @@ function commonPrefixLength(a: string, b: string): number {
   return i;
 }
 
+const STEP_RELATED_HINTS = new Set([
+  'step',
+  'steps',
+  'walk',
+  'walked',
+  'walking',
+  'walks',
+  'hike',
+  'hiked',
+  'hiking',
+  'run',
+  'ran',
+  'running',
+  'jog',
+  'jogged',
+  'jogging',
+]);
+
 // Phase 5A: Simple fuzzy resolver (server-side implementation)
 function resolveHabit(
   hint: string,
   userHabits: Array<{ id: string; name: string; category: string; unit_type: string }>,
-  aliasesMap: Record<string, string[]>
+  aliasesMap: Record<string, string[]>,
+  intentUnit: string | null = null
 ): {
   habit_id: string | null;
   habit_name: string | null;
@@ -110,37 +129,50 @@ function resolveHabit(
   needs_clarification: boolean;
 } {
   const hintLower = hint.toLowerCase().trim();
-  const candidates: Array<{ habit: typeof userHabits[0]; type: string; confidence: number }> = [];
+  const normalizedIntentUnit = normalizeUnit(intentUnit);
+  const candidateMap = new Map<string, { habit: typeof userHabits[0]; type: string; confidence: number }>();
+
+  const pushCandidate = (
+    habit: typeof userHabits[0],
+    type: string,
+    confidence: number
+  ) => {
+    const existing = candidateMap.get(habit.id);
+    if (!existing || confidence > existing.confidence) {
+      candidateMap.set(habit.id, { habit, type, confidence });
+    }
+  };
   
   for (const habit of userHabits) {
     const nameLower = habit.name.toLowerCase();
     const aliases = aliasesMap[habit.id] || [];
+    const habitUnit = normalizeUnit(habit.unit_type);
     
     // 1. Exact match
     if (hintLower === nameLower) {
-      candidates.push({ habit, type: 'exact', confidence: 1.0 });
+      pushCandidate(habit, 'exact', 1.0);
       continue;
     }
     
     // 2. Alias match
     for (const alias of aliases) {
       if (hintLower === alias) {
-        candidates.push({ habit, type: 'alias', confidence: 0.95 });
+        pushCandidate(habit, 'alias', 0.95);
         break;
       }
       if (hintLower.includes(alias) || alias.includes(hintLower)) {
-        candidates.push({ habit, type: 'alias', confidence: 0.8 });
+        pushCandidate(habit, 'alias', 0.8);
         break;
       }
     }
     
     // 3. Substring match
     if (nameLower.includes(hintLower)) {
-      candidates.push({ habit, type: 'substring', confidence: 0.85 * hintLower.length / nameLower.length });
+      pushCandidate(habit, 'substring', 0.85 * hintLower.length / nameLower.length);
       continue;
     }
     if (hintLower.includes(nameLower)) {
-      candidates.push({ habit, type: 'substring', confidence: 0.75 });
+      pushCandidate(habit, 'substring', 0.75);
       continue;
     }
     
@@ -150,7 +182,7 @@ function resolveHabit(
     if (prefixLen >= 4 && prefixLen >= minLen * 0.7) {
       // Strong prefix match - likely same root word
       const confidence = 0.9 * (prefixLen / Math.max(hintLower.length, nameLower.length));
-      candidates.push({ habit, type: 'stem', confidence: Math.max(confidence, 0.85) });
+      pushCandidate(habit, 'stem', Math.max(confidence, 0.85));
       continue;
     }
     
@@ -185,9 +217,28 @@ function resolveHabit(
     }
     
     if (bestWordMatch) {
-      candidates.push({ habit, type: bestWordMatch.type, confidence: bestWordMatch.confidence });
+      pushCandidate(habit, bestWordMatch.type, bestWordMatch.confidence);
+    }
+
+    if (normalizedIntentUnit !== 'count' && habitUnit === normalizedIntentUnit) {
+      const existing = candidateMap.get(habit.id);
+      if (existing) {
+        pushCandidate(habit, `${existing.type}+unit`, Math.min(existing.confidence + 0.18, 0.99));
+      } else {
+        pushCandidate(habit, 'unit', 0.55);
+      }
+    }
+
+    if (
+      normalizedIntentUnit === 'steps' &&
+      habitUnit === 'steps' &&
+      STEP_RELATED_HINTS.has(hintLower)
+    ) {
+      pushCandidate(habit, 'unit_semantic', 0.98);
     }
   }
+
+  const candidates = Array.from(candidateMap.values());
   
   // Sort by confidence
   candidates.sort((a, b) => b.confidence - a.confidence);
@@ -465,7 +516,7 @@ Non-trackable input →
     const resolvedIntents: ResolvedIntent[] = [];
     
     for (const intent of parsed.intents) {
-      const resolution = resolveHabit(intent.habit_hint, userHabits, aliasesMap);
+      let resolution = resolveHabit(intent.habit_hint, userHabits, aliasesMap, intent.unit);
       
       // Check unit compatibility
       let unitCompat: ReturnType<typeof checkUnitCompatibility> = { compatible: true };
@@ -478,6 +529,31 @@ Non-trackable input →
           if (unitCompat.compatible && intent.unit) {
             const converted = convertValue(intent.value, intent.unit, habit.unit_type);
             convertedValue = converted.value;
+          }
+        }
+      }
+
+      if (!unitCompat.compatible && intent.unit) {
+        const compatibleHabits = userHabits.filter(
+          (habit) => normalizeUnit(habit.unit_type) === normalizeUnit(intent.unit)
+        );
+
+        if (compatibleHabits.length > 0) {
+          const compatibleResolution = resolveHabit(
+            intent.habit_hint,
+            compatibleHabits,
+            aliasesMap,
+            intent.unit
+          );
+
+          if (compatibleResolution.habit_id) {
+            resolution = compatibleResolution;
+            const compatibleHabit = compatibleHabits.find((habit) => habit.id === compatibleResolution.habit_id);
+            unitCompat = { compatible: true };
+            if (compatibleHabit?.unit_type && intent.value !== null && intent.unit) {
+              const converted = convertValue(intent.value, intent.unit, compatibleHabit.unit_type);
+              convertedValue = converted.value;
+            }
           }
         }
       }
