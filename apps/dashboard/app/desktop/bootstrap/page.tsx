@@ -43,5 +43,5 @@ export default async function DesktopBootstrapPage({
   }
 
   const redirectTarget = targetParams.toString() ? `/?${targetParams.toString()}` : '/';
-  redirect(`/sign-in?redirect_url=${encodeURIComponent(redirectTarget)}`);
+  redirect(redirectTarget);
 }

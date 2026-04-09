@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useSignIn, useSignUp, useUser } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { clearSignUpIntent, markSignUpIntent } from '@/lib/onboarding-flow';
 
 type DesktopOAuthMode = 'sign_in' | 'sign_up';
 type DesktopOAuthStrategy = 'oauth_google' | 'oauth_apple';
@@ -64,6 +65,12 @@ function DesktopStartOAuthInner() {
     const run = async () => {
       try {
         startedRef.current = true;
+
+        if (parsed.mode === 'sign_up') {
+          markSignUpIntent();
+        } else {
+          clearSignUpIntent();
+        }
 
         if (!userLoaded) {
           startedRef.current = false;

@@ -1,6 +1,7 @@
 export const ONBOARDING_COMPLETED_KEY = 'ritual-onboarding-completed';
 export const ONBOARDING_BACKEND_COMPLETED_KEY = 'ritual-onboarding-backend-completed';
 export const FROM_WELCOME_KEY = 'ritual-from-welcome';
+export const SIGN_UP_INTENT_KEY = 'ritual-sign-up-intent';
 export const PERMISSIONS_ONBOARDING_REQUIRED_KEY = 'ritual-permissions-onboarding-required';
 export const PERMISSIONS_ONBOARDING_COMPLETED_KEY = 'ritual-permissions-onboarding-completed';
 export const DEVICE_AUTHENTICATED_KEY = 'ritual-device-authenticated';
@@ -80,6 +81,18 @@ export function markFromWelcomeFlow(): void {
 
 export function clearFromWelcomeFlow(): void {
   removeSessionFlag(FROM_WELCOME_KEY);
+}
+
+export function hasPendingSignUpIntent(): boolean {
+  return readSessionFlag(SIGN_UP_INTENT_KEY);
+}
+
+export function markSignUpIntent(): void {
+  writeSessionFlag(SIGN_UP_INTENT_KEY);
+}
+
+export function clearSignUpIntent(): void {
+  removeSessionFlag(SIGN_UP_INTENT_KEY);
 }
 
 export function markDeviceAuthenticated(): void {

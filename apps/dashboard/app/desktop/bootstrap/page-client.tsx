@@ -124,9 +124,8 @@ export function DesktopBootstrapClient({
 
     setIsNavigating(true);
     const timer = window.setTimeout(() => {
-      const nextTarget = new URL('/sign-in', window.location.origin);
-      nextTarget.searchParams.set('redirect_url', targetPath);
-      void recordDesktopShellEvent('desktop.bootstrap.redirect_sign_in', 'info', {
+      const nextTarget = new URL(targetPath, window.location.origin);
+      void recordDesktopShellEvent('desktop.bootstrap.redirect_home', 'info', {
         targetPath,
         redirectUrl: `${nextTarget.pathname}${nextTarget.search}`,
       });

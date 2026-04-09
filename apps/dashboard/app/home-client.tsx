@@ -16,6 +16,7 @@ import {
   hasCompletedBackendOnboarding,
   hasCompletedOnboarding,
   hasDeviceAuthenticated,
+  hasPendingSignUpIntent,
   markDeviceAuthenticated,
   markFromWelcomeFlow,
   markOnboardingCompleted,
@@ -111,11 +112,12 @@ export function HomeClient() {
     }
 
     const hasSeenWelcome = hasDeviceAuthenticated();
+    const hasExplicitWelcomeIntent = Boolean(pageParam) || authMode === 'signup' || hasPendingSignUpIntent();
     
     // Not signed in
     if (!isSignedIn) {
       // New user - show welcome flow
-      if (!hasSeenWelcome) {
+      if (!hasSeenWelcome || hasExplicitWelcomeIntent) {
         setIsNewUser(true);
         return;
       }
@@ -199,7 +201,7 @@ export function HomeClient() {
     };
 
     checkAndRedirect();
-  }, [isSignedIn, isLoaded, user, getToken, router]);
+  }, [authMode, getToken, isLoaded, isSignedIn, pageParam, router, user]);
 
   // Handle signed in users during welcome flow
   useEffect(() => {

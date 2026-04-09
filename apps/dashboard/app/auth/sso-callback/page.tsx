@@ -8,8 +8,10 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import {
   cameFromWelcomeFlow,
   clearFromWelcomeFlow,
+  clearSignUpIntent,
   getPostOnboardingRoute,
   hasCompletedOnboarding,
+  hasPendingSignUpIntent,
   markDeviceAuthenticated,
   markOnboardingCompleted,
 } from '@/lib/onboarding-flow'
@@ -38,12 +40,19 @@ export default function SSOCallback() {
 
         // Check if user came from welcome flow (new user signup)
         const isFromWelcome = cameFromWelcomeFlow()
+        const hasSignUpIntent = hasPendingSignUpIntent()
+        const isRecentlyCreatedUser = user.createdAt
+          ? (Date.now() - user.createdAt.getTime()) < 10 * 60 * 1000
+          : false
         // Check if user has previously completed onboarding (client-side flag)
         const hasCompletedOnboardingLocally = hasCompletedOnboarding(user.id)
         
         // Always clean up the welcome flag
         if (isFromWelcome) {
           clearFromWelcomeFlow()
+        }
+        if (hasSignUpIntent) {
+          clearSignUpIntent()
         }
 
         // FAST PATH: If user has completed onboarding locally, go straight to dashboard
@@ -121,9 +130,9 @@ export default function SSOCallback() {
             // Only redirect to onboarding if:
             // 1. User came from welcome flow (new signup), OR
             // 2. User has never completed onboarding locally
-            if (isFromWelcome) {
+            if (isFromWelcome || hasSignUpIntent || isRecentlyCreatedUser) {
               setStatus('Setting up your profile...')
-              devLog('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
+              devLog('[SSO Callback] Redirecting to onboarding - detected new sign-up flow')
               router.replace('/onboarding')
             } else {
               // Returning user but backend shows incomplete - could be DB issue
@@ -135,7 +144,7 @@ export default function SSOCallback() {
           }
         } else {
           // Profile doesn't exist or fetch failed
-          if (isFromWelcome) {
+          if (isFromWelcome || hasSignUpIntent || isRecentlyCreatedUser) {
             // New user from welcome flow - go to onboarding
             setStatus('Setting up your profile...')
             devLog('[SSO Callback] No profile yet, new user - redirecting to onboarding')

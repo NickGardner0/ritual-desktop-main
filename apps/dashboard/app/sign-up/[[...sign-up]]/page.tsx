@@ -1,6 +1,7 @@
 import { SignUp } from "@clerk/nextjs";
 import { headers } from 'next/headers';
 
+import { AuthFlowIntent } from '@/components/auth-flow-intent';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
 
 function isDesktopUserAgent(userAgent: string): boolean {
@@ -15,6 +16,7 @@ export default async function SignUpPage() {
     return (
         <div className="min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
             <div className="w-full max-w-md">
+                <AuthFlowIntent mode="sign_up" />
                 {isDesktopApp ? <ClerkOAuthHandler mode="sign_up" /> : null}
                 <div className="flex justify-center">
                     <SignUp
