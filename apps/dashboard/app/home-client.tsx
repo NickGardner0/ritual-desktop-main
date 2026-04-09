@@ -347,7 +347,7 @@ export function HomeClient() {
   if (isNewUser) {
     return (
       <div className="min-h-screen bg-white flex flex-col relative welcome-page" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
-        <ClerkOAuthHandler />
+        <ClerkOAuthHandler enabled={currentPage === 3} mode={showSignUp ? 'sign_up' : 'sign_in'} />
         <style jsx global>{`
           .welcome-page [class*="user"], 
           .welcome-page [class*="profile"],
