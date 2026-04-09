@@ -62,7 +62,9 @@ function DesktopOAuthBridgePageInner() {
         const ticket = await createDesktopSignInTicket();
         const nextDeepLink = buildDeepLink(ticket);
         setDeepLinkHref(nextDeepLink);
-        window.location.href = nextDeepLink;
+        window.setTimeout(() => {
+          window.location.href = nextDeepLink;
+        }, 120);
       } catch (ticketError) {
         startedRef.current = false;
         setError(ticketError instanceof Error ? ticketError.message : 'Failed to return to Ritual.');

@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
-import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { isTauri } from '@/lib/tauri-utils';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';
@@ -75,7 +74,6 @@ export function DesktopAuthDeepLinkBridge() {
           }
         });
 
-        await desktopFrontendReady();
       })
       .catch((error) => {
         void recordDesktopShellEvent('desktop.auth_deep_link.listener_failed', 'warn', {

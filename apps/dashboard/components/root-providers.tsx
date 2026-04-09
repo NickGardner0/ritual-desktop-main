@@ -11,6 +11,7 @@ import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
 import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
+import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 
 /**
@@ -60,6 +61,21 @@ export function RootProviders({ children }: { children: ReactNode }) {
     }, 50);
     return () => clearTimeout(timer);
   }, [isDesktopShell, isDesktopBootstrap, pathname]);
+
+  useEffect(() => {
+    if (!isDesktopShell || isDesktopBootstrap) {
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('ritual_sidebar_window') === '1') {
+        return;
+      }
+    }
+
+    void desktopFrontendReady();
+  }, [isDesktopBootstrap, isDesktopShell]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
