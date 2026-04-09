@@ -484,19 +484,19 @@ const IntegrationCard = memo(({
   onDetails?: () => void
   extraActions?: React.ReactNode
 }) => (
-  <div className="bg-white border border-gray-300 p-4 flex flex-col h-[248px] rounded-sm">
-    <div className="h-10 mb-2 flex items-start">
+  <div className="bg-white border border-gray-300 px-3.5 py-3 flex flex-col h-[224px] rounded-sm">
+    <div className="mb-1.5 flex h-8 items-center [&>*]:max-h-7 [&>*]:w-auto [&_img]:max-h-7 [&_img]:w-auto">
       {logo}
     </div>
     <div className="flex items-center mb-1">
-      <h3 className="text-sm font-medium">{title}</h3>
+      <h3 className="text-[15px] leading-5 font-medium">{title}</h3>
       {comingSoon && (
-        <span className="ml-2 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">Coming soon</span>
+        <span className="ml-2 text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">Coming soon</span>
       )}
     </div>
     <p
       className={cn(
-        'text-gray-500 text-xs mb-3 flex-grow',
+        'text-[12px] leading-[1.35] text-gray-500 mb-2.5 flex-grow',
         descriptionLineClamp === 4 && 'line-clamp-4',
         descriptionLineClamp === 3 && 'line-clamp-3',
         descriptionLineClamp === 2 && 'line-clamp-2'
@@ -506,25 +506,25 @@ const IntegrationCard = memo(({
     </p>
 
     {details ? (
-      <div className="mb-3">
+      <div className="mb-2.5">
         {details}
       </div>
     ) : null}
 
-    <div className="flex items-center gap-2 mt-auto">
+    <div className="mt-auto flex items-center gap-1.5">
       {isStatusLoading ? (
         <>
           <button
             type="button"
             disabled
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm text-gray-500 bg-[#F8F8F8] cursor-default"
+            className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm text-gray-500 bg-[#F8F8F8] cursor-default"
           >
             Checking...
           </button>
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
             >
               Details
             </button>
@@ -544,7 +544,7 @@ const IntegrationCard = memo(({
             <button
               onClick={onSync}
               disabled={isSyncing}
-              className="px-3 py-1.5 text-sm whitespace-nowrap border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
+              className="px-2.5 py-1.5 text-[13px] whitespace-nowrap border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
             >
               {isSyncing ? (
                 <>
@@ -559,7 +559,7 @@ const IntegrationCard = memo(({
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900"
+              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900"
             >
               Details
             </button>
@@ -570,14 +570,14 @@ const IntegrationCard = memo(({
         <>
           <button
             type="button"
-            className="px-3 py-1.5 text-sm bg-black text-white rounded-sm"
+            className="px-2.5 py-1.5 text-[13px] bg-black text-white rounded-sm"
           >
             Connect
           </button>
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
             >
               Details
             </button>
@@ -590,8 +590,8 @@ const IntegrationCard = memo(({
             disabled={isConnecting}
             className={
               connectVariant === 'outline'
-                ? "px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
-                : "px-3 py-1.5 text-sm bg-black text-white rounded-sm disabled:opacity-50"
+                ? "px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
+                : "px-2.5 py-1.5 text-[13px] bg-black text-white rounded-sm disabled:opacity-50"
             }
           >
             {isConnecting ? (
@@ -606,7 +606,7 @@ const IntegrationCard = memo(({
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
             >
               Details
             </button>
@@ -2768,7 +2768,7 @@ export function IntegrationsClient() {
         <h1 className="text-lg font-medium">Integrations</h1>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         {/* Computer Use Card - Only show on desktop (Tauri) */}
         {isTauri() && (
           <IntegrationCard

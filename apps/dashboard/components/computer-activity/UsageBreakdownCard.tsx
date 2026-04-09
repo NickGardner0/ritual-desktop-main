@@ -106,16 +106,20 @@ export function UsageBreakdownCard({
         <div className="flex items-start gap-2">
           <div className="mt-0.5 text-gray-400">
             {isApp ? (
-              <AppIcon appName={label} bundleId={itemKey} className="w-4 h-4 rounded" />
+              <div className="flex h-4 w-4 items-center justify-center">
+                <AppIcon appName={label} bundleId={itemKey} className="h-3.5 w-3.5 rounded" />
+              </div>
             ) : (
-              <img
-                src={`https://www.google.com/s2/favicons?domain=${label}&sz=64`}
-                alt=""
-                className="w-4 h-4 rounded"
-                onError={(e) => {
-                  e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
-                }}
-              />
+              <div className="flex h-4 w-4 items-center justify-center">
+                <img
+                  src={`https://www.google.com/s2/favicons?domain=${label}&sz=64`}
+                  alt=""
+                  className="h-3.5 w-3.5 rounded object-contain"
+                  onError={(e) => {
+                    e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
+                  }}
+                />
+              </div>
             )}
           </div>
           <div>

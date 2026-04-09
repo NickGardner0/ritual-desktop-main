@@ -610,9 +610,9 @@
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile {
-    background: #3d3b30 !important;
-    background-color: #3d3b30 !important;
-    color: #ffffff !important;
+    background: #DBDAD7 !important;
+    background-color: #DBDAD7 !important;
+    color: #3d3b30 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider,
