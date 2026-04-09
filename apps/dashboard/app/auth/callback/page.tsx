@@ -1,36 +1,52 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { AuthenticateWithRedirectCallback } from '@clerk/nextjs';
+import { AuthenticateWithRedirectCallback, useSignIn } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 type CallbackState =
   | { status: 'preparing'; message: string }
-  | { status: 'ready' }
+  | { status: 'redirect'; normalizedUrl: string }
+  | { status: 'ticket'; normalizedUrl: string; ticket: string }
   | { status: 'error'; message: string };
 
-function normalizeDeepLinkQuery(rawDeepLink: string | null): CallbackState {
-  if (!rawDeepLink) {
-    return { status: 'ready' };
-  }
-
+function parseCallbackState(searchParams: URLSearchParams, rawDeepLink: string | null): CallbackState {
   try {
-    const deepLinkUrl = new URL(decodeURIComponent(rawDeepLink));
+    const normalizedParams = new URLSearchParams();
 
-    if (deepLinkUrl.protocol !== 'ritual:') {
-      return {
-        status: 'error',
-        message: `Unexpected deep link protocol: ${deepLinkUrl.protocol}`,
-      };
+    if (rawDeepLink) {
+      const deepLinkUrl = new URL(decodeURIComponent(rawDeepLink));
+
+      if (deepLinkUrl.protocol !== 'ritual:') {
+        return {
+          status: 'error',
+          message: `Unexpected deep link protocol: ${deepLinkUrl.protocol}`,
+        };
+      }
+
+      deepLinkUrl.searchParams.forEach((value, key) => {
+        normalizedParams.append(key, value);
+      });
+    } else {
+      searchParams.forEach((value, key) => {
+        if (key !== 'deepLink') {
+          normalizedParams.append(key, value);
+        }
+      });
     }
 
-    const normalizedQuery = deepLinkUrl.searchParams.toString();
+    const normalizedQuery = normalizedParams.toString();
     const normalizedUrl = normalizedQuery ? `/auth/callback?${normalizedQuery}` : '/auth/callback';
-    window.history.replaceState({}, '', normalizedUrl);
-    return { status: 'ready' };
+    const ticket = normalizedParams.get('ticket');
+
+    if (ticket) {
+      return { status: 'ticket', normalizedUrl, ticket };
+    }
+
+    return { status: 'redirect', normalizedUrl };
   } catch (error) {
     return {
       status: 'error',
@@ -83,6 +99,50 @@ function AuthCallbackError({ message }: { message: string }) {
   );
 }
 
+function TicketCallback({ ticket }: { ticket: string }) {
+  const { isLoaded, signIn, setActive } = useSignIn();
+  const startedRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoaded || startedRef.current) {
+      return;
+    }
+
+    startedRef.current = true;
+
+    const run = async () => {
+      try {
+        const attempt = await signIn.create({
+          strategy: 'ticket',
+          ticket,
+        });
+
+        if (!attempt.createdSessionId) {
+          throw new Error('Desktop sign-in completed without creating a Clerk session.');
+        }
+
+        await setActive({
+          session: attempt.createdSessionId,
+        });
+
+        window.location.replace('/auth/sso-callback');
+      } catch (ticketError) {
+        startedRef.current = false;
+        setError(ticketError instanceof Error ? ticketError.message : 'Failed to activate desktop session.');
+      }
+    };
+
+    void run();
+  }, [isLoaded, setActive, signIn, ticket]);
+
+  if (error) {
+    return <AuthCallbackError message={error} />;
+  }
+
+  return <AuthCallbackLoader message="Completing desktop sign-in…" />;
+}
+
 function AuthCallbackPageInner() {
   const searchParams = useSearchParams();
   const deepLink = useMemo(() => searchParams.get('deepLink'), [searchParams]);
@@ -92,15 +152,27 @@ function AuthCallbackPageInner() {
   });
 
   useEffect(() => {
-    setCallbackState(normalizeDeepLinkQuery(deepLink));
-  }, [deepLink]);
+    setCallbackState(parseCallbackState(new URLSearchParams(searchParams.toString()), deepLink));
+  }, [deepLink, searchParams]);
+
+  useEffect(() => {
+    if (callbackState.status === 'redirect' || callbackState.status === 'ticket') {
+      if (window.location.pathname + window.location.search !== callbackState.normalizedUrl) {
+        window.history.replaceState({}, '', callbackState.normalizedUrl);
+      }
+    }
+  }, [callbackState]);
 
   if (callbackState.status === 'error') {
     return <AuthCallbackError message={callbackState.message} />;
   }
 
-  if (callbackState.status !== 'ready') {
+  if (callbackState.status === 'preparing') {
     return <AuthCallbackLoader message={callbackState.message} />;
+  }
+
+  if (callbackState.status === 'ticket') {
+    return <TicketCallback ticket={callbackState.ticket} />;
   }
 
   return (

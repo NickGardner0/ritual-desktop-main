@@ -1,25 +1,106 @@
 'use client'
 
-import { Suspense, useEffect, useMemo } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useUser } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
-function buildDeepLink(searchParams: URLSearchParams): string {
-  const copiedParams = new URLSearchParams(searchParams.toString());
-  return copiedParams.toString()
-    ? `ritual://auth/callback?${copiedParams.toString()}`
-    : 'ritual://auth/callback';
+function buildDeepLink(ticket: string): string {
+  const params = new URLSearchParams();
+  params.set('ticket', ticket);
+  return `ritual://auth/callback?${params.toString()}`;
+}
+
+async function createDesktopSignInTicket(): Promise<string> {
+  const response = await fetch('/api/auth/desktop-sign-in-token', {
+    method: 'POST',
+    credentials: 'include',
+    cache: 'no-store',
+  });
+
+  const payload = await response.json().catch(() => ({})) as { ticket?: string; error?: string };
+
+  if (!response.ok || !payload.ticket) {
+    throw new Error(payload.error || 'Failed to create desktop sign-in handoff.');
+  }
+
+  return payload.ticket;
 }
 
 function DesktopOAuthBridgePageInner() {
   const searchParams = useSearchParams();
-  const deepLink = useMemo(() => buildDeepLink(searchParams), [searchParams]);
+  const { isLoaded, user } = useUser();
+  const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
+  const providerError = useMemo(
+    () => searchParams.get('error_description') || searchParams.get('error'),
+    [searchParams],
+  );
 
   useEffect(() => {
-    window.location.replace(deepLink);
-  }, [deepLink]);
+    if (startedRef.current || !isLoaded) {
+      return;
+    }
+
+    if (!user) {
+      if (providerError) {
+        setError(providerError);
+        return;
+      }
+
+      setError('Browser sign-in completed without an authenticated Ritual session.');
+      return;
+    }
+
+    startedRef.current = true;
+
+    const run = async () => {
+      try {
+        const ticket = await createDesktopSignInTicket();
+        window.location.replace(buildDeepLink(ticket));
+      } catch (ticketError) {
+        startedRef.current = false;
+        setError(ticketError instanceof Error ? ticketError.message : 'Failed to return to Ritual.');
+      }
+    };
+
+    void run();
+  }, [isLoaded, providerError, user]);
+
+  if (error) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-white px-6">
+        <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-red-50 p-8 text-[#1d1a16] shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-700">
+            Ritual Desktop Auth
+          </p>
+          <h1 className="mt-4 text-2xl font-medium tracking-[-0.02em]">
+            Ritual could not finish browser sign-in.
+          </h1>
+          <p className="mt-4 text-sm leading-6 text-red-900">
+            {error}
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <button
+              type="button"
+              className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </button>
+            <Link
+              href="/sign-in"
+              className="rounded-sm border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900"
+            >
+              Back to sign-in
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-white px-6">
@@ -31,20 +112,6 @@ function DesktopOAuthBridgePageInner() {
         <p className="mt-3 text-sm leading-6 text-gray-600">
           Your browser finished Apple or Google sign-in. Ritual should reopen automatically to complete authentication.
         </p>
-        <div className="mt-6 flex justify-center gap-3">
-          <a
-            href={deepLink}
-            className="rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
-          >
-            Open Ritual
-          </a>
-          <Link
-            href="/desktop-only"
-            className="rounded-sm border border-gray-300 px-4 py-2 text-sm font-medium text-gray-900"
-          >
-            Need help?
-          </Link>
-        </div>
       </div>
     </main>
   );

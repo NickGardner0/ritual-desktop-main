@@ -10,6 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/data-retention(.*)',
   '/auth/desktop-start-oauth(.*)',
   '/auth/desktop-oauth-bridge(.*)',
+  '/api/auth/desktop-sign-in-token(.*)',
   '/api/integrations/whoop/callback(.*)',
   '/api/integrations/whoop/store-code(.*)',
   '/api/sendblue/webhook(.*)',

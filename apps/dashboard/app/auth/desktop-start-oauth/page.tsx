@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useSignIn, useSignUp } from '@clerk/nextjs';
+import { useSignIn, useSignUp, useUser } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
@@ -18,10 +18,15 @@ function isValidStrategy(value: string | null): value is DesktopOAuthStrategy {
   return value === 'oauth_google' || value === 'oauth_apple';
 }
 
+function buildDesktopOAuthBridgeUrl(): string {
+  return new URL('/auth/desktop-oauth-bridge', window.location.origin).toString();
+}
+
 function DesktopStartOAuthInner() {
   const searchParams = useSearchParams();
   const { isLoaded: signInLoaded, signIn } = useSignIn();
   const { isLoaded: signUpLoaded, signUp } = useSignUp();
+  const { isLoaded: userLoaded, user } = useUser();
   const startedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +65,16 @@ function DesktopStartOAuthInner() {
       try {
         startedRef.current = true;
 
+        if (!userLoaded) {
+          startedRef.current = false;
+          return;
+        }
+
+        if (user) {
+          window.location.replace(buildDesktopOAuthBridgeUrl());
+          return;
+        }
+
         if (parsed.mode === 'sign_in') {
           if (!signInLoaded || !signIn) {
             startedRef.current = false;
@@ -82,7 +97,7 @@ function DesktopStartOAuthInner() {
     };
 
     void run();
-  }, [parsed, signInLoaded, signIn, signUpLoaded, signUp]);
+  }, [parsed, signInLoaded, signIn, signUpLoaded, signUp, userLoaded, user]);
 
   if ('error' in parsed || error) {
     const message = error ?? parsed.error;
@@ -126,7 +141,7 @@ function DesktopStartOAuthInner() {
           Opening {parsed.providerLabel} sign-in…
         </h1>
         <p className="mt-3 text-sm leading-6 text-gray-600">
-          Your default browser is starting the secure {parsed.providerLabel} OAuth flow for Ritual.
+          Your default browser is preparing the secure {parsed.providerLabel} sign-in flow for Ritual.
         </p>
       </div>
     </main>
