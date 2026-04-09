@@ -80,6 +80,31 @@ export interface WeeklyOverviewPayload {
 }
 
 // ---------------------------------------------------------------------------
+// Shared narrative prompt
+// ---------------------------------------------------------------------------
+
+const NARRATIVE_SYSTEM_PROMPT = [
+  'You write high-quality, comprehensive personal activity recaps from structured data.',
+  'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain the period — go beyond restating numbers.',
+  '',
+  'Structure: 1 opening paragraph (2-3 sentences setting the tone for the period), then 4 sections with bold titles on their own lines, then 1 closing paragraph (2-3 sentences).',
+  '',
+  'Required sections (use these exact titles):',
+  '**Rhythm** — Describe consistency patterns. Which habits were logged most reliably? How did sleep track? Compare logging frequency across habits. 3-4 sentences.',
+  '**Standout Days** — Identify the 2-3 most notable days and explain what made them stand out. Reference specific dates, values, and habit names. What was the peak day for each major habit? 3-4 sentences.',
+  '**Computer Use** — Break down digital time: average daily hours, which apps and websites dominated, how usage varied across the period. Mention at least 2 apps or websites by name with their hours. 3-4 sentences.',
+  '**What Shifted** — Describe how habits changed over the period. Did anything trend up or down? Were there gaps in logging? Compare the beginning vs end of the period. Connect habits to each other where patterns align (e.g., high caffeine on heavy computer days). 3-4 sentences.',
+  '',
+  'The closing paragraph should synthesize: what was the defining characteristic of this period, what one thing could improve, and what pattern is worth watching next period. Be direct and specific — no platitudes.',
+  '',
+  'Every section must include at least 2 concrete anchors: dates, numbers, habit names, app names, or websites.',
+  'Be detailed and specific. Use actual numbers from the data. Name specific days of the week.',
+  'Do not use phrases like "notable", "particularly", "overall", "likely", "may have", "suggests", "illustrates", or "demonstrated".',
+  'Do not moralize or give generic coaching advice. Do not mention tables, payloads, or analytics.',
+  'Target 350-450 words for weekly recaps, 400-500 words for monthly recaps.',
+].join('\n');
+
+// ---------------------------------------------------------------------------
 // Private formatting helpers
 // ---------------------------------------------------------------------------
 
@@ -433,23 +458,11 @@ export async function generateWeeklyOverviewNarrative(
     const response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.5,
-      max_tokens: 350,
+      max_tokens: 600,
       messages: [
         {
           role: 'system',
-          content: [
-            'You write high-quality personal activity recaps from structured data.',
-            'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain the period cleanly.',
-            'Use this exact structure: 1 short opening sentence, then 2 to 4 sections with bold titles on their own lines, then 1 short closing line.',
-            'Each section body should usually be 2 short sentences when the evidence supports it, not a long paragraph.',
-            'Preferred section titles are: **Rhythm**, **Standout Days**, **Computer Use**, **What Shifted**. Skip a section if the evidence is thin.',
-            'Every section must include at least one concrete anchor: a date, number, habit name, app name, or website.',
-            'In at least 2 sections, include a secondary concrete detail instead of stopping after the first metric.',
-            'Be crisp and specific. Avoid filler, coaching, and abstraction.',
-            'Do not use phrases like "notable ebb and flow", "particularly", "overall", "likely", "may have", "suggests", or "illustrates".',
-            'Do not moralize. Do not speculate beyond the data. Do not mention tables, payloads, or analytics.',
-            'Keep the whole response under 260 words unless the period is monthly, then stay under 320 words.',
-          ].join(' '),
+          content: NARRATIVE_SYSTEM_PROMPT,
         },
         {
           role: 'user',
@@ -488,24 +501,12 @@ export async function* streamWeeklyOverviewNarrative(
     const stream = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.5,
-      max_tokens: 350,
+      max_tokens: 600,
       stream: true,
       messages: [
         {
           role: 'system',
-          content: [
-            'You write high-quality personal activity recaps from structured data.',
-            'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain the period cleanly.',
-            'Use this exact structure: 1 short opening sentence, then 2 to 4 sections with bold titles on their own lines, then 1 short closing line.',
-            'Each section body should usually be 2 short sentences when the evidence supports it, not a long paragraph.',
-            'Preferred section titles are: **Rhythm**, **Standout Days**, **Computer Use**, **What Shifted**. Skip a section if the evidence is thin.',
-            'Every section must include at least one concrete anchor: a date, number, habit name, app name, or website.',
-            'In at least 2 sections, include a secondary concrete detail instead of stopping after the first metric.',
-            'Be crisp and specific. Avoid filler, coaching, and abstraction.',
-            'Do not use phrases like "notable ebb and flow", "particularly", "overall", "likely", "may have", "suggests", or "illustrates".',
-            'Do not moralize. Do not speculate beyond the data. Do not mention tables, payloads, or analytics.',
-            'Keep the whole response under 260 words unless the period is monthly, then stay under 320 words.',
-          ].join(' '),
+          content: NARRATIVE_SYSTEM_PROMPT,
         },
         {
           role: 'user',

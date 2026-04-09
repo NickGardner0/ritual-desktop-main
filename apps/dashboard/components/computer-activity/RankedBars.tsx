@@ -257,7 +257,7 @@ export function RankedBars({
             <Row
               key={item.key}
               type={isInteractive ? 'button' : undefined}
-              className={`group grid w-full grid-cols-[16px_24px_minmax(0,1fr)_84px_60px] items-center gap-3 rounded-sm px-2 py-1.5 text-left transition-colors ${
+              className={`group grid w-full grid-cols-[16px_minmax(0,1fr)_84px_60px] items-center gap-3 rounded-sm px-2 py-1.5 text-left transition-colors ${
                 isInteractive ? 'cursor-pointer appearance-none bg-transparent border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-default'
               } ${isSelected ? 'bg-[rgba(39,37,30,0.05)]' : 'hover:bg-[rgba(39,37,30,0.04)]'}`}
               aria-expanded={isInteractive ? isSelected : undefined}
@@ -269,32 +269,6 @@ export function RankedBars({
                 {index + 1}
               </span>
 
-              {/* App/Domain icon */}
-              {!showIcons ? (
-                <div className={iconSlotClassName}>
-                  <div className="h-4 w-4 rounded-sm bg-[rgba(39,37,30,0.06)]" />
-                </div>
-              ) : type === 'domains' ? (
-                <div className={iconSlotClassName}>
-                  <img
-                    src={`https://www.google.com/s2/favicons?domain=${item.label}&sz=64`}
-                    alt=""
-                    className="h-4 w-4 rounded-sm object-contain"
-                    onError={(e) => {
-                      e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%239ca3af" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
-                    }}
-                  />
-                </div>
-              ) : (
-                <div className={iconSlotClassName}>
-                  <AppIcon
-                    appName={item.label}
-                    bundleId={item.key}
-                    className="h-4 w-4 rounded-sm"
-                  />
-                </div>
-              )}
-              
               <span className="min-w-0 truncate text-[13px] text-[rgba(39,37,30,0.82)]">
                 {item.label}
               </span>

@@ -233,7 +233,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
 
     // Add formatting instruction so the LLM writes a concise narrative
     // instead of dumping all the raw data
-    (payload as any).__response_instructions = `IMPORTANT: The side panel already shows the raw tables and numbers. Your text response should be a useful recap, not a stat dump. Write a concise but substantive narrative (4-6 sentences). Explain the week's shape: what was most consistent, what looked less consistent, what recovery looked like if sleep exists, and what the computer/app pattern suggests. Mention only a few specific numbers that support your take. Do NOT list every habit with totals or averages. Write like an observant coach explaining what the week meant, not a reporting script.`;
+    (payload as any).__response_instructions = `IMPORTANT: The side panel already shows the raw tables and numbers. Your text response should be a comprehensive, detailed recap — not a stat dump and not a brief summary. Write a structured narrative with sections (Rhythm, Standout Days, Computer Use, What Shifted) using bold headings. Each section should be 3-4 sentences with specific dates, numbers, app names, and habit names. Include a 2-3 sentence opening and a 2-3 sentence closing that synthesizes the period. Target 350-450 words. Be specific and direct — avoid generic statements like "strong habits" or "productive week". Every claim must reference actual data.`;
 
     return JSON.stringify(payload);
   } catch (error) {

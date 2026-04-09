@@ -11,6 +11,7 @@ import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
 import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { isTauri } from '@/lib/tauri-utils';
+import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -154,7 +155,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const nativeVoiceAutoStopRef = useRef<number | null>(null);
   const nativeVoiceFinalizeTimeoutRef = useRef<number | null>(null);
   const nativeVoiceTimestampRef = useRef(0);
-  const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
+  const voiceInputModeRef = useRef<'native' | 'whisper' | 'deepgram' | null>(null);
   // Mirror of partialTranscript readable from stale closures.
   const partialTranscriptRef = useRef<string | null>(null);
   // Audio-level silence detector state
@@ -893,12 +894,60 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   // Swift path, actually lets us do audio-level VAD because we own the mic.
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
+  const deepgramVoicePreferred =
+    (process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'deepgram') === 'deepgram';
+
+  const {
+    start: startDeepgramDictation,
+    stop: stopDeepgramDictation,
+    isSupported: deepgramSupported,
+  } = useDeepgramDictation({
+    language: 'en-US',
+    model: 'nova-3',
+    punctuate: false,
+    smartFormat: false,
+    numerals: true,
+    endpointingMs: 350,
+    utteranceEndMs: 1000,
+    maxDurationMs: 15000,
+    keyterms: [
+      'Ritual',
+      'coding',
+      'computer time',
+      'screen time',
+      'caffeine',
+      'nicotine',
+      'sleep',
+      'workout',
+      'reading',
+      'spending',
+      'heart rate',
+      'steps',
+      'car miles',
+      'pages',
+      'miles',
+    ],
+    onAudioStreamChange: setAudioStream,
+    onListeningChange: setIsListening,
+    onProcessingChange: setIsProcessingVoice,
+    onInterimTranscriptChange: (text) => {
+      partialTranscriptRef.current = text;
+      setPartialTranscript(text);
+    },
+    onFinalTranscript: (text) => {
+      partialTranscriptRef.current = null;
+      setPartialTranscript(null);
+      setInput(normalizeLoggerVoiceTranscript(text));
+      setTimeout(() => textareaRef.current?.focus(), 100);
+    },
+    onError: setError,
+  });
 
   const startWhisperRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
-    voiceInputModeRef.current = 'browser';
+    voiceInputModeRef.current = 'whisper';
     setAudioStream(stream);
 
     let mimeType = '';
@@ -1038,6 +1087,18 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     setError(null);
 
+    if (deepgramVoicePreferred && deepgramSupported) {
+      try {
+        voiceInputModeRef.current = 'deepgram';
+        await startDeepgramDictation();
+        return;
+      } catch {
+        voiceInputModeRef.current = null;
+        setIsListening(false);
+        setIsProcessingVoice(false);
+      }
+    }
+
     // Tauri: prefer MediaRecorder + Whisper when the flag is on and the runtime
     // supports it. Fall back to the native Swift path on any failure.
     if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
@@ -1080,6 +1141,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   };
 
   const stopVoiceRecording = () => {
+    if (voiceInputModeRef.current === 'deepgram') {
+      stopDeepgramDictation();
+      voiceInputModeRef.current = null;
+      return;
+    }
+
     if (voiceInputModeRef.current === 'native') {
       if (nativeVoiceAutoStopRef.current) {
         clearTimeout(nativeVoiceAutoStopRef.current);

@@ -19,6 +19,7 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { isTauri } from '@/lib/tauri-utils';
 import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
 import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
+import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -857,7 +858,7 @@ export function ChatClient() {
   // Transcript-stability auto-stop tracking.
   const nativeVoicePartialLastChangeRef = useRef<number>(0);
   const nativeVoicePartialLastValueRef = useRef<string>('');
-  const voiceInputModeRef = useRef<'native' | 'browser' | null>(null);
+  const voiceInputModeRef = useRef<'native' | 'whisper' | 'deepgram' | null>(null);
 
   // Voice style mode (Phase 4A - conversational responses)
   const [voiceStyleEnabled, setVoiceStyleEnabled] = useState(false);
@@ -1745,16 +1746,61 @@ export function ChatClient() {
 
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
+  const deepgramVoicePreferred =
+    (process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'deepgram') === 'deepgram';
 
   const normalizeVoiceTranscript = (text: string): string => {
     return text.trim().replace(/[.?!]\s*$/, '');
   };
 
+  const { start: startDeepgramDictation, stop: stopDeepgramDictation, isSupported: deepgramSupported } =
+    useDeepgramDictation({
+      language: 'en-US',
+      model: 'nova-3',
+      punctuate: false,
+      smartFormat: false,
+      numerals: true,
+      endpointingMs: 350,
+      utteranceEndMs: 1000,
+      maxDurationMs: 15000,
+      keyterms: [
+        'Ritual',
+        'coding',
+        'computer time',
+        'screen time',
+        'caffeine',
+        'nicotine',
+        'sleep',
+        'workout',
+        'reading',
+        'spending',
+        'heart rate',
+        'steps',
+        'car miles',
+        'pages',
+        'miles',
+      ],
+      onAudioStreamChange: setAudioStream,
+      onListeningChange: setIsListening,
+      onProcessingChange: setIsProcessingVoice,
+      onInterimTranscriptChange: (text) => {
+        partialTranscriptRef.current = text;
+        setPartialTranscript(text);
+      },
+      onFinalTranscript: (text) => {
+        partialTranscriptRef.current = null;
+        setPartialTranscript(null);
+        setInput(normalizeVoiceTranscript(text));
+        setTimeout(() => textareaRef.current?.focus(), 100);
+      },
+      onError: setVoiceError,
+    });
+
   const startWhisperRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
-    voiceInputModeRef.current = 'browser';
+    voiceInputModeRef.current = 'whisper';
     setAudioStream(stream);
 
     let mimeType = '';
@@ -1889,6 +1935,17 @@ export function ChatClient() {
     }
 
     setVoiceError(null);
+    if (deepgramVoicePreferred && deepgramSupported) {
+      try {
+        voiceInputModeRef.current = 'deepgram';
+        await startDeepgramDictation();
+        return;
+      } catch {
+        voiceInputModeRef.current = null;
+        setIsListening(false);
+        setIsProcessingVoice(false);
+      }
+    }
     if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
       try {
         await startWhisperRecording();
@@ -1928,6 +1985,12 @@ export function ChatClient() {
   };
 
   const stopVoiceRecording = () => {
+    if (voiceInputModeRef.current === 'deepgram') {
+      stopDeepgramDictation();
+      voiceInputModeRef.current = null;
+      return;
+    }
+
     if (voiceInputModeRef.current === 'native') {
       if (nativeVoiceAutoStopRef.current) {
         clearTimeout(nativeVoiceAutoStopRef.current);
@@ -2437,23 +2500,6 @@ export function ChatClient() {
             )}
           </div>
         </div>
-
-        {/* Scroll to bottom */}
-        <AnimatePresence>
-          {!isAtBottom && (
-            <motion.button
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.15 }}
-              onClick={() => scrollToBottom()}
-              className="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white shadow-md text-gray-500 hover:text-gray-900 transition-colors"
-              aria-label="Scroll to bottom"
-            >
-              <ArrowUp className="w-3.5 h-3.5 rotate-180" />
-            </motion.button>
-          )}
-        </AnimatePresence>
 
         {/* Input */}
         <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-lg">
