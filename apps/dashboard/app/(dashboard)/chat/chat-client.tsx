@@ -4,7 +4,8 @@ import React, { startTransition, useDeferredValue, useEffect, useRef, useState, 
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X, Check } from 'lucide-react';
+import { useStickToBottom } from 'use-stick-to-bottom';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -246,6 +247,23 @@ function isOverviewActivityQuery(text: string): boolean {
     'today',
   ];
   return patterns.some((pattern) => normalized.includes(pattern));
+}
+
+function getToolLabel(text: string): string {
+  const normalized = (text || '').toLowerCase().trim();
+  if (!normalized) return 'Thinking...';
+  if (/monthly|last month|this month|last 30/.test(normalized)) return 'Fetching monthly overview...';
+  if (/weekly|last week|this week/.test(normalized)) return 'Fetching weekly overview...';
+  if (/daily|today|yesterday/.test(normalized)) return 'Fetching daily overview...';
+  if (/how was my (week|month|day)/.test(normalized)) {
+    if (/month/.test(normalized)) return 'Fetching monthly overview...';
+    if (/week/.test(normalized)) return 'Fetching weekly overview...';
+    return 'Fetching daily overview...';
+  }
+  if (/correlat/.test(normalized)) return 'Analyzing correlations...';
+  if (/trend/.test(normalized)) return 'Analyzing trends...';
+  if (/screen|computer|app usage/.test(normalized)) return 'Fetching activity data...';
+  return 'Analyzing your habits...';
 }
 
 async function buildLocalOverviewActivityBundle(
@@ -848,6 +866,15 @@ export function ChatClient() {
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [keyboardSuggestionActive, setKeyboardSuggestionActive] = useState(false);
   
+  // Tool execution status for shimmer → checkmark UI
+  const [toolStatus, setToolStatus] = useState<{ label: string; done: boolean } | null>(null);
+
+  // Stick-to-bottom scroll behavior
+  const { scrollRef, contentRef, isAtBottom, scrollToBottom } = useStickToBottom({
+    initial: 'smooth',
+    resize: 'smooth',
+  });
+
   // Resizable side panel state
   const [canvasWidth, setCanvasWidth] = useState(DEFAULT_CANVAS_WIDTH);
   const [isResizingCanvas, setIsResizingCanvas] = useState(false);
@@ -1156,6 +1183,7 @@ export function ChatClient() {
     setIsLoading(true);
     setStreamingContent('');
     setCurrentQuestion(text);
+    setToolStatus({ label: getToolLabel(text), done: false });
     
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -1203,6 +1231,7 @@ export function ChatClient() {
       let fullResponse = '';
       let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenRecordings?: any; screenTimeSpent?: any; weeklyOverview?: any; dailyOverview?: any; monthlyOverview?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
       let streamBuffer = '';
+      let toolMarkedDone = false;
 
       const processStreamLine = (rawLine: string) => {
         const line = rawLine.replace(/\r$/, '');
@@ -1236,6 +1265,10 @@ export function ChatClient() {
         }
 
         if (line.startsWith('0:')) {
+          if (!toolMarkedDone) {
+            toolMarkedDone = true;
+            setToolStatus((prev) => prev ? { ...prev, done: true } : null);
+          }
           try {
             const data = JSON.parse(line.substring(2).trim());
             if (typeof data === 'string') {
@@ -1332,6 +1365,7 @@ export function ChatClient() {
     } finally {
       setIsLoading(false);
       setCurrentQuestion('');
+      setToolStatus(null);
     }
   }, [messages, isLoading, getToken, conversationId, loadConversationsList, voiceStyleEnabled]);
 
@@ -1365,11 +1399,7 @@ export function ChatClient() {
     void sendMessage(normalizedQuestion);
   }, [initialQuestion, isLoadingConversation, sendMessage]);
 
-  useEffect(() => {
-    if (messages.length > 0 || streamingContent) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, streamingContent]);
+  // Scroll handled by use-stick-to-bottom via scrollRef/contentRef
 
   useEffect(() => {
     if (!textareaRef.current) return;
@@ -1716,6 +1746,10 @@ export function ChatClient() {
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
 
+  const normalizeVoiceTranscript = (text: string): string => {
+    return text.trim().replace(/[.?!]\s*$/, '');
+  };
+
   const startWhisperRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -1763,7 +1797,7 @@ export function ChatClient() {
         if (response.ok) {
           const result = await response.json();
           if (result.text?.trim()) {
-            setInput(result.text);
+            setInput(normalizeVoiceTranscript(result.text));
             setTimeout(() => textareaRef.current?.focus(), 100);
           } else {
             setVoiceError('No speech detected. Please try again.');
@@ -1799,9 +1833,11 @@ export function ChatClient() {
       source.connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
 
-      const ARM_RMS = 0.03;
-      const SPEECH_RMS = 0.015;
-      const SILENCE_MS = 550;
+      const ARM_RMS = 0.02;
+      const SPEECH_RMS = 0.01;
+      const SILENCE_MS = 900;
+      const MIN_RECORDING_MS = 1200;
+      const recordingStartedAt = performance.now();
       let armed = false;
       let lastLoudAt = 0;
       let triggered = false;
@@ -1824,7 +1860,10 @@ export function ChatClient() {
           }
         } else if (rms > SPEECH_RMS) {
           lastLoudAt = now;
-        } else if (now - lastLoudAt > SILENCE_MS) {
+        } else if (
+          now - lastLoudAt > SILENCE_MS &&
+          now - recordingStartedAt > MIN_RECORDING_MS
+        ) {
           triggered = true;
           if (mediaRecorder.state === 'recording') mediaRecorder.stop();
           return;
@@ -1977,23 +2016,39 @@ export function ChatClient() {
         {renderCollapsedSidebarToggle()}
 
         <div className="flex-1 min-w-0 overflow-x-hidden flex flex-col">
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-3xl mx-auto px-8 pt-20 pb-32">
+          <div className="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="max-w-[680px] mx-auto px-8 pt-8 pb-32">
               <h1 className="text-2xl font-medium text-gray-900 leading-snug mb-6">
                 {currentQuestion}
               </h1>
-              <div className="flex items-center gap-2 py-2">
-                <TextShimmer className="text-sm" duration={1.5}>
-                  {'Thinking...'}
-                </TextShimmer>
-              </div>
+              {toolStatus && (
+                <div className="flex items-center gap-2 py-2">
+                  {toolStatus.done ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span className="text-sm text-neutral-500">{toolStatus.label.replace('...', '')}</span>
+                    </>
+                  ) : (
+                    <TextShimmer className="text-sm" duration={0.75}>
+                      {toolStatus.label}
+                    </TextShimmer>
+                  )}
+                </div>
+              )}
+              {!toolStatus && isLoading && (
+                <div className="flex items-center gap-2 py-2">
+                  <TextShimmer className="text-sm" duration={1.5}>
+                    {'Thinking...'}
+                  </TextShimmer>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-[#fafaf8] via-[#fafaf8] to-transparent">
-            <div className="max-w-3xl mx-auto px-8">
+          <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-lg">
+            <div className="max-w-[680px] mx-auto px-8">
               <form onSubmit={handleSubmit}>
-                <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
+                <div className="bg-[rgba(247,247,247,0.85)] backdrop-blur-lg border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
                   <div className="px-4 py-2.5">
                     <textarea
                       ref={textareaRef}
@@ -2308,12 +2363,12 @@ export function ChatClient() {
         "flex-1 min-w-0 overflow-x-hidden flex flex-col transition-all duration-300 ease-out",
         canvasData ? "pr-0" : ""
       )}>
-        <div className="flex-1 overflow-y-auto">
-            
+        <div ref={scrollRef} className="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+
           {/* Chat content - centered in available space */}
-          <div className={cn(
-            "pb-32 min-w-0 transition-all duration-300 mx-auto px-8 pt-20",
-            canvasData ? "w-full max-w-none" : "max-w-3xl"
+          <div ref={contentRef} className={cn(
+            "pb-32 min-w-0 transition-all duration-300 mx-auto px-8 pt-8",
+            canvasData ? "w-full max-w-none" : "max-w-[680px]"
           )}>
             {messages.map((message, messageIndex) => (
               <div key={message.id}>
@@ -2362,24 +2417,52 @@ export function ChatClient() {
             
             {isLoading && !streamingContent && (
               <div className="flex items-center gap-2 py-2">
-                <TextShimmer className="text-sm" duration={1.5}>
-                  {'Thinking...'}
-                </TextShimmer>
+                {toolStatus ? (
+                  toolStatus.done ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span className="text-sm text-neutral-500">{toolStatus.label.replace('...', '')}</span>
+                    </>
+                  ) : (
+                    <TextShimmer className="text-sm" duration={0.75}>
+                      {toolStatus.label}
+                    </TextShimmer>
+                  )
+                ) : (
+                  <TextShimmer className="text-sm" duration={1.5}>
+                    {'Thinking...'}
+                  </TextShimmer>
+                )}
               </div>
             )}
-            
-            <div ref={messagesEndRef} />
           </div>
         </div>
 
+        {/* Scroll to bottom */}
+        <AnimatePresence>
+          {!isAtBottom && (
+            <motion.button
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.15 }}
+              onClick={() => scrollToBottom()}
+              className="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white shadow-md text-gray-500 hover:text-gray-900 transition-colors"
+              aria-label="Scroll to bottom"
+            >
+              <ArrowUp className="w-3.5 h-3.5 rotate-180" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
         {/* Input */}
-        <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-[#fafaf8] via-[#fafaf8] to-transparent">
+        <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-lg">
           <div className={cn(
             "mx-auto px-8 transition-all duration-300",
-            canvasData ? "w-full max-w-none" : "max-w-3xl"
+            canvasData ? "w-full max-w-none" : "max-w-[680px]"
           )}>
             <form onSubmit={handleSubmit}>
-                <div className="bg-[#F9F9F9] border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
+                <div className="bg-[rgba(247,247,247,0.85)] backdrop-blur-lg border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
                   <div className="px-4 py-3">
                     <textarea
                       ref={textareaRef}
@@ -2460,8 +2543,8 @@ export function ChatClient() {
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: effectiveCanvasWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-            className="relative flex shrink-0 overflow-hidden"
+            transition={{ type: 'spring', stiffness: 400, damping: 40 }}
+            className="relative flex shrink-0 overflow-hidden will-change-transform"
           >
             <div
               onMouseDown={handleCanvasResizeStart}

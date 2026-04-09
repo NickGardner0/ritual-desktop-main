@@ -219,11 +219,12 @@ export const CategoryCell = memo(({ category }: { category: string }) => {
     <div className="flex min-w-0 items-center gap-2">
       <span
         className={cn(
-          'inline-block h-3 w-3 shrink-0 self-center rounded-none align-middle',
+          'inline-block h-3 w-3 shrink-0 rounded-none',
           getCategoryFillClass(category),
         )}
+        style={{ marginTop: '-1px' }}
       />
-      <span className="block truncate text-[14px] font-normal text-neutral-900">
+      <span className="block truncate text-[14px] font-normal leading-none text-neutral-900">
         {normalizedCategory}
       </span>
     </div>
@@ -298,7 +299,7 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-neutral-300 transition-colors hover:border-black/10 hover:bg-neutral-100 hover:text-neutral-700 focus-visible:text-neutral-700"
+          className="flex h-7 w-7 items-center justify-center text-neutral-600 transition-colors hover:text-neutral-900 focus-visible:text-neutral-900"
           aria-label="Log actions"
         >
           <MoreHorizontal className="h-4 w-4" />

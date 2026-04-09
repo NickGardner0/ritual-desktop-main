@@ -1252,7 +1252,10 @@ const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
 
   const formatNumber = (value: number) => {
     if (!Number.isFinite(value)) return '0';
-    return value.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    // Round values that are very close to integers (floating point artifacts)
+    const rounded = Math.round(value);
+    if (Math.abs(value - rounded) < 0.1) return String(rounded);
+    return value.toFixed(1);
   };
 
   const formatMetric = (value: number, unit?: string) => {
@@ -1353,9 +1356,9 @@ const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
                 ...(row.entries || []).map((entry) => entry.sleep_end),
               ]);
               const displayValue =
-                row.total_hours != null
+                row.total_hours != null && row.total_hours > 0
                   ? formatMetric(row.total_hours, habit.unit)
-                  : row.total_amount != null
+                  : row.total_amount != null && row.total_amount > 0
                     ? formatMetric(row.total_amount, habit.unit)
                     : formatMetric(row.value || 0, habit.unit);
 

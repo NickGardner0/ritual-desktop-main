@@ -147,7 +147,7 @@ const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: num
   category: { size: 155, minSize: 100, maxSize: 300 },
   source: { size: 140, minSize: 90, maxSize: 300 },
   notes: { size: 195, minSize: 120, maxSize: 400 },
-  actions: { size: 60, minSize: 60, maxSize: 60 },
+  actions: { size: 80, minSize: 80, maxSize: 80 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
@@ -1095,7 +1095,7 @@ export function HabitLogsDataTable({
           ref={scrollViewportRef}
           className="overflow-auto overscroll-none border border-border bg-white scrollbar-hide"
           style={{
-            height: 'calc(100vh - 180px)',
+            height: 'calc(100vh - 140px)',
             maskImage: 'linear-gradient(to bottom, black calc(100% - 12px), transparent 100%)',
             WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 12px), transparent 100%)',
           }}
@@ -1229,7 +1229,7 @@ export function HabitLogsDataTable({
                             getAlignmentClass(layout?.align),
                             stickyClass,
                             cellBgClass,
-                            columnId === 'select' && 'justify-center',
+                            (columnId === 'select' || columnId === 'actions') && 'justify-center',
                           )}
                           style={getStickyStyle(columnId)}
                           onClick={

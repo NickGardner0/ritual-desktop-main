@@ -433,6 +433,14 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     return out;
   };
 
+  const normalizeLoggerVoiceTranscript = (text: string): string => {
+    return text
+      .trim()
+      // Whisper often adds sentence punctuation even when the user is logging a
+      // terse habit entry. Strip only the final sentence mark for this logger UI.
+      .replace(/[.?!]\s*$/, '');
+  };
+
   // Smart habit parsing that uses your actual habits
   const parseHabitInput = (rawText: string) => {
     const text = wordsToDigits(rawText);
@@ -935,7 +943,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         if (response.ok) {
           const result = await response.json();
           if (result.text?.trim()) {
-            setInput(result.text);
+            setInput(normalizeLoggerVoiceTranscript(result.text));
             setTimeout(() => textareaRef.current?.focus(), 100);
           } else {
             setError('No speech detected. Please try again.');
@@ -948,6 +956,17 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       }
       setIsProcessingVoice(false);
     };
+
+    mediaRecorder.start(100);
+    setIsListening(true);
+
+    // Hard safety: force-stop after 10s if VAD never arms.
+    const autoStopTimer = window.setTimeout(() => {
+      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+    }, 10000);
+
+    (window as any).__mediaRecorder = mediaRecorder;
+    (window as any).__autoStopTimer = autoStopTimer;
 
     // Audio-level VAD silence detection. Unlike the Swift path, MediaRecorder
     // here has exclusive mic access so the analyser stream is real audio.
@@ -963,9 +982,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       source.connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
 
-      const ARM_RMS = 0.03;
-      const SPEECH_RMS = 0.015;
-      const SILENCE_MS = 550;
+      const ARM_RMS = 0.02;
+      const SPEECH_RMS = 0.01;
+      const SILENCE_MS = 900;
+      const MIN_RECORDING_MS = 1200;
+      const recordingStartedAt = performance.now();
       let armed = false;
       let lastLoudAt = 0;
       let triggered = false;
@@ -988,7 +1009,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           }
         } else if (rms > SPEECH_RMS) {
           lastLoudAt = now;
-        } else if (now - lastLoudAt > SILENCE_MS) {
+        } else if (
+          now - lastLoudAt > SILENCE_MS &&
+          now - recordingStartedAt > MIN_RECORDING_MS
+        ) {
           triggered = true;
           if (mediaRecorder.state === 'recording') mediaRecorder.stop();
           return;
@@ -999,17 +1023,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     } catch {
       // VAD is best-effort — safety timeout still covers us.
     }
-
-    mediaRecorder.start(100);
-    setIsListening(true);
-
-    // Hard safety: force-stop after 10s if VAD never arms.
-    const autoStopTimer = window.setTimeout(() => {
-      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
-    }, 10000);
-
-    (window as any).__mediaRecorder = mediaRecorder;
-    (window as any).__autoStopTimer = autoStopTimer;
     (window as any).__vadCleanup = () => {
       if (vadRaf) cancelAnimationFrame(vadRaf);
       if (vadCtx && vadCtx.state !== 'closed') vadCtx.close().catch(() => undefined);

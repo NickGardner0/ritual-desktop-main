@@ -28,8 +28,8 @@ export function VoiceWaveform({
   barColor = '#000000',
   fadeEdges = true,
   fadeWidth = 24,
-  sensitivity = 2.6,
-  smoothingTimeConstant = 0.65,
+  sensitivity = 3.1,
+  smoothingTimeConstant = 0.22,
   fftSize = 512,
 }: VoiceWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -83,6 +83,13 @@ export function VoiceWaveform({
         audioContextRef.current = null;
       }
       analyserRef.current = null;
+      barLevelsRef.current = new Float32Array(0);
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      const { width, height } = cachedRectRef.current;
+      if (ctx && width > 0 && height > 0) {
+        ctx.clearRect(0, 0, width, height);
+      }
       return;
     }
 
@@ -105,6 +112,7 @@ export function VoiceWaveform({
       sourceRef.current = null;
       audioContextRef.current = null;
       analyserRef.current = null;
+      barLevelsRef.current = new Float32Array(0);
     };
   }, [audioStream, isActive, fftSize, smoothingTimeConstant]);
 
@@ -156,6 +164,14 @@ export function VoiceWaveform({
         for (let i = 0; i < relevantData.length; i++) sum += relevantData[i];
         const overall = (sum / relevantData.length) / 255;
 
+        if (overall < 0.012) {
+          barLevelsRef.current.fill(0);
+          ctx.clearRect(0, 0, width, height);
+          ctx.globalAlpha = 1;
+          animationRef.current = requestAnimationFrame(animate);
+          return;
+        }
+
         const t = performance.now() / 1000;
 
         for (let i = 0; i < visualizerBarCount; i++) {
@@ -179,14 +195,14 @@ export function VoiceWaveform({
           const mixed = (overall * 0.45 + local * 0.55 + wobble) * envelope;
           const value = Math.min(1, mixed * sensitivity);
           const prevLevel = barLevelsRef.current[i] || 0;
-          const attack = value > prevLevel ? 0.58 : 0.28;
+          const attack = value > prevLevel ? 0.86 : 0.12;
           const smoothedLevel = prevLevel + (value - prevLevel) * attack;
           barLevelsRef.current[i] = smoothedLevel;
 
           // Hard silence gate: below this, draw nothing so quiet moments are
           // truly blank instead of a persistent row of tiny bars.
-          if (smoothedLevel < 0.09) {
-            barLevelsRef.current[i] = prevLevel * 0.72;
+          if (smoothedLevel < 0.11) {
+            barLevelsRef.current[i] = 0;
             continue;
           }
 
