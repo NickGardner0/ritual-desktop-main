@@ -32,35 +32,21 @@ type PersistedSnapshot<T> = {
 };
 
 type SnapshotEnvelope<T> = {
-  latest?: PersistedSnapshot<T>;
   byUser?: Record<string, PersistedSnapshot<T>>;
 };
 
-function getLatestSuccessfulQuerySnapshot<T>(
+function getSuccessfulQuerySnapshot<T>(
   queryClient: ReturnType<typeof useQueryClient>,
-  queryKeyPrefix: readonly unknown[],
+  queryKey: readonly unknown[],
 ): { data: T; updatedAt: number } | null {
-  const queries = queryClient.getQueryCache().findAll({ queryKey: queryKeyPrefix });
-  let newestData: T | null = null;
-  let newestUpdatedAt = 0;
-
-  for (const query of queries) {
-    if (query.state.status !== 'success' || query.state.data == null) {
-      continue;
-    }
-    if (query.state.dataUpdatedAt >= newestUpdatedAt) {
-      newestData = query.state.data as T;
-      newestUpdatedAt = query.state.dataUpdatedAt;
-    }
-  }
-
-  if (newestData == null || newestUpdatedAt <= 0) {
+  const state = queryClient.getQueryState(queryKey);
+  if (state?.status !== 'success' || state.data == null || state.dataUpdatedAt <= 0) {
     return null;
   }
 
   return {
-    data: newestData,
-    updatedAt: newestUpdatedAt,
+    data: state.data as T,
+    updatedAt: state.dataUpdatedAt,
   };
 }
 
@@ -75,7 +61,9 @@ function readPersistedSnapshot<T>(
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as SnapshotEnvelope<T>;
-    const candidate = (userId && parsed.byUser?.[userId]) || parsed.latest;
+    if (!userId) return null;
+
+    const candidate = parsed.byUser?.[userId];
     if (!candidate?.data || !candidate.updatedAt) return null;
 
     if (Date.now() - candidate.updatedAt > SNAPSHOT_MAX_AGE_MS) {
@@ -104,21 +92,27 @@ function persistSnapshot<T>(
       updatedAt: Date.now(),
     };
 
+    const normalizedUserId = userId?.trim();
+    if (!normalizedUserId) return;
+
     const next: SnapshotEnvelope<T> = {
-      latest: snapshot,
       byUser: {
         ...(parsed.byUser || {}),
+        [normalizedUserId]: snapshot,
       },
     };
-
-    if (userId) {
-      next.byUser![userId] = snapshot;
-    }
 
     window.localStorage.setItem(storageKey, JSON.stringify(next));
   } catch (error) {
     console.warn(`Failed to persist snapshot for ${storageKey}:`, error);
   }
+}
+
+export function clearPersistedHabitSnapshots(): void {
+  if (typeof window === 'undefined') return;
+
+  window.localStorage.removeItem(HABITS_SNAPSHOT_STORAGE_KEY);
+  window.localStorage.removeItem(HABIT_LOGS_SNAPSHOT_STORAGE_KEY);
 }
 
 /**
@@ -186,9 +180,11 @@ export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
   const fallbackSnapshot = useMemo(() => {
+    if (!user?.id) return null;
+
     return (
-      getLatestSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.lists())
-      || readPersistedSnapshot<Habit[]>(HABITS_SNAPSHOT_STORAGE_KEY, user?.id)
+      getSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.list(user.id))
+      || readPersistedSnapshot<Habit[]>(HABITS_SNAPSHOT_STORAGE_KEY, user.id)
     );
   }, [queryClient, user?.id]);
 
@@ -227,9 +223,11 @@ export function useHabitLogsQuery() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
   const fallbackSnapshot = useMemo(() => {
+    if (!user?.id) return null;
+
     return (
-      getLatestSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.lists())
-      || readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user?.id)
+      getSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.list(user.id))
+      || readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user.id)
     );
   }, [queryClient, user?.id]);
 

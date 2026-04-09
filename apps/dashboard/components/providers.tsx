@@ -1,13 +1,16 @@
 'use client';
 
 import { QueryClientProvider, dehydrate, hydrate, type Query } from '@tanstack/react-query';
+import { useUser } from '@clerk/nextjs';
 import { queryClient } from '@/lib/query-client';
 import { ReactNode, useEffect, useState } from 'react';
 import { auditLocalStorage, auditQueryCache, perfInfo, perfWarn } from '@/lib/perf-debug';
+import { clearPersistedHabitSnapshots } from '@/hooks/use-habits-query';
 
 const QUERY_CACHE_STORAGE_KEY = 'ritual:react-query-cache:v1';
 const QUERY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 const MAX_PERSISTED_QUERY_BYTES = 75_000;
+const ACTIVE_QUERY_CACHE_USER_KEY = 'ritual:active-query-cache-user:v1';
 
 function getPersistedQuerySize(query: Query): number {
   try {
@@ -113,6 +116,11 @@ function persistQueryCache() {
   }
 }
 
+function clearPersistedQueryCache() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(QUERY_CACHE_STORAGE_KEY);
+}
+
 /**
  * React Query Provider Wrapper
  * 
@@ -123,10 +131,39 @@ function persistQueryCache() {
  * - Background updates
  */
 export function QueryProvider({ children }: { children: ReactNode }) {
+  const { isLoaded, user } = useUser();
   const [cacheRestored] = useState(() => {
     restorePersistedQueryCache();
     return true;
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isLoaded) return;
+
+    const previousUserId = window.sessionStorage.getItem(ACTIVE_QUERY_CACHE_USER_KEY);
+    const currentUserId = user?.id ?? null;
+
+    if (!previousUserId) {
+      if (currentUserId) {
+        window.sessionStorage.setItem(ACTIVE_QUERY_CACHE_USER_KEY, currentUserId);
+      }
+      return;
+    }
+
+    if (previousUserId === currentUserId) {
+      return;
+    }
+
+    queryClient.clear();
+    clearPersistedQueryCache();
+    clearPersistedHabitSnapshots();
+
+    if (currentUserId) {
+      window.sessionStorage.setItem(ACTIVE_QUERY_CACHE_USER_KEY, currentUserId);
+    } else {
+      window.sessionStorage.removeItem(ACTIVE_QUERY_CACHE_USER_KEY);
+    }
+  }, [isLoaded, user?.id]);
 
   useEffect(() => {
     if (!cacheRestored) return;

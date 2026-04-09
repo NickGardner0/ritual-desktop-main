@@ -7,10 +7,12 @@ import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { setOnboardingWindowSize } from "@/lib/tauri-utils"
 import {
-  FROM_WELCOME_KEY,
-  ONBOARDING_BACKEND_COMPLETED_KEY,
-  ONBOARDING_COMPLETED_KEY,
+  cameFromWelcomeFlow,
+  clearFromWelcomeFlow,
   getPostOnboardingRoute,
+  hasCompletedOnboarding,
+  markBackendOnboardingCompleted,
+  markOnboardingCompleted,
   markPermissionsOnboardingRequired,
 } from "@/lib/onboarding-flow"
 
@@ -77,18 +79,16 @@ export default function OnboardingPage() {
   // Check if user has already completed onboarding
   useEffect(() => {
     const checkOnboardingStatus = async () => {
-      // Check localStorage first (fastest check)
-      const hasCompletedLocally = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true'
-      if (hasCompletedLocally) {
-        devLog('🔄 User already completed onboarding (localStorage), redirecting to dashboard')
-        window.location.href = getPostOnboardingRoute('/dashboard')
-        return
-      }
-
       // If user is loaded, check backend
-      if (isLoaded && user) {
+      if (isLoaded && user?.id) {
+        if (hasCompletedOnboarding(user.id)) {
+          devLog('🔄 User already completed onboarding (localStorage), redirecting to dashboard')
+          window.location.href = getPostOnboardingRoute('/dashboard', user.id)
+          return
+        }
+
         try {
-          const token = await getToken()
+          const token = await getToken({ skipCache: true })
           if (token) {
             // Check if user has habits (indicates they're an existing user)
             const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
@@ -98,8 +98,8 @@ export default function OnboardingPage() {
               const habits = await habitsResponse.json()
               if (habits && habits.length > 0) {
                 devLog('🔄 User has existing habits, redirecting to dashboard')
-                localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
-                window.location.href = getPostOnboardingRoute('/dashboard')
+                markOnboardingCompleted(user.id)
+                window.location.href = getPostOnboardingRoute('/dashboard', user.id)
                 return
               }
             }
@@ -112,8 +112,8 @@ export default function OnboardingPage() {
               const profile = await response.json()
               if (profile.onboarding_completed) {
                 devLog('🔄 User already completed onboarding (backend), redirecting to dashboard')
-                localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
-                window.location.href = getPostOnboardingRoute('/dashboard')
+                markOnboardingCompleted(user.id)
+                window.location.href = getPostOnboardingRoute('/dashboard', user.id)
                 return
               }
             }
@@ -150,7 +150,7 @@ export default function OnboardingPage() {
     try {
       devLog('🔄 Submitting onboarding data:', values)
 
-      const token = await getToken()
+      const token = await getToken({ skipCache: true })
       if (!token) {
         throw new Error('Authentication required')
       }
@@ -176,15 +176,15 @@ export default function OnboardingPage() {
       devLog('✅ Onboarding completed successfully:', userData)
 
       // Always set the local onboarding completed flag
-      localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
-      markPermissionsOnboardingRequired()
+      markOnboardingCompleted(user.id)
+      markPermissionsOnboardingRequired(user.id)
 
-      const isFromWelcome = localStorage.getItem(FROM_WELCOME_KEY)
-      if (isFromWelcome === 'true') {
-        localStorage.setItem(ONBOARDING_BACKEND_COMPLETED_KEY, 'true')
+      if (cameFromWelcomeFlow()) {
+        markBackendOnboardingCompleted(user.id)
       }
 
-      window.location.href = getPostOnboardingRoute('/dashboard')
+      clearFromWelcomeFlow()
+      window.location.href = getPostOnboardingRoute('/dashboard', user.id)
     } catch (error) {
       console.error('❌ Error submitting onboarding:', error)
       alert(`Error saving onboarding data: ${error instanceof Error ? error.message : String(error)}`)

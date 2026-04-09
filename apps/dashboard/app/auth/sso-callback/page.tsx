@@ -6,9 +6,12 @@ import { useUser, useAuth } from '@clerk/nextjs'
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import {
-  FROM_WELCOME_KEY,
-  ONBOARDING_COMPLETED_KEY,
+  cameFromWelcomeFlow,
+  clearFromWelcomeFlow,
   getPostOnboardingRoute,
+  hasCompletedOnboarding,
+  markDeviceAuthenticated,
+  markOnboardingCompleted,
 } from '@/lib/onboarding-flow'
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -31,14 +34,16 @@ export default function SSOCallback() {
 
     const checkOnboardingAndRedirect = async () => {
       try {
+        markDeviceAuthenticated()
+
         // Check if user came from welcome flow (new user signup)
-        const isFromWelcome = localStorage.getItem(FROM_WELCOME_KEY)
+        const isFromWelcome = cameFromWelcomeFlow()
         // Check if user has previously completed onboarding (client-side flag)
-        const hasCompletedOnboardingLocally = localStorage.getItem(ONBOARDING_COMPLETED_KEY) === 'true'
+        const hasCompletedOnboardingLocally = hasCompletedOnboarding(user.id)
         
         // Always clean up the welcome flag
-        if (isFromWelcome === 'true') {
-          localStorage.removeItem(FROM_WELCOME_KEY)
+        if (isFromWelcome) {
+          clearFromWelcomeFlow()
         }
 
         // FAST PATH: If user has completed onboarding locally, go straight to dashboard
@@ -46,7 +51,7 @@ export default function SSOCallback() {
         if (hasCompletedOnboardingLocally) {
           devLog('[SSO Callback] User has local onboarding flag, going to dashboard')
           setStatus('Welcome back! Taking you to your dashboard...')
-          router.replace(getPostOnboardingRoute('/dashboard'))
+          router.replace(getPostOnboardingRoute('/dashboard', user.id))
           return
         }
 
@@ -55,14 +60,14 @@ export default function SSOCallback() {
         // Add delay and error handling to prevent rapid token requests
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        const token = await getToken({ skipCache: false }).catch((err) => {
+        const token = await getToken({ skipCache: true }).catch((err) => {
           console.error('Token fetch error in SSO callback:', err);
           return null;
         });
 
         if (!token) {
           devLog('No token in SSO callback, redirecting to dashboard');
-          router.replace(getPostOnboardingRoute('/dashboard'))
+          router.replace(getPostOnboardingRoute('/dashboard', user.id))
           return
         }
 
@@ -88,10 +93,10 @@ export default function SSOCallback() {
 
           if (profile.onboarding_completed) {
             // User already completed onboarding - set local flag and go to dashboard
-            localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+            markOnboardingCompleted(user.id)
             setStatus('Welcome back! Taking you to your dashboard...')
             devLog('[SSO Callback] Redirecting to dashboard - onboarding already completed')
-            router.replace(getPostOnboardingRoute('/dashboard'))
+            router.replace(getPostOnboardingRoute('/dashboard', user.id))
           } else {
             // Backend says not completed - check if user has habits (existing user)
             try {
@@ -103,9 +108,9 @@ export default function SSOCallback() {
                 if (habits && habits.length > 0) {
                   devLog('[SSO Callback] User has existing habits, skipping onboarding');
                   // User is clearly an existing user, set local flag and mark in backend
-                  localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true')
+                  markOnboardingCompleted(user.id)
                   setStatus('Welcome back! Taking you to your dashboard...')
-                  router.replace(getPostOnboardingRoute('/dashboard'));
+                  router.replace(getPostOnboardingRoute('/dashboard', user.id));
                   return;
                 }
               }
@@ -116,7 +121,7 @@ export default function SSOCallback() {
             // Only redirect to onboarding if:
             // 1. User came from welcome flow (new signup), OR
             // 2. User has never completed onboarding locally
-            if (isFromWelcome === 'true') {
+            if (isFromWelcome) {
               setStatus('Setting up your profile...')
               devLog('[SSO Callback] Redirecting to onboarding - new user from welcome flow')
               router.replace('/onboarding')
@@ -125,12 +130,12 @@ export default function SSOCallback() {
               // Default to dashboard since they're trying to sign in (not sign up)
               devLog('[SSO Callback] Backend shows incomplete but user is signing in - going to dashboard')
               setStatus('Taking you to your dashboard...')
-              router.replace(getPostOnboardingRoute('/dashboard'))
+              router.replace(getPostOnboardingRoute('/dashboard', user.id))
             }
           }
         } else {
           // Profile doesn't exist or fetch failed
-          if (isFromWelcome === 'true') {
+          if (isFromWelcome) {
             // New user from welcome flow - go to onboarding
             setStatus('Setting up your profile...')
             devLog('[SSO Callback] No profile yet, new user - redirecting to onboarding')
@@ -139,13 +144,13 @@ export default function SSOCallback() {
             // Returning user but profile fetch failed - go to dashboard
             devLog('[SSO Callback] Profile fetch failed, status:', response?.status)
             setStatus('Taking you to your dashboard...')
-            router.replace(getPostOnboardingRoute('/dashboard'))
+            router.replace(getPostOnboardingRoute('/dashboard', user.id))
           }
         }
       } catch (error) {
         console.error('Error checking onboarding:', error)
         // On error, go to dashboard and let it handle the flow
-        router.replace(getPostOnboardingRoute('/dashboard'))
+        router.replace(getPostOnboardingRoute('/dashboard', user.id))
       }
     }
 

@@ -10,10 +10,15 @@ import { ArrowRight } from 'lucide-react';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
-  FROM_WELCOME_KEY,
-  ONBOARDING_BACKEND_COMPLETED_KEY,
-  ONBOARDING_COMPLETED_KEY,
+  clearBackendOnboardingCompleted,
+  clearFromWelcomeFlow,
   getPostOnboardingRoute,
+  hasCompletedBackendOnboarding,
+  hasCompletedOnboarding,
+  hasDeviceAuthenticated,
+  markDeviceAuthenticated,
+  markFromWelcomeFlow,
+  markOnboardingCompleted,
   markPermissionsOnboardingRequired,
 } from '@/lib/onboarding-flow';
 
@@ -35,7 +40,7 @@ export function HomeClient() {
   const { getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const hasChecked = useRef(false);
+  const lastCheckedUserIdRef = useRef<string | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isLogoSpinning, setIsLogoSpinning] = useState(false);
   const logoRef = useRef<HTMLImageElement>(null);
@@ -97,7 +102,15 @@ export function HomeClient() {
   useEffect(() => {
     if (!isLoaded) return;
 
-    const hasSeenWelcome = localStorage.getItem(ONBOARDING_COMPLETED_KEY);
+    if (isSignedIn && user?.id) {
+      markDeviceAuthenticated();
+    }
+
+    if (!isSignedIn || !user?.id) {
+      lastCheckedUserIdRef.current = null;
+    }
+
+    const hasSeenWelcome = hasDeviceAuthenticated();
     
     // Not signed in
     if (!isSignedIn) {
@@ -112,18 +125,22 @@ export function HomeClient() {
     }
 
     // User is signed in - check if they need onboarding
-    if (!user || hasChecked.current) {
+    if (!user) {
       return;
     }
 
-    hasChecked.current = true;
+    if (lastCheckedUserIdRef.current === user.id) {
+      return;
+    }
+
+    lastCheckedUserIdRef.current = user.id;
     setIsChecking(true);
 
     const checkAndRedirect = async () => {
       try {
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        const token = await getToken({ skipCache: false }).catch((err) => {
+        const token = await getToken({ skipCache: true }).catch((err) => {
           console.error('Token fetch error:', err);
           return null;
         });
@@ -149,10 +166,11 @@ export function HomeClient() {
 
         if (response && response.ok) {
           const profile = await response.json();
-          const localOnboardingCompleted = localStorage.getItem(ONBOARDING_BACKEND_COMPLETED_KEY) === 'true';
+          const localOnboardingCompleted = hasCompletedBackendOnboarding(user.id);
 
           if (profile.onboarding_completed || localOnboardingCompleted) {
-            router.replace(getPostOnboardingRoute('/dashboard'));
+            markOnboardingCompleted(user.id);
+            router.replace(getPostOnboardingRoute('/dashboard', user.id));
           } else {
             try {
               const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
@@ -161,7 +179,8 @@ export function HomeClient() {
               if (habitsResponse.ok) {
                 const habits = await habitsResponse.json();
                 if (habits && habits.length > 0) {
-                  router.replace(getPostOnboardingRoute('/dashboard'));
+                  markOnboardingCompleted(user.id);
+                  router.replace(getPostOnboardingRoute('/dashboard', user.id));
                   return;
                 }
               }
@@ -171,11 +190,11 @@ export function HomeClient() {
             router.replace('/onboarding');
           }
         } else {
-          router.replace(getPostOnboardingRoute('/dashboard'));
+          router.replace(getPostOnboardingRoute('/dashboard', user.id));
         }
       } catch (error) {
         console.error('Error checking profile:', error);
-        router.replace(getPostOnboardingRoute('/dashboard'));
+        router.replace(getPostOnboardingRoute('/dashboard', user.id));
       }
     };
 
@@ -185,35 +204,35 @@ export function HomeClient() {
   // Handle signed in users during welcome flow
   useEffect(() => {
     if (isLoaded && isSignedIn && isNewUser) {
-      const hasCompletedWelcomeFlow = localStorage.getItem(ONBOARDING_COMPLETED_KEY);
-      const hasCompletedBackendOnboarding = localStorage.getItem(ONBOARDING_BACKEND_COMPLETED_KEY);
+      const hasCompletedWelcomeFlow = hasCompletedOnboarding(user?.id);
+      const hasCompletedBackendStep = hasCompletedBackendOnboarding(user?.id);
 
       // If returning from backend onboarding, continue to page 4
-      if (hasCompletedBackendOnboarding === 'true' && pageParam === '4') {
+      if (hasCompletedBackendStep && pageParam === '4') {
         return;
       }
 
       // If fully completed, go to dashboard
-      if (hasCompletedWelcomeFlow === 'true') {
-        router.replace(getPostOnboardingRoute('/dashboard'));
+      if (hasCompletedWelcomeFlow) {
+        router.replace(getPostOnboardingRoute('/dashboard', user?.id));
       }
     }
-  }, [isSignedIn, isLoaded, isNewUser, router, pageParam]);
+  }, [isSignedIn, isLoaded, isNewUser, router, pageParam, user?.id]);
 
   // Set flag when user reaches page 3 (auth page)
   useEffect(() => {
     if (currentPage === 3) {
-      localStorage.setItem(FROM_WELCOME_KEY, 'true');
+      markFromWelcomeFlow();
     }
   }, [currentPage]);
 
   const handleNext = () => {
     if (currentPage === TOTAL_PAGES) {
-      localStorage.setItem(ONBOARDING_COMPLETED_KEY, 'true');
-      localStorage.removeItem(FROM_WELCOME_KEY);
-      localStorage.removeItem(ONBOARDING_BACKEND_COMPLETED_KEY);
-      markPermissionsOnboardingRequired();
-      router.push(getPostOnboardingRoute('/dashboard'));
+      markOnboardingCompleted(user?.id);
+      clearFromWelcomeFlow();
+      clearBackendOnboardingCompleted(user?.id);
+      markPermissionsOnboardingRequired(user?.id);
+      router.push(getPostOnboardingRoute('/dashboard', user?.id));
       return;
     }
     setCurrentPage(prev => Math.min(prev + 1, TOTAL_PAGES));

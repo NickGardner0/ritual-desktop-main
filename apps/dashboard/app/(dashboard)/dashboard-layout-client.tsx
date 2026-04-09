@@ -10,6 +10,7 @@
 
 'use client';
 
+import { useUser } from '@clerk/nextjs';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { DesktopRuntimeBridge } from '@/components/desktop-runtime-bridge';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -22,7 +23,8 @@ import { setDashboardWindowSize } from '@/lib/tauri-utils';
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const permissionGatePending = needsPermissionsOnboarding();
+  const { isLoaded, user } = useUser();
+  const permissionGatePending = isLoaded && needsPermissionsOnboarding(user?.id);
   
   // Prefetch critical routes on mount for instant navigation
   useEffect(() => {

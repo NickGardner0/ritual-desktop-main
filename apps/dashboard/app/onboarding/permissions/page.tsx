@@ -97,10 +97,10 @@ export default function PermissionsOnboardingPage() {
       return;
     }
 
-    if (!needsPermissionsOnboarding()) {
+    if (!needsPermissionsOnboarding(user?.id)) {
       router.replace('/dashboard');
     }
-  }, [isLoaded, isSignedIn, router]);
+  }, [isLoaded, isSignedIn, router, user?.id]);
 
   useEffect(() => {
     void checkPermissions();
@@ -226,7 +226,7 @@ export default function PermissionsOnboardingPage() {
       setIsBootstrapping(false);
     }
 
-    markPermissionsOnboardingCompleted();
+    markPermissionsOnboardingCompleted(user?.id);
     router.replace('/dashboard');
   };
 
