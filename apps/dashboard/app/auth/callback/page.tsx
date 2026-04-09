@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { AuthenticateWithRedirectCallback, useSignIn } from '@clerk/nextjs';
+import { AuthenticateWithRedirectCallback, useUser, useSignIn } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
@@ -99,13 +99,53 @@ function AuthCallbackError({ message }: { message: string }) {
   );
 }
 
+function extractClerkErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const maybeError = error as {
+      errors?: Array<{ longMessage?: string; message?: string }>;
+      message?: string;
+    };
+
+    const firstClerkError = maybeError.errors?.[0];
+    if (firstClerkError?.longMessage) {
+      return firstClerkError.longMessage;
+    }
+
+    if (firstClerkError?.message) {
+      return firstClerkError.message;
+    }
+
+    if (typeof maybeError.message === 'string' && maybeError.message) {
+      return maybeError.message;
+    }
+  }
+
+  return 'Failed to activate desktop session.';
+}
+
+function isAlreadySignedInError(error: unknown): boolean {
+  const message = extractClerkErrorMessage(error).toLowerCase();
+  return message.includes('already signed in');
+}
+
 function TicketCallback({ ticket }: { ticket: string }) {
   const { isLoaded, signIn, setActive } = useSignIn();
+  const { isLoaded: userLoaded, isSignedIn } = useUser();
   const startedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoaded || startedRef.current) {
+    if (!isLoaded || !userLoaded || startedRef.current) {
+      return;
+    }
+
+    if (isSignedIn) {
+      startedRef.current = true;
+      window.location.replace('/auth/sso-callback');
       return;
     }
 
@@ -128,13 +168,18 @@ function TicketCallback({ ticket }: { ticket: string }) {
 
         window.location.replace('/auth/sso-callback');
       } catch (ticketError) {
+        if (isAlreadySignedInError(ticketError)) {
+          window.location.replace('/auth/sso-callback');
+          return;
+        }
+
         startedRef.current = false;
-        setError(ticketError instanceof Error ? ticketError.message : 'Failed to activate desktop session.');
+        setError(extractClerkErrorMessage(ticketError));
       }
     };
 
     void run();
-  }, [isLoaded, setActive, signIn, ticket]);
+  }, [isLoaded, isSignedIn, setActive, signIn, ticket, userLoaded]);
 
   if (error) {
     return <AuthCallbackError message={error} />;
