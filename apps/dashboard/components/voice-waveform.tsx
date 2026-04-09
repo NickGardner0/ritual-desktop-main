@@ -179,19 +179,19 @@ export function VoiceWaveform({
           const mixed = (overall * 0.45 + local * 0.55 + wobble) * envelope;
           const value = Math.min(1, mixed * sensitivity);
           const prevLevel = barLevelsRef.current[i] || 0;
-          const attack = value > prevLevel ? 0.38 : 0.16;
+          const attack = value > prevLevel ? 0.58 : 0.28;
           const smoothedLevel = prevLevel + (value - prevLevel) * attack;
           barLevelsRef.current[i] = smoothedLevel;
 
           // Hard silence gate: below this, draw nothing so quiet moments are
           // truly blank instead of a persistent row of tiny bars.
-          if (smoothedLevel < 0.12) {
-            barLevelsRef.current[i] = prevLevel * 0.82;
+          if (smoothedLevel < 0.09) {
+            barLevelsRef.current[i] = prevLevel * 0.72;
             continue;
           }
 
           const x = offsetX + i * step;
-          const barHeight = Math.max(3, smoothedLevel * height * 0.88);
+          const barHeight = Math.max(3, smoothedLevel * height * 0.9);
           const y = centerY - barHeight / 2;
 
           ctx.fillStyle = barColor;

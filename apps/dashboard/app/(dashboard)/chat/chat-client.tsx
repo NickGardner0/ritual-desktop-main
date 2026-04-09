@@ -1777,6 +1777,16 @@ export function ChatClient() {
       setIsProcessingVoice(false);
     };
 
+    mediaRecorder.start(100);
+    setIsListening(true);
+
+    const autoStopTimer = window.setTimeout(() => {
+      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+    }, 10000);
+
+    (window as any).__mediaRecorder = mediaRecorder;
+    (window as any).__autoStopTimer = autoStopTimer;
+
     let vadRaf = 0;
     let vadCtx: AudioContext | null = null;
     try {
@@ -1826,15 +1836,6 @@ export function ChatClient() {
       // VAD is best-effort only.
     }
 
-    mediaRecorder.start(100);
-    setIsListening(true);
-
-    const autoStopTimer = window.setTimeout(() => {
-      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
-    }, 10000);
-
-    (window as any).__mediaRecorder = mediaRecorder;
-    (window as any).__autoStopTimer = autoStopTimer;
     (window as any).__vadCleanup = () => {
       if (vadRaf) cancelAnimationFrame(vadRaf);
       if (vadCtx && vadCtx.state !== 'closed') vadCtx.close().catch(() => undefined);
