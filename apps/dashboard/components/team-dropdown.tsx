@@ -78,8 +78,8 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-8 w-8 rounded-none hover:bg-transparent p-0">
-            <Avatar className="h-8 w-8 rounded-none">
-              <AvatarFallback className="text-xs rounded-none bg-[#3d3b30] text-white">
+            <Avatar className="h-8 w-8 rounded-none border border-[#E5E7EB]">
+              <AvatarFallback className="text-xs rounded-none bg-[#F9F9F9] text-[#3d3b30]">
                 {getUserInitial()}
               </AvatarFallback>
             </Avatar>
@@ -137,8 +137,8 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         )}
         onClick={() => setActive(!isActive)}
       >
-        <Avatar className="w-[32px] h-[32px] rounded-none border border-[#DCDAD2] flex-shrink-0">
-          <AvatarFallback className="team-avatar-tile rounded-none w-[32px] h-[32px] bg-[#DBDAD7] text-[#3d3b30]">
+        <Avatar className="w-[32px] h-[32px] rounded-none border border-[#E5E7EB] flex-shrink-0">
+          <AvatarFallback className="team-avatar-tile rounded-none w-[32px] h-[32px] bg-[#F9F9F9] text-[#3d3b30]">
             <span className="text-xs font-medium">{getUserInitial()}</span>
           </AvatarFallback>
         </Avatar>

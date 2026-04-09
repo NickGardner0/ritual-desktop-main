@@ -119,6 +119,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
           afterSignOutUrl="/"
           localization={{
             formFieldHintText__optional: '',
+            socialButtonsBlockButtonManyInView: '{{provider|titleize}}',
           }}
           appearance={{
             userProfile: {
