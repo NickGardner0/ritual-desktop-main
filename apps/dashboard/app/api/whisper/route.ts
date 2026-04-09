@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger';
 const HABIT_LOGGING_TRANSCRIPTION_PROMPT = [
   'This is a verbatim transcription for a personal habit logging app.',
   'Prefer exact words, numbers, durations, dates, and units.',
+  'Keep leading pronouns, adverbs, and temporal words when spoken, such as I, today, yesterday, just, now, this morning, and tonight.',
   'Use Arabic numerals when clear, such as 1 hour, 30 minutes, 250 mg, 8000 steps, 3 miles, 20 dollars, 120 BPM, 10 pages.',
   'Habit names and phrases may include coding, computer time, screen time, caffeine, nicotine, sleep, workout, reading, spending, heart rate, steps, and car miles.',
   'Do not paraphrase. Transcribe what the speaker said as accurately as possible in English.',

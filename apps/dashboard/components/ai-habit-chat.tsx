@@ -894,8 +894,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   // Swift path, actually lets us do audio-level VAD because we own the mic.
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
-  const deepgramVoicePreferred =
-    (process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'deepgram') === 'deepgram';
+  const deepgramVoicePreferred = false;
 
   const {
     start: startDeepgramDictation,
@@ -945,10 +944,17 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   const startWhisperRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: {
+        channelCount: 1,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
     });
     voiceInputModeRef.current = 'whisper';
     setAudioStream(stream);
+    setIsListening(true);
+    setIsProcessingVoice(false);
 
     let mimeType = '';
     const supportedTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/wav'];
@@ -1007,7 +1013,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     };
 
     mediaRecorder.start(100);
-    setIsListening(true);
 
     // Hard safety: force-stop after 10s if VAD never arms.
     const autoStopTimer = window.setTimeout(() => {
