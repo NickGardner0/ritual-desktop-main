@@ -141,8 +141,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if not user:
             raise HTTPException(status_code=401, detail="Invalid authentication token")
         return user
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=401, detail="Authentication failed.")
+        logger.exception("Authentication failed: %s", e)
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {e}")
 
 
 app.include_router(
