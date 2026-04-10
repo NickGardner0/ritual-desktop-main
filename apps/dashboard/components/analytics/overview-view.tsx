@@ -103,6 +103,21 @@ function formatMetricDisplay(value: number, unitType: string): string {
   return `${formatMetricAmount(value, unitType)} ${unitType}`;
 }
 
+function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummaryState {
+  const totalActiveMs = rows.reduce((sum, row) => sum + Number(row.active_ms || 0), 0);
+  const totalHours = rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+  const totalEvents = rows.reduce((sum, row) => sum + Number(row.events_count || 0), 0);
+  const daysTracked = rows.filter((row) => Number(row.active_ms || 0) > 0).length;
+
+  return {
+    total_active_ms: totalActiveMs,
+    total_hours: totalHours,
+    total_events: totalEvents,
+    days_tracked: daysTracked,
+    avg_daily_hours: daysTracked > 0 ? totalHours / daysTracked : 0,
+  };
+}
+
 function readOverviewStatsCache(cacheKey: string | null): Record<string, HabitStats> {
   if (typeof window === 'undefined' || !cacheKey) return {};
 
@@ -574,12 +589,7 @@ export function OverviewView({
           setComputerRangeKey(requestRangeKey);
           setComputerActivityDaily(normalizedRows);
 
-          setComputerActivitySummary({
-            total_active_ms: normalizedRows.reduce((sum, row) => sum + Number(row.active_ms || 0), 0),
-            total_hours: normalizedRows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0),
-            total_events: normalizedRows.reduce((sum, row) => sum + Number(row.events_count || 0), 0),
-            days_tracked: normalizedRows.filter((row) => Number(row.active_ms || 0) > 0).length,
-          })
+          setComputerActivitySummary(buildComputerSummaryFromRows(normalizedRows))
 
           if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
             window.localStorage.setItem(
@@ -685,12 +695,20 @@ export function OverviewView({
             lastGoodComputerActivityRef.current = normalizedRows
             setComputerRangeKey(requestRangeKey)
             setComputerActivityDaily(normalizedRows)
+            setComputerActivitySummary(buildComputerSummaryFromRows(normalizedRows))
             if (typeof window !== 'undefined' && overviewComputerCacheKey) {
               window.localStorage.setItem(
                 overviewComputerCacheKey,
                 JSON.stringify({
                   timestamp: Date.now(),
                   rows: normalizedRows,
+                }),
+              )
+              window.localStorage.setItem(
+                `${overviewComputerCacheKey}:summary`,
+                JSON.stringify({
+                  timestamp: Date.now(),
+                  summary: buildComputerSummaryFromRows(normalizedRows),
                 }),
               )
             }
@@ -1057,8 +1075,12 @@ export function OverviewView({
 
       if (isComputerHabitName(habit.name)) {
         const rows = effectiveComputerActivityDaily;
-        const totalHours = !dateRange?.from && effectiveComputerActivitySummary
-          ? Number(effectiveComputerActivitySummary.total_hours || 0)
+        const rowsSummary = rows.length > 0 ? buildComputerSummaryFromRows(rows) : null;
+        const summaryForDisplay = !dateRange?.from && rowsSummary
+          ? rowsSummary
+          : effectiveComputerActivitySummary;
+        const totalHours = summaryForDisplay
+          ? Number(summaryForDisplay.total_hours || 0)
           : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
 
         if (rows.length === 0 && effectiveComputerActivitySummary) {
