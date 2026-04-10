@@ -53,7 +53,9 @@ export function HomeClient() {
   const [showSignUp, setShowSignUp] = useState(authMode === 'signup');
   const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
   const [showStartupDiagnostics, setShowStartupDiagnostics] = useState(false);
+  const [desktopLaunchGraceExpired, setDesktopLaunchGraceExpired] = useState(false);
   const desktopApp = typeof window !== 'undefined' && isTauri();
+  const isDesktopLaunch = desktopApp && Boolean(searchParams.get('ritual_desktop_env'));
 
   // Update showSignUp when URL changes
   useEffect(() => {
@@ -74,6 +76,28 @@ export function HomeClient() {
 
     return () => window.clearTimeout(timer);
   }, [isLoaded, isChecking]);
+
+  useEffect(() => {
+    const hasExplicitWelcomeIntent = Boolean(pageParam) || authMode === 'signup' || hasPendingSignUpIntent();
+    const shouldHoldReturningDesktopHome = (
+      isDesktopLaunch
+      && isLoaded
+      && !isSignedIn
+      && !hasExplicitWelcomeIntent
+      && hasDeviceAuthenticated()
+    );
+
+    if (!shouldHoldReturningDesktopHome) {
+      setDesktopLaunchGraceExpired(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setDesktopLaunchGraceExpired(true);
+    }, 3500);
+
+    return () => window.clearTimeout(timer);
+  }, [authMode, isDesktopLaunch, isLoaded, isSignedIn, pageParam]);
 
   // Attach click handler directly to logo via DOM
   useEffect(() => {
@@ -559,6 +583,19 @@ export function HomeClient() {
     );
   }
 
+  if (
+    isNewUser === false
+    && isDesktopLaunch
+    && !desktopLaunchGraceExpired
+    && !isSignedIn
+  ) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <BrailleSpinner className="text-2xl text-gray-900" />
+      </div>
+    );
+  }
+
   // RETURNING USER: Show simple home page with Sign In
   return (
     <div className="min-h-screen bg-white relative flex flex-col" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
@@ -592,6 +629,7 @@ export function HomeClient() {
 
           <Link
             href="/sign-in"
+            prefetch={false}
             className="inline-flex items-center justify-center bg-black text-white px-10 py-2 rounded-sm font-medium text-sm shadow transition-colors duration-200 hover:bg-[#27251E]"
             style={{
               userSelect: 'none',

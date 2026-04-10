@@ -9,6 +9,9 @@ import type { LocalOverviewActivityBundle } from '../types';
 import { buildWeeklyOverviewCanvasPayload, getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 
 const MAX_WEEKLY_OVERVIEW_HABIT_DETAILS = 6;
+const WEEKLY_OVERVIEW_STATS_TIMEOUT_MS = 12000;
+const WEEKLY_OVERVIEW_WATCHER_TIMEOUT_MS = 4000;
+const WEEKLY_OVERVIEW_BREAKDOWN_TIMEOUT_MS = 3000;
 
 // ---------------------------------------------------------------------------
 // Local activity bundle selector
@@ -125,17 +128,17 @@ export async function executeGetWeeklyOverview(token: string, params: {
         fetchPythonApi('/api/watcher/stats/daily', token, {
           start_date: earlyStartDate,
           end_date: earlyEndDate,
-        }),
+        }, { timeoutMs: WEEKLY_OVERVIEW_WATCHER_TIMEOUT_MS }),
         fetchPythonApi('/api/watcher/stats/top-apps', token, {
           start_date: earlyStartDate,
           end_date: earlyEndDate,
           limit: safeAppLimit,
-        }),
+        }, { timeoutMs: WEEKLY_OVERVIEW_WATCHER_TIMEOUT_MS }),
         fetchPythonApi('/api/watcher/stats/top-domains', token, {
           start_date: earlyStartDate,
           end_date: earlyEndDate,
           limit: safeAppLimit,
-        }),
+        }, { timeoutMs: WEEKLY_OVERVIEW_WATCHER_TIMEOUT_MS }),
       ]);
 
       const dailyWatcherResult = watcherRequests[0].status === 'fulfilled' ? watcherRequests[0].value : null;
@@ -154,7 +157,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
       start_date: strictWeekRange?.startDate || params.startDate || '',
       end_date: strictWeekRange?.endDate || params.endDate || '',
       days_back: safeDaysBack,
-    });
+    }, { timeoutMs: WEEKLY_OVERVIEW_STATS_TIMEOUT_MS });
 
     const [statsResult, watcherData] = await Promise.all([
       statsPromise,
@@ -199,7 +202,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
           end_date: endDate,
           days_back: safeDaysBack,
           timezone: timezone || '',
-        });
+        }, { timeoutMs: WEEKLY_OVERVIEW_BREAKDOWN_TIMEOUT_MS });
         return { habitId: habit.id, breakdown };
       }),
     );
