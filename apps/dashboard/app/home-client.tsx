@@ -103,6 +103,8 @@ export function HomeClient() {
   useEffect(() => {
     if (!isLoaded) return;
 
+    const hadDeviceAuthenticated = hasDeviceAuthenticated();
+
     if (isSignedIn && user?.id) {
       markDeviceAuthenticated();
     }
@@ -111,7 +113,7 @@ export function HomeClient() {
       lastCheckedUserIdRef.current = null;
     }
 
-    const hasSeenWelcome = hasDeviceAuthenticated();
+    const hasSeenWelcome = hadDeviceAuthenticated;
     const hasExplicitWelcomeIntent = Boolean(pageParam) || authMode === 'signup' || hasPendingSignUpIntent();
     
     // Not signed in
@@ -135,6 +137,17 @@ export function HomeClient() {
       return;
     }
 
+    const hasCompletedWelcomeFlow = hasCompletedOnboarding(user.id);
+    const hasCompletedBackendStep = hasCompletedBackendOnboarding(user.id);
+
+    if (desktopApp && !hasExplicitWelcomeIntent && (hasCompletedWelcomeFlow || hasCompletedBackendStep)) {
+      lastCheckedUserIdRef.current = user.id;
+      setIsNewUser(false);
+      setIsChecking(false);
+      router.replace(getPostOnboardingRoute('/dashboard', user.id));
+      return;
+    }
+
     lastCheckedUserIdRef.current = user.id;
     setIsChecking(true);
 
@@ -142,7 +155,7 @@ export function HomeClient() {
       try {
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        const token = await getToken({ skipCache: true }).catch((err) => {
+        const token = await getToken().catch((err) => {
           console.error('Token fetch error:', err);
           return null;
         });

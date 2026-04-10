@@ -79,55 +79,15 @@ export async function executeGetWeeklyOverview(token: string, params: {
       ? getStrictThisWeekRange(timezone || 'UTC', new Date())
       : null;
 
-    const statsResult = await fetchPythonApi('/api/analytics/stats', token, {
-      start_date: strictWeekRange?.startDate || params.startDate || '',
-      end_date: strictWeekRange?.endDate || params.endDate || '',
-      days_back: safeDaysBack,
-    });
+    // Compute dates upfront so watcher calls can start immediately
+    // without waiting for the stats API to return.
+    const earlyStartDate = strictWeekRange?.startDate || params.startDate
+      || shiftYmd(getTimezoneYmd(new Date(), timezone || 'UTC'), -(safeDaysBack - 1));
+    const earlyEndDate = strictWeekRange?.endDate || params.endDate
+      || getTimezoneYmd(new Date(), timezone || 'UTC');
 
-    if (!statsResult.success) {
-      return JSON.stringify({
-        success: false,
-        error: statsResult.error || 'Unable to fetch weekly habit stats.',
-        available_habits: statsResult.available_habits,
-      });
-    }
-
-    const dateRange = statsResult.date_range || {};
-    const startDate = dateRange.start || strictWeekRange?.startDate || params.startDate || '';
-    const endDate = dateRange.end || strictWeekRange?.endDate || params.endDate || '';
-
-    const allHabits: Array<{
-      id: string;
-      name: string;
-      category?: string;
-      unit?: string;
-      total: number;
-      average: number;
-      min: number;
-      max: number;
-      days_with_data: number;
-      total_entries: number;
-    }> = Array.isArray(statsResult.habits) ? statsResult.habits : [];
-
-    // Focus recap on habits with tracked data in this period.
-    const habitsWithData = allHabits.filter((habit) => (habit.days_with_data || 0) > 0);
-    const detailedHabits = selectWeeklyOverviewDetailHabits(habitsWithData);
-
-    const breakdownPromise = Promise.allSettled(
-      detailedHabits.map(async (habit) => {
-        const breakdown = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
-          habit_id: habit.id,
-          start_date: startDate,
-          end_date: endDate,
-          days_back: safeDaysBack,
-          timezone: timezone || '',
-        });
-        return { habitId: habit.id, breakdown };
-      }),
-    );
-
-    const localActivityBundle = selectLocalOverviewActivityBundle(localOverviewActivity, startDate, endDate);
+    // Start watcher calls immediately — they only need dates, not habit IDs
+    const localActivityBundle = selectLocalOverviewActivityBundle(localOverviewActivity, earlyStartDate, earlyEndDate);
 
     const watcherPromise = (async () => {
       if (localActivityBundle) {
@@ -163,17 +123,17 @@ export async function executeGetWeeklyOverview(token: string, params: {
 
       const watcherRequests = await Promise.allSettled([
         fetchPythonApi('/api/watcher/stats/daily', token, {
-          start_date: startDate,
-          end_date: endDate,
+          start_date: earlyStartDate,
+          end_date: earlyEndDate,
         }),
         fetchPythonApi('/api/watcher/stats/top-apps', token, {
-          start_date: startDate,
-          end_date: endDate,
+          start_date: earlyStartDate,
+          end_date: earlyEndDate,
           limit: safeAppLimit,
         }),
         fetchPythonApi('/api/watcher/stats/top-domains', token, {
-          start_date: startDate,
-          end_date: endDate,
+          start_date: earlyStartDate,
+          end_date: earlyEndDate,
           limit: safeAppLimit,
         }),
       ]);
@@ -189,10 +149,60 @@ export async function executeGetWeeklyOverview(token: string, params: {
       };
     })();
 
-    const [breakdownResults, watcherData] = await Promise.all([
-      breakdownPromise,
+    // Stats + watcher run in parallel now (previously watcher waited for stats)
+    const statsPromise = fetchPythonApi('/api/analytics/stats', token, {
+      start_date: strictWeekRange?.startDate || params.startDate || '',
+      end_date: strictWeekRange?.endDate || params.endDate || '',
+      days_back: safeDaysBack,
+    });
+
+    const [statsResult, watcherData] = await Promise.all([
+      statsPromise,
       watcherPromise,
     ]);
+
+    if (!statsResult.success) {
+      return JSON.stringify({
+        success: false,
+        error: statsResult.error || 'Unable to fetch weekly habit stats.',
+        available_habits: statsResult.available_habits,
+      });
+    }
+
+    const dateRange = statsResult.date_range || {};
+    const startDate = dateRange.start || earlyStartDate;
+    const endDate = dateRange.end || earlyEndDate;
+
+    const allHabits: Array<{
+      id: string;
+      name: string;
+      category?: string;
+      unit?: string;
+      total: number;
+      average: number;
+      min: number;
+      max: number;
+      days_with_data: number;
+      total_entries: number;
+    }> = Array.isArray(statsResult.habits) ? statsResult.habits : [];
+
+    // Focus recap on habits with tracked data in this period.
+    const habitsWithData = allHabits.filter((habit) => (habit.days_with_data || 0) > 0);
+    const detailedHabits = selectWeeklyOverviewDetailHabits(habitsWithData);
+
+    // Breakdowns need habit IDs from stats, so they start after stats completes
+    const breakdownResults = await Promise.allSettled(
+      detailedHabits.map(async (habit) => {
+        const breakdown = await fetchPythonApi('/api/analytics/daily-breakdown', token, {
+          habit_id: habit.id,
+          start_date: startDate,
+          end_date: endDate,
+          days_back: safeDaysBack,
+          timezone: timezone || '',
+        });
+        return { habitId: habit.id, breakdown };
+      }),
+    );
 
     const dailyByHabitId = new Map<string, unknown[]>();
     for (const item of breakdownResults) {

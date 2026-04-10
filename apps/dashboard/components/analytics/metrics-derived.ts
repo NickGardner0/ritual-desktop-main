@@ -200,6 +200,42 @@ export function inferHigherIsBetter(habitName: string, unit?: string): boolean |
   return null;
 }
 
+function shouldAverageMetricDisplay(habit: MetricHabitLike, unit?: string): boolean {
+  const metricType = String((habit as any)?.metric_type || '').trim().toLowerCase();
+  const normalizedUnit = String(unit || '').trim().toLowerCase();
+  const normalizedName = String(habit.habit_name || '').trim().toLowerCase();
+
+  const averageMetricTypes = new Set([
+    'oxygen_saturation',
+    'hr',
+    'resting_hr',
+    'walking_hr',
+    'hrv',
+    'respiratory_rate',
+    'body_mass',
+    'body_mass_index',
+    'body_fat_percentage',
+    'lean_body_mass',
+    'height',
+    'waist_circumference',
+    'blood_pressure_systolic',
+    'blood_pressure_diastolic',
+    'blood_glucose',
+    'body_temperature',
+    'walking_speed',
+    'walking_step_length',
+    'walking_asymmetry',
+  ]);
+
+  if (averageMetricTypes.has(metricType)) return true;
+  if (normalizedUnit.includes('percentage') || normalizedUnit === 'percent' || normalizedUnit === '%' || normalizedUnit === 'bpm') {
+    return true;
+  }
+  if (normalizedName.includes('heart rate')) return true;
+
+  return false;
+}
+
 function toMetricChartData(rows: MetricDailyRow[]): MetricCardChartPoint[] {
   const chartData = rows
     .map((log) => {
@@ -457,7 +493,7 @@ export function buildMetricsBarData({
         .filter((value) => value > 0);
       if (values.length === 0) return null;
 
-      const useAverage = habit.habit_name.toLowerCase().includes('heart rate');
+      const useAverage = shouldAverageMetricDisplay(habit, unit);
       const total = values.reduce((sum, value) => sum + value, 0);
       const displayVal = useAverage ? total / values.length : total;
 
@@ -569,11 +605,17 @@ export function buildMetricStreakData(
 
 export function formatMetricBarValue(value: number, unit: string): string {
   const lowerUnit = unit.toLowerCase();
-  const shortUnit = lowerUnit === 'milligrams' ? 'mg' : unit;
+  const shortUnit = lowerUnit === 'milligrams'
+    ? 'mg'
+    : (lowerUnit === 'percentage' || lowerUnit === 'percent' || lowerUnit === '%')
+      ? '%'
+      : unit;
   const formatted = value >= 1000
     ? Math.round(value).toLocaleString()
     : value >= 10
       ? value.toFixed(1)
       : value.toFixed(2);
-  return `${formatted} ${shortUnit}`.trim();
+  return shortUnit === '%'
+    ? `${formatted}%`
+    : `${formatted} ${shortUnit}`.trim();
 }
