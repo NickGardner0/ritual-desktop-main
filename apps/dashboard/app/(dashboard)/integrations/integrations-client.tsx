@@ -701,6 +701,7 @@ export function IntegrationsClient() {
   const [wearableSyncingProvider, setWearableSyncingProvider] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null);
+  const [detailsTab, setDetailsTab] = useState<'overview' | 'metrics' | 'export' | 'settings'>('overview');
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -1815,6 +1816,7 @@ export function IntegrationsClient() {
 
   const openIntegrationDetails = (integration: string) => {
     setSelectedIntegration(integration);
+    setDetailsTab('overview');
     setDetailsOpen(true);
   };
 
@@ -2006,7 +2008,7 @@ export function IntegrationsClient() {
     }
 
     if (selectedIntegration === 'applewatch') {
-      // Load metric catalog and schedule when panel opens
+      // Load data when panel opens
       if (appleWatchConnected && !metricsLoaded) {
         loadMetricCatalogAndPreferences();
       }
@@ -2016,46 +2018,145 @@ export function IntegrationsClient() {
       if (appleWatchConnected && !historyLoaded) {
         loadExportHistory();
       }
+
+      const tabs = [
+        { key: 'overview' as const, label: 'Overview' },
+        ...(appleWatchConnected ? [
+          { key: 'metrics' as const, label: 'Metrics' },
+          { key: 'export' as const, label: 'Export' },
+          { key: 'settings' as const, label: 'Settings' },
+        ] : []),
+      ];
+
       return (
         <div className="flex h-full flex-col bg-white">
-          {renderPanelHeader('applewatch', 'Apple Watch', `Health data • Via Ritual Companion`)}
-          <div className="min-h-0 flex-1 px-5">
+          {/* ── Compact header ─────────────────────────── */}
+          <div className="border-b border-[#e7e5dd] px-5 pb-4 pt-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#e7e5dd] bg-[#111] text-white">
+                {renderIntegrationLogo('applewatch', 'panel')}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-lg font-semibold leading-tight text-[#1f1e1a]">Apple Watch</h3>
+                <p className="text-xs text-[#9e9b8f]">Health data &middot; Via Ritual Companion</p>
+              </div>
+              {appleWatchConnected && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  Connected
+                </span>
+              )}
+            </div>
+
+            {/* ── Tab navigation ───────────────────────── */}
+            <nav className="mt-4 flex gap-1">
+              {tabs.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setDetailsTab(tab.key)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                    detailsTab === tab.key
+                      ? 'bg-[#1f1e1a] text-white'
+                      : 'text-[#69665c] hover:bg-[#f3f1ea] hover:text-[#1f1e1a]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* ── Tab content ────────────────────────────── */}
+          <div className="min-h-0 flex-1">
             <ScrollArea className="h-full">
-              <Accordion type="multiple" defaultValue={['how-it-works', ...(appleWatchConnected ? ['settings'] : [])]} className="pt-4">
-                <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
-                  <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
-                  <AccordionContent className="text-sm text-[#69665c]">
-                    Sync data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
-                  </AccordionContent>
-                </AccordionItem>
+              <div className="px-5 py-5">
 
-                {/* ── Metric selection ─────────────────────────── */}
-                {appleWatchConnected ? (
-                  <AccordionItem value="metrics" className="border-[#e7e5dd]">
-                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Metrics</AccordionTrigger>
-                    <AccordionContent>
-                      {metricCatalog.length > 0 ? (
-                        <MetricSelectionTree
-                          categories={metricCatalog}
-                          selected={selectedMetrics}
-                          onSave={saveMetricPreferences}
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2 py-4 text-sm text-[#9e9b8f]">
-                          <BrailleSpinner /> Loading metrics…
+                {/* ── Overview tab ──────────────────────── */}
+                {detailsTab === 'overview' && (
+                  <div className="space-y-5">
+                    <div>
+                      <h4 className="mb-2 text-sm font-medium text-[#1f1e1a]">How it works</h4>
+                      <p className="text-sm leading-relaxed text-[#69665c]">
+                        Sync data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
+                      </p>
+                    </div>
+
+                    {appleWatchConnected && (
+                      <>
+                        <div className="rounded-lg border border-[#e7e5dd] bg-[#faf9f7] p-4">
+                          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-[#9e9b8f]">Sync status</p>
+                          <div className="mt-3 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-[#69665c]">Last sync</span>
+                              <span className="text-sm font-medium text-[#1f1e1a]">{formatRelativeTime(appleWatchLastSync)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-[#69665c]">Tracked metrics</span>
+                              <span className="text-sm font-medium text-[#1f1e1a]">{selectedMetrics.size} selected</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-[#69665c]">Device</span>
+                              <span className="text-sm font-medium text-[#1f1e1a]">{appleWatchStatusData?.deviceName || 'iPhone'}</span>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                    </AccordionContent>
-                  </AccordionItem>
-                ) : null}
 
-                {/* ── Export data ──────────────────────────────── */}
-                {appleWatchConnected ? (
-                  <AccordionItem value="export" className="border-[#e7e5dd]">
-                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Export data</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="space-y-5 pb-2">
-                        {/* Date range presets */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setDetailsTab('metrics')}
+                            className="rounded-lg border border-[#e7e5dd] p-3 text-left transition-colors hover:bg-[#faf9f7]"
+                          >
+                            <p className="text-sm font-medium text-[#1f1e1a]">Metrics</p>
+                            <p className="mt-0.5 text-xs text-[#9e9b8f]">Choose what to track</p>
+                          </button>
+                          <button
+                            onClick={() => setDetailsTab('export')}
+                            className="rounded-lg border border-[#e7e5dd] p-3 text-left transition-colors hover:bg-[#faf9f7]"
+                          >
+                            <p className="text-sm font-medium text-[#1f1e1a]">Export</p>
+                            <p className="mt-0.5 text-xs text-[#9e9b8f]">Download your data</p>
+                          </button>
+                        </div>
+                      </>
+                    )}
+
+                    {!appleWatchConnected && (
+                      <div className="rounded-lg border border-dashed border-[#d8d5cb] bg-[#faf9f7] p-5 text-center">
+                        <p className="text-sm font-medium text-[#1f1e1a]">Not connected</p>
+                        <p className="mt-1 text-xs text-[#9e9b8f]">Open the Ritual Companion app on your iPhone to connect.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Metrics tab ───────────────────────── */}
+                {detailsTab === 'metrics' && appleWatchConnected && (
+                  <div>
+                    <p className="mb-4 text-sm text-[#69665c]">
+                      Select which health metrics to sync from your Apple Watch and iPhone.
+                    </p>
+                    {metricCatalog.length > 0 ? (
+                      <MetricSelectionTree
+                        categories={metricCatalog}
+                        selected={selectedMetrics}
+                        onSave={saveMetricPreferences}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2 py-8 text-sm text-[#9e9b8f]">
+                        <BrailleSpinner /> Loading metrics…
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Export tab ────────────────────────── */}
+                {detailsTab === 'export' && appleWatchConnected && (
+                  <div className="space-y-6">
+                    {/* Export now section */}
+                    <div>
+                      <h4 className="mb-3 text-sm font-medium text-[#1f1e1a]">Export data</h4>
+                      <div className="space-y-4">
+                        {/* Date range */}
                         <div>
                           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Date range</label>
                           <div className="mb-2 flex gap-2">
@@ -2075,28 +2176,16 @@ export function IntegrationsClient() {
                           </div>
                           {exportDatePreset === 'custom' ? (
                             <div className="flex items-center gap-2">
-                              <Input
-                                type="date"
-                                value={exportStartDate}
-                                onChange={e => setExportStartDate(e.target.value)}
-                                className="h-8 w-36 border-[#e7e5dd] text-sm"
-                              />
+                              <Input type="date" value={exportStartDate} onChange={e => setExportStartDate(e.target.value)} className="h-8 w-36 border-[#e7e5dd] text-sm" />
                               <span className="text-xs text-[#9e9b8f]">to</span>
-                              <Input
-                                type="date"
-                                value={exportEndDate}
-                                onChange={e => setExportEndDate(e.target.value)}
-                                className="h-8 w-36 border-[#e7e5dd] text-sm"
-                              />
+                              <Input type="date" value={exportEndDate} onChange={e => setExportEndDate(e.target.value)} className="h-8 w-36 border-[#e7e5dd] text-sm" />
                             </div>
                           ) : (
-                            <p className="text-xs text-[#9e9b8f]">
-                              {exportStartDate} &mdash; {exportEndDate}
-                            </p>
+                            <p className="text-xs text-[#9e9b8f]">{exportStartDate} &mdash; {exportEndDate}</p>
                           )}
                         </div>
 
-                        {/* Format selector */}
+                        {/* Format */}
                         <div>
                           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Format</label>
                           <div className="flex gap-2">
@@ -2144,220 +2233,121 @@ export function IntegrationsClient() {
                         )}
 
                         {/* Export button */}
-                        <Button
-                          onClick={handleExportNow}
-                          disabled={exportLoading}
-                          className="w-full bg-[#1f1e1a] text-white hover:bg-[#3a3935]"
-                        >
+                        <Button onClick={handleExportNow} disabled={exportLoading} className="w-full bg-[#1f1e1a] text-white hover:bg-[#3a3935]">
                           {exportLoading ? (
-                            <span className="flex items-center gap-2">
-                              <BrailleSpinner />
-                              Exporting…
-                            </span>
-                          ) : (
-                            'Export Now'
-                          )}
+                            <span className="flex items-center gap-2"><BrailleSpinner /> Exporting…</span>
+                          ) : 'Export Now'}
                         </Button>
 
-                        {/* Result message */}
                         {exportResult ? (
-                          <p className={`text-xs ${exportResult.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>
-                            {exportResult.message}
-                          </p>
+                          <p className={`text-xs ${exportResult.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>{exportResult.message}</p>
                         ) : null}
+                      </div>
+                    </div>
 
-                        {/* ── Scheduled Export ──────────────────────── */}
-                        <div className="mt-4 border-t border-[#f0eeea] pt-4">
-                          <div className="mb-3 flex items-center justify-between">
-                            <label className="text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Scheduled export</label>
-                            <button
-                              onClick={() => {
-                                if (!scheduleLoaded) loadExportSchedule();
-                                const newEnabled = !(exportSchedule?.enabled);
-                                const updated = {
-                                  ...(exportSchedule || {
-                                    enabled: false,
-                                    frequency: 'daily' as const,
-                                    format: 'markdown' as const,
-                                    time: '08:00',
-                                    day_of_week: null,
-                                    folder_path: null,
-                                    include_all_metrics: true,
-                                    metric_types: null,
-                                  }),
-                                  enabled: newEnabled,
-                                };
-                                setExportSchedule(updated);
-                                saveExportSchedule(updated);
-                              }}
-                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                                exportSchedule?.enabled ? 'bg-[#1f1e1a]' : 'bg-[#e7e5dd]'
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                                  exportSchedule?.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                                }`}
-                              />
-                            </button>
+                    {/* Schedule section */}
+                    <div className="border-t border-[#e7e5dd] pt-5">
+                      <div className="mb-3 flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-[#1f1e1a]">Scheduled export</h4>
+                        <button
+                          onClick={() => {
+                            if (!scheduleLoaded) loadExportSchedule();
+                            const newEnabled = !(exportSchedule?.enabled);
+                            const updated = {
+                              ...(exportSchedule || { enabled: false, frequency: 'daily' as const, format: 'markdown' as const, time: '08:00', day_of_week: null, folder_path: null, include_all_metrics: true, metric_types: null }),
+                              enabled: newEnabled,
+                            };
+                            setExportSchedule(updated);
+                            saveExportSchedule(updated);
+                          }}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${exportSchedule?.enabled ? 'bg-[#1f1e1a]' : 'bg-[#e7e5dd]'}`}
+                        >
+                          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${exportSchedule?.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+                        </button>
+                      </div>
+
+                      {exportSchedule?.enabled && (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="mb-1 block text-xs text-[#69665c]">Frequency</label>
+                            <div className="flex gap-2">
+                              {(['daily', 'weekly'] as const).map(freq => (
+                                <button key={freq} onClick={() => updateScheduleField('frequency', freq)} className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.frequency === freq ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white' : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'}`}>
+                                  {freq.charAt(0).toUpperCase() + freq.slice(1)}
+                                </button>
+                              ))}
+                            </div>
                           </div>
 
-                          {exportSchedule?.enabled && (
-                            <div className="space-y-3">
-                              {/* Frequency */}
-                              <div>
-                                <label className="mb-1 block text-xs text-[#69665c]">Frequency</label>
-                                <div className="flex gap-2">
-                                  {(['daily', 'weekly'] as const).map(freq => (
-                                    <button
-                                      key={freq}
-                                      onClick={() => updateScheduleField('frequency', freq)}
-                                      className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-                                        exportSchedule.frequency === freq
-                                          ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
-                                          : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
-                                      }`}
-                                    >
-                                      {freq.charAt(0).toUpperCase() + freq.slice(1)}
-                                    </button>
-                                  ))}
-                                </div>
+                          {exportSchedule.frequency === 'weekly' && (
+                            <div>
+                              <label className="mb-1 block text-xs text-[#69665c]">Day</label>
+                              <div className="flex flex-wrap gap-1">
+                                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
+                                  <button key={day} onClick={() => updateScheduleField('day_of_week', i)} className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${exportSchedule.day_of_week === i ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white' : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'}`}>
+                                    {day}
+                                  </button>
+                                ))}
                               </div>
-
-                              {/* Day of week (weekly only) */}
-                              {exportSchedule.frequency === 'weekly' && (
-                                <div>
-                                  <label className="mb-1 block text-xs text-[#69665c]">Day</label>
-                                  <div className="flex flex-wrap gap-1">
-                                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                                      <button
-                                        key={day}
-                                        onClick={() => updateScheduleField('day_of_week', i)}
-                                        className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
-                                          exportSchedule.day_of_week === i
-                                            ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
-                                            : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
-                                        }`}
-                                      >
-                                        {day}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Time */}
-                              <div>
-                                <label className="mb-1 block text-xs text-[#69665c]">Time</label>
-                                <Input
-                                  type="time"
-                                  value={exportSchedule.time || '08:00'}
-                                  onChange={e => updateScheduleField('time', e.target.value)}
-                                  className="h-8 w-32 border-[#e7e5dd] text-sm"
-                                />
-                              </div>
-
-                              {/* Format */}
-                              <div>
-                                <label className="mb-1 block text-xs text-[#69665c]">Format</label>
-                                <div className="flex gap-2">
-                                  {(['markdown', 'json', 'csv'] as const).map(fmt => (
-                                    <button
-                                      key={fmt}
-                                      onClick={() => updateScheduleField('format', fmt)}
-                                      className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
-                                        exportSchedule.format === fmt
-                                          ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
-                                          : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
-                                      }`}
-                                    >
-                                      {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-
-                              {/* Save schedule button */}
-                              <Button
-                                onClick={() => saveExportSchedule(exportSchedule)}
-                                disabled={scheduleSaving}
-                                variant="outline"
-                                className="w-full border-[#e7e5dd] text-sm text-[#3a3935] hover:bg-[#faf9f7]"
-                              >
-                                {scheduleSaving ? (
-                                  <span className="flex items-center gap-2">
-                                    <BrailleSpinner />
-                                    Saving…
-                                  </span>
-                                ) : (
-                                  'Save schedule'
-                                )}
-                              </Button>
-
-                              <p className="text-xs text-[#9e9b8f]">
-                                {exportSchedule.frequency === 'daily'
-                                  ? `Exports daily at ${exportSchedule.time || '08:00'}`
-                                  : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`}
-                              </p>
                             </div>
                           )}
-                        </div>
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                ) : null}
 
-                {/* ── Export history ──────────────────────────────── */}
-                {appleWatchConnected ? (
-                  <AccordionItem value="export-history" className="border-[#e7e5dd]">
-                    <AccordionTrigger
-                      className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline"
-                      onClick={() => { if (!historyLoaded) loadExportHistory(); }}
-                    >
-                      Export history
-                    </AccordionTrigger>
-                    <AccordionContent>
+                          <div>
+                            <label className="mb-1 block text-xs text-[#69665c]">Time</label>
+                            <Input type="time" value={exportSchedule.time || '08:00'} onChange={e => updateScheduleField('time', e.target.value)} className="h-8 w-32 border-[#e7e5dd] text-sm" />
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs text-[#69665c]">Format</label>
+                            <div className="flex gap-2">
+                              {(['markdown', 'json', 'csv'] as const).map(fmt => (
+                                <button key={fmt} onClick={() => updateScheduleField('format', fmt)} className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.format === fmt ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white' : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'}`}>
+                                  {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full border-[#e7e5dd] text-sm text-[#3a3935] hover:bg-[#faf9f7]">
+                            {scheduleSaving ? (<span className="flex items-center gap-2"><BrailleSpinner /> Saving…</span>) : 'Save schedule'}
+                          </Button>
+
+                          <p className="text-xs text-[#9e9b8f]">
+                            {exportSchedule.frequency === 'daily'
+                              ? `Exports daily at ${exportSchedule.time || '08:00'}`
+                              : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* History section */}
+                    <div className="border-t border-[#e7e5dd] pt-5">
+                      <h4 className="mb-3 text-sm font-medium text-[#1f1e1a]">History</h4>
                       <div className="space-y-2">
                         {exportHistory.length === 0 ? (
-                          <p className="py-4 text-center text-sm text-[#9e9b8f]">No exports yet</p>
+                          <p className="py-3 text-center text-sm text-[#9e9b8f]">No exports yet</p>
                         ) : (
                           exportHistory.slice(0, 20).map(entry => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center justify-between rounded-md border border-[#f0eeea] px-3 py-2"
-                            >
+                            <div key={entry.id} className="flex items-center justify-between rounded-md border border-[#f0eeea] px-3 py-2">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className={`inline-block h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-green-500' : 'bg-red-400'}`} />
                                   <span className="text-sm font-medium text-[#1f1e1a]">
-                                    {entry.start_date === entry.end_date
-                                      ? entry.start_date
-                                      : `${entry.start_date} — ${entry.end_date}`}
+                                    {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
                                   </span>
-                                  <span className="rounded bg-[#f0eeea] px-1.5 py-0.5 text-[10px] font-medium uppercase text-[#69665c]">
-                                    {entry.format}
-                                  </span>
+                                  <span className="rounded bg-[#f0eeea] px-1.5 py-0.5 text-[10px] font-medium uppercase text-[#69665c]">{entry.format}</span>
                                 </div>
                                 <div className="mt-0.5 flex items-center gap-3 text-xs text-[#9e9b8f]">
                                   <span>{new Date(entry.timestamp).toLocaleString()}</span>
-                                  {entry.file_size_bytes != null && (
-                                    <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>
-                                  )}
+                                  {entry.file_size_bytes != null && <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>}
                                   <span className="capitalize">{entry.triggered_by}</span>
                                 </div>
-                                {entry.error && (
-                                  <p className="mt-1 text-xs text-red-500">{entry.error}</p>
-                                )}
+                                {entry.error && <p className="mt-1 text-xs text-red-500">{entry.error}</p>}
                               </div>
                               {entry.status === 'failed' && (
                                 <button
-                                  onClick={() => {
-                                    // Pre-fill export form with the failed entry's settings and trigger
-                                    setExportStartDate(entry.start_date);
-                                    setExportEndDate(entry.end_date);
-                                    setExportFormat(entry.format as 'markdown' | 'json' | 'csv');
-                                    setExportDatePreset('custom');
-                                  }}
+                                  onClick={() => { setExportStartDate(entry.start_date); setExportEndDate(entry.end_date); setExportFormat(entry.format as 'markdown' | 'json' | 'csv'); setExportDatePreset('custom'); }}
                                   className="ml-2 shrink-0 rounded border border-[#e7e5dd] px-2 py-1 text-xs text-[#69665c] hover:border-[#c4c1b7] hover:text-[#1f1e1a]"
                                 >
                                   Retry
@@ -2368,32 +2358,39 @@ export function IntegrationsClient() {
                         )}
                         {exportHistory.length > 0 && (
                           <button
-                            onClick={() => {
-                              setExportHistory([]);
-                              // Clear on server too
-                              getToken().then(token => {
-                                if (!token) return;
-                                // We don't have a delete endpoint, so we'll just clear local state
-                                // History will rebuild from new exports
-                              });
-                            }}
+                            onClick={() => { setExportHistory([]); getToken().then(token => { if (!token) return; }); }}
                             className="mt-2 text-xs text-[#9e9b8f] underline hover:text-[#69665c]"
                           >
                             Clear history
                           </button>
                         )}
                       </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                ) : null}
+                    </div>
+                  </div>
+                )}
 
-                {appleWatchConnected ? (
-                  <AccordionItem value="settings" className="border-[#e7e5dd]">
-                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
-                    <AccordionContent>{renderAutoSyncDetails('apple_health', appleHealthConnection, appleWatchLastSync, null)}</AccordionContent>
-                  </AccordionItem>
-                ) : null}
-              </Accordion>
+                {/* ── Settings tab ──────────────────────── */}
+                {detailsTab === 'settings' && appleWatchConnected && (
+                  <div className="space-y-5">
+                    <div>
+                      <h4 className="mb-3 text-sm font-medium text-[#1f1e1a]">Sync</h4>
+                      {renderAutoSyncDetails('apple_health', appleHealthConnection, appleWatchLastSync, null)}
+                    </div>
+
+                    <div className="border-t border-[#e7e5dd] pt-5">
+                      <h4 className="mb-2 text-sm font-medium text-[#1f1e1a]">Danger zone</h4>
+                      <p className="mb-3 text-xs text-[#9e9b8f]">Disconnect this integration. Your synced data will remain in Ritual.</p>
+                      <button
+                        onClick={handleAppleWatchDisconnect}
+                        className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
+                      >
+                        Disconnect Apple Watch
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
             </ScrollArea>
           </div>
         </div>
