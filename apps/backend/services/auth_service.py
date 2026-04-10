@@ -70,6 +70,20 @@ class AuthService:
         If email is not in token, fetch it from Clerk API
         """
         try:
+            # Debug: log unverified header + payload to diagnose instance mismatches
+            try:
+                unverified_header = jwt.get_unverified_header(token)
+                unverified_payload = jwt.decode(token, options={"verify_signature": False})
+                logger.warning(
+                    "[AUTH DEBUG] token kid=%s iss=%s azp=%s sub=%s",
+                    unverified_header.get("kid"),
+                    unverified_payload.get("iss"),
+                    unverified_payload.get("azp"),
+                    unverified_payload.get("sub"),
+                )
+            except Exception as _dbg:
+                logger.warning("[AUTH DEBUG] failed to peek token: %s", _dbg)
+
             # Get the signing key from JWKS (PyJWKClient handles caching)
             signing_key = self.jwks_client.get_signing_key_from_jwt(token)
             
