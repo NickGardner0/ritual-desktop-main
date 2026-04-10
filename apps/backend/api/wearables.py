@@ -499,6 +499,168 @@ def create_wearables_router(
         )
         return {"samples": [_serialize_sample(sample) for sample in samples], "count": len(samples)}
 
+    # ── Health data export (Markdown / JSON / CSV) ─────────────────────
+    @router.get("/api/wearables/apple/export")
+    async def export_apple_health(
+        start_date: str,  # YYYY-MM-DD
+        end_date: str,    # YYYY-MM-DD
+        format: str = "markdown",  # markdown | json | csv
+        metric_types: Optional[str] = None,  # comma-separated, or all if omitted
+        current_user=Depends(get_current_user),
+    ):
+        """Export Apple Health data in Markdown, JSON, or CSV format."""
+        from datetime import timedelta
+        from fastapi.responses import PlainTextResponse, JSONResponse
+
+        # Parse dates
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)  # inclusive end
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+
+        if (end_dt - start_dt).days > 366:
+            raise HTTPException(status_code=400, detail="Date range cannot exceed 1 year")
+
+        type_filter = [t.strip() for t in metric_types.split(",")] if metric_types else None
+
+        # Fetch all samples in range
+        samples = await wearable_query_service.get_samples(
+            user_id=current_user["id"],
+            provider="apple_health",
+            start_time=start_dt,
+            end_time=end_dt,
+            include_deleted=False,
+            limit=50000,
+        )
+
+        # Optional metric type filter
+        if type_filter:
+            samples = [s for s in samples if s.metric_type in type_filter]
+
+        # Group by attributed_date (YYYY-MM-DD)
+        from collections import defaultdict
+        by_date: dict[str, list] = defaultdict(list)
+        for s in samples:
+            day = s.attributed_date or (s.start_time.strftime("%Y-%m-%d") if s.start_time else start_date)
+            by_date[day].append(s)
+
+        if format == "json":
+            export_data = {}
+            for day in sorted(by_date.keys()):
+                export_data[day] = [_serialize_sample(s) for s in by_date[day]]
+            return JSONResponse(content={"dates": export_data, "total_samples": len(samples)})
+
+        elif format == "csv":
+            import csv, io
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["Date", "Category", "Metric", "Value", "Unit", "Start", "End"])
+            for day in sorted(by_date.keys()):
+                for s in by_date[day]:
+                    writer.writerow([
+                        day,
+                        _metric_category(s.metric_type),
+                        s.metric_type,
+                        s.value,
+                        s.unit,
+                        s.start_time.isoformat() if s.start_time else "",
+                        s.end_time.isoformat() if s.end_time else "",
+                    ])
+            return PlainTextResponse(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=ritual-health-{start_date}-to-{end_date}.csv"},
+            )
+
+        else:  # markdown (default)
+            lines: list[str] = []
+            for day in sorted(by_date.keys()):
+                day_samples = by_date[day]
+                lines.append(f"# Health {day}")
+                lines.append("")
+
+                # Group by category
+                categorized: dict[str, list] = defaultdict(list)
+                for s in day_samples:
+                    categorized[_metric_category(s.metric_type)].append(s)
+
+                for category in ["Activity", "Heart", "Sleep", "Respiratory",
+                                 "Body Measurements", "Nutrition", "Vitals",
+                                 "Mobility", "Workouts", "Mindfulness", "Other"]:
+                    items = categorized.get(category, [])
+                    if not items:
+                        continue
+                    lines.append(f"## {category}")
+                    lines.append("")
+                    for s in items:
+                        display = _metric_display_name(s.metric_type)
+                        val = int(s.value) if s.value == int(s.value) else f"{s.value:.2f}"
+                        lines.append(f"- **{display}**: {val} {s.unit}")
+                    lines.append("")
+
+                lines.append("---")
+                lines.append("")
+
+            content = "\n".join(lines).rstrip()
+            return PlainTextResponse(
+                content=content,
+                media_type="text/markdown",
+                headers={"Content-Disposition": f"attachment; filename=ritual-health-{start_date}-to-{end_date}.md"},
+            )
+
+    def _metric_category(metric_type: str) -> str:
+        """Map metric type string to a human-readable category."""
+        _map = {
+            "steps": "Activity", "active_energy": "Activity", "basal_energy": "Activity",
+            "distance": "Activity", "flights_climbed": "Activity", "exercise_time": "Activity",
+            "stand_time": "Activity",
+            "hr": "Heart", "hrv": "Heart", "resting_hr": "Heart", "walking_hr": "Heart",
+            "sleep_session": "Sleep", "sleep_asleep": "Sleep", "sleep_awake": "Sleep",
+            "sleep_rem": "Sleep", "sleep_deep": "Sleep", "sleep_core": "Sleep",
+            "respiratory_rate": "Respiratory", "oxygen_saturation": "Respiratory",
+            "body_mass": "Body Measurements", "body_mass_index": "Body Measurements",
+            "body_fat_percentage": "Body Measurements", "lean_body_mass": "Body Measurements",
+            "height": "Body Measurements", "waist_circumference": "Body Measurements",
+            "dietary_energy": "Nutrition", "dietary_protein": "Nutrition",
+            "dietary_carbs": "Nutrition", "dietary_fat": "Nutrition",
+            "dietary_fiber": "Nutrition", "dietary_sugar": "Nutrition",
+            "dietary_water": "Nutrition", "dietary_caffeine": "Nutrition",
+            "blood_pressure_systolic": "Vitals", "blood_pressure_diastolic": "Vitals",
+            "blood_glucose": "Vitals", "body_temperature": "Vitals",
+            "walking_speed": "Mobility", "walking_step_length": "Mobility",
+            "walking_asymmetry": "Mobility",
+            "workout": "Workouts", "mindful_minutes": "Mindfulness",
+        }
+        return _map.get(metric_type, "Other")
+
+    def _metric_display_name(metric_type: str) -> str:
+        """Map metric type string to a human-readable display name."""
+        _map = {
+            "steps": "Steps", "active_energy": "Active energy", "basal_energy": "Basal energy",
+            "distance": "Distance", "flights_climbed": "Flights climbed",
+            "exercise_time": "Exercise time", "stand_time": "Stand time",
+            "hr": "Heart rate", "hrv": "HRV", "resting_hr": "Resting heart rate",
+            "walking_hr": "Walking heart rate",
+            "respiratory_rate": "Respiratory rate", "oxygen_saturation": "Oxygen saturation",
+            "sleep_session": "Sleep session", "sleep_asleep": "Asleep", "sleep_awake": "Awake",
+            "sleep_rem": "REM", "sleep_deep": "Deep sleep", "sleep_core": "Core sleep",
+            "body_mass": "Weight", "body_mass_index": "BMI",
+            "body_fat_percentage": "Body fat", "lean_body_mass": "Lean body mass",
+            "height": "Height", "waist_circumference": "Waist circumference",
+            "dietary_energy": "Calories consumed", "dietary_protein": "Protein",
+            "dietary_carbs": "Carbohydrates", "dietary_fat": "Fat",
+            "dietary_fiber": "Fiber", "dietary_sugar": "Sugar",
+            "dietary_water": "Water", "dietary_caffeine": "Caffeine",
+            "blood_pressure_systolic": "Blood pressure (systolic)",
+            "blood_pressure_diastolic": "Blood pressure (diastolic)",
+            "blood_glucose": "Blood glucose", "body_temperature": "Body temperature",
+            "walking_speed": "Walking speed", "walking_step_length": "Step length",
+            "walking_asymmetry": "Walking asymmetry",
+            "workout": "Workout", "mindful_minutes": "Mindful minutes",
+        }
+        return _map.get(metric_type, metric_type.replace("_", " ").title())
+
     @router.get("/api/wearables/events")
     async def get_wearable_events(
         provider: Optional[str] = None,
@@ -765,35 +927,325 @@ def create_wearables_router(
             raise HTTPException(status_code=500, detail="Request could not be processed.")
     
     
-    @router.get("/api/wearables/apple/tracked_metrics")
-    async def get_apple_tracked_metrics(current_user = Depends(get_current_user)):
+    # ── Metric catalog & preferences ─────────────────────────────────
+    _METRIC_CATALOG = [
+        {"category": "Activity", "metrics": [
+            {"type": "steps", "name": "Steps", "unit": "count"},
+            {"type": "active_energy", "name": "Active Energy", "unit": "kcal"},
+            {"type": "basal_energy", "name": "Basal Energy", "unit": "kcal"},
+            {"type": "distance", "name": "Distance", "unit": "meters"},
+            {"type": "flights_climbed", "name": "Flights Climbed", "unit": "count"},
+            {"type": "exercise_time", "name": "Exercise Time", "unit": "minutes"},
+            {"type": "stand_time", "name": "Stand Time", "unit": "minutes"},
+        ]},
+        {"category": "Heart", "metrics": [
+            {"type": "hr", "name": "Heart Rate", "unit": "bpm"},
+            {"type": "hrv", "name": "HRV", "unit": "ms"},
+            {"type": "resting_hr", "name": "Resting Heart Rate", "unit": "bpm"},
+            {"type": "walking_hr", "name": "Walking Heart Rate", "unit": "bpm"},
+        ]},
+        {"category": "Sleep", "metrics": [
+            {"type": "sleep_session", "name": "Sleep Session", "unit": "hours"},
+            {"type": "sleep_asleep", "name": "Asleep", "unit": "hours"},
+            {"type": "sleep_awake", "name": "Awake", "unit": "hours"},
+            {"type": "sleep_rem", "name": "REM Sleep", "unit": "hours"},
+            {"type": "sleep_deep", "name": "Deep Sleep", "unit": "hours"},
+            {"type": "sleep_core", "name": "Core Sleep", "unit": "hours"},
+        ]},
+        {"category": "Respiratory", "metrics": [
+            {"type": "respiratory_rate", "name": "Respiratory Rate", "unit": "breaths/min"},
+            {"type": "oxygen_saturation", "name": "Oxygen Saturation", "unit": "%"},
+        ]},
+        {"category": "Body Measurements", "metrics": [
+            {"type": "body_mass", "name": "Weight", "unit": "kg"},
+            {"type": "body_mass_index", "name": "BMI", "unit": ""},
+            {"type": "body_fat_percentage", "name": "Body Fat", "unit": "%"},
+            {"type": "lean_body_mass", "name": "Lean Body Mass", "unit": "kg"},
+            {"type": "height", "name": "Height", "unit": "cm"},
+            {"type": "waist_circumference", "name": "Waist Circumference", "unit": "cm"},
+        ]},
+        {"category": "Nutrition", "metrics": [
+            {"type": "dietary_energy", "name": "Calories Consumed", "unit": "kcal"},
+            {"type": "dietary_protein", "name": "Protein", "unit": "g"},
+            {"type": "dietary_carbs", "name": "Carbohydrates", "unit": "g"},
+            {"type": "dietary_fat", "name": "Fat", "unit": "g"},
+            {"type": "dietary_fiber", "name": "Fiber", "unit": "g"},
+            {"type": "dietary_sugar", "name": "Sugar", "unit": "g"},
+            {"type": "dietary_water", "name": "Water", "unit": "ml"},
+            {"type": "dietary_caffeine", "name": "Caffeine", "unit": "mg"},
+        ]},
+        {"category": "Vitals", "metrics": [
+            {"type": "blood_pressure_systolic", "name": "Blood Pressure (Systolic)", "unit": "mmHg"},
+            {"type": "blood_pressure_diastolic", "name": "Blood Pressure (Diastolic)", "unit": "mmHg"},
+            {"type": "blood_glucose", "name": "Blood Glucose", "unit": "mmol/L"},
+            {"type": "body_temperature", "name": "Body Temperature", "unit": "°C"},
+        ]},
+        {"category": "Mobility", "metrics": [
+            {"type": "walking_speed", "name": "Walking Speed", "unit": "m/s"},
+            {"type": "walking_step_length", "name": "Step Length", "unit": "cm"},
+            {"type": "walking_asymmetry", "name": "Walking Asymmetry", "unit": "%"},
+        ]},
+        {"category": "Workouts", "metrics": [
+            {"type": "workout", "name": "Workouts", "unit": "minutes"},
+        ]},
+        {"category": "Mindfulness", "metrics": [
+            {"type": "mindful_minutes", "name": "Mindful Minutes", "unit": "minutes"},
+        ]},
+    ]
+
+    @router.get("/api/wearables/apple/metric_catalog")
+    async def get_metric_catalog(current_user=Depends(get_current_user)):
+        """Return the full catalog of available Apple Health metric types."""
+        return {"categories": _METRIC_CATALOG}
+
+    @router.get("/api/wearables/apple/metric_preferences")
+    async def get_metric_preferences(current_user=Depends(get_current_user)):
+        """Get the user's explicitly selected metric types for syncing."""
+        from database.connection import get_db_session
+        from database.models import WearableConnectionDB
+        from sqlalchemy import select
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == current_user["id"],
+                WearableConnectionDB.provider == "apple_health",
+            )
+            result = await session.execute(stmt)
+            conn = result.scalar_one_or_none()
+
+            if not conn or not conn.settings_json:
+                return {"selected_metrics": []}
+
+            settings = json.loads(conn.settings_json) if isinstance(conn.settings_json, str) else conn.settings_json
+            return {"selected_metrics": settings.get("metric_preferences", [])}
+
+    @router.put("/api/wearables/apple/metric_preferences")
+    async def put_metric_preferences(
+        body: dict,
+        current_user=Depends(get_current_user),
+    ):
+        """Update the user's selected metric types. Body: { selected_metrics: string[] }"""
+        from database.connection import get_db_session
+        from database.models import WearableConnectionDB
+        from sqlalchemy import select
+
+        selected = body.get("selected_metrics", [])
+        if not isinstance(selected, list):
+            raise HTTPException(status_code=400, detail="selected_metrics must be an array")
+
+        # Validate metric types
+        all_types = {m["type"] for cat in _METRIC_CATALOG for m in cat["metrics"]}
+        invalid = [t for t in selected if t not in all_types]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Unknown metric types: {invalid}")
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == current_user["id"],
+                WearableConnectionDB.provider == "apple_health",
+            )
+            result = await session.execute(stmt)
+            conn = result.scalar_one_or_none()
+
+            if not conn:
+                raise HTTPException(status_code=404, detail="No Apple Health connection found")
+
+            # Merge into existing settings_json
+            settings = {}
+            if conn.settings_json:
+                try:
+                    settings = json.loads(conn.settings_json)
+                except Exception:
+                    settings = {}
+
+            settings["metric_preferences"] = selected
+            conn.settings_json = json.dumps(settings)
+            await session.commit()
+
+        return {"selected_metrics": selected}
+
+    # ── Export Schedule ──────────────────────────────────────────────────
+    @router.get("/api/wearables/apple/export_schedule")
+    async def get_export_schedule(current_user=Depends(get_current_user)):
+        """Get the user's scheduled export configuration."""
+        from database.connection import get_db_session
+        from database.models import WearableConnectionDB
+        from sqlalchemy import select
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == current_user["id"],
+                WearableConnectionDB.provider == "apple_health",
+            )
+            result = await session.execute(stmt)
+            conn = result.scalar_one_or_none()
+
+            if not conn or not conn.settings_json:
+                return {"schedule": None}
+
+            settings = json.loads(conn.settings_json) if isinstance(conn.settings_json, str) else conn.settings_json
+            return {"schedule": settings.get("export_schedule", None)}
+
+    @router.put("/api/wearables/apple/export_schedule")
+    async def put_export_schedule(
+        body: dict,
+        current_user=Depends(get_current_user),
+    ):
         """
-        Get the list of Apple Watch metric types the user has selected to track.
-        
-        This endpoint returns the metric_type values for all habits where:
-        - integration_source = 'apple_health'
-        - metric_type is not null
-        
-        The iOS companion app uses this to know which HealthKit metrics to sync.
-        
-        Example response:
-        ```json
+        Update export schedule. Body:
         {
-            "metric_types": ["steps", "hr", "hrv", "sleep_session"],
-            "habits": [
-                {"id": "abc", "name": "Steps", "metric_type": "steps", "unit_type": "Steps"},
-                {"id": "def", "name": "Heart Rate", "metric_type": "hr", "unit_type": "BPM"}
-            ]
+          "schedule": {
+            "enabled": bool,
+            "frequency": "daily" | "weekly",
+            "format": "markdown" | "json" | "csv",
+            "time": "HH:MM",           // 24h local time
+            "day_of_week": 0-6 | null,  // 0=Mon, only for weekly
+            "folder_path": str | null,  // last used save path (desktop only)
+            "include_all_metrics": bool,
+            "metric_types": string[] | null
+          }
         }
-        ```
+        """
+        from database.connection import get_db_session
+        from database.models import WearableConnectionDB
+        from sqlalchemy import select
+
+        schedule = body.get("schedule")
+        if schedule is not None:
+            if not isinstance(schedule, dict):
+                raise HTTPException(status_code=400, detail="schedule must be an object")
+            # Validate required fields
+            if "enabled" not in schedule:
+                schedule["enabled"] = False
+            if schedule.get("frequency") not in (None, "daily", "weekly"):
+                raise HTTPException(status_code=400, detail="frequency must be 'daily' or 'weekly'")
+            if schedule.get("format") not in (None, "markdown", "json", "csv"):
+                raise HTTPException(status_code=400, detail="format must be 'markdown', 'json', or 'csv'")
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == current_user["id"],
+                WearableConnectionDB.provider == "apple_health",
+            )
+            result = await session.execute(stmt)
+            conn = result.scalar_one_or_none()
+
+            if not conn:
+                raise HTTPException(status_code=404, detail="No Apple Health connection found")
+
+            settings = {}
+            if conn.settings_json:
+                try:
+                    settings = json.loads(conn.settings_json)
+                except Exception:
+                    settings = {}
+
+            settings["export_schedule"] = schedule
+            conn.settings_json = json.dumps(settings)
+            await session.commit()
+
+        return {"schedule": schedule}
+
+    # ── Export History ────────────────────────────────────────────────────
+    @router.get("/api/wearables/apple/export_history")
+    async def get_export_history(
+        limit: int = 50,
+        current_user=Depends(get_current_user),
+    ):
+        """Get recent export history entries."""
+        from database.connection import get_db_session
+        from database.models import WearableConnectionDB
+        from sqlalchemy import select
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == current_user["id"],
+                WearableConnectionDB.provider == "apple_health",
+            )
+            result = await session.execute(stmt)
+            conn = result.scalar_one_or_none()
+
+            if not conn or not conn.settings_json:
+                return {"history": []}
+
+            settings = json.loads(conn.settings_json) if isinstance(conn.settings_json, str) else conn.settings_json
+            history = settings.get("export_history", [])
+            # Return most recent first, capped
+            return {"history": history[-limit:][::-1]}
+
+    @router.post("/api/wearables/apple/export_history")
+    async def add_export_history(
+        body: dict,
+        current_user=Depends(get_current_user),
+    ):
+        """
+        Record an export history entry. Body:
+        {
+          "entry": {
+            "id": str,             // UUID
+            "timestamp": str,      // ISO datetime
+            "start_date": str,     // YYYY-MM-DD
+            "end_date": str,       // YYYY-MM-DD
+            "format": str,
+            "status": "success" | "failed",
+            "sample_count": int,
+            "file_size_bytes": int | null,
+            "file_path": str | null,
+            "error": str | null,
+            "triggered_by": "manual" | "scheduled"
+          }
+        }
+        """
+        from database.connection import get_db_session
+        from database.models import WearableConnectionDB
+        from sqlalchemy import select
+
+        entry = body.get("entry")
+        if not entry or not isinstance(entry, dict):
+            raise HTTPException(status_code=400, detail="entry must be an object")
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == current_user["id"],
+                WearableConnectionDB.provider == "apple_health",
+            )
+            result = await session.execute(stmt)
+            conn = result.scalar_one_or_none()
+
+            if not conn:
+                raise HTTPException(status_code=404, detail="No Apple Health connection found")
+
+            settings = {}
+            if conn.settings_json:
+                try:
+                    settings = json.loads(conn.settings_json)
+                except Exception:
+                    settings = {}
+
+            history = settings.get("export_history", [])
+            history.append(entry)
+            # Cap at 100 entries
+            if len(history) > 100:
+                history = history[-100:]
+            settings["export_history"] = history
+            conn.settings_json = json.dumps(settings)
+            await session.commit()
+
+        return {"entry": entry}
+
+    @router.get("/api/wearables/apple/tracked_metrics")
+    async def get_apple_tracked_metrics(current_user=Depends(get_current_user)):
+        """
+        Get the list of metric types to sync = union of habit-derived + explicit preferences.
+        The iOS companion app uses this to know which HealthKit metrics to sync.
         """
         try:
             from database.connection import get_db_session
-            from database.models import HabitDB
+            from database.models import HabitDB, WearableConnectionDB
             from sqlalchemy import select
-            
+
             async with get_db_session() as session:
-                # Query habits where integration_source is apple_health and metric_type is set
+                # 1) Habit-derived metric types
                 stmt = select(HabitDB).where(
                     HabitDB.user_id == current_user["id"],
                     HabitDB.integration_source == "apple_health",
@@ -801,9 +1253,8 @@ def create_wearables_router(
                 )
                 result = await session.execute(stmt)
                 habits = result.scalars().all()
-                
-                # Build response
-                metric_types = list(set(h.metric_type for h in habits if h.metric_type))
+
+                habit_types = set(h.metric_type for h in habits if h.metric_type)
                 habits_list = [
                     {
                         "id": h.id,
@@ -813,12 +1264,31 @@ def create_wearables_router(
                     }
                     for h in habits
                 ]
-                
+
+                # 2) Explicit metric preferences from connection settings
+                conn_stmt = select(WearableConnectionDB).where(
+                    WearableConnectionDB.user_id == current_user["id"],
+                    WearableConnectionDB.provider == "apple_health",
+                )
+                conn_result = await session.execute(conn_stmt)
+                conn = conn_result.scalar_one_or_none()
+
+                pref_types: set[str] = set()
+                if conn and conn.settings_json:
+                    try:
+                        settings = json.loads(conn.settings_json)
+                        pref_types = set(settings.get("metric_preferences", []))
+                    except Exception:
+                        pass
+
+                # Union of both sources
+                all_types = sorted(habit_types | pref_types)
+
                 return {
-                    "metric_types": metric_types,
+                    "metric_types": all_types,
                     "habits": habits_list
                 }
-                
+
         except Exception as e:
             logger.error(f"❌ Get tracked metrics error: {str(e)}")
             raise HTTPException(status_code=500, detail="Request could not be processed.")

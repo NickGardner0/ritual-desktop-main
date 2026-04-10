@@ -52,6 +52,35 @@ class MetricType(str, Enum):
     WORKOUT = "workout"
     MINDFUL_MINUTES = "mindful_minutes"
 
+    # Body Measurements
+    BODY_MASS = "body_mass"
+    BODY_MASS_INDEX = "body_mass_index"
+    BODY_FAT_PERCENTAGE = "body_fat_percentage"
+    LEAN_BODY_MASS = "lean_body_mass"
+    HEIGHT = "height"
+    WAIST_CIRCUMFERENCE = "waist_circumference"
+
+    # Nutrition
+    DIETARY_ENERGY = "dietary_energy"
+    DIETARY_PROTEIN = "dietary_protein"
+    DIETARY_CARBS = "dietary_carbs"
+    DIETARY_FAT = "dietary_fat"
+    DIETARY_FIBER = "dietary_fiber"
+    DIETARY_SUGAR = "dietary_sugar"
+    DIETARY_WATER = "dietary_water"
+    DIETARY_CAFFEINE = "dietary_caffeine"
+
+    # Vitals (additional)
+    BLOOD_PRESSURE_SYSTOLIC = "blood_pressure_systolic"
+    BLOOD_PRESSURE_DIASTOLIC = "blood_pressure_diastolic"
+    BLOOD_GLUCOSE = "blood_glucose"
+    BODY_TEMPERATURE = "body_temperature"
+
+    # Mobility
+    WALKING_SPEED = "walking_speed"
+    WALKING_STEP_LENGTH = "walking_step_length"
+    WALKING_ASYMMETRY = "walking_asymmetry"
+
     # Screen Time
     SCREEN_TIME_TOTAL = "screen_time_total"
     SCREEN_TIME_APP_USAGE = "screen_time_app_usage"
@@ -72,6 +101,19 @@ class Unit(str, Enum):
     MILES = "miles"
     PERCENT = "percent"
     BREATHS_PER_MINUTE = "breaths_per_minute"
+    # Body measurement units
+    KG = "kg"
+    CM = "cm"
+    # Nutrition units
+    GRAMS = "g"
+    MG = "mg"
+    ML = "ml"
+    # Vitals units
+    MMHG = "mmHg"
+    MMOL_PER_L = "mmol_per_L"
+    CELSIUS = "celsius"
+    # Mobility units
+    METERS_PER_SECOND = "m_per_s"
 
 
 class NormalizedMetricSchema(BaseModel):

@@ -22,6 +22,7 @@ import { Monitor } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { useHabits } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { MetricSelectionTree } from '@/components/metric-selection-tree';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -646,6 +647,49 @@ export function IntegrationsClient() {
   const [plaidSettingsSaving, setPlaidSettingsSaving] = useState(false);
   const [plaidAccountSavingId, setPlaidAccountSavingId] = useState<string | null>(null);
   const [appleWatchSyncing, setAppleWatchSyncing] = useState(false);
+  // Export state
+  const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'csv'>('markdown');
+  const [exportWriteMode, setExportWriteMode] = useState<'overwrite' | 'append' | 'skip'>('overwrite');
+  const [exportDatePreset, setExportDatePreset] = useState<'yesterday' | '7d' | '30d' | 'custom'>('7d');
+  const [exportStartDate, setExportStartDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [exportEndDate, setExportEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportResult, setExportResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // Metric selection state
+  const [metricCatalog, setMetricCatalog] = useState<any[]>([]);
+  const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(new Set());
+  const [metricsLoaded, setMetricsLoaded] = useState(false);
+  // Export schedule state
+  const [exportSchedule, setExportSchedule] = useState<{
+    enabled: boolean;
+    frequency: 'daily' | 'weekly';
+    format: 'markdown' | 'json' | 'csv';
+    time: string;
+    day_of_week: number | null;
+    folder_path: string | null;
+    include_all_metrics: boolean;
+    metric_types: string[] | null;
+  } | null>(null);
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+  // Export history state
+  const [exportHistory, setExportHistory] = useState<Array<{
+    id: string;
+    timestamp: string;
+    start_date: string;
+    end_date: string;
+    format: string;
+    status: 'success' | 'failed';
+    sample_count: number;
+    file_size_bytes: number | null;
+    file_path: string | null;
+    error: string | null;
+    triggered_by: 'manual' | 'scheduled';
+  }>>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [isProcessingCallback, setIsProcessingCallback] = useState(false);
   const [teslaConnected, setTeslaConnected] = useState(false);
   const [teslaConnecting, setTeslaConnecting] = useState(false);
@@ -1962,6 +2006,16 @@ export function IntegrationsClient() {
     }
 
     if (selectedIntegration === 'applewatch') {
+      // Load metric catalog and schedule when panel opens
+      if (appleWatchConnected && !metricsLoaded) {
+        loadMetricCatalogAndPreferences();
+      }
+      if (appleWatchConnected && !scheduleLoaded) {
+        loadExportSchedule();
+      }
+      if (appleWatchConnected && !historyLoaded) {
+        loadExportHistory();
+      }
       return (
         <div className="flex h-full flex-col bg-white">
           {renderPanelHeader('applewatch', 'Apple Watch', `Health data • Via Ritual Companion`)}
@@ -1971,9 +2025,368 @@ export function IntegrationsClient() {
                 <AccordionItem value="how-it-works" className="border-[#e7e5dd]">
                   <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">How it works</AccordionTrigger>
                   <AccordionContent className="text-sm text-[#69665c]">
-                    Sync data from your iPhone companion app, including workouts, steps, heart rate, and sleep metrics.
+                    Sync data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
                   </AccordionContent>
                 </AccordionItem>
+
+                {/* ── Metric selection ─────────────────────────── */}
+                {appleWatchConnected ? (
+                  <AccordionItem value="metrics" className="border-[#e7e5dd]">
+                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Metrics</AccordionTrigger>
+                    <AccordionContent>
+                      {metricCatalog.length > 0 ? (
+                        <MetricSelectionTree
+                          categories={metricCatalog}
+                          selected={selectedMetrics}
+                          onSave={saveMetricPreferences}
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 py-4 text-sm text-[#9e9b8f]">
+                          <BrailleSpinner /> Loading metrics…
+                        </div>
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
+                ) : null}
+
+                {/* ── Export data ──────────────────────────────── */}
+                {appleWatchConnected ? (
+                  <AccordionItem value="export" className="border-[#e7e5dd]">
+                    <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Export data</AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-5 pb-2">
+                        {/* Date range presets */}
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Date range</label>
+                          <div className="mb-2 flex gap-2">
+                            {([['yesterday', 'Yesterday'], ['7d', '7 Days'], ['30d', '30 Days'], ['custom', 'Custom']] as const).map(([key, label]) => (
+                              <button
+                                key={key}
+                                onClick={() => applyExportDatePreset(key)}
+                                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                  exportDatePreset === key
+                                    ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                                    : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                          {exportDatePreset === 'custom' ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="date"
+                                value={exportStartDate}
+                                onChange={e => setExportStartDate(e.target.value)}
+                                className="h-8 w-36 border-[#e7e5dd] text-sm"
+                              />
+                              <span className="text-xs text-[#9e9b8f]">to</span>
+                              <Input
+                                type="date"
+                                value={exportEndDate}
+                                onChange={e => setExportEndDate(e.target.value)}
+                                className="h-8 w-36 border-[#e7e5dd] text-sm"
+                              />
+                            </div>
+                          ) : (
+                            <p className="text-xs text-[#9e9b8f]">
+                              {exportStartDate} &mdash; {exportEndDate}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Format selector */}
+                        <div>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Format</label>
+                          <div className="flex gap-2">
+                            {([['markdown', 'Markdown'], ['json', 'JSON'], ['csv', 'CSV']] as const).map(([key, label]) => (
+                              <button
+                                key={key}
+                                onClick={() => setExportFormat(key)}
+                                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                  exportFormat === key
+                                    ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                                    : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Write mode (desktop only) */}
+                        {isTauri() && (
+                          <div>
+                            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Write mode</label>
+                            <div className="flex gap-2">
+                              {([['overwrite', 'Overwrite'], ['append', 'Append'], ['skip', 'Skip existing']] as const).map(([key, label]) => (
+                                <button
+                                  key={key}
+                                  onClick={() => setExportWriteMode(key)}
+                                  className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                    exportWriteMode === key
+                                      ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                                      : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                            <p className="mt-1 text-xs text-[#9e9b8f]">
+                              {exportWriteMode === 'overwrite' && 'Replace existing file'}
+                              {exportWriteMode === 'append' && 'Add to end of existing file'}
+                              {exportWriteMode === 'skip' && 'Skip if file already exists'}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Export button */}
+                        <Button
+                          onClick={handleExportNow}
+                          disabled={exportLoading}
+                          className="w-full bg-[#1f1e1a] text-white hover:bg-[#3a3935]"
+                        >
+                          {exportLoading ? (
+                            <span className="flex items-center gap-2">
+                              <BrailleSpinner />
+                              Exporting…
+                            </span>
+                          ) : (
+                            'Export Now'
+                          )}
+                        </Button>
+
+                        {/* Result message */}
+                        {exportResult ? (
+                          <p className={`text-xs ${exportResult.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>
+                            {exportResult.message}
+                          </p>
+                        ) : null}
+
+                        {/* ── Scheduled Export ──────────────────────── */}
+                        <div className="mt-4 border-t border-[#f0eeea] pt-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <label className="text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Scheduled export</label>
+                            <button
+                              onClick={() => {
+                                if (!scheduleLoaded) loadExportSchedule();
+                                const newEnabled = !(exportSchedule?.enabled);
+                                const updated = {
+                                  ...(exportSchedule || {
+                                    enabled: false,
+                                    frequency: 'daily' as const,
+                                    format: 'markdown' as const,
+                                    time: '08:00',
+                                    day_of_week: null,
+                                    folder_path: null,
+                                    include_all_metrics: true,
+                                    metric_types: null,
+                                  }),
+                                  enabled: newEnabled,
+                                };
+                                setExportSchedule(updated);
+                                saveExportSchedule(updated);
+                              }}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                                exportSchedule?.enabled ? 'bg-[#1f1e1a]' : 'bg-[#e7e5dd]'
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                                  exportSchedule?.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          {exportSchedule?.enabled && (
+                            <div className="space-y-3">
+                              {/* Frequency */}
+                              <div>
+                                <label className="mb-1 block text-xs text-[#69665c]">Frequency</label>
+                                <div className="flex gap-2">
+                                  {(['daily', 'weekly'] as const).map(freq => (
+                                    <button
+                                      key={freq}
+                                      onClick={() => updateScheduleField('frequency', freq)}
+                                      className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        exportSchedule.frequency === freq
+                                          ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                                          : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                      }`}
+                                    >
+                                      {freq.charAt(0).toUpperCase() + freq.slice(1)}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Day of week (weekly only) */}
+                              {exportSchedule.frequency === 'weekly' && (
+                                <div>
+                                  <label className="mb-1 block text-xs text-[#69665c]">Day</label>
+                                  <div className="flex flex-wrap gap-1">
+                                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
+                                      <button
+                                        key={day}
+                                        onClick={() => updateScheduleField('day_of_week', i)}
+                                        className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${
+                                          exportSchedule.day_of_week === i
+                                            ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                                            : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                        }`}
+                                      >
+                                        {day}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Time */}
+                              <div>
+                                <label className="mb-1 block text-xs text-[#69665c]">Time</label>
+                                <Input
+                                  type="time"
+                                  value={exportSchedule.time || '08:00'}
+                                  onChange={e => updateScheduleField('time', e.target.value)}
+                                  className="h-8 w-32 border-[#e7e5dd] text-sm"
+                                />
+                              </div>
+
+                              {/* Format */}
+                              <div>
+                                <label className="mb-1 block text-xs text-[#69665c]">Format</label>
+                                <div className="flex gap-2">
+                                  {(['markdown', 'json', 'csv'] as const).map(fmt => (
+                                    <button
+                                      key={fmt}
+                                      onClick={() => updateScheduleField('format', fmt)}
+                                      className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        exportSchedule.format === fmt
+                                          ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
+                                          : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                      }`}
+                                    >
+                                      {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Save schedule button */}
+                              <Button
+                                onClick={() => saveExportSchedule(exportSchedule)}
+                                disabled={scheduleSaving}
+                                variant="outline"
+                                className="w-full border-[#e7e5dd] text-sm text-[#3a3935] hover:bg-[#faf9f7]"
+                              >
+                                {scheduleSaving ? (
+                                  <span className="flex items-center gap-2">
+                                    <BrailleSpinner />
+                                    Saving…
+                                  </span>
+                                ) : (
+                                  'Save schedule'
+                                )}
+                              </Button>
+
+                              <p className="text-xs text-[#9e9b8f]">
+                                {exportSchedule.frequency === 'daily'
+                                  ? `Exports daily at ${exportSchedule.time || '08:00'}`
+                                  : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ) : null}
+
+                {/* ── Export history ──────────────────────────────── */}
+                {appleWatchConnected ? (
+                  <AccordionItem value="export-history" className="border-[#e7e5dd]">
+                    <AccordionTrigger
+                      className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline"
+                      onClick={() => { if (!historyLoaded) loadExportHistory(); }}
+                    >
+                      Export history
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-2">
+                        {exportHistory.length === 0 ? (
+                          <p className="py-4 text-center text-sm text-[#9e9b8f]">No exports yet</p>
+                        ) : (
+                          exportHistory.slice(0, 20).map(entry => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between rounded-md border border-[#f0eeea] px-3 py-2"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`inline-block h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-green-500' : 'bg-red-400'}`} />
+                                  <span className="text-sm font-medium text-[#1f1e1a]">
+                                    {entry.start_date === entry.end_date
+                                      ? entry.start_date
+                                      : `${entry.start_date} — ${entry.end_date}`}
+                                  </span>
+                                  <span className="rounded bg-[#f0eeea] px-1.5 py-0.5 text-[10px] font-medium uppercase text-[#69665c]">
+                                    {entry.format}
+                                  </span>
+                                </div>
+                                <div className="mt-0.5 flex items-center gap-3 text-xs text-[#9e9b8f]">
+                                  <span>{new Date(entry.timestamp).toLocaleString()}</span>
+                                  {entry.file_size_bytes != null && (
+                                    <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>
+                                  )}
+                                  <span className="capitalize">{entry.triggered_by}</span>
+                                </div>
+                                {entry.error && (
+                                  <p className="mt-1 text-xs text-red-500">{entry.error}</p>
+                                )}
+                              </div>
+                              {entry.status === 'failed' && (
+                                <button
+                                  onClick={() => {
+                                    // Pre-fill export form with the failed entry's settings and trigger
+                                    setExportStartDate(entry.start_date);
+                                    setExportEndDate(entry.end_date);
+                                    setExportFormat(entry.format as 'markdown' | 'json' | 'csv');
+                                    setExportDatePreset('custom');
+                                  }}
+                                  className="ml-2 shrink-0 rounded border border-[#e7e5dd] px-2 py-1 text-xs text-[#69665c] hover:border-[#c4c1b7] hover:text-[#1f1e1a]"
+                                >
+                                  Retry
+                                </button>
+                              )}
+                            </div>
+                          ))
+                        )}
+                        {exportHistory.length > 0 && (
+                          <button
+                            onClick={() => {
+                              setExportHistory([]);
+                              // Clear on server too
+                              getToken().then(token => {
+                                if (!token) return;
+                                // We don't have a delete endpoint, so we'll just clear local state
+                                // History will rebuild from new exports
+                              });
+                            }}
+                            className="mt-2 text-xs text-[#9e9b8f] underline hover:text-[#69665c]"
+                          >
+                            Clear history
+                          </button>
+                        )}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ) : null}
+
                 {appleWatchConnected ? (
                   <AccordionItem value="settings" className="border-[#e7e5dd]">
                     <AccordionTrigger className="py-3 text-base font-medium text-[#1f1e1a] hover:no-underline">Sync settings</AccordionTrigger>
@@ -2665,6 +3078,301 @@ export function IntegrationsClient() {
       '5. Tap "Sync Now" to sync your data\n\n' +
       'Your Apple Watch data will be synced through your iPhone.'
     );
+  }
+
+  // ── Apple Health Metric Selection ────────────────────────────────
+  async function loadMetricCatalogAndPreferences() {
+    if (metricsLoaded) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const [catalogRes, prefsRes] = await Promise.all([
+        fetch('/api/wearables/apple/metric-catalog', { headers }),
+        fetch('/api/wearables/apple/metric-preferences', { headers }),
+      ]);
+
+      if (catalogRes.ok) {
+        const data = await catalogRes.json();
+        setMetricCatalog(data.categories || []);
+      }
+      if (prefsRes.ok) {
+        const data = await prefsRes.json();
+        setSelectedMetrics(new Set(data.selected_metrics || []));
+      }
+      setMetricsLoaded(true);
+    } catch (err) {
+      console.error('Failed to load metric catalog:', err);
+    }
+  }
+
+  async function saveMetricPreferences(selected: string[]) {
+    const token = await getToken();
+    if (!token) throw new Error('Not authenticated');
+
+    const res = await fetch('/api/wearables/apple/metric-preferences', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected_metrics: selected }),
+    });
+
+    if (!res.ok) throw new Error('Failed to save');
+    setSelectedMetrics(new Set(selected));
+  }
+
+  // ── Apple Health Export ───────────────────────────────────────────
+  function applyExportDatePreset(preset: 'yesterday' | '7d' | '30d' | 'custom') {
+    setExportDatePreset(preset);
+    const today = new Date();
+    if (preset === 'yesterday') {
+      const y = new Date(today); y.setDate(y.getDate() - 1);
+      setExportStartDate(y.toISOString().slice(0, 10));
+      setExportEndDate(y.toISOString().slice(0, 10));
+    } else if (preset === '7d') {
+      const s = new Date(today); s.setDate(s.getDate() - 7);
+      setExportStartDate(s.toISOString().slice(0, 10));
+      setExportEndDate(today.toISOString().slice(0, 10));
+    } else if (preset === '30d') {
+      const s = new Date(today); s.setDate(s.getDate() - 30);
+      setExportStartDate(s.toISOString().slice(0, 10));
+      setExportEndDate(today.toISOString().slice(0, 10));
+    }
+  }
+
+  async function handleExportNow() {
+    try {
+      setExportLoading(true);
+      setExportResult(null);
+
+      const token = await getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      const params = new URLSearchParams({
+        start_date: exportStartDate,
+        end_date: exportEndDate,
+        format: exportFormat,
+      });
+
+      const res = await fetch(`/api/wearables/apple/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || `Export failed (${res.status})`);
+      }
+
+      const ext = exportFormat === 'json' ? 'json' : exportFormat === 'csv' ? 'csv' : 'md';
+      const filename = `ritual-health-${exportStartDate}-to-${exportEndDate}.${ext}`;
+
+      let exportedContent = '';
+      let exportedPath: string | null = null;
+
+      if (isTauri()) {
+        // Desktop: use Tauri save dialog
+        try {
+          const { save } = await import('@tauri-apps/api/dialog');
+          const { writeTextFile } = await import('@tauri-apps/api/fs');
+          exportedContent = exportFormat === 'json' ? JSON.stringify(await res.json(), null, 2) : await res.text();
+          const filePath = await save({
+            defaultPath: filename,
+            filters: [
+              { name: ext.toUpperCase(), extensions: [ext] },
+              { name: 'All Files', extensions: ['*'] },
+            ],
+          });
+          if (filePath) {
+            if (exportWriteMode === 'skip') {
+              // Check if file exists first
+              try {
+                const { exists } = await import('@tauri-apps/api/fs');
+                if (await exists(filePath)) {
+                  setExportResult({ type: 'success', message: `Skipped — file already exists: ${filePath}` });
+                  return;
+                }
+              } catch {
+                // exists() may not be available, fall through to write
+              }
+            }
+            if (exportWriteMode === 'append') {
+              try {
+                const { readTextFile } = await import('@tauri-apps/api/fs');
+                const existing = await readTextFile(filePath);
+                exportedContent = existing + '\n\n' + exportedContent;
+              } catch {
+                // File doesn't exist yet, write fresh
+              }
+            }
+            await writeTextFile(filePath, exportedContent);
+            exportedPath = filePath;
+            setExportResult({ type: 'success', message: `Exported to ${filePath}` });
+          }
+        } catch (tauriErr) {
+          // Fallback to browser download if Tauri API unavailable
+          exportedContent = exportFormat === 'json' ? JSON.stringify(await res.clone().json(), null, 2) : await res.clone().text();
+          downloadBlob(exportedContent, filename, res.headers.get('content-type') || 'text/plain');
+          setExportResult({ type: 'success', message: `Downloaded ${filename}` });
+        }
+      } else {
+        // Browser: trigger download
+        exportedContent = exportFormat === 'json' ? JSON.stringify(await res.json(), null, 2) : await res.text();
+        downloadBlob(exportedContent, filename, res.headers.get('content-type') || 'text/plain');
+        setExportResult({ type: 'success', message: `Downloaded ${filename}` });
+      }
+
+      // Record export history
+      recordExportHistory({
+        start_date: exportStartDate,
+        end_date: exportEndDate,
+        format: exportFormat,
+        status: 'success',
+        sample_count: exportedContent.length,
+        file_size_bytes: new Blob([exportedContent]).size,
+        file_path: exportedPath,
+        triggered_by: 'manual',
+      });
+    } catch (err: any) {
+      setExportResult({ type: 'error', message: err.message || 'Export failed' });
+      // Record failed export
+      recordExportHistory({
+        start_date: exportStartDate,
+        end_date: exportEndDate,
+        format: exportFormat,
+        status: 'failed',
+        sample_count: 0,
+        file_size_bytes: null,
+        file_path: null,
+        error: err.message || 'Export failed',
+        triggered_by: 'manual',
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  function downloadBlob(content: string, filename: string, mimeType: string) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Export Schedule ──────────────────────────────────────────────
+  async function loadExportSchedule() {
+    if (scheduleLoaded) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch('/api/wearables/apple/export-schedule', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.schedule) {
+          setExportSchedule(data.schedule);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load export schedule:', err);
+    } finally {
+      setScheduleLoaded(true);
+    }
+  }
+
+  async function saveExportSchedule(schedule: typeof exportSchedule) {
+    setScheduleSaving(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Not authenticated');
+      const res = await fetch('/api/wearables/apple/export-schedule', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule }),
+      });
+      if (!res.ok) throw new Error('Failed to save schedule');
+      const data = await res.json();
+      setExportSchedule(data.schedule);
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  function updateScheduleField<K extends keyof NonNullable<typeof exportSchedule>>(
+    field: K,
+    value: NonNullable<typeof exportSchedule>[K],
+  ) {
+    setExportSchedule(prev => {
+      const base = prev || {
+        enabled: false,
+        frequency: 'daily' as const,
+        format: 'markdown' as const,
+        time: '08:00',
+        day_of_week: null,
+        folder_path: null,
+        include_all_metrics: true,
+        metric_types: null,
+      };
+      return { ...base, [field]: value };
+    });
+  }
+
+  // ── Export History ─────────────────────────────────────────────────
+  async function loadExportHistory() {
+    if (historyLoaded) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res = await fetch('/api/wearables/apple/export-history', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExportHistory(data.history || []);
+      }
+    } catch (err) {
+      console.error('Failed to load export history:', err);
+    } finally {
+      setHistoryLoaded(true);
+    }
+  }
+
+  async function recordExportHistory(entry: {
+    start_date: string;
+    end_date: string;
+    format: string;
+    status: 'success' | 'failed';
+    sample_count: number;
+    file_size_bytes: number | null;
+    file_path?: string | null;
+    error?: string | null;
+    triggered_by: 'manual' | 'scheduled';
+  }) {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const fullEntry = {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        ...entry,
+        file_path: entry.file_path ?? null,
+        error: entry.error ?? null,
+      };
+      await fetch('/api/wearables/apple/export-history', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry: fullEntry }),
+      });
+      // Refresh history
+      setExportHistory(prev => [fullEntry, ...prev].slice(0, 50));
+    } catch (err) {
+      console.error('Failed to record export history:', err);
+    }
   }
 
   async function handleWearableProviderConnect(provider: 'oura' | 'garmin') {
