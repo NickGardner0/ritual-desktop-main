@@ -1157,8 +1157,9 @@ export function OverviewView({
       const stats = effectiveCachedStats[habitId];
       if (stats) {
         const unitLabel = stats.unit || habit.unit_type || 'sessions';
+        const cachedDisplayValue = isAverageDisplayMetric(habit) ? Number(stats.average || 0) : Number(stats.total || 0);
         next.set(habitId, {
-          display: formatMetricDisplay(Number(stats.total || 0), unitLabel),
+          display: formatMetricDisplay(cachedDisplayValue, unitLabel),
           stats: {
             unitLabel,
             sumFormatted: `${formatHabitStatNumber(stats.total)} ${unitLabel}`,
