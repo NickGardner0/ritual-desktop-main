@@ -194,8 +194,8 @@ function ConnectedDevicesModal({
                 Connected devices
               </DialogTitle>
               <DialogDescription className="text-sm text-neutral-500 mt-1">
-                Connect your devices and services to Ritual. Your AI assistant can
-                then access and interact with them.
+                Connect your devices and data sources to Ritual. Discover the full
+                potential of your behavioral data.
               </DialogDescription>
             </DialogHeader>
 
@@ -212,7 +212,7 @@ function ConnectedDevicesModal({
           </div>
 
           {/* Grid */}
-          <div className="flex-1 overflow-auto px-5 pb-5">
+          <div className="flex-1 overflow-auto px-5 pb-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <div className="grid grid-cols-2 gap-2">
               {filtered.map((device) => (
                 <DeviceCard
@@ -255,7 +255,7 @@ function DeviceCard({
       className={cn(
         'flex items-start justify-between w-full p-3 border border-border rounded-sm text-left transition-colors',
         device.comingSoon
-          ? 'opacity-50 cursor-default'
+          ? 'cursor-default'
           : 'hover:bg-neutral-50 cursor-pointer',
       )}
     >

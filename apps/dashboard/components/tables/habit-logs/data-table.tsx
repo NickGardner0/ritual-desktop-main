@@ -147,7 +147,7 @@ const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: num
   category: { size: 155, minSize: 100, maxSize: 300 },
   source: { size: 140, minSize: 90, maxSize: 300 },
   notes: { size: 195, minSize: 120, maxSize: 400 },
-  actions: { size: 84, minSize: 84, maxSize: 84 },
+  actions: { size: 72, minSize: 72, maxSize: 72 },
 };
 
 // ── TanStack Column Definitions ────────────────────────────
@@ -691,6 +691,17 @@ export function HabitLogsDataTable({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
+  // Auto-focus the table container so keyboard navigation works immediately
+  useEffect(() => {
+    // Small delay to avoid stealing focus from search bar on initial load
+    const timer = setTimeout(() => {
+      if (containerRef.current && !document.activeElement?.closest('input, textarea, select, [role="menu"]')) {
+        containerRef.current.focus({ preventScroll: true });
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const rowHeight = density === 'compact' ? 34 : 38;
 
   const rowVirtualizer = useVirtualizer({
@@ -1128,7 +1139,7 @@ export function HabitLogsDataTable({
                           className={cn(
                             'relative h-full flex items-center border-b border-border bg-white text-neutral-500',
                             !layout?.stickyRight && 'border-r',
-                            headerCellPadding,
+                            (header.id === 'select' || header.id === 'actions') ? 'px-0' : headerCellPadding,
                             getAlignmentClass(layout?.align),
                             stickyClass,
                             (header.id === 'select' || header.id === 'actions') && 'justify-center text-center',
@@ -1223,7 +1234,7 @@ export function HabitLogsDataTable({
                           role="cell"
                           data-column={columnId}
                           className={cn(
-                            bodyCellPadding,
+                            (columnId === 'select' || columnId === 'actions') ? 'px-0' : bodyCellPadding,
                             'h-full flex items-center border-b border-border',
                             !layout?.stickyRight && 'border-r',
                             getAlignmentClass(layout?.align),

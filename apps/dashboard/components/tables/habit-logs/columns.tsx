@@ -290,7 +290,7 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center text-neutral-600 transition-colors hover:text-neutral-900 focus-visible:text-neutral-900"
+          className="flex h-7 w-7 items-center justify-center text-neutral-900 transition-colors hover:text-black focus-visible:text-black"
           aria-label="Log actions"
         >
           <MoreHorizontal className="h-4 w-4" />

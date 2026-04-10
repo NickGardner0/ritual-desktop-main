@@ -1618,7 +1618,7 @@ export function IntegrationsClient() {
           />
         );
       case 'oura':
-        return <Image src="/images/oura.svg" alt="Oura" width={40} height={40} className={size === 'panel' ? 'h-9 w-auto object-contain' : 'h-10 w-auto object-contain'} />;
+        return <Image src="/images/oura.svg" alt="Oura" width={40} height={40} className={size === 'panel' ? 'h-14 w-auto object-contain -m-2' : 'h-16 w-auto object-contain -m-3'} />;
       case 'garmin':
         return <Image src="/images/garmin.svg" alt="Garmin" width={60} height={24} className={imageClass} />;
       case 'applewatch':
@@ -2821,7 +2821,7 @@ export function IntegrationsClient() {
 
         {/* Oura Ring - before Coming soon cards */}
         <IntegrationCard
-          logo={<Image src="/images/oura.svg" alt="Oura" width={40} height={40} className="h-10 w-auto object-contain" />}
+          logo={<Image src="/images/oura.svg" alt="Oura" width={40} height={40} className="h-16 w-auto object-contain -m-3" />}
           title="Oura Ring"
           description="Sync your sleep, readiness, HRV, and temperature trends from Oura Ring."
           isConnected={!!ouraConnection && ouraConnection.status === 'active'}
