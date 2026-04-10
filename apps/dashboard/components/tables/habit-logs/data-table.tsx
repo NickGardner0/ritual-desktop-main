@@ -691,15 +691,35 @@ export function HabitLogsDataTable({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
-  // Auto-focus the table container so keyboard navigation works immediately
+  // Auto-focus the table container so keyboard navigation works immediately.
+  // Also re-focus when the document regains focus (e.g. switching back to the app)
+  // or when a popover/modal closes and focus lands on <body>.
   useEffect(() => {
-    // Small delay to avoid stealing focus from search bar on initial load
-    const timer = setTimeout(() => {
-      if (containerRef.current && !document.activeElement?.closest('input, textarea, select, [role="menu"]')) {
+    const tryFocus = () => {
+      if (
+        containerRef.current &&
+        (!document.activeElement || document.activeElement === document.body) &&
+        !document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"]')
+      ) {
         containerRef.current.focus({ preventScroll: true });
       }
-    }, 100);
-    return () => clearTimeout(timer);
+    };
+
+    // Initial focus with small delay to avoid stealing from search bar
+    const timer = setTimeout(tryFocus, 100);
+
+    // Re-focus when focus returns to body (modal/popover closed)
+    const handleFocusIn = (e: FocusEvent) => {
+      if (e.target === document.body) {
+        setTimeout(tryFocus, 50);
+      }
+    };
+    document.addEventListener('focusin', handleFocusIn);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('focusin', handleFocusIn);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rowHeight = density === 'compact' ? 34 : 38;
