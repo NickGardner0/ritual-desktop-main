@@ -43,6 +43,35 @@ enum MetricType: String, Codable, CaseIterable {
     case workout = "workout"
     case mindfulMinutes = "mindful_minutes"
 
+    // Body Measurements
+    case bodyMass = "body_mass"
+    case bodyMassIndex = "body_mass_index"
+    case bodyFatPercentage = "body_fat_percentage"
+    case leanBodyMass = "lean_body_mass"
+    case height = "height"
+    case waistCircumference = "waist_circumference"
+
+    // Nutrition
+    case dietaryEnergy = "dietary_energy"
+    case dietaryProtein = "dietary_protein"
+    case dietaryCarbs = "dietary_carbs"
+    case dietaryFat = "dietary_fat"
+    case dietaryFiber = "dietary_fiber"
+    case dietarySugar = "dietary_sugar"
+    case dietaryWater = "dietary_water"
+    case dietaryCaffeine = "dietary_caffeine"
+
+    // Vitals (additional)
+    case bloodPressureSystolic = "blood_pressure_systolic"
+    case bloodPressureDiastolic = "blood_pressure_diastolic"
+    case bloodGlucose = "blood_glucose"
+    case bodyTemperature = "body_temperature"
+
+    // Mobility
+    case walkingSpeed = "walking_speed"
+    case walkingStepLength = "walking_step_length"
+    case walkingAsymmetry = "walking_asymmetry"
+
     // Screen Time
     case screenTimeTotal = "screen_time_total"
     case screenTimeAppUsage = "screen_time_app_usage"
@@ -63,6 +92,23 @@ enum MetricUnit: String, Codable {
     case miles = "miles"
     case percent = "percent"
     case breathsPerMinute = "breaths_per_minute"
+
+    // Body measurement units
+    case kg = "kg"
+    case cm = "cm"
+
+    // Nutrition units
+    case grams = "g"
+    case mg = "mg"
+    case ml = "ml"
+
+    // Vitals units
+    case mmHg = "mmHg"
+    case mmolPerL = "mmol_per_L"
+    case celsius = "celsius"
+
+    // Mobility units
+    case metersPerSecond = "m_per_s"
 }
 
 /// Canonical normalized metric format for all wearable data sources

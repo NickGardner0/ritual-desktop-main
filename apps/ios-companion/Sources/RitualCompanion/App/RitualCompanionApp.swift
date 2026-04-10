@@ -13,9 +13,32 @@ struct RitualCompanionApp: App {
     private let notificationManager = NotificationManager.shared
     
     init() {
+        // One-time cleanup: wipe stale Clerk keychain items left behind by a
+        // previous install that used a different Clerk instance (keychain items
+        // survive app deletion on iOS). We key off a UserDefaults flag so this
+        // only runs once.
+        let cleanupKey = "clerk_keychain_cleaned_v1"
+        if !UserDefaults.standard.bool(forKey: cleanupKey) {
+            let secClasses: [CFString] = [
+                kSecClassGenericPassword,
+                kSecClassInternetPassword,
+            ]
+            for secClass in secClasses {
+                let query: [String: Any] = [
+                    kSecClass as String: secClass,
+                    // Clerk iOS SDK stores items under the app's default access group.
+                ]
+                SecItemDelete(query as CFDictionary)
+            }
+            #if DEBUG
+            print("🧹 Cleared stale Clerk keychain items from previous install")
+            #endif
+            UserDefaults.standard.set(true, forKey: cleanupKey)
+        }
+
         // Configure Clerk early in app lifecycle
         Clerk.shared.configure(publishableKey: AppConfig.clerkPublishableKey)
-        
+
         // Set up V2 background sync - this registers the background task handler
         // MUST be called before the app finishes launching
         BackgroundSyncManagerV2.shared.setupBackgroundSync()

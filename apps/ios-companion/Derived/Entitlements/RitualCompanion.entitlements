@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>webcredentials:rational-rattler-77.clerk.accounts.dev</string>
+		<string>webcredentials:clerk.ritualdb.com</string>
 	</array>
 	<key>com.apple.developer.healthkit</key>
 	<true/>

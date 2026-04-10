@@ -75,6 +75,12 @@ final class AppState: ObservableObject {
     /// Summary for most recent date-range retry.
     @Published var dateRangeRetrySummary: String?
 
+    /// User-configured HealthKit → habit mappings (see HabitMapping.swift).
+    @Published var habitMappings: [HabitMapping] = []
+
+    /// Summary of the most recent habit-mapping resolver run, for UI.
+    @Published var habitMappingStatus: String?
+
     /// Notification permission status for actionable sync alerts.
     @Published var notificationsEnabled: Bool = false
     
@@ -92,6 +98,12 @@ final class AppState: ObservableObject {
     private let exportDestinationStore = ExportDestinationStore.shared
     private let localExportManager = LocalExportManager.shared
     private let exportHistoryStore = LocalExportHistoryStore.shared
+    private let habitMappingStore = HabitMappingStore.shared
+    private lazy var habitMappingResolver = HabitMappingResolver(
+        apiClient: apiClient,
+        healthKit: healthKitManager,
+        store: habitMappingStore
+    )
     private let trustedPeersStorageKey = "PeerPairing.trustedPeers"
     
     // MARK: - Computed Properties
@@ -188,6 +200,7 @@ final class AppState: ObservableObject {
         trustedPeers = loadTrustedPeers()
         exportHistory = exportHistoryStore.load()
         exportDestinationName = exportDestinationStore.destinationName
+        habitMappings = habitMappingStore.loadMappings()
         
         Task {
             await checkInitialState()
@@ -492,6 +505,13 @@ final class AppState: ObservableObject {
         
         isSyncing = false
         
+        // After a successful sync, translate any user-configured HealthKit →
+        // habit mappings into habit log posts. This is deliberately run AFTER
+        // upload so the cloud path is unaffected if the resolver errors.
+        if CompanionFeatureFlags.habitMappingEnabled, !habitMappings.isEmpty, syncManager.lastError == nil {
+            await runHabitMappingResolver()
+        }
+
         // Show error if sync failed
         if showErrorsToUser, let error = syncManager.lastError {
             // Only show if the error is recent (within last 30 seconds)
@@ -710,6 +730,40 @@ final class AppState: ObservableObject {
                 showError(message: result.failureMessage ?? "Retry export failed")
             }
         }
+    }
+
+    // MARK: - Habit Mapping
+
+    /// Insert or replace a habit mapping. The store de-dupes by (habitId, metricType)
+    /// so re-binding the same habit to a new metric replaces the old rule.
+    func upsertHabitMapping(_ mapping: HabitMapping) {
+        habitMappings = habitMappingStore.upsert(mapping)
+    }
+
+    func deleteHabitMapping(id: String) {
+        habitMappings = habitMappingStore.delete(id: id)
+    }
+
+    /// Run the resolver manually (e.g. from a "Sync habits now" button).
+    func runHabitMappingResolver() async {
+        guard !habitMappings.isEmpty else {
+            habitMappingStatus = "No habit mappings configured"
+            return
+        }
+
+        let result = await habitMappingResolver.resolveAndPost(mappings: habitMappings)
+
+        var parts: [String] = []
+        if result.posted > 0 { parts.append("\(result.posted) posted") }
+        if result.skipped > 0 { parts.append("\(result.skipped) unchanged") }
+        if result.failed > 0 { parts.append("\(result.failed) failed") }
+        habitMappingStatus = parts.isEmpty ? "No changes" : parts.joined(separator: ", ")
+
+        #if DEBUG
+        if !result.errors.isEmpty {
+            print("⚠️ HabitMappingResolver errors: \(result.errors)")
+        }
+        #endif
     }
 
     func clearExportHistory() {

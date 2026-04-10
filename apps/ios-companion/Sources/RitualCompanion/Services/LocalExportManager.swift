@@ -158,11 +158,16 @@ final class LocalExportManager {
         try destinationStore.withAccess { baseURL in
             var targetFolder = baseURL
 
-            let resolvedFolder = Self.applyTemplate(settings.folderStructure, date: date)
-            if !resolvedFolder.isEmpty {
-                for component in resolvedFolder.split(separator: "/") {
-                    targetFolder = targetFolder.appendingPathComponent(String(component), isDirectory: true)
-                }
+            // Sanitized folder components (nil = path traversal / invalid template).
+            guard let folderComponents = FilenameTemplate.renderFolderComponents(settings.folderStructure, date: date) else {
+                throw NSError(
+                    domain: "LocalExportManager",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid folder template"]
+                )
+            }
+            for component in folderComponents {
+                targetFolder = targetFolder.appendingPathComponent(component, isDirectory: true)
             }
 
             let fileManager = FileManager.default
@@ -170,9 +175,8 @@ final class LocalExportManager {
                 try fileManager.createDirectory(at: targetFolder, withIntermediateDirectories: true)
             }
 
-            let baseName = Self.applyTemplate(settings.filenameTemplate, date: date)
-            let safeBaseName = baseName.isEmpty ? Self.applyTemplate("{date}", date: date) : baseName
-            let fileURL = targetFolder.appendingPathComponent("\(safeBaseName).\(settings.format.fileExtension)")
+            let baseName = FilenameTemplate.renderFilename(settings.filenameTemplate, date: date)
+            let fileURL = targetFolder.appendingPathComponent("\(baseName).\(settings.format.fileExtension)")
 
             let sortedMetrics = metrics.sorted { lhs, rhs in
                 if lhs.metricType.rawValue == rhs.metricType.rawValue {
@@ -183,7 +187,8 @@ final class LocalExportManager {
 
             switch settings.format {
             case .markdown:
-                let content = renderMarkdown(for: date, metrics: sortedMetrics)
+                let exporter = MarkdownExporter(style: settings.markdownStyle)
+                let content = exporter.render(date: date, metrics: sortedMetrics)
                 try writeText(content, to: fileURL, writeMode: settings.writeMode, separator: "\n\n")
             case .json:
                 try writeJSON(sortedMetrics, to: fileURL, writeMode: settings.writeMode)
@@ -253,22 +258,6 @@ final class LocalExportManager {
 
         let content = header + rows + (rows.isEmpty ? "" : "\n")
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
-    }
-
-    private func renderMarkdown(for date: Date, metrics: [NormalizedMetric]) -> String {
-        var lines: [String] = []
-        lines.append("# Ritual Health Export \(isoDateFormatter.string(from: date))")
-        lines.append("")
-        lines.append("Generated at \(isoDateTimeFormatter.string(from: Date()))")
-        lines.append("")
-        lines.append("| Metric | Value | Unit | Start | End |")
-        lines.append("|---|---:|---|---|---|")
-
-        for metric in metrics {
-            lines.append("| \(metric.metricType.rawValue) | \(metric.value) | \(metric.unit.rawValue) | \(metric.startTime) | \(metric.endTime) |")
-        }
-
-        return lines.joined(separator: "\n")
     }
 
     private func csvEscape(_ value: String) -> String {

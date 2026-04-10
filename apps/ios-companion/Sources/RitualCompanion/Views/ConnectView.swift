@@ -204,7 +204,7 @@ struct ConnectView: View {
                     return
                 }
                 
-                let tokenResult = try await session.getToken()
+                let tokenResult = try await session.getToken(.init(template: "backend"))
                 let token = tokenResult?.jwt ?? ""
                 
                 if token.isEmpty {

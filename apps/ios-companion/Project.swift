@@ -33,7 +33,7 @@ var appEntitlements: [String: Plist.Value] = [
     ],
     "com.apple.developer.healthkit.background-delivery": true,
     "com.apple.developer.associated-domains": [
-        "webcredentials:rational-rattler-77.clerk.accounts.dev"
+        "webcredentials:clerk.ritualdb.com"
     ],
 ]
 
@@ -49,6 +49,24 @@ var companionDependencies: [TargetDependency] = [
     .target(name: "RitualScreenTimeShared"),
 ]
 
+// Developer-local secrets (Clerk keys, backend URLs) live in Config/Local.xcconfig
+// which is gitignored. If the file is missing we fall back to nil so `tuist generate`
+// still succeeds — the build will then fail loudly at runtime via AppConfig's
+// `Missing required iOS config value` fatal, which is the intended signal to copy
+// Config/Local.xcconfig.example → Config/Local.xcconfig.
+let localXcconfigPath: Path? = {
+    let relative = "Config/Local.xcconfig"
+    let absolute = "\(ProcessInfo.processInfo.environment["PWD"] ?? ".")/\(relative)"
+    return FileManager.default.fileExists(atPath: absolute) ? .relativeToManifest(relative) : nil
+}()
+
+let companionSettings: Settings = .settings(
+    configurations: [
+        .debug(name: "Debug", xcconfig: localXcconfigPath),
+        .release(name: "Release", xcconfig: localXcconfigPath),
+    ]
+)
+
 let projectTargets: [Target] = {
     var targets: [Target] = [
         .target(
@@ -61,7 +79,8 @@ let projectTargets: [Target] = {
             sources: ["Sources/RitualCompanion/**"],
             resources: ["Resources/**"],
             entitlements: .dictionary(appEntitlements),
-            dependencies: companionDependencies
+            dependencies: companionDependencies,
+            settings: companionSettings
         ),
         .target(
             name: "RitualScreenTimeShared",

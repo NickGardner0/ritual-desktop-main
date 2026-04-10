@@ -65,13 +65,46 @@ struct LocalExportSettings: Codable {
     var writeMode: LocalExportWriteMode
     var filenameTemplate: String
     var folderStructure: String
+    /// Markdown rendering variant. Only consulted when `format == .markdown`.
+    /// Optional/defaulted for backward compatibility with previously-persisted settings.
+    var markdownStyle: MarkdownStyle = .plain
 
     static let defaults = LocalExportSettings(
         format: .markdown,
         writeMode: .overwrite,
         filenameTemplate: "{date}",
-        folderStructure: ""
+        folderStructure: "",
+        markdownStyle: .plain
     )
+
+    init(
+        format: LocalExportFormat,
+        writeMode: LocalExportWriteMode,
+        filenameTemplate: String,
+        folderStructure: String,
+        markdownStyle: MarkdownStyle = .plain
+    ) {
+        self.format = format
+        self.writeMode = writeMode
+        self.filenameTemplate = filenameTemplate
+        self.folderStructure = folderStructure
+        self.markdownStyle = markdownStyle
+    }
+
+    // Custom decoder so settings persisted before `markdownStyle` existed
+    // continue to decode cleanly (missing key → .plain).
+    private enum CodingKeys: String, CodingKey {
+        case format, writeMode, filenameTemplate, folderStructure, markdownStyle
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.format = try c.decode(LocalExportFormat.self, forKey: .format)
+        self.writeMode = try c.decode(LocalExportWriteMode.self, forKey: .writeMode)
+        self.filenameTemplate = try c.decode(String.self, forKey: .filenameTemplate)
+        self.folderStructure = try c.decode(String.self, forKey: .folderStructure)
+        self.markdownStyle = try c.decodeIfPresent(MarkdownStyle.self, forKey: .markdownStyle) ?? .plain
+    }
 
     private static let storageKey = "LocalExport.settings"
 

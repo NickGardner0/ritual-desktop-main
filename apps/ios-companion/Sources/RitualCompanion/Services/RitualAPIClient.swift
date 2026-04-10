@@ -305,12 +305,22 @@ final class RitualAPIClient {
             throw APIError.noSession
         }
         
-        // Get a fresh token from Clerk
-        let tokenResult = try await session.getToken()
+        // Get a fresh token from Clerk using the "backend" JWT template
+        // so the token is signed with the JWKS-published key.
+        let tokenResult = try await session.getToken(.init(template: "backend"))
         guard let jwt = tokenResult?.jwt, !jwt.isEmpty else {
             throw APIError.tokenRefreshFailed
         }
         
+        // Debug: log JWT header to verify kid matches JWKS
+        if let headerData = Data(base64Encoded: String(jwt.split(separator: ".")[0]
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+            .padding(toLength: ((jwt.split(separator: ".")[0].count + 3) / 4) * 4, withPad: "=", startingAt: 0))),
+           let header = try? JSONSerialization.jsonObject(with: headerData) as? [String: Any] {
+            print("🔑 JWT header: \(header)")
+        }
+
         // Update stored token
         authToken = jwt
         
@@ -332,6 +342,42 @@ final class RitualAPIClient {
     /// Fetch which metrics the user has selected to track in the desktop app
     func fetchTrackedMetrics() async throws -> TrackedMetricsResponse {
         return try await get(path: "/api/wearables/apple/tracked_metrics")
+    }
+
+    /// Log a habit entry on behalf of a HabitMapping rule.
+    ///
+    /// Wraps `POST /api/habits/{habit_id}/logs` which mirrors
+    /// `HabitLogCreate` in `apps/backend/models/habit_models.py`. The backend
+    /// already accepts `amount`/`date`/`status`/`completed_at`/`notes`, so no
+    /// schema migration is needed.
+    func logHabit(
+        habitId: String,
+        amount: Double,
+        date: String,
+        status: HabitLogStatus,
+        completedAt: Date,
+        notes: String?
+    ) async throws {
+        struct Body: Encodable {
+            let amount: Double
+            let date: String
+            let status: String
+            let completed_at: String
+            let notes: String?
+        }
+
+        let body = Body(
+            amount: amount,
+            date: date,
+            status: status.rawValue,
+            completed_at: Self.iso8601Formatter.string(from: completedAt),
+            notes: notes
+        )
+
+        // Use discardable decoded response — we don't care about the server's
+        // echoed log object, only that the POST succeeded. `EmptyResponse` gives
+        // the generic `post<T,R>` something to decode against.
+        let _: EmptyResponse = try await post(path: "/api/habits/\(habitId)/logs", body: body)
     }
 
     func registerScreenTimeDevice(authToken: String) async throws {
@@ -685,6 +731,16 @@ final class RitualAPIClient {
 
         return try decoder.decode(R.self, from: data)
     }
+}
+
+// RitualAPIClient conforms to the resolver's posting protocol trivially —
+// `logHabit` already matches the protocol signature.
+extension RitualAPIClient: HabitLogPosting {}
+
+/// Decodable type used when we don't care about the response body.
+/// Ignores whatever the server returns; only the 2xx status is meaningful.
+struct EmptyResponse: Decodable {
+    init(from decoder: Decoder) throws {}
 }
 
 // MARK: - Tracked Metrics Response

@@ -11,15 +11,19 @@
 		0166F325B263B4789DCC01EA /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */; };
 		04AB447F67DD128BF482FC2B /* ScreenTimeContexts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE1F6D0F377D42EB3893655 /* ScreenTimeContexts.swift */; };
 		08CB6F1F343053A20CC8B0EB /* TuistAssets+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */; };
+		0BBAA91186A691B5F90F9B9A /* HabitMappingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331DA15E38DA7AD3AA40C98A /* HabitMappingStore.swift */; };
 		0ED81CA69B299571B4CBF54C /* StatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E4D8229429850BF8B91FB4 /* StatusCard.swift */; };
 		10585AD31D05685FCC500AE2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */; };
 		15BCAF0E065CAA9BC620147E /* BiometricsSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 889E6C394079DDFA9201011C /* BiometricsSyncService.swift */; };
 		210BD4D8B9211661A43D2AFA /* LocalExportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65584B0FB0BEA8C9B4F5D591 /* LocalExportManager.swift */; };
+		22A29727DF8C48FDB093475C /* HabitMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1AF4769467834D6C61A6DD /* HabitMapping.swift */; };
 		26AA41D23B4C8ACA46C25D69 /* BLEHeartRateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171C169FA35F85FC7ADA04D9 /* BLEHeartRateParser.swift */; };
 		2F8FE9690DEA7AE8CDFB881F /* LocalExportManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */; };
 		3523A2DF8211D981D40694CB /* ScreenTimeReportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346F9A48EB41862659B45C50 /* ScreenTimeReportModels.swift */; };
 		39AB3EB76D3A954E77561AC3 /* AnchorStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8F1323007A298B2EEAC412 /* AnchorStorage.swift */; };
+		42D9D6AFB79B688346CA08AA /* HabitMappingEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C26FBE3B38077930CE8964 /* HabitMappingEditorView.swift */; };
 		4526AC72B4820F8DA68C4570 /* ScreenTimeStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9F5DE30D5BD26D5C8EBD75D /* ScreenTimeStatusCard.swift */; };
+		49E248619B80EB0DA21454F9 /* HabitMappingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96367BEC75CDC9B16DDDB8AF /* HabitMappingStoreTests.swift */; };
 		4B58BF0ED7798AF180EF43B4 /* TuistBundle+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */; };
 		534EF1F0E6C08A8D64021BE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A4460558012097894E301FA6 /* Assets.xcassets */; };
 		5C0B8E15AA07AA73906DF09F /* ScreenTimeSelectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87A2B06D409DF895C7CE9033 /* ScreenTimeSelectionCard.swift */; };
@@ -28,9 +32,12 @@
 		7E86B0E4D2B19B9D736801BC /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A57E238B67EA0BEA6D83131 /* ConnectView.swift */; };
 		80D4D1A845106BC8FE815B1C /* WhoopConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B54D2F5C648437AF926BAD1D /* WhoopConnectView.swift */; };
 		831330EC2DCD9D07F0A50647 /* ExportDestinationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A3C8403B70312EF3D7C5815 /* ExportDestinationStore.swift */; };
+		850687E2AED981E54C577D17 /* MarkdownExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D2935FC3D64BDA5B1FA5C07 /* MarkdownExporter.swift */; };
 		879619240373A8AFB7603B48 /* BiometricsUploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5782D9D391771469B2E67D /* BiometricsUploadQueue.swift */; };
 		8A4CC7782613BFA71A4AF765 /* LocalExportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2AB31181EAEB1A5F455C80 /* LocalExportModels.swift */; };
+		8BB5E8890F64DA1DA0010DC1 /* HabitMappingResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D415312C15325BB2CF548937 /* HabitMappingResolverTests.swift */; };
 		8D10BA196D80EBEE02405CB7 /* PermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DA50B04943907060448DFF /* PermissionsView.swift */; };
+		9B7507788651710947EFEAEC /* HabitMappingResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D808B126730EA2507649D9 /* HabitMappingResolver.swift */; };
 		A55B7639005BE0D49ED5D14E /* BLERestorationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B57EA1C2EF0854ECCCC26858 /* BLERestorationCoordinator.swift */; };
 		A5C77E5AB43287BDEBE26DDF /* StatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1741C77C405F908BA6C2BCC3 /* StatusView.swift */; };
 		A612F87AE5E282CF7428413E /* ScreenTimeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C0FCE4592D7860B73553F0B /* ScreenTimeView.swift */; };
@@ -42,14 +49,18 @@
 		B5CC21BAEA0A267B152D413B /* ScreenTimeSharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B875B748F12703760523BE /* ScreenTimeSharedStore.swift */; };
 		B714240F19604E247ECA31F8 /* HeartRateBiometrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7684EC5BD030E45458E6EC8B /* HeartRateBiometrics.swift */; };
 		B8BB567982B89441F20CC495 /* BiometricsLocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6260A7C6150515A1745EC60B /* BiometricsLocalStore.swift */; };
+		B94A8CE3B1FF6F1292423070 /* MarkdownExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70003735978CA53E78A71BF3 /* MarkdownExporterTests.swift */; };
 		BF0DDE163AED7BB73EBFF00A /* LocalExportHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32FE695D7B5296906618A77 /* LocalExportHistoryStoreTests.swift */; };
 		C84C3305B73C7EE1D49D7D87 /* RitualAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */; };
 		C89D361628116D80350D651F /* BackgroundSyncManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */; };
+		CA5B9D9881E770A77DBCB59E /* FilenameTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE65512E3425AE5935753AA /* FilenameTemplate.swift */; };
 		CB54341A408CA8A2F5752031 /* RitualScreenTimeShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */; };
+		CD5EA7E5CFD7D13D0D091B83 /* HabitMappingListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */; };
 		CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */; };
 		D2084AF2C75A38D2EA2DB475 /* BLEPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70CC74C0F075A70FF36FED1 /* BLEPermissionState.swift */; };
 		DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */; };
 		E05673DB0F31089F154208C9 /* OfflineSyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */; };
+		E0D70D8ADF2BF7BD24F3B51D /* FilenameTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C56C74B7E232D6E54F735A7 /* FilenameTemplateTests.swift */; };
 		E3408D80686E7E98A8C46747 /* WhoopDeviceHeuristics.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5611640C1740032E8E0EEB /* WhoopDeviceHeuristics.swift */; };
 		E82B883F12AB4FB41EDA9A40 /* RitualCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331267A4741B767C6156924B /* RitualCompanionApp.swift */; };
 		E894985FCF0B11105DABC5D4 /* SourceStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F570F54536DD9BF51461F72 /* SourceStatusCard.swift */; };
@@ -117,19 +128,25 @@
 		1C0FCE4592D7860B73553F0B /* ScreenTimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeView.swift; sourceTree = "<group>"; };
 		288CA0FD677B9211B801ADE6 /* WhoopBroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhoopBroadcastService.swift; sourceTree = "<group>"; };
 		2A57E238B67EA0BEA6D83131 /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
+		2C56C74B7E232D6E54F735A7 /* FilenameTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilenameTemplateTests.swift; sourceTree = "<group>"; };
 		331267A4741B767C6156924B /* RitualCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RitualCompanionApp.swift; sourceTree = "<group>"; };
+		331DA15E38DA7AD3AA40C98A /* HabitMappingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingStore.swift; sourceTree = "<group>"; };
 		346F9A48EB41862659B45C50 /* ScreenTimeReportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportModels.swift; sourceTree = "<group>"; };
 		34C9D27D3B41E8AE52B77267 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		3A3C8403B70312EF3D7C5815 /* ExportDestinationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportDestinationStore.swift; sourceTree = "<group>"; };
 		3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalizedMetric.swift; sourceTree = "<group>"; };
 		459058E6B5537C3E07F0F641 /* RitualCompanion-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualCompanion-Info.plist"; sourceTree = "<group>"; };
+		45C26FBE3B38077930CE8964 /* HabitMappingEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingEditorView.swift; sourceTree = "<group>"; };
 		4F5782D9D391771469B2E67D /* BiometricsUploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsUploadQueue.swift; sourceTree = "<group>"; };
 		53DA50B04943907060448DFF /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
 		55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RitualAPIClient.swift; sourceTree = "<group>"; };
 		5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineSyncQueue.swift; sourceTree = "<group>"; };
 		5959D5FAD3E035C065983982 /* ScreenTimeSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeSyncManager.swift; sourceTree = "<group>"; };
+		6000DCD5158BD5D266A3BB99 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
+		60D808B126730EA2507649D9 /* HabitMappingResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingResolver.swift; sourceTree = "<group>"; };
 		6260A7C6150515A1745EC60B /* BiometricsLocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsLocalStore.swift; sourceTree = "<group>"; };
 		65584B0FB0BEA8C9B4F5D591 /* LocalExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportManager.swift; sourceTree = "<group>"; };
+		70003735978CA53E78A71BF3 /* MarkdownExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExporterTests.swift; sourceTree = "<group>"; };
 		74E4D8229429850BF8B91FB4 /* StatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCard.swift; sourceTree = "<group>"; };
 		7684EC5BD030E45458E6EC8B /* HeartRateBiometrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateBiometrics.swift; sourceTree = "<group>"; };
 		7A9FDEFC8AB90A51E7A3B6EA /* LocalExportHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportHistoryStore.swift; sourceTree = "<group>"; };
@@ -142,9 +159,11 @@
 		8F570F54536DD9BF51461F72 /* SourceStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStatusCard.swift; sourceTree = "<group>"; };
 		900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistBundle+RitualCompanion.swift"; sourceTree = "<group>"; };
 		92F4AD53C1D9AF747A125E0C /* BLEDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEDevice.swift; sourceTree = "<group>"; };
+		96367BEC75CDC9B16DDDB8AF /* HabitMappingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingStoreTests.swift; sourceTree = "<group>"; };
 		9AE1F6D0F377D42EB3893655 /* ScreenTimeContexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeContexts.swift; sourceTree = "<group>"; };
 		9B2AB31181EAEB1A5F455C80 /* LocalExportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportModels.swift; sourceTree = "<group>"; };
 		9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		9D2935FC3D64BDA5B1FA5C07 /* MarkdownExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExporter.swift; sourceTree = "<group>"; };
 		A189782B40B87843079C0C2C /* RitualScreenTimeShared-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualScreenTimeShared-Info.plist"; sourceTree = "<group>"; };
 		A32FE695D7B5296906618A77 /* LocalExportHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportHistoryStoreTests.swift; sourceTree = "<group>"; };
 		A4460558012097894E301FA6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -153,9 +172,12 @@
 		B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManagerV2.swift; sourceTree = "<group>"; };
 		B54D2F5C648437AF926BAD1D /* WhoopConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhoopConnectView.swift; sourceTree = "<group>"; };
 		B57EA1C2EF0854ECCCC26858 /* BLERestorationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLERestorationCoordinator.swift; sourceTree = "<group>"; };
+		BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingListView.swift; sourceTree = "<group>"; };
 		BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualCompanion.entitlements; sourceTree = "<group>"; };
 		C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RitualScreenTimeShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportManagerTests.swift; sourceTree = "<group>"; };
+		D415312C15325BB2CF548937 /* HabitMappingResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingResolverTests.swift; sourceTree = "<group>"; };
+		DE1AF4769467834D6C61A6DD /* HabitMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMapping.swift; sourceTree = "<group>"; };
 		DF7B43980E3E47C32AD8CAE3 /* ScreenTimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeManager.swift; sourceTree = "<group>"; };
 		E1A372E1AB880BB65A4FD278 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
 		E60426B03E8489A5DF8C81A2 /* RitualCompanionTests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualCompanionTests-Info.plist"; sourceTree = "<group>"; };
@@ -166,6 +188,7 @@
 		F2AA7EAB703C07E2738DEFE4 /* TuistAssets+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistAssets+RitualCompanion.swift"; sourceTree = "<group>"; };
 		F7B875B748F12703760523BE /* ScreenTimeSharedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeSharedStore.swift; sourceTree = "<group>"; };
 		FA754A79233A468B7DD2F651 /* RitualCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RitualCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAE65512E3425AE5935753AA /* FilenameTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilenameTemplate.swift; sourceTree = "<group>"; };
 		FD5611640C1740032E8E0EEB /* WhoopDeviceHeuristics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhoopDeviceHeuristics.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -229,12 +252,31 @@
 		2BA20C70416C81F53524C2B2 /* Project */ = {
 			isa = PBXGroup;
 			children = (
+				FC4DBEA8AEAAF80AE793F0A3 /* Config */,
 				834A338D40C8AEAA1C49D325 /* Derived */,
 				C40281E43268AF867560CF7E /* Resources */,
 				124811597C9536C2B56694D2 /* Sources */,
 				AEDEC61FEA399D84C3A211D2 /* Tests */,
 			);
 			name = Project;
+			sourceTree = "<group>";
+		};
+		2F2A718DF3E6F89347DE8071 /* Habits */ = {
+			isa = PBXGroup;
+			children = (
+				45C26FBE3B38077930CE8964 /* HabitMappingEditorView.swift */,
+				BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */,
+			);
+			path = Habits;
+			sourceTree = "<group>";
+		};
+		447876D9DBEDE83790E431E7 /* Export */ = {
+			isa = PBXGroup;
+			children = (
+				FAE65512E3425AE5935753AA /* FilenameTemplate.swift */,
+				9D2935FC3D64BDA5B1FA5C07 /* MarkdownExporter.swift */,
+			);
+			path = Export;
 			sourceTree = "<group>";
 		};
 		4611F3EC4143EC3B21B916DF /* Storage */ = {
@@ -344,8 +386,12 @@
 		AEDEC61FEA399D84C3A211D2 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				2C56C74B7E232D6E54F735A7 /* FilenameTemplateTests.swift */,
+				D415312C15325BB2CF548937 /* HabitMappingResolverTests.swift */,
+				96367BEC75CDC9B16DDDB8AF /* HabitMappingStoreTests.swift */,
 				A32FE695D7B5296906618A77 /* LocalExportHistoryStoreTests.swift */,
 				C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */,
+				70003735978CA53E78A71BF3 /* MarkdownExporterTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -354,6 +400,8 @@
 			isa = PBXGroup;
 			children = (
 				5F1946ABC595128365D346AD /* BLE */,
+				447876D9DBEDE83790E431E7 /* Export */,
+				B75176CD82A2CE4857B82164 /* Habits */,
 				C7C5721F0C893BDCD08FC55C /* Persistence */,
 				D6FE95EE520ECD5D70365DC0 /* Sync */,
 				A7805D7762D337C5F9466BFD /* Whoop */,
@@ -376,6 +424,7 @@
 			isa = PBXGroup;
 			children = (
 				BDF6422C3C1FDDFAB7CC5D7D /* Components */,
+				2F2A718DF3E6F89347DE8071 /* Habits */,
 				2A57E238B67EA0BEA6D83131 /* ConnectView.swift */,
 				9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */,
 				1C0FCE4592D7860B73553F0B /* ScreenTimeView.swift */,
@@ -383,6 +432,16 @@
 				B54D2F5C648437AF926BAD1D /* WhoopConnectView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		B75176CD82A2CE4857B82164 /* Habits */ = {
+			isa = PBXGroup;
+			children = (
+				DE1AF4769467834D6C61A6DD /* HabitMapping.swift */,
+				60D808B126730EA2507649D9 /* HabitMappingResolver.swift */,
+				331DA15E38DA7AD3AA40C98A /* HabitMappingStore.swift */,
+			);
+			path = Habits;
 			sourceTree = "<group>";
 		};
 		BDF6422C3C1FDDFAB7CC5D7D /* Components */ = {
@@ -447,6 +506,14 @@
 				900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		FC4DBEA8AEAAF80AE793F0A3 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				6000DCD5158BD5D266A3BB99 /* Local.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -582,8 +649,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E0D70D8ADF2BF7BD24F3B51D /* FilenameTemplateTests.swift in Sources */,
+				8BB5E8890F64DA1DA0010DC1 /* HabitMappingResolverTests.swift in Sources */,
+				49E248619B80EB0DA21454F9 /* HabitMappingStoreTests.swift in Sources */,
 				BF0DDE163AED7BB73EBFF00A /* LocalExportHistoryStoreTests.swift in Sources */,
 				2F8FE9690DEA7AE8CDFB881F /* LocalExportManagerTests.swift in Sources */,
+				B94A8CE3B1FF6F1292423070 /* MarkdownExporterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -619,7 +690,12 @@
 				D2084AF2C75A38D2EA2DB475 /* BLEPermissionState.swift in Sources */,
 				A55B7639005BE0D49ED5D14E /* BLERestorationCoordinator.swift in Sources */,
 				C89D361628116D80350D651F /* BackgroundSyncManagerV2.swift in Sources */,
+				CA5B9D9881E770A77DBCB59E /* FilenameTemplate.swift in Sources */,
+				850687E2AED981E54C577D17 /* MarkdownExporter.swift in Sources */,
 				831330EC2DCD9D07F0A50647 /* ExportDestinationStore.swift in Sources */,
+				22A29727DF8C48FDB093475C /* HabitMapping.swift in Sources */,
+				9B7507788651710947EFEAEC /* HabitMappingResolver.swift in Sources */,
+				0BBAA91186A691B5F90F9B9A /* HabitMappingStore.swift in Sources */,
 				CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */,
 				EC97CEDF62A8D48DE115A431 /* LocalExportHistoryStore.swift in Sources */,
 				210BD4D8B9211661A43D2AFA /* LocalExportManager.swift in Sources */,
@@ -640,6 +716,8 @@
 				0ED81CA69B299571B4CBF54C /* StatusCard.swift in Sources */,
 				7E86B0E4D2B19B9D736801BC /* ConnectView.swift in Sources */,
 				10585AD31D05685FCC500AE2 /* ContentView.swift in Sources */,
+				42D9D6AFB79B688346CA08AA /* HabitMappingEditorView.swift in Sources */,
+				CD5EA7E5CFD7D13D0D091B83 /* HabitMappingListView.swift in Sources */,
 				A612F87AE5E282CF7428413E /* ScreenTimeView.swift in Sources */,
 				A5C77E5AB43287BDEBE26DDF /* StatusView.swift in Sources */,
 				80D4D1A845106BC8FE815B1C /* WhoopConnectView.swift in Sources */,
@@ -669,7 +747,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = D657T2LVR2;
 				INFOPLIST_FILE = "Derived/InfoPlists/RitualCompanionTests-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -753,14 +830,10 @@
 		};
 		62CDC313CA8BD94130605434 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6000DCD5158BD5D266A3BB99 /* Local.xcconfig */;
 			buildSettings = {
-				API_BASE_URL = "http://127.0.0.1:8000";
-				API_BASE_URL_DEBUG = "http://192.168.1.237:8000";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLERK_FRONTEND_API = "https://rational-rattler-77.clerk.accounts.dev";
-				CLERK_PUBLISHABLE_KEY = pk_test_cmF0aW9uYWwtcmF0dGxlci03Ny5jbGVyay5hY2NvdW50cy5kZXYk;
-				"CLERK_PUBLISHABLE_KEY[arch=*]" = "";
 				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualCompanion.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = D657T2LVR2;
@@ -786,13 +859,10 @@
 		};
 		6C7242AF6B182249C723A5A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6000DCD5158BD5D266A3BB99 /* Local.xcconfig */;
 			buildSettings = {
-				API_BASE_URL = "http://127.0.0.1:8000";
-				API_BASE_URL_DEBUG = "http://192.168.1.237:8000";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLERK_FRONTEND_API = "https://rational-rattler-77.clerk.accounts.dev";
-				CLERK_PUBLISHABLE_KEY = pk_test_cmF0aW9uYWwtcmF0dGxlci03Ny5jbGVyay5hY2NvdW50cy5kZXYk;
 				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualCompanion.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				DEVELOPMENT_TEAM = D657T2LVR2;
@@ -942,7 +1012,6 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = D657T2LVR2;
 				INFOPLIST_FILE = "Derived/InfoPlists/RitualCompanionTests-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (

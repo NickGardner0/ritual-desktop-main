@@ -46,9 +46,38 @@ final class HealthKitManagerV2: @unchecked Sendable {
         
         // Workouts - Best available
         .workout: .bestAvailable,
-        
+
         // Mindfulness - Best available
-        .mindfulMinutes: .bestAvailable
+        .mindfulMinutes: .bestAvailable,
+
+        // Body Measurements - Best available (manual entry or scale)
+        .bodyMass: .bestAvailable,
+        .bodyMassIndex: .bestAvailable,
+        .bodyFatPercentage: .bestAvailable,
+        .leanBodyMass: .bestAvailable,
+        .height: .bestAvailable,
+        .waistCircumference: .bestAvailable,
+
+        // Nutrition - Best available (food tracking apps)
+        .dietaryEnergy: .bestAvailable,
+        .dietaryProtein: .bestAvailable,
+        .dietaryCarbs: .bestAvailable,
+        .dietaryFat: .bestAvailable,
+        .dietaryFiber: .bestAvailable,
+        .dietarySugar: .bestAvailable,
+        .dietaryWater: .bestAvailable,
+        .dietaryCaffeine: .bestAvailable,
+
+        // Vitals - Best available (could be manual or device)
+        .bloodPressureSystolic: .bestAvailable,
+        .bloodPressureDiastolic: .bestAvailable,
+        .bloodGlucose: .bestAvailable,
+        .bodyTemperature: .bestAvailable,
+
+        // Mobility - Apple Watch only
+        .walkingSpeed: .appleWatchOnly,
+        .walkingStepLength: .appleWatchOnly,
+        .walkingAsymmetry: .appleWatchOnly,
     ]
     
     /// Types we want to read from HealthKit
@@ -74,10 +103,35 @@ final class HealthKitManagerV2: @unchecked Sendable {
         // Sleep & Mindfulness (Category types)
         if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(sleep) }
         if let mindful = HKCategoryType.categoryType(forIdentifier: .mindfulSession) { types.insert(mindful) }
-        
+
+        // Body Measurements
+        [HKQuantityTypeIdentifier.bodyMass, .bodyMassIndex, .bodyFatPercentage,
+         .leanBodyMass, .height, .waistCircumference].forEach {
+            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
+        }
+
+        // Nutrition
+        [HKQuantityTypeIdentifier.dietaryEnergyConsumed, .dietaryProtein,
+         .dietaryCarbohydrates, .dietaryFatTotal, .dietaryFiber,
+         .dietarySugar, .dietaryWater, .dietaryCaffeine].forEach {
+            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
+        }
+
+        // Vitals (additional)
+        [HKQuantityTypeIdentifier.bloodPressureSystolic, .bloodPressureDiastolic,
+         .bloodGlucose, .bodyTemperature].forEach {
+            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
+        }
+
+        // Mobility
+        [HKQuantityTypeIdentifier.walkingSpeed, .walkingStepLength,
+         .walkingAsymmetryPercentage].forEach {
+            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
+        }
+
         // Workouts
         types.insert(HKObjectType.workoutType())
-        
+
         return types
     }()
     
@@ -464,6 +518,42 @@ final class HealthKitManagerV2: @unchecked Sendable {
             let rawValue = sample.quantity.doubleValue(for: .percent()) * 100
             let value = min(max(rawValue, 0), 100) // Clamp to valid range
             return (value, .percent)
+        // Body Measurements
+        case "body_mass":
+            return (sample.quantity.doubleValue(for: .gramUnit(with: .kilo)), .kg)
+        case "body_mass_index":
+            return (sample.quantity.doubleValue(for: .count()), .count)
+        case "body_fat_percentage":
+            return (sample.quantity.doubleValue(for: .percent()) * 100, .percent)
+        case "lean_body_mass":
+            return (sample.quantity.doubleValue(for: .gramUnit(with: .kilo)), .kg)
+        case "height":
+            return (sample.quantity.doubleValue(for: .meterUnit(with: .centi)), .cm)
+        case "waist_circumference":
+            return (sample.quantity.doubleValue(for: .meterUnit(with: .centi)), .cm)
+        // Nutrition
+        case "dietary_energy":
+            return (sample.quantity.doubleValue(for: .kilocalorie()), .kcal)
+        case "dietary_protein", "dietary_carbs", "dietary_fat", "dietary_fiber", "dietary_sugar":
+            return (sample.quantity.doubleValue(for: .gram()), .grams)
+        case "dietary_water":
+            return (sample.quantity.doubleValue(for: .literUnit(with: .milli)), .ml)
+        case "dietary_caffeine":
+            return (sample.quantity.doubleValue(for: .gramUnit(with: .milli)), .mg)
+        // Vitals
+        case "blood_pressure_systolic", "blood_pressure_diastolic":
+            return (sample.quantity.doubleValue(for: .millimeterOfMercury()), .mmHg)
+        case "blood_glucose":
+            return (sample.quantity.doubleValue(for: HKUnit.moleUnit(with: .milli, molarMass: HKUnitMolarMassBloodGlucose).unitDivided(by: .liter())), .mmolPerL)
+        case "body_temperature":
+            return (sample.quantity.doubleValue(for: .degreeCelsius()), .celsius)
+        // Mobility
+        case "walking_speed":
+            return (sample.quantity.doubleValue(for: HKUnit.meter().unitDivided(by: .second())), .metersPerSecond)
+        case "walking_step_length":
+            return (sample.quantity.doubleValue(for: .meterUnit(with: .centi)), .cm)
+        case "walking_asymmetry":
+            return (sample.quantity.doubleValue(for: .percent()) * 100, .percent)
         default:
             return (sample.quantity.doubleValue(for: .count()), .count)
         }
@@ -601,6 +691,31 @@ final class HealthKitManagerV2: @unchecked Sendable {
             return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
         case "mindful_minutes": return HKCategoryType.categoryType(forIdentifier: .mindfulSession)
         case "workout": return HKObjectType.workoutType()
+        // Body Measurements
+        case "body_mass": return HKQuantityType.quantityType(forIdentifier: .bodyMass)
+        case "body_mass_index": return HKQuantityType.quantityType(forIdentifier: .bodyMassIndex)
+        case "body_fat_percentage": return HKQuantityType.quantityType(forIdentifier: .bodyFatPercentage)
+        case "lean_body_mass": return HKQuantityType.quantityType(forIdentifier: .leanBodyMass)
+        case "height": return HKQuantityType.quantityType(forIdentifier: .height)
+        case "waist_circumference": return HKQuantityType.quantityType(forIdentifier: .waistCircumference)
+        // Nutrition
+        case "dietary_energy": return HKQuantityType.quantityType(forIdentifier: .dietaryEnergyConsumed)
+        case "dietary_protein": return HKQuantityType.quantityType(forIdentifier: .dietaryProtein)
+        case "dietary_carbs": return HKQuantityType.quantityType(forIdentifier: .dietaryCarbohydrates)
+        case "dietary_fat": return HKQuantityType.quantityType(forIdentifier: .dietaryFatTotal)
+        case "dietary_fiber": return HKQuantityType.quantityType(forIdentifier: .dietaryFiber)
+        case "dietary_sugar": return HKQuantityType.quantityType(forIdentifier: .dietarySugar)
+        case "dietary_water": return HKQuantityType.quantityType(forIdentifier: .dietaryWater)
+        case "dietary_caffeine": return HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine)
+        // Vitals
+        case "blood_pressure_systolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic)
+        case "blood_pressure_diastolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic)
+        case "blood_glucose": return HKQuantityType.quantityType(forIdentifier: .bloodGlucose)
+        case "body_temperature": return HKQuantityType.quantityType(forIdentifier: .bodyTemperature)
+        // Mobility
+        case "walking_speed": return HKQuantityType.quantityType(forIdentifier: .walkingSpeed)
+        case "walking_step_length": return HKQuantityType.quantityType(forIdentifier: .walkingStepLength)
+        case "walking_asymmetry": return HKQuantityType.quantityType(forIdentifier: .walkingAsymmetryPercentage)
         default: return nil
         }
     }
@@ -625,6 +740,20 @@ final class HealthKitManagerV2: @unchecked Sendable {
             return .discreteAverage
         case "resting_hr":
             return .discreteMin  // Daily resting HR is typically the minimum
+        // Nutrition — cumulative daily totals
+        case "dietary_energy", "dietary_protein", "dietary_carbs", "dietary_fat",
+             "dietary_fiber", "dietary_sugar", "dietary_water", "dietary_caffeine":
+            return .cumulativeSum
+        // Body measurements — latest/average for the day
+        case "body_mass", "body_mass_index", "body_fat_percentage", "lean_body_mass",
+             "height", "waist_circumference":
+            return .discreteAverage
+        // Vitals — averages
+        case "blood_pressure_systolic", "blood_pressure_diastolic", "blood_glucose", "body_temperature":
+            return .discreteAverage
+        // Mobility — averages
+        case "walking_speed", "walking_step_length", "walking_asymmetry":
+            return .discreteAverage
         default:
             return .cumulativeSum
         }

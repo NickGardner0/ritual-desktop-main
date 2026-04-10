@@ -246,8 +246,28 @@ struct StatusView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                Divider().padding(.leading, 74)
+
+                NavigationLink(destination: HabitMappingListView()) {
+                    CompanionSourceRow(
+                        icon: "link.circle.fill",
+                        tint: .black,
+                        title: "Habit mappings",
+                        detail: habitMappingsDetail,
+                        badgeText: nil
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
+    }
+
+    private var habitMappingsDetail: String {
+        let count = appState.habitMappings.count
+        if count == 0 { return "Link Apple Health metrics to Ritual habits" }
+        if count == 1 { return "1 mapping active" }
+        return "\(count) mappings active"
     }
 
     private var toolsSection: some View {
