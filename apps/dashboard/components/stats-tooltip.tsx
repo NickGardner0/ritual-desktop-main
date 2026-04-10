@@ -89,11 +89,13 @@ export function StatsTooltip({
   const tooltip = (
     <div
       ref={contentRef}
-      className="fixed p-4 bg-white border border-gray-300 shadow-lg z-[999] min-w-[240px]"
+      className="tooltip-container fixed z-[999] min-w-[240px] border border-gray-300 bg-white p-4 shadow-lg"
       style={{
         top: position.top,
         left: position.left,
       }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
     >
       {children}
     </div>

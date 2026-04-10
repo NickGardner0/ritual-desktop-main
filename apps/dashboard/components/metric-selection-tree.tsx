@@ -106,8 +106,7 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
   }
 
   return (
-    <div className="space-y-3">
-      {/* Header summary */}
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">
           {selected.size} of {totalMetrics} metrics selected
@@ -122,25 +121,22 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="h-1 overflow-hidden rounded-full bg-muted">
+      <div className="h-1 overflow-hidden rounded-full bg-muted/70">
         <div
           className="h-full rounded-full bg-foreground transition-all duration-300"
           style={{ width: `${totalMetrics > 0 ? (selected.size / totalMetrics) * 100 : 0}%` }}
         />
       </div>
 
-      {/* Search */}
       <Input
         type="text"
         placeholder="Search metrics..."
         value={search}
         onChange={e => setSearch(e.target.value)}
-        className="h-8 text-sm"
+        className="h-9 text-sm"
       />
 
-      {/* Category tree */}
-      <div className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
+      <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
         {filtered.map(cat => {
           const catSelected = cat.metrics.filter(m => selected.has(m.type)).length;
           const allCatSelected = catSelected === cat.metrics.length;
@@ -148,11 +144,10 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
           const isCollapsed = collapsed.has(cat.category);
 
           return (
-            <div key={cat.category} className="rounded-sm border border-border">
-              {/* Category header */}
+            <div key={cat.category} className="overflow-hidden rounded-sm border border-border bg-background">
               <button
                 onClick={() => toggleCollapse(cat.category)}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f7f7f6]"
+                className="flex w-full items-center gap-2 px-3 py-3 text-left transition-colors hover:bg-muted/30"
               >
                 <span className="text-xs text-muted-foreground">{isCollapsed ? '▶' : '▼'}</span>
                 <input
@@ -169,13 +164,12 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
                 </span>
               </button>
 
-              {/* Metric list */}
               {!isCollapsed && (
-                <div className="border-t border-border px-3 py-1">
+                <div className="border-t border-border px-3 py-2">
                   {cat.metrics.map(m => (
                     <label
                       key={m.type}
-                      className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-[#f7f7f6]"
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 transition-colors hover:bg-muted/30"
                     >
                       <input
                         type="checkbox"
@@ -184,7 +178,7 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
                         className="h-3.5 w-3.5 rounded-sm border-input text-foreground focus:ring-0"
                       />
                       <span className="flex-1 text-sm text-foreground">{m.name}</span>
-                      {m.unit && <span className="text-xs text-muted-foreground">{m.unit}</span>}
+                      {m.unit && <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{m.unit}</span>}
                     </label>
                   ))}
                 </div>
@@ -194,11 +188,10 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
         })}
       </div>
 
-      {/* Save button */}
       <Button
         onClick={handleSave}
         disabled={saving || !isDirty}
-        className="w-full"
+        className="h-10 w-full"
       >
         {saving ? (
           <span className="flex items-center gap-2">
@@ -212,7 +205,6 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
         )}
       </Button>
 
-      {/* Result */}
       {saveResult && (
         <p className={`text-xs ${saveResult.type === 'success' ? 'text-green-600' : 'text-red-500'}`}>
           {saveResult.message}

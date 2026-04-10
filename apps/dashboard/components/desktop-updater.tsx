@@ -18,6 +18,7 @@ type UpdateStatusPayload = {
 };
 
 const DESKTOP_ENV_QUERY_PARAM = 'ritual_desktop_env';
+const RUNTIME_STATE_CHANGED_EVENT = 'desktop://runtime-state-changed';
 const UPDATE_AVAILABLE_EVENT = 'tauri://update-available';
 const UPDATE_STATUS_EVENT = 'tauri://update-status';
 
@@ -41,8 +42,8 @@ export function DesktopUpdater() {
   const [manualCheckActive, setManualCheckActive] = useState(false);
   const [runtimeInfo, setRuntimeInfo] = useState<DesktopRuntimeInfo | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [updaterSessionActive, setUpdaterSessionActive] = useState(false);
   const manualCheckActiveRef = useRef(false);
+  const runtimeInfoRefreshRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     manualCheckActiveRef.current = manualCheckActive;
@@ -91,14 +92,42 @@ export function DesktopUpdater() {
   }, [isDesktopShell]);
 
   useEffect(() => {
-    if (!shouldEnableUpdater || !updaterSessionActive) return;
+    if (!shouldEnableUpdater) return;
 
     let cancelled = false;
     let disposeAvailable: (() => void) | undefined;
+    let disposeRuntimeState: (() => void) | undefined;
     let disposeStatus: (() => void) | undefined;
+
+    const refreshRuntimeInfo = async () => {
+      if (runtimeInfoRefreshRef.current) {
+        await runtimeInfoRefreshRef.current;
+        return;
+      }
+
+      const nextRefresh = (async () => {
+        const nextInfo = await getDesktopRuntimeInfo();
+        if (!cancelled) {
+          setRuntimeInfo(nextInfo);
+        }
+      })();
+
+      runtimeInfoRefreshRef.current = nextRefresh;
+      try {
+        await nextRefresh;
+      } finally {
+        if (runtimeInfoRefreshRef.current === nextRefresh) {
+          runtimeInfoRefreshRef.current = null;
+        }
+      }
+    };
 
     void import('@tauri-apps/api/event')
       .then(async ({ listen }) => {
+        disposeRuntimeState = await listen(RUNTIME_STATE_CHANGED_EVENT, () => {
+          void refreshRuntimeInfo();
+        });
+
         disposeAvailable = await listen<UpdateManifest>(UPDATE_AVAILABLE_EVENT, (event) => {
           if (cancelled) return;
 
@@ -168,14 +197,14 @@ export function DesktopUpdater() {
     return () => {
       cancelled = true;
       disposeAvailable?.();
+      disposeRuntimeState?.();
       disposeStatus?.();
     };
-  }, [shouldEnableUpdater, updaterSessionActive]);
+  }, [shouldEnableUpdater]);
 
   const effectivePendingUpdate = availableUpdate ?? normalizeManifest(runtimeInfo?.pendingUpdate);
 
   const runManualUpdateCheck = async () => {
-    setUpdaterSessionActive(true);
     setChecking(true);
     setManualCheckActive(true);
     setStatusMessage('Checking GitHub Releases for a new Ritual build...');
@@ -196,7 +225,6 @@ export function DesktopUpdater() {
   };
 
   const installUpdateNow = async () => {
-    setUpdaterSessionActive(true);
     setInstalling(true);
     setStatusMessage('Downloading and installing the latest Ritual desktop build...');
 

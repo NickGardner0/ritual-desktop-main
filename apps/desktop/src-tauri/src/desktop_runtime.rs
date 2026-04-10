@@ -187,13 +187,15 @@ fn end_update_check<R: Runtime>(app: &AppHandle<R>) {
     *in_progress = false;
 }
 
-fn set_pending_update<R: Runtime>(app: &AppHandle<R>, update: Option<PendingUpdateManifest>) {
+fn set_pending_update<R: Runtime + 'static>(app: &AppHandle<R>, update: Option<PendingUpdateManifest>) {
     let state = app.state::<DesktopShellState>();
     let mut pending = state
         .pending_update
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *pending = update;
+    drop(pending);
+    emit_runtime_state_changed(app.clone());
 }
 
 fn frontend_is_ready<R: Runtime>(app: &AppHandle<R>) -> bool {

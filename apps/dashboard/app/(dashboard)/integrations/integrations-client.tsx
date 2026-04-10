@@ -18,7 +18,7 @@ import { useAuth, useUser, useClerk } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import { invoke } from '@tauri-apps/api/tauri';
-import { Monitor } from 'lucide-react';
+import { ChevronRight, Monitor } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { useHabits } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -2030,33 +2030,52 @@ export function IntegrationsClient() {
 
       return (
         <div className="flex h-full flex-col bg-background">
-          {/* ── Compact header ─────────────────────────── */}
           <div className="border-b border-border px-5 pb-4 pt-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-sm border border-border bg-[#111] text-white">
-                {renderIntegrationLogo('applewatch', 'panel')}
+            <div className="overflow-hidden rounded-sm border border-border bg-muted/20">
+              <div
+                className="relative flex h-28 items-center justify-center"
+                style={{
+                  backgroundImage: 'radial-gradient(circle, rgba(15, 23, 42, 0.08) 1px, transparent 1px)',
+                  backgroundSize: '10px 10px',
+                }}
+              >
+                <div className="flex h-14 w-14 items-center justify-center rounded-sm border border-border bg-[#111] text-white shadow-sm">
+                  {renderIntegrationLogo('applewatch', 'panel')}
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-lg font-semibold leading-tight text-foreground">Apple Watch</h3>
-                <p className="text-xs text-muted-foreground">Health data &middot; Via Ritual Companion</p>
-              </div>
-              {appleWatchConnected && (
-                <span className="inline-flex items-center gap-1.5 rounded-sm bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                  Connected
-                </span>
-              )}
             </div>
 
-            {/* ── Tab navigation ───────────────────────── */}
-            <div className="mt-4 inline-flex items-center rounded-sm bg-muted p-1">
+            <div className="mt-4 flex items-start justify-between gap-4 border-b border-border pb-3">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-lg font-semibold leading-tight text-foreground">Apple Watch</h3>
+                <p className="mt-1 text-xs text-muted-foreground">Health data • Via Ritual Companion</p>
+              </div>
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 text-[11px] font-medium',
+                  appleWatchConnected
+                    ? 'border-border bg-muted/40 text-foreground'
+                    : 'border-border bg-background text-muted-foreground',
+                )}
+              >
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    appleWatchConnected ? 'bg-foreground' : 'bg-muted-foreground/60',
+                  )}
+                />
+                {appleWatchConnected ? 'Connected' : 'Not connected'}
+              </span>
+            </div>
+
+            <div className="mt-3 inline-flex items-center rounded-sm border border-border bg-muted/20 p-1">
               {tabs.map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => setDetailsTab(tab.key)}
                   className={`rounded-sm px-3 py-1.5 text-xs font-medium transition-all ${
                     detailsTab === tab.key
-                      ? 'bg-background text-foreground shadow-sm'
+                      ? 'border border-border bg-background text-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -2066,62 +2085,88 @@ export function IntegrationsClient() {
             </div>
           </div>
 
-          {/* ── Tab content ────────────────────────────── */}
           <div className="min-h-0 flex-1">
             <ScrollArea className="h-full">
               <div className="px-5 py-5">
-
-                {/* ── Overview tab ──────────────────────── */}
                 {detailsTab === 'overview' && (
                   <div className="space-y-5">
-                    <div>
-                      <h4 className="mb-2 text-sm font-medium text-foreground">How it works</h4>
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        Sync data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
-                      </p>
-                    </div>
+                    <section className="rounded-sm border border-border bg-background p-4">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">How it works</p>
+                      <div className="mt-4 space-y-4 text-sm text-muted-foreground">
+                        <div>
+                          <p className="font-medium text-foreground">Companion sync</p>
+                          <p className="mt-1 leading-relaxed">
+                            Sync health data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">Selected metrics only</p>
+                          <p className="mt-1 leading-relaxed">
+                            Choose exactly which Apple Health metrics should create or update habits inside Ritual.
+                          </p>
+                        </div>
+                      </div>
+                    </section>
 
                     {appleWatchConnected && (
                       <>
-                        <div className="rounded-sm border border-border bg-muted/50 p-4">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Sync status</p>
-                          <div className="mt-3 space-y-2.5">
-                            <div className="flex items-center justify-between">
+                        <section className="rounded-sm border border-border bg-background">
+                          <div className="border-b border-border px-4 py-3">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Sync status</p>
+                          </div>
+                          <div className="divide-y divide-border">
+                            <div className="flex items-center justify-between px-4 py-3">
                               <span className="text-sm text-muted-foreground">Last sync</span>
-                              <span className="text-sm font-medium text-foreground">{formatRelativeTime(appleWatchLastSync)}</span>
+                              <span className="text-sm text-foreground">{formatRelativeTime(appleWatchLastSync)}</span>
                             </div>
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between px-4 py-3">
                               <span className="text-sm text-muted-foreground">Tracked metrics</span>
-                              <span className="text-sm font-medium text-foreground">{selectedMetrics.size} selected</span>
+                              <span className="text-sm text-foreground">{selectedMetrics.size} selected</span>
                             </div>
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between px-4 py-3">
                               <span className="text-sm text-muted-foreground">Device</span>
-                              <span className="text-sm font-medium text-foreground">{appleWatchStatusData?.deviceName || 'iPhone'}</span>
+                              <span className="text-sm text-foreground">{appleWatchStatusData?.deviceName || 'iPhone'}</span>
                             </div>
                           </div>
-                        </div>
+                        </section>
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <section className="rounded-sm border border-border bg-background">
                           <button
                             onClick={() => setDetailsTab('metrics')}
-                            className="rounded-sm border border-border p-3 text-left transition-colors hover:bg-[#f7f7f6]"
+                            className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/30"
                           >
-                            <p className="text-sm font-medium text-foreground">Metrics</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">Choose what to track</p>
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Metrics</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">Choose what to track</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
                           </button>
                           <button
                             onClick={() => setDetailsTab('export')}
-                            className="rounded-sm border border-border p-3 text-left transition-colors hover:bg-[#f7f7f6]"
+                            className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/30"
                           >
-                            <p className="text-sm font-medium text-foreground">Export</p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">Download your data</p>
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Export</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">Download your data</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
                           </button>
-                        </div>
+                          <button
+                            onClick={() => setDetailsTab('settings')}
+                            className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/30"
+                          >
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Settings</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">Control sync behavior</p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </section>
                       </>
                     )}
 
                     {!appleWatchConnected && (
-                      <div className="rounded-sm border border-dashed border-border bg-muted/50 p-5 text-center">
+                      <div className="rounded-sm border border-dashed border-border bg-muted/20 p-5 text-center">
                         <p className="text-sm font-medium text-foreground">Not connected</p>
                         <p className="mt-1 text-xs text-muted-foreground">Open the Ritual Companion app on your iPhone to connect.</p>
                       </div>
@@ -2129,37 +2174,38 @@ export function IntegrationsClient() {
                   </div>
                 )}
 
-                {/* ── Metrics tab ───────────────────────── */}
                 {detailsTab === 'metrics' && appleWatchConnected && (
-                  <div>
-                    <p className="mb-4 text-sm text-muted-foreground">
-                      Select which health metrics to sync from your Apple Watch and iPhone.
-                    </p>
-                    {metricCatalog.length > 0 ? (
-                      <MetricSelectionTree
-                        categories={metricCatalog}
-                        selected={selectedMetrics}
-                        onSave={saveMetricPreferences}
-                      />
-                    ) : (
-                      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                        <BrailleSpinner /> Loading metrics…
-                      </div>
-                    )}
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Metrics</p>
+                      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                        Select which health metrics to sync from your Apple Watch and iPhone.
+                      </p>
+                    </div>
+                    <div className="rounded-sm border border-border bg-background p-4">
+                      {metricCatalog.length > 0 ? (
+                        <MetricSelectionTree
+                          categories={metricCatalog}
+                          selected={selectedMetrics}
+                          onSave={saveMetricPreferences}
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                          <BrailleSpinner /> Loading metrics…
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {/* ── Export tab ────────────────────────── */}
                 {detailsTab === 'export' && appleWatchConnected && (
                   <div className="space-y-6">
-                    {/* Export now section */}
-                    <div>
-                      <h4 className="mb-3 text-sm font-medium text-foreground">Export data</h4>
+                    <div className="rounded-sm border border-border bg-background p-4">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Export data</p>
                       <div className="space-y-4">
-                        {/* Date range */}
                         <div>
                           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Date range</label>
-                          <div className="mb-2 flex gap-2">
+                          <div className="mb-2 flex flex-wrap gap-2">
                             {([['yesterday', 'Yesterday'], ['7d', '7 Days'], ['30d', '30 Days'], ['custom', 'Custom']] as const).map(([key, label]) => (
                               <button
                                 key={key}
@@ -2167,7 +2213,7 @@ export function IntegrationsClient() {
                                 className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
                                   exportDatePreset === key
                                     ? 'border-foreground bg-foreground text-background'
-                                    : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'
+                                    : 'border-border bg-background text-muted-foreground hover:bg-muted/30'
                                 }`}
                               >
                                 {label}
@@ -2185,7 +2231,6 @@ export function IntegrationsClient() {
                           )}
                         </div>
 
-                        {/* Format */}
                         <div>
                           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Format</label>
                           <div className="flex gap-2">
@@ -2196,7 +2241,7 @@ export function IntegrationsClient() {
                                 className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
                                   exportFormat === key
                                     ? 'border-foreground bg-foreground text-background'
-                                    : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'
+                                    : 'border-border bg-background text-muted-foreground hover:bg-muted/30'
                                 }`}
                               >
                                 {label}
@@ -2205,11 +2250,10 @@ export function IntegrationsClient() {
                           </div>
                         </div>
 
-                        {/* Write mode (desktop only) */}
                         {isTauri() && (
                           <div>
                             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Write mode</label>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2">
                               {([['overwrite', 'Overwrite'], ['append', 'Append'], ['skip', 'Skip existing']] as const).map(([key, label]) => (
                                 <button
                                   key={key}
@@ -2217,7 +2261,7 @@ export function IntegrationsClient() {
                                   className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
                                     exportWriteMode === key
                                       ? 'border-foreground bg-foreground text-background'
-                                      : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'
+                                      : 'border-border bg-background text-muted-foreground hover:bg-muted/30'
                                   }`}
                                 >
                                   {label}
@@ -2232,7 +2276,6 @@ export function IntegrationsClient() {
                           </div>
                         )}
 
-                        {/* Export button */}
                         <Button onClick={handleExportNow} disabled={exportLoading} className="w-full">
                           {exportLoading ? (
                             <span className="flex items-center gap-2"><BrailleSpinner /> Exporting…</span>
@@ -2245,34 +2288,30 @@ export function IntegrationsClient() {
                       </div>
                     </div>
 
-                    {/* Schedule section */}
-                    <div className="border-t border-border pt-5">
+                    <div className="rounded-sm border border-border bg-background p-4">
                       <div className="mb-3 flex items-center justify-between">
-                        <h4 className="text-sm font-medium text-foreground">Scheduled export</h4>
-                        <button
-                          onClick={() => {
+                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Scheduled export</p>
+                        <Switch
+                          checked={Boolean(exportSchedule?.enabled)}
+                          onCheckedChange={(checked) => {
                             if (!scheduleLoaded) loadExportSchedule();
-                            const newEnabled = !(exportSchedule?.enabled);
                             const updated = {
                               ...(exportSchedule || { enabled: false, frequency: 'daily' as const, format: 'markdown' as const, time: '08:00', day_of_week: null, folder_path: null, include_all_metrics: true, metric_types: null }),
-                              enabled: newEnabled,
+                              enabled: checked,
                             };
                             setExportSchedule(updated);
                             saveExportSchedule(updated);
                           }}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${exportSchedule?.enabled ? 'bg-foreground' : 'bg-border'}`}
-                        >
-                          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${exportSchedule?.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
-                        </button>
+                        />
                       </div>
 
-                      {exportSchedule?.enabled && (
+                      {exportSchedule?.enabled ? (
                         <div className="space-y-3">
                           <div>
                             <label className="mb-1 block text-xs text-muted-foreground">Frequency</label>
                             <div className="flex gap-2">
                               {(['daily', 'weekly'] as const).map(freq => (
-                                <button key={freq} onClick={() => updateScheduleField('frequency', freq)} className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.frequency === freq ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'}`}>
+                                <button key={freq} onClick={() => updateScheduleField('frequency', freq)} className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.frequency === freq ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-muted/30'}`}>
                                   {freq.charAt(0).toUpperCase() + freq.slice(1)}
                                 </button>
                               ))}
@@ -2284,7 +2323,7 @@ export function IntegrationsClient() {
                               <label className="mb-1 block text-xs text-muted-foreground">Day</label>
                               <div className="flex flex-wrap gap-1">
                                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                                  <button key={day} onClick={() => updateScheduleField('day_of_week', i)} className={`rounded-sm border px-2 py-1 text-xs font-medium transition-colors ${exportSchedule.day_of_week === i ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'}`}>
+                                  <button key={day} onClick={() => updateScheduleField('day_of_week', i)} className={`rounded-sm border px-2 py-1 text-xs font-medium transition-colors ${exportSchedule.day_of_week === i ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-muted/30'}`}>
                                     {day}
                                   </button>
                                 ))}
@@ -2301,7 +2340,7 @@ export function IntegrationsClient() {
                             <label className="mb-1 block text-xs text-muted-foreground">Format</label>
                             <div className="flex gap-2">
                               {(['markdown', 'json', 'csv'] as const).map(fmt => (
-                                <button key={fmt} onClick={() => updateScheduleField('format', fmt)} className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.format === fmt ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'}`}>
+                                <button key={fmt} onClick={() => updateScheduleField('format', fmt)} className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.format === fmt ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-muted/30'}`}>
                                   {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
                                 </button>
                               ))}
@@ -2318,12 +2357,13 @@ export function IntegrationsClient() {
                               : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`}
                           </p>
                         </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Turn this on to automatically export Apple Watch data on a schedule.</p>
                       )}
                     </div>
 
-                    {/* History section */}
-                    <div className="border-t border-border pt-5">
-                      <h4 className="mb-3 text-sm font-medium text-foreground">History</h4>
+                    <div className="rounded-sm border border-border bg-background p-4">
+                      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">History</p>
                       <div className="space-y-2">
                         {exportHistory.length === 0 ? (
                           <p className="py-3 text-center text-sm text-muted-foreground">No exports yet</p>
@@ -2348,7 +2388,7 @@ export function IntegrationsClient() {
                               {entry.status === 'failed' && (
                                 <button
                                   onClick={() => { setExportStartDate(entry.start_date); setExportEndDate(entry.end_date); setExportFormat(entry.format as 'markdown' | 'json' | 'csv'); setExportDatePreset('custom'); }}
-                                  className="ml-2 shrink-0 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-[#f7f7f6] hover:text-foreground"
+                                  className="ml-2 shrink-0 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted/30 hover:text-foreground"
                                 >
                                   Retry
                                 </button>
@@ -2369,27 +2409,25 @@ export function IntegrationsClient() {
                   </div>
                 )}
 
-                {/* ── Settings tab ──────────────────────── */}
                 {detailsTab === 'settings' && appleWatchConnected && (
                   <div className="space-y-5">
                     <div>
-                      <h4 className="mb-3 text-sm font-medium text-foreground">Sync</h4>
+                      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Sync</p>
                       {renderAutoSyncDetails('apple_health', appleHealthConnection, appleWatchLastSync, null)}
                     </div>
 
-                    <div className="border-t border-border pt-5">
-                      <h4 className="mb-2 text-sm font-medium text-foreground">Danger zone</h4>
-                      <p className="mb-3 text-xs text-muted-foreground">Disconnect this integration. Your synced data will remain in Ritual.</p>
+                    <div className="rounded-sm border border-border bg-background p-4">
+                      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Danger zone</p>
+                      <p className="mb-3 text-sm text-muted-foreground">Disconnect this integration. Your synced data will remain in Ritual.</p>
                       <button
                         onClick={handleAppleWatchDisconnect}
-                        className="rounded-sm border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
+                        className="rounded-sm border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50/60"
                       >
                         Disconnect Apple Watch
                       </button>
                     </div>
                   </div>
                 )}
-
               </div>
             </ScrollArea>
           </div>
@@ -2800,66 +2838,77 @@ export function IntegrationsClient() {
     const syncHour = connection?.sync_hour ?? (provider === 'whoop' ? whoopSyncHour : 9);
     const lastSyncValue = fallbackLastSync || connection?.last_sync_at || connection?.last_successful_sync_at || null;
     const note = connection?.auto_sync_note;
+    const providerLabel = provider === 'apple_health'
+      ? 'Apple Watch'
+      : provider === 'whoop'
+        ? 'Whoop'
+        : provider === 'oura'
+          ? 'Oura'
+          : 'Garmin';
 
     return (
-      <div className="space-y-4">
-        <div className="rounded-sm border border-gray-200 bg-white p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Auto sync</p>
-              <p className="mt-1 text-sm text-gray-600">Keep this integration updated automatically.</p>
-            </div>
-            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
-              <input
-                type="checkbox"
-                checked={autoSyncEnabled}
-                onChange={(event) =>
-                  handleWearableSyncSettingsUpdate(provider, {
-                    auto_sync_enabled: event.target.checked,
-                    sync_hour: syncHour,
-                  })
-                }
-                className="h-4 w-4 rounded border-gray-300 text-black focus:ring-0"
-              />
-              <span>{autoSyncEnabled ? 'On' : 'Off'}</span>
-            </label>
+      <div className="rounded-sm border border-border bg-background">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-4">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Auto sync</p>
+            <p className="mt-1 text-sm text-foreground">Keep {providerLabel} updated automatically.</p>
           </div>
-
-          <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-4">
-            <div>
-              <p className="text-sm text-gray-900">Preferred sync time</p>
-              <p className="mt-1 text-xs text-gray-500">Choose the hour for background refreshes.</p>
-            </div>
-            <select
-              value={syncHour}
-              onChange={(event) =>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={autoSyncEnabled}
+              onCheckedChange={(checked) =>
                 handleWearableSyncSettingsUpdate(provider, {
-                  auto_sync_enabled: autoSyncEnabled,
-                  sync_hour: Number(event.target.value),
+                  auto_sync_enabled: checked,
+                  sync_hour: syncHour,
                 })
               }
-              disabled={!autoSyncEnabled}
-              className="h-9 min-w-[112px] rounded-sm border border-gray-300 bg-white px-3 text-sm text-gray-900 disabled:opacity-50"
-            >
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>
-                  {formatHour(hour)}
-                </option>
-              ))}
-            </select>
+            />
+            <span className="text-sm text-foreground">{autoSyncEnabled ? 'On' : 'Off'}</span>
           </div>
-
-          <div className="mt-4 flex items-center justify-between text-xs text-gray-500">
-            <span>Last sync</span>
-            <span className="text-gray-700">{formatRelativeTime(lastSyncValue)}</span>
-          </div>
-          {note ? (
-            <p className="mt-2 text-xs leading-5 text-gray-500">{note}</p>
-          ) : null}
-          {staleMessage ? (
-            <p className="mt-2 text-xs leading-5 text-gray-500">{staleMessage}</p>
-          ) : null}
         </div>
+
+        <div className="flex items-start justify-between gap-4 px-4 py-4">
+          <div>
+            <p className="text-sm text-foreground">Preferred sync time</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Choose the hour for background refreshes.</p>
+          </div>
+          <Select
+            value={String(syncHour)}
+            onValueChange={(value) =>
+              handleWearableSyncSettingsUpdate(provider, {
+                auto_sync_enabled: autoSyncEnabled,
+                sync_hour: Number(value),
+              })
+            }
+            disabled={!autoSyncEnabled}
+          >
+            <SelectTrigger className="h-9 w-[136px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: 24 }, (_, hour) => (
+                <SelectItem key={hour} value={String(hour)}>
+                  {formatHour(hour)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 border-t border-border px-4 py-3">
+          <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">Last sync</span>
+          <span className="text-sm text-foreground">{formatRelativeTime(lastSyncValue)}</span>
+        </div>
+        {note ? (
+          <div className="border-t border-border px-4 py-3">
+            <p className="text-xs leading-5 text-muted-foreground">{note}</p>
+          </div>
+        ) : null}
+        {staleMessage ? (
+          <div className="border-t border-border px-4 py-3">
+            <p className="text-xs leading-5 text-muted-foreground">{staleMessage}</p>
+          </div>
+        ) : null}
       </div>
     );
   };
