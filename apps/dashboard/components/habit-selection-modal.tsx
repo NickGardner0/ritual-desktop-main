@@ -151,6 +151,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       case 'applewatch':
         return [
           // Activity
+          { value: '_section_activity', label: 'Activity', section: true },
           { value: 'steps', label: 'Steps', metric_type: 'steps', unit: 'Steps' },
           { value: 'active-energy', label: 'Active Calories', metric_type: 'active_energy', unit: 'Calories' },
           { value: 'basal-energy', label: 'Resting Calories', metric_type: 'basal_energy', unit: 'Calories' },
@@ -159,19 +160,35 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           { value: 'exercise-time', label: 'Exercise Minutes', metric_type: 'exercise_time', unit: 'Minutes' },
           { value: 'stand-time', label: 'Stand Time', metric_type: 'stand_time', unit: 'Minutes' },
           // Heart
+          { value: '_section_heart', label: 'Heart', section: true },
           { value: 'heart-rate', label: 'Heart Rate', metric_type: 'hr', unit: 'BPM' },
           { value: 'hrv', label: 'Heart Rate Variability (HRV)', metric_type: 'hrv', unit: 'HRV' },
           { value: 'resting-hr', label: 'Resting Heart Rate', metric_type: 'resting_hr', unit: 'BPM' },
           { value: 'walking-hr', label: 'Walking Heart Rate', metric_type: 'walking_hr', unit: 'BPM' },
           // Sleep & Recovery
+          { value: '_section_sleep', label: 'Sleep & Recovery', section: true },
           { value: 'sleep', label: 'Sleep Duration', metric_type: 'sleep_session', unit: 'Hours Slept' },
           { value: 'sleep-rem', label: 'REM Sleep', metric_type: 'sleep_rem', unit: 'Minutes' },
           { value: 'sleep-deep', label: 'Deep Sleep', metric_type: 'sleep_deep', unit: 'Minutes' },
           { value: 'sleep-core', label: 'Core Sleep', metric_type: 'sleep_core', unit: 'Minutes' },
           // Respiratory & Blood
+          { value: '_section_respiratory', label: 'Respiratory & Blood', section: true },
           { value: 'blood-oxygen', label: 'Blood Oxygen (SpO2)', metric_type: 'oxygen_saturation', unit: 'Percentage' },
           { value: 'respiratory-rate', label: 'Respiratory Rate', metric_type: 'respiratory_rate', unit: 'Count' },
+          // Mobility
+          { value: '_section_mobility', label: 'Mobility', section: true },
+          { value: 'walking-speed', label: 'Walking Speed', metric_type: 'walking_speed', unit: 'm/s' },
+          { value: 'step-length', label: 'Step Length', metric_type: 'walking_step_length', unit: 'cm' },
+          { value: 'walking-asymmetry', label: 'Walking Asymmetry', metric_type: 'walking_asymmetry', unit: 'Percentage' },
+          // Workouts & Mindfulness
+          { value: '_section_workouts', label: 'Workouts & Mindfulness', section: true },
+          { value: 'workouts', label: 'Workouts', metric_type: 'workout', unit: 'Count' },
+          { value: 'mindful-minutes', label: 'Mindful Minutes', metric_type: 'mindful_minutes', unit: 'Minutes' },
+        ];
+      case 'healthkit':
+        return [
           // Body Measurements
+          { value: '_section_body', label: 'Body Measurements', section: true },
           { value: 'body-mass', label: 'Weight', metric_type: 'body_mass', unit: 'kg' },
           { value: 'bmi', label: 'BMI', metric_type: 'body_mass_index', unit: 'Count' },
           { value: 'body-fat', label: 'Body Fat Percentage', metric_type: 'body_fat_percentage', unit: 'Percentage' },
@@ -179,6 +196,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           { value: 'height', label: 'Height', metric_type: 'height', unit: 'cm' },
           { value: 'waist', label: 'Waist Circumference', metric_type: 'waist_circumference', unit: 'cm' },
           // Nutrition
+          { value: '_section_nutrition', label: 'Nutrition', section: true },
           { value: 'dietary-energy', label: 'Calories Consumed', metric_type: 'dietary_energy', unit: 'Calories' },
           { value: 'dietary-protein', label: 'Protein', metric_type: 'dietary_protein', unit: 'Grams' },
           { value: 'dietary-carbs', label: 'Carbohydrates', metric_type: 'dietary_carbs', unit: 'Grams' },
@@ -188,17 +206,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           { value: 'dietary-water', label: 'Water', metric_type: 'dietary_water', unit: 'ml' },
           { value: 'dietary-caffeine', label: 'Caffeine', metric_type: 'dietary_caffeine', unit: 'Milligrams' },
           // Vitals
+          { value: '_section_vitals', label: 'Vitals', section: true },
           { value: 'bp-systolic', label: 'Blood Pressure (Systolic)', metric_type: 'blood_pressure_systolic', unit: 'mmHg' },
           { value: 'bp-diastolic', label: 'Blood Pressure (Diastolic)', metric_type: 'blood_pressure_diastolic', unit: 'mmHg' },
           { value: 'blood-glucose', label: 'Blood Glucose', metric_type: 'blood_glucose', unit: 'mmol/L' },
           { value: 'body-temp', label: 'Body Temperature', metric_type: 'body_temperature', unit: 'Celsius' },
-          // Mobility
-          { value: 'walking-speed', label: 'Walking Speed', metric_type: 'walking_speed', unit: 'm/s' },
-          { value: 'step-length', label: 'Step Length', metric_type: 'walking_step_length', unit: 'cm' },
-          { value: 'walking-asymmetry', label: 'Walking Asymmetry', metric_type: 'walking_asymmetry', unit: 'Percentage' },
-          // Workouts & Mindfulness
-          { value: 'workouts', label: 'Workouts', metric_type: 'workout', unit: 'Count' },
-          { value: 'mindful-minutes', label: 'Mindful Minutes', metric_type: 'mindful_minutes', unit: 'Minutes' }
         ];
       case 'oura':
         return [
@@ -320,9 +332,11 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       // Fallback to simple search if MiniSearch fails
       const categoryHabits = getHabitsForCategory(selectedCategory);
       const query = searchQuery.toLowerCase().trim();
-      return categoryHabits.filter(habit => 
-        habit.label.toLowerCase().includes(query) ||
-        habit.value.toLowerCase().includes(query)
+      return categoryHabits.filter((habit: any) =>
+        !habit.section && (
+          habit.label.toLowerCase().includes(query) ||
+          habit.value.toLowerCase().includes(query)
+        )
       );
     }
   }, [searchQuery, selectedCategory, miniSearch]);
@@ -735,6 +749,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         category: categoryMap[selectedCategory || 'productivity'] || 'manual',
         is_custom: selectedCategory === 'custom',
         sensor_type: selectedCategory === 'applewatch' ? 'Apple Watch'
+                   : selectedCategory === 'healthkit' ? 'HealthKit'
                    : selectedCategory === 'whoop' ? 'Whoop'
                    : selectedCategory === 'oura' ? 'Oura'
                    : selectedCategory === 'fitbit' ? 'Fitbit'
@@ -745,6 +760,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         unit_type: habitUnit,
         integration_source: selectedCategory === 'whoop' ? 'whoop'
                           : selectedCategory === 'applewatch' ? 'apple_health'
+                          : selectedCategory === 'healthkit' ? 'apple_health'
                           : selectedCategory === 'oura' ? 'oura'
                           : selectedCategory === 'fitbit' ? 'fitbit'
                           : selectedCategory === 'garmin' ? 'garmin'
@@ -882,6 +898,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   : selectedCategory === 'education' ? 'Learning'
                   : selectedCategory === 'experiments' ? 'Experiments'
                   : selectedCategory === 'productivity' ? 'Productivity'
+                  : selectedCategory === 'healthkit' ? 'HealthKit'
+                  : selectedCategory === 'applewatch' ? 'Apple Watch'
                   : selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)
                   : 'Connect devices'}
               </h2>
@@ -1166,6 +1184,45 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                 <div className="flex items-center gap-3 py-1.5">
                   <div className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div className="flex w-9 shrink-0 items-center justify-center">
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm font-normal text-gray-900">HealthKit</p>
+                      <p className="text-xs text-gray-400">Scales, CGMs, food logging apps</p>
+                    </div>
+                  </div>
+                  {appleWatchConnected ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect('healthkit')}
+                      className={connectRowActionConnectedClass}
+                    >
+                      Connected
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        alert(
+                          '📱 HealthKit metrics require:\n\n' +
+                          '1. The Ritual Companion app on your iPhone\n' +
+                          '2. A connected data source (smart scale, CGM, food logging app)\n' +
+                          '3. HealthKit permissions granted\n\n' +
+                          'Data from third-party apps that write to HealthKit will sync automatically.'
+                        );
+                      }}
+                      className={connectRowActionClass}
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 py-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <div className="flex w-9 shrink-0 items-center justify-center">
                       <img src="/images/oura.svg" alt="Oura Ring" className="h-8 w-8 object-contain" />
                     </div>
                     <p className="text-sm font-normal text-gray-900">Oura Ring</p>
@@ -1353,17 +1410,23 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             // Habit Selection for Category
             <div>
                 {displayedHabits.length > 0 ? (
-                  displayedHabits.map((habit, index) => (
-                    <div key={habit.value} className="flex justify-between items-center h-12 px-3">
-                      <p className="text-sm font-normal text-gray-900">{habit.label}</p>
-                      <button
-                        onClick={() => handleHabitClick(habit)}
-                        disabled={isCreating}
-                        className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
-                      >
-                        {isCreating ? 'Creating...' : 'Track'}
-                      </button>
-                    </div>
+                  displayedHabits.map((habit: any, index: number) => (
+                    habit.section ? (
+                      <div key={habit.value} className={`px-3 pt-4 pb-1 ${index === 0 ? 'pt-1' : ''}`}>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{habit.label}</p>
+                      </div>
+                    ) : (
+                      <div key={habit.value} className="flex justify-between items-center h-12 px-3">
+                        <p className="text-sm font-normal text-gray-900">{habit.label}</p>
+                        <button
+                          onClick={() => handleHabitClick(habit)}
+                          disabled={isCreating}
+                          className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                        >
+                          {isCreating ? 'Creating...' : 'Track'}
+                        </button>
+                      </div>
+                    )
                   ))
                 ) : searchQuery.trim() ? (
                   // No search results message
