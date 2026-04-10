@@ -748,6 +748,9 @@ final class HealthKitManagerV2: @unchecked Sendable {
         case "body_mass", "body_mass_index", "body_fat_percentage", "lean_body_mass",
              "height", "waist_circumference":
             return .discreteAverage
+        // Respiratory — discrete averages
+        case "oxygen_saturation", "respiratory_rate":
+            return .discreteAverage
         // Vitals — averages
         case "blood_pressure_systolic", "blood_pressure_diastolic", "blood_glucose", "body_temperature":
             return .discreteAverage
@@ -755,7 +758,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         case "walking_speed", "walking_step_length", "walking_asymmetry":
             return .discreteAverage
         default:
-            return .cumulativeSum
+            return .discreteAverage  // Safe default — discrete types crash with cumulativeSum
         }
     }
     
