@@ -416,17 +416,16 @@ async fn show_native_message<R: Runtime>(title: String, body: String) {
 }
 
 async fn prompt_for_native_install<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     latest_version: String,
     body: Option<String>,
 ) -> Result<bool, String> {
-    let current_version = app.package_info().version.to_string();
-    let release_notes = body.unwrap_or_else(|| "No release notes were provided.".to_string());
+    let release_notes = body.unwrap_or_else(|| "This update includes the latest Ritual desktop improvements.".to_string());
     let prompt = format!(
-        "Ritual {latest_version} is available. You have {current_version}.\n\nRelease notes:\n{release_notes}\n\nInstall now?"
+        "Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nInstall now?"
     );
 
-    tauri::async_runtime::spawn_blocking(move || ask::<R>(None, "Ritual Update Available", prompt))
+    tauri::async_runtime::spawn_blocking(move || ask::<R>(None, "Ritual Update Ready", prompt))
         .await
         .map_err(|error| format!("Failed to show native update prompt: {error}"))
 }
@@ -460,16 +459,12 @@ async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
     Ok(())
 }
 
-fn schedule_startup_fallback_prompt<R: Runtime + 'static>(
+fn schedule_startup_native_prompt<R: Runtime + 'static>(
     app: AppHandle<R>,
     manifest: PendingUpdateManifest,
 ) {
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(6)).await;
-
-        if frontend_is_ready(&app) {
-            return;
-        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         let still_pending = {
             let state = app.state::<DesktopShellState>();
@@ -551,9 +546,7 @@ async fn run_update_check<R: Runtime + 'static>(
 
         match origin {
             UpdateCheckOrigin::Startup => {
-                if !frontend_is_ready(&app) {
-                    schedule_startup_fallback_prompt(app.clone(), manifest);
-                }
+                schedule_startup_native_prompt(app.clone(), manifest);
             }
             UpdateCheckOrigin::Tray => {
                 if prompt_for_native_install(

@@ -207,7 +207,7 @@ export function DesktopUpdater() {
   const runManualUpdateCheck = async () => {
     setChecking(true);
     setManualCheckActive(true);
-    setStatusMessage('Checking GitHub Releases for a new Ritual build...');
+    setStatusMessage('Checking for the latest Ritual desktop update...');
 
     try {
       const nextRuntimeInfo = await checkDesktopForUpdates();
@@ -220,7 +220,7 @@ export function DesktopUpdater() {
       console.error('Desktop updater check failed:', error);
       setChecking(false);
       setManualCheckActive(false);
-      setStatusMessage('Update check failed. Confirm the GitHub release includes latest.json and signed updater artifacts.');
+      setStatusMessage('Update check failed. Please try again in a moment.');
     }
   };
 
@@ -233,7 +233,7 @@ export function DesktopUpdater() {
     } catch (error) {
       console.error('Desktop updater install failed:', error);
       setInstalling(false);
-      setStatusMessage('Install failed. Close Ritual and reinstall from the latest GitHub Release if this persists.');
+      setStatusMessage('Install failed. Please try again or reinstall Ritual if the issue persists.');
     }
   };
 
@@ -262,7 +262,7 @@ export function DesktopUpdater() {
               : `This page needs desktop capabilities your installed shell does not expose yet: ${requiredCapabilities}.`}
           </p>
           <p className="mt-3 text-[14px] leading-6 text-[#6a6157]">
-            Use the button below to check for the latest signed desktop release and install it before continuing.
+            Use the button below to check for the latest Ritual desktop update and install it before continuing.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -295,61 +295,9 @@ export function DesktopUpdater() {
     );
   }
 
-  if (!shouldEnableUpdater || (!effectivePendingUpdate && !statusMessage)) {
+  if (!shouldEnableUpdater) {
     return null;
   }
 
-  return (
-    <div className="pointer-events-none fixed right-4 top-4 z-[1000] flex w-[360px] max-w-[calc(100vw-2rem)] justify-end">
-      <div className="pointer-events-auto rounded-2xl border border-black/10 bg-white/95 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">
-              {effectivePendingUpdate ? 'Ritual update ready' : 'Desktop updater'}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-gray-600">
-              {effectivePendingUpdate
-                ? `Version ${effectivePendingUpdate.version ?? 'new'} is available from GitHub Releases.`
-                : statusMessage}
-            </p>
-          </div>
-          <button
-            className="text-xs font-medium text-gray-400 transition hover:text-gray-700"
-            onClick={() => {
-              setAvailableUpdate(null);
-              setStatusMessage(null);
-            }}
-            type="button"
-          >
-            Dismiss
-          </button>
-        </div>
-
-        {effectivePendingUpdate?.body ? (
-          <p className="mt-3 line-clamp-3 text-xs leading-5 text-gray-500">
-            {effectivePendingUpdate.body}
-          </p>
-        ) : null}
-
-        {effectivePendingUpdate ? (
-          <div className="mt-4 flex gap-2">
-            <Button disabled={installing} onClick={installUpdateNow} size="sm">
-              {installing ? 'Installing…' : 'Install update'}
-            </Button>
-            <Button
-              disabled={checking || installing}
-              onClick={() => {
-                setAvailableUpdate(null);
-                setStatusMessage('You can reopen the tray menu and use Check for Updates at any time.');
-              }}
-              size="sm"
-              variant="outline"
-            >
-              Later
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+  return null;
 }
