@@ -84,24 +84,29 @@ export interface WeeklyOverviewPayload {
 // ---------------------------------------------------------------------------
 
 const NARRATIVE_SYSTEM_PROMPT = [
-  'You write high-quality, comprehensive personal activity recaps from structured data.',
-  'The user already sees raw tables in a side panel. Your job is to synthesize, interpret, and explain the period — go beyond restating numbers.',
+  'You write data-dense personal activity recaps. Every sentence must contain at least one concrete number, date, habit name, app name, or website from the data.',
+  'The user already sees raw tables in a side panel. Your job is to find patterns, comparisons, and cross-habit connections that the raw numbers alone do not reveal.',
   '',
-  'Structure: 1 opening paragraph (2-3 sentences setting the tone for the period), then 4 sections with bold titles on their own lines, then 1 closing paragraph (2-3 sentences).',
+  'HARD RULE: Never write a sentence without a specific data point in it. If you cannot ground a claim in the data, do not make it.',
+  '',
+  'Structure: 1 opening paragraph (2-3 sentences), then 4 sections with bold titles on their own lines, then 1 closing paragraph (2-3 sentences).',
   '',
   'Required sections (use these exact titles):',
-  '**Rhythm** — Describe consistency patterns. Which habits were logged most reliably? How did sleep track? Compare logging frequency across habits. 3-4 sentences.',
-  '**Standout Days** — Identify the 2-3 most notable days and explain what made them stand out. Reference specific dates, values, and habit names. What was the peak day for each major habit? 3-4 sentences.',
-  '**Computer Use** — Break down digital time: average daily hours, which apps and websites dominated, how usage varied across the period. Mention at least 2 apps or websites by name with their hours. 3-4 sentences.',
-  '**What Shifted** — Describe how habits changed over the period. Did anything trend up or down? Were there gaps in logging? Compare the beginning vs end of the period. Connect habits to each other where patterns align (e.g., high caffeine on heavy computer days). 3-4 sentences.',
+  '**Rhythm** — Which habits were logged most consistently and on how many of the days? State the exact counts. Compare the most-logged habit vs the least-logged. If sleep data exists, give the average and range (min night vs max night with dates). 3-4 sentences.',
+  '**Standout Days** — Name the 2-3 most interesting days by date (e.g., "Tuesday Apr 8"). For each, state what made it stand out with exact values: peak sleep, highest step count, most computer hours, multiple habits spiking together, or a day with zero logging. 3-4 sentences.',
+  '**Computer Use** — State average daily hours and total hours. Name at least 2 apps and 2 websites with their hours. Identify the heaviest and lightest computer days by date and hours. If computer use correlates with any habit pattern (e.g., low sleep → high screen time), call it out. 3-4 sentences.',
+  '**What Shifted** — Compare the first half of the period vs the second half with numbers. Did any habit trend up or down? Were there gaps (days with no logs)? Cross-reference habits: did high caffeine days align with long computer days? Did sleep dip when workout volume rose? Use dates and values. 3-4 sentences.',
   '',
-  'The closing paragraph should synthesize: what was the defining characteristic of this period, what one thing could improve, and what pattern is worth watching next period. Be direct and specific — no platitudes.',
+  'Closing paragraph: State the single defining number or pattern of the period. Name one specific habit or metric that could improve and why, grounded in the data. 2-3 sentences.',
   '',
-  'Every section must include at least 2 concrete anchors: dates, numbers, habit names, app names, or websites.',
-  'Be detailed and specific. Use actual numbers from the data. Name specific days of the week.',
-  'Do not use phrases like "notable", "particularly", "overall", "likely", "may have", "suggests", "illustrates", or "demonstrated".',
-  'Do not moralize or give generic coaching advice. Do not mention tables, payloads, or analytics.',
-  'Target 350-450 words for weekly recaps, 400-500 words for monthly recaps.',
+  'Style rules:',
+  '- Write like a sharp analyst briefing someone on their own data. Be direct, not flowery.',
+  '- Every section must contain at least 3 specific data points (numbers, dates, names).',
+  '- Prefer "Steps hit 12,400 on Thursday Apr 3" over "steps were strong this week".',
+  '- Prefer "Sleep ranged from 4.0h on Apr 7 to 8.2h on Apr 5" over "sleep showed variability".',
+  '- Never use: "notable", "particularly", "overall", "commendable", "strong commitment", "variability", "indicating", "standout", "likely", "may have", "suggests", "illustrates", "demonstrated", "a mix of".',
+  '- Do not moralize or give generic coaching advice. Do not mention tables, payloads, or analytics.',
+  '- Target 400-500 words for weekly recaps, 450-550 words for monthly recaps.',
 ].join('\n');
 
 // ---------------------------------------------------------------------------
@@ -456,9 +461,9 @@ export async function generateWeeklyOverviewNarrative(
 
   try {
     const response = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.5,
-      max_tokens: 600,
+      model: 'gpt-4o',
+      temperature: 0.3,
+      max_tokens: 1200,
       messages: [
         {
           role: 'system',
@@ -499,9 +504,9 @@ export async function* streamWeeklyOverviewNarrative(
 
   try {
     const stream = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.5,
-      max_tokens: 600,
+      model: 'gpt-4o',
+      temperature: 0.3,
+      max_tokens: 1200,
       stream: true,
       messages: [
         {
