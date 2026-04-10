@@ -114,12 +114,72 @@ const STEP_RELATED_HINTS = new Set([
   'jogging',
 ]);
 
+const GENERIC_MATCH_WORDS = new Set([
+  'consumption',
+  'intake',
+  'time',
+  'duration',
+  'daily',
+]);
+
+const CAFFEINE_CONTEXT_TERMS = [
+  'caffeine',
+  'coffee',
+  'espresso',
+  'latte',
+  'americano',
+  'matcha',
+  'energy drink',
+  'pre workout',
+  'pre-workout',
+  'tea',
+];
+
+const NICOTINE_CONTEXT_TERMS = [
+  'nicotine',
+  'vape',
+  'vaped',
+  'vaping',
+  'smoke',
+  'smoked',
+  'smoking',
+  'cigarette',
+  'cigarettes',
+  'cigar',
+  'zyn',
+  'pouch',
+  'pouches',
+  'dip',
+  'tobacco',
+];
+
+function tokenizeLowerText(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
+  );
+}
+
+function textHasAnyTerm(rawText: string, tokens: Set<string>, terms: string[]): boolean {
+  return terms.some((term) => {
+    const lower = term.toLowerCase();
+    if (lower.includes(' ')) {
+      return rawText.includes(lower);
+    }
+    return tokens.has(lower);
+  });
+}
+
 // Phase 5A: Simple fuzzy resolver (server-side implementation)
 function resolveHabit(
   hint: string,
   userHabits: Array<{ id: string; name: string; category: string; unit_type: string }>,
   aliasesMap: Record<string, string[]>,
-  intentUnit: string | null = null
+  intentUnit: string | null = null,
+  originalText: string = ''
 ): {
   habit_id: string | null;
   habit_name: string | null;
@@ -130,6 +190,10 @@ function resolveHabit(
 } {
   const hintLower = hint.toLowerCase().trim();
   const normalizedIntentUnit = normalizeUnit(intentUnit);
+  const contextLower = `${hintLower} ${originalText.toLowerCase().trim()}`.trim();
+  const contextTokens = tokenizeLowerText(contextLower);
+  const hasCaffeineContext = textHasAnyTerm(contextLower, contextTokens, CAFFEINE_CONTEXT_TERMS);
+  const hasNicotineContext = textHasAnyTerm(contextLower, contextTokens, NICOTINE_CONTEXT_TERMS);
   const candidateMap = new Map<string, { habit: typeof userHabits[0]; type: string; confidence: number }>();
 
   const pushCandidate = (
@@ -147,6 +211,18 @@ function resolveHabit(
     const nameLower = habit.name.toLowerCase();
     const aliases = aliasesMap[habit.id] || [];
     const habitUnit = normalizeUnit(habit.unit_type);
+    const habitDescriptor = `${nameLower} ${aliases.join(' ')}`;
+    const habitDescriptorTokens = tokenizeLowerText(habitDescriptor);
+    const isCaffeineHabit = textHasAnyTerm(habitDescriptor, habitDescriptorTokens, CAFFEINE_CONTEXT_TERMS);
+    const isNicotineHabit = textHasAnyTerm(habitDescriptor, habitDescriptorTokens, NICOTINE_CONTEXT_TERMS);
+
+    if (hasCaffeineContext && isCaffeineHabit) {
+      pushCandidate(habit, 'semantic', 0.995);
+    }
+
+    if (hasNicotineContext && isNicotineHabit) {
+      pushCandidate(habit, 'semantic', 0.995);
+    }
     
     // 1. Exact match
     if (hintLower === nameLower) {
@@ -187,7 +263,7 @@ function resolveHabit(
     }
     
     // 5. Word match (check all words for best match)
-    const nameWords = nameLower.split(/\s+/);
+    const nameWords = nameLower.split(/\s+/).filter((word) => !GENERIC_MATCH_WORDS.has(word));
     let bestWordMatch: { type: string; confidence: number } | null = null;
     
     for (const word of nameWords) {
@@ -265,9 +341,13 @@ function resolveHabit(
   // Only ask for clarification if:
   // 1. No match at all (confidence = 0), OR
   // 2. Multiple matches with VERY similar confidence (within 5%) AND low overall confidence
-  const hasCompetingMatch = alternatives.length > 0 && 
-    alternatives[0].confidence > best.confidence - 0.05 &&
-    best.confidence < 0.5;
+  const bestTypeIsLowSignal =
+    best.type.includes('unit') ||
+    best.type === 'token' ||
+    best.type === 'stem';
+  const hasCompetingMatch = alternatives.length > 0 &&
+    alternatives[0].confidence > best.confidence - 0.03 &&
+    (best.confidence < 0.75 || bestTypeIsLowSignal);
   
   const needsClarification = best.confidence === 0 || hasCompetingMatch;
   
@@ -419,6 +499,13 @@ PARSING RULES:
    even if the phrasing is conversational ("I just walked one mile" → habit_hint: "walk").
    The server does fuzzy matching against the user's habits.
 
+8. For substance/consumption logs, use the consumed substance as habit_hint,
+   not generic words like "consume", "consumed", or "consumption".
+   - "Consumed 8mg of nicotine" → habit_hint: "nicotine"
+   - "I consumed 190mg of caffeine" → habit_hint: "caffeine"
+   - "Drank coffee" → habit_hint: "caffeine"
+   - "Vaped 6mg" → habit_hint: "nicotine"
+
 EXAMPLES:
 "I walked 4 miles today" →
 {
@@ -472,6 +559,28 @@ EXAMPLES:
   }]
 }
 
+"Consumed 8mg of nicotine" →
+{
+  "intents": [{
+    "habit_hint": "nicotine",
+    "value": 8,
+    "unit": "milligrams",
+    "date": "${today}",
+    "notes": "Consumed 8mg of nicotine"
+  }]
+}
+
+"I consumed 190mg of caffeine" →
+{
+  "intents": [{
+    "habit_hint": "caffeine",
+    "value": 190,
+    "unit": "milligrams",
+    "date": "${today}",
+    "notes": "I consumed 190mg of caffeine"
+  }]
+}
+
 Non-trackable input →
 {
   "intents": [],
@@ -516,7 +625,7 @@ Non-trackable input →
     const resolvedIntents: ResolvedIntent[] = [];
     
     for (const intent of parsed.intents) {
-      let resolution = resolveHabit(intent.habit_hint, userHabits, aliasesMap, intent.unit);
+      let resolution = resolveHabit(intent.habit_hint, userHabits, aliasesMap, intent.unit, intent.notes || '');
       
       // Check unit compatibility
       let unitCompat: ReturnType<typeof checkUnitCompatibility> = { compatible: true };
@@ -543,7 +652,8 @@ Non-trackable input →
             intent.habit_hint,
             compatibleHabits,
             aliasesMap,
-            intent.unit
+            intent.unit,
+            intent.notes || ''
           );
 
           if (compatibleResolution.habit_id) {

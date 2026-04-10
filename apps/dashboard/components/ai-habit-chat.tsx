@@ -191,6 +191,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
   const deferredInput = useDeferredValue(input.trim());
 
+  const GENERIC_MATCH_WORDS = useMemo(
+    () => new Set(['consumption', 'intake', 'time', 'duration', 'daily']),
+    []
+  );
+
   useEffect(() => {
     router.prefetch('/chat');
   }, [router]);
@@ -525,10 +530,30 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         return Number(bUnitMatch) - Number(aUnitMatch);
       });
 
+      const explicitConsumptionMatch = (() => {
+        if (detectedUnitLower !== 'milligrams') return null;
+
+        if (/(nicotine|vape|vaped|vaping|smoke|smoked|smoking|cigarette|cigarettes|zyn|pouch|pouches|dip|tobacco)/i.test(searchTerms)) {
+          return candidateHabits.find((habit) => habit.name.toLowerCase().includes('nicotine')) ?? null;
+        }
+
+        if (/(caffeine|coffee|espresso|latte|americano|matcha|energy drink|pre-workout|pre workout|tea)/i.test(searchTerms)) {
+          return candidateHabits.find((habit) => habit.name.toLowerCase().includes('caffeine')) ?? null;
+        }
+
+        return null;
+      })();
+
+      if (explicitConsumptionMatch) {
+        return explicitConsumptionMatch;
+      }
+
       for (const habit of candidateHabits) {
         const habitName = habit.name.toLowerCase();
         const habitWords = habitName.split(' ');
-        const significantWords = habitWords.filter(word => word.length > 2);
+        const significantWords = habitWords.filter(
+          (word) => word.length > 2 && !GENERIC_MATCH_WORDS.has(word)
+        );
 
         // Activity-based matching
         const matches = [
@@ -539,6 +564,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           { terms: ['deep work', 'work session', 'focus'], habitWord: 'work' },
           { terms: ['skill', 'learning', 'study', 'technical'], habitWord: 'skill' },
           { terms: ['caffeine', 'coffee'], habitWord: 'caffeine' },
+          { terms: ['nicotine', 'vape', 'vaped', 'smoke', 'smoked', 'zyn', 'tobacco'], habitWord: 'nicotine' },
           { terms: ['water', 'hydrat', 'drank'], habitWord: 'water' },
           { terms: ['sleep', 'slept'], habitWord: 'sleep' },
           { terms: ['code', 'coding', 'programm'], habitWord: 'cod' },

@@ -486,7 +486,7 @@ const IntegrationCard = memo(({
   extraActions?: React.ReactNode
 }) => (
   <div className="bg-white border border-gray-300 px-3.5 py-3 flex flex-col h-[224px] rounded-sm">
-    <div className="mb-1.5 flex h-8 items-center [&>*]:max-h-7 [&>*]:w-auto [&_img]:max-h-7 [&_img]:w-auto">
+        <div className="mb-1.5 flex h-8 items-center [&>*]:max-h-7 [&>*]:w-auto [&_img]:max-h-7 [&_img]:w-auto">
       {logo}
     </div>
     <div className="flex items-center mb-1">
@@ -3575,7 +3575,15 @@ export function IntegrationsClient() {
 
         {/* Oura Ring - before Coming soon cards */}
         <IntegrationCard
-          logo={<Image src="/images/oura.svg" alt="Oura" width={40} height={40} className="h-16 w-auto object-contain -m-3" />}
+          logo={
+            <Image
+              src="/images/oura.svg"
+              alt="Oura"
+              width={40}
+              height={40}
+              className="h-7 w-auto object-contain scale-[1.45] origin-left"
+            />
+          }
           title="Oura Ring"
           description="Sync your sleep, readiness, HRV, and temperature trends from Oura Ring."
           isConnected={!!ouraConnection && ouraConnection.status === 'active'}
