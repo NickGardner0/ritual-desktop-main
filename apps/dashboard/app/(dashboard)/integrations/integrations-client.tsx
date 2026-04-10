@@ -2029,19 +2029,19 @@ export function IntegrationsClient() {
       ];
 
       return (
-        <div className="flex h-full flex-col bg-white">
+        <div className="flex h-full flex-col bg-background">
           {/* ── Compact header ─────────────────────────── */}
-          <div className="border-b border-[#e7e5dd] px-5 pb-4 pt-5">
+          <div className="border-b border-border px-5 pb-4 pt-5">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[#e7e5dd] bg-[#111] text-white">
+              <div className="flex h-11 w-11 items-center justify-center rounded-sm border border-border bg-[#111] text-white">
                 {renderIntegrationLogo('applewatch', 'panel')}
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-lg font-semibold leading-tight text-[#1f1e1a]">Apple Watch</h3>
-                <p className="text-xs text-[#9e9b8f]">Health data &middot; Via Ritual Companion</p>
+                <h3 className="text-lg font-semibold leading-tight text-foreground">Apple Watch</h3>
+                <p className="text-xs text-muted-foreground">Health data &middot; Via Ritual Companion</p>
               </div>
               {appleWatchConnected && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-700">
+                <span className="inline-flex items-center gap-1.5 rounded-sm bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-700">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
                   Connected
                 </span>
@@ -2049,21 +2049,21 @@ export function IntegrationsClient() {
             </div>
 
             {/* ── Tab navigation ───────────────────────── */}
-            <nav className="mt-4 flex gap-1">
+            <div className="mt-4 inline-flex items-center rounded-sm bg-muted p-1">
               {tabs.map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => setDetailsTab(tab.key)}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  className={`rounded-sm px-3 py-1.5 text-xs font-medium transition-all ${
                     detailsTab === tab.key
-                      ? 'bg-[#1f1e1a] text-white'
-                      : 'text-[#69665c] hover:bg-[#f3f1ea] hover:text-[#1f1e1a]'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {tab.label}
                 </button>
               ))}
-            </nav>
+            </div>
           </div>
 
           {/* ── Tab content ────────────────────────────── */}
@@ -2075,28 +2075,28 @@ export function IntegrationsClient() {
                 {detailsTab === 'overview' && (
                   <div className="space-y-5">
                     <div>
-                      <h4 className="mb-2 text-sm font-medium text-[#1f1e1a]">How it works</h4>
-                      <p className="text-sm leading-relaxed text-[#69665c]">
+                      <h4 className="mb-2 text-sm font-medium text-foreground">How it works</h4>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
                         Sync data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
                       </p>
                     </div>
 
                     {appleWatchConnected && (
                       <>
-                        <div className="rounded-lg border border-[#e7e5dd] bg-[#faf9f7] p-4">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-[#9e9b8f]">Sync status</p>
+                        <div className="rounded-sm border border-border bg-muted/50 p-4">
+                          <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Sync status</p>
                           <div className="mt-3 space-y-2.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-sm text-[#69665c]">Last sync</span>
-                              <span className="text-sm font-medium text-[#1f1e1a]">{formatRelativeTime(appleWatchLastSync)}</span>
+                              <span className="text-sm text-muted-foreground">Last sync</span>
+                              <span className="text-sm font-medium text-foreground">{formatRelativeTime(appleWatchLastSync)}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-sm text-[#69665c]">Tracked metrics</span>
-                              <span className="text-sm font-medium text-[#1f1e1a]">{selectedMetrics.size} selected</span>
+                              <span className="text-sm text-muted-foreground">Tracked metrics</span>
+                              <span className="text-sm font-medium text-foreground">{selectedMetrics.size} selected</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-sm text-[#69665c]">Device</span>
-                              <span className="text-sm font-medium text-[#1f1e1a]">{appleWatchStatusData?.deviceName || 'iPhone'}</span>
+                              <span className="text-sm text-muted-foreground">Device</span>
+                              <span className="text-sm font-medium text-foreground">{appleWatchStatusData?.deviceName || 'iPhone'}</span>
                             </div>
                           </div>
                         </div>
@@ -2104,26 +2104,26 @@ export function IntegrationsClient() {
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             onClick={() => setDetailsTab('metrics')}
-                            className="rounded-lg border border-[#e7e5dd] p-3 text-left transition-colors hover:bg-[#faf9f7]"
+                            className="rounded-sm border border-border p-3 text-left transition-colors hover:bg-[#f7f7f6]"
                           >
-                            <p className="text-sm font-medium text-[#1f1e1a]">Metrics</p>
-                            <p className="mt-0.5 text-xs text-[#9e9b8f]">Choose what to track</p>
+                            <p className="text-sm font-medium text-foreground">Metrics</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">Choose what to track</p>
                           </button>
                           <button
                             onClick={() => setDetailsTab('export')}
-                            className="rounded-lg border border-[#e7e5dd] p-3 text-left transition-colors hover:bg-[#faf9f7]"
+                            className="rounded-sm border border-border p-3 text-left transition-colors hover:bg-[#f7f7f6]"
                           >
-                            <p className="text-sm font-medium text-[#1f1e1a]">Export</p>
-                            <p className="mt-0.5 text-xs text-[#9e9b8f]">Download your data</p>
+                            <p className="text-sm font-medium text-foreground">Export</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">Download your data</p>
                           </button>
                         </div>
                       </>
                     )}
 
                     {!appleWatchConnected && (
-                      <div className="rounded-lg border border-dashed border-[#d8d5cb] bg-[#faf9f7] p-5 text-center">
-                        <p className="text-sm font-medium text-[#1f1e1a]">Not connected</p>
-                        <p className="mt-1 text-xs text-[#9e9b8f]">Open the Ritual Companion app on your iPhone to connect.</p>
+                      <div className="rounded-sm border border-dashed border-border bg-muted/50 p-5 text-center">
+                        <p className="text-sm font-medium text-foreground">Not connected</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Open the Ritual Companion app on your iPhone to connect.</p>
                       </div>
                     )}
                   </div>
@@ -2132,7 +2132,7 @@ export function IntegrationsClient() {
                 {/* ── Metrics tab ───────────────────────── */}
                 {detailsTab === 'metrics' && appleWatchConnected && (
                   <div>
-                    <p className="mb-4 text-sm text-[#69665c]">
+                    <p className="mb-4 text-sm text-muted-foreground">
                       Select which health metrics to sync from your Apple Watch and iPhone.
                     </p>
                     {metricCatalog.length > 0 ? (
@@ -2142,7 +2142,7 @@ export function IntegrationsClient() {
                         onSave={saveMetricPreferences}
                       />
                     ) : (
-                      <div className="flex items-center gap-2 py-8 text-sm text-[#9e9b8f]">
+                      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
                         <BrailleSpinner /> Loading metrics…
                       </div>
                     )}
@@ -2154,20 +2154,20 @@ export function IntegrationsClient() {
                   <div className="space-y-6">
                     {/* Export now section */}
                     <div>
-                      <h4 className="mb-3 text-sm font-medium text-[#1f1e1a]">Export data</h4>
+                      <h4 className="mb-3 text-sm font-medium text-foreground">Export data</h4>
                       <div className="space-y-4">
                         {/* Date range */}
                         <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Date range</label>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Date range</label>
                           <div className="mb-2 flex gap-2">
                             {([['yesterday', 'Yesterday'], ['7d', '7 Days'], ['30d', '30 Days'], ['custom', 'Custom']] as const).map(([key, label]) => (
                               <button
                                 key={key}
                                 onClick={() => applyExportDatePreset(key)}
-                                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
                                   exportDatePreset === key
-                                    ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
-                                    : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                    ? 'border-foreground bg-foreground text-background'
+                                    : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'
                                 }`}
                               >
                                 {label}
@@ -2176,27 +2176,27 @@ export function IntegrationsClient() {
                           </div>
                           {exportDatePreset === 'custom' ? (
                             <div className="flex items-center gap-2">
-                              <Input type="date" value={exportStartDate} onChange={e => setExportStartDate(e.target.value)} className="h-8 w-36 border-[#e7e5dd] text-sm" />
-                              <span className="text-xs text-[#9e9b8f]">to</span>
-                              <Input type="date" value={exportEndDate} onChange={e => setExportEndDate(e.target.value)} className="h-8 w-36 border-[#e7e5dd] text-sm" />
+                              <Input type="date" value={exportStartDate} onChange={e => setExportStartDate(e.target.value)} className="h-8 w-36 text-sm" />
+                              <span className="text-xs text-muted-foreground">to</span>
+                              <Input type="date" value={exportEndDate} onChange={e => setExportEndDate(e.target.value)} className="h-8 w-36 text-sm" />
                             </div>
                           ) : (
-                            <p className="text-xs text-[#9e9b8f]">{exportStartDate} &mdash; {exportEndDate}</p>
+                            <p className="text-xs text-muted-foreground">{exportStartDate} &mdash; {exportEndDate}</p>
                           )}
                         </div>
 
                         {/* Format */}
                         <div>
-                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Format</label>
+                          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Format</label>
                           <div className="flex gap-2">
                             {([['markdown', 'Markdown'], ['json', 'JSON'], ['csv', 'CSV']] as const).map(([key, label]) => (
                               <button
                                 key={key}
                                 onClick={() => setExportFormat(key)}
-                                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
                                   exportFormat === key
-                                    ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
-                                    : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                    ? 'border-foreground bg-foreground text-background'
+                                    : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'
                                 }`}
                               >
                                 {label}
@@ -2208,23 +2208,23 @@ export function IntegrationsClient() {
                         {/* Write mode (desktop only) */}
                         {isTauri() && (
                           <div>
-                            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#9e9b8f]">Write mode</label>
+                            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Write mode</label>
                             <div className="flex gap-2">
                               {([['overwrite', 'Overwrite'], ['append', 'Append'], ['skip', 'Skip existing']] as const).map(([key, label]) => (
                                 <button
                                   key={key}
                                   onClick={() => setExportWriteMode(key)}
-                                  className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                  className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${
                                     exportWriteMode === key
-                                      ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white'
-                                      : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'
+                                      ? 'border-foreground bg-foreground text-background'
+                                      : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'
                                   }`}
                                 >
                                   {label}
                                 </button>
                               ))}
                             </div>
-                            <p className="mt-1 text-xs text-[#9e9b8f]">
+                            <p className="mt-1 text-xs text-muted-foreground">
                               {exportWriteMode === 'overwrite' && 'Replace existing file'}
                               {exportWriteMode === 'append' && 'Add to end of existing file'}
                               {exportWriteMode === 'skip' && 'Skip if file already exists'}
@@ -2233,7 +2233,7 @@ export function IntegrationsClient() {
                         )}
 
                         {/* Export button */}
-                        <Button onClick={handleExportNow} disabled={exportLoading} className="w-full bg-[#1f1e1a] text-white hover:bg-[#3a3935]">
+                        <Button onClick={handleExportNow} disabled={exportLoading} className="w-full">
                           {exportLoading ? (
                             <span className="flex items-center gap-2"><BrailleSpinner /> Exporting…</span>
                           ) : 'Export Now'}
@@ -2246,9 +2246,9 @@ export function IntegrationsClient() {
                     </div>
 
                     {/* Schedule section */}
-                    <div className="border-t border-[#e7e5dd] pt-5">
+                    <div className="border-t border-border pt-5">
                       <div className="mb-3 flex items-center justify-between">
-                        <h4 className="text-sm font-medium text-[#1f1e1a]">Scheduled export</h4>
+                        <h4 className="text-sm font-medium text-foreground">Scheduled export</h4>
                         <button
                           onClick={() => {
                             if (!scheduleLoaded) loadExportSchedule();
@@ -2260,19 +2260,19 @@ export function IntegrationsClient() {
                             setExportSchedule(updated);
                             saveExportSchedule(updated);
                           }}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${exportSchedule?.enabled ? 'bg-[#1f1e1a]' : 'bg-[#e7e5dd]'}`}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${exportSchedule?.enabled ? 'bg-foreground' : 'bg-border'}`}
                         >
-                          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${exportSchedule?.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+                          <span className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${exportSchedule?.enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
                         </button>
                       </div>
 
                       {exportSchedule?.enabled && (
                         <div className="space-y-3">
                           <div>
-                            <label className="mb-1 block text-xs text-[#69665c]">Frequency</label>
+                            <label className="mb-1 block text-xs text-muted-foreground">Frequency</label>
                             <div className="flex gap-2">
                               {(['daily', 'weekly'] as const).map(freq => (
-                                <button key={freq} onClick={() => updateScheduleField('frequency', freq)} className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.frequency === freq ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white' : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'}`}>
+                                <button key={freq} onClick={() => updateScheduleField('frequency', freq)} className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.frequency === freq ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'}`}>
                                   {freq.charAt(0).toUpperCase() + freq.slice(1)}
                                 </button>
                               ))}
@@ -2281,10 +2281,10 @@ export function IntegrationsClient() {
 
                           {exportSchedule.frequency === 'weekly' && (
                             <div>
-                              <label className="mb-1 block text-xs text-[#69665c]">Day</label>
+                              <label className="mb-1 block text-xs text-muted-foreground">Day</label>
                               <div className="flex flex-wrap gap-1">
                                 {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                                  <button key={day} onClick={() => updateScheduleField('day_of_week', i)} className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors ${exportSchedule.day_of_week === i ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white' : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'}`}>
+                                  <button key={day} onClick={() => updateScheduleField('day_of_week', i)} className={`rounded-sm border px-2 py-1 text-xs font-medium transition-colors ${exportSchedule.day_of_week === i ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'}`}>
                                     {day}
                                   </button>
                                 ))}
@@ -2293,26 +2293,26 @@ export function IntegrationsClient() {
                           )}
 
                           <div>
-                            <label className="mb-1 block text-xs text-[#69665c]">Time</label>
-                            <Input type="time" value={exportSchedule.time || '08:00'} onChange={e => updateScheduleField('time', e.target.value)} className="h-8 w-32 border-[#e7e5dd] text-sm" />
+                            <label className="mb-1 block text-xs text-muted-foreground">Time</label>
+                            <Input type="time" value={exportSchedule.time || '08:00'} onChange={e => updateScheduleField('time', e.target.value)} className="h-8 w-32 text-sm" />
                           </div>
 
                           <div>
-                            <label className="mb-1 block text-xs text-[#69665c]">Format</label>
+                            <label className="mb-1 block text-xs text-muted-foreground">Format</label>
                             <div className="flex gap-2">
                               {(['markdown', 'json', 'csv'] as const).map(fmt => (
-                                <button key={fmt} onClick={() => updateScheduleField('format', fmt)} className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.format === fmt ? 'border-[#1f1e1a] bg-[#1f1e1a] text-white' : 'border-[#e7e5dd] bg-white text-[#69665c] hover:border-[#c4c1b7]'}`}>
+                                <button key={fmt} onClick={() => updateScheduleField('format', fmt)} className={`rounded-sm border px-3 py-1.5 text-xs font-medium transition-colors ${exportSchedule.format === fmt ? 'border-foreground bg-foreground text-background' : 'border-border bg-background text-muted-foreground hover:bg-[#f7f7f6]'}`}>
                                   {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
                                 </button>
                               ))}
                             </div>
                           </div>
 
-                          <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full border-[#e7e5dd] text-sm text-[#3a3935] hover:bg-[#faf9f7]">
+                          <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full text-sm">
                             {scheduleSaving ? (<span className="flex items-center gap-2"><BrailleSpinner /> Saving…</span>) : 'Save schedule'}
                           </Button>
 
-                          <p className="text-xs text-[#9e9b8f]">
+                          <p className="text-xs text-muted-foreground">
                             {exportSchedule.frequency === 'daily'
                               ? `Exports daily at ${exportSchedule.time || '08:00'}`
                               : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`}
@@ -2322,23 +2322,23 @@ export function IntegrationsClient() {
                     </div>
 
                     {/* History section */}
-                    <div className="border-t border-[#e7e5dd] pt-5">
-                      <h4 className="mb-3 text-sm font-medium text-[#1f1e1a]">History</h4>
+                    <div className="border-t border-border pt-5">
+                      <h4 className="mb-3 text-sm font-medium text-foreground">History</h4>
                       <div className="space-y-2">
                         {exportHistory.length === 0 ? (
-                          <p className="py-3 text-center text-sm text-[#9e9b8f]">No exports yet</p>
+                          <p className="py-3 text-center text-sm text-muted-foreground">No exports yet</p>
                         ) : (
                           exportHistory.slice(0, 20).map(entry => (
-                            <div key={entry.id} className="flex items-center justify-between rounded-md border border-[#f0eeea] px-3 py-2">
+                            <div key={entry.id} className="flex items-center justify-between rounded-sm border border-border px-3 py-2">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
                                   <span className={`inline-block h-2 w-2 rounded-full ${entry.status === 'success' ? 'bg-green-500' : 'bg-red-400'}`} />
-                                  <span className="text-sm font-medium text-[#1f1e1a]">
+                                  <span className="text-sm font-medium text-foreground">
                                     {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
                                   </span>
-                                  <span className="rounded bg-[#f0eeea] px-1.5 py-0.5 text-[10px] font-medium uppercase text-[#69665c]">{entry.format}</span>
+                                  <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">{entry.format}</span>
                                 </div>
-                                <div className="mt-0.5 flex items-center gap-3 text-xs text-[#9e9b8f]">
+                                <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
                                   <span>{new Date(entry.timestamp).toLocaleString()}</span>
                                   {entry.file_size_bytes != null && <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>}
                                   <span className="capitalize">{entry.triggered_by}</span>
@@ -2348,7 +2348,7 @@ export function IntegrationsClient() {
                               {entry.status === 'failed' && (
                                 <button
                                   onClick={() => { setExportStartDate(entry.start_date); setExportEndDate(entry.end_date); setExportFormat(entry.format as 'markdown' | 'json' | 'csv'); setExportDatePreset('custom'); }}
-                                  className="ml-2 shrink-0 rounded border border-[#e7e5dd] px-2 py-1 text-xs text-[#69665c] hover:border-[#c4c1b7] hover:text-[#1f1e1a]"
+                                  className="ml-2 shrink-0 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-[#f7f7f6] hover:text-foreground"
                                 >
                                   Retry
                                 </button>
@@ -2359,7 +2359,7 @@ export function IntegrationsClient() {
                         {exportHistory.length > 0 && (
                           <button
                             onClick={() => { setExportHistory([]); getToken().then(token => { if (!token) return; }); }}
-                            className="mt-2 text-xs text-[#9e9b8f] underline hover:text-[#69665c]"
+                            className="mt-2 text-xs text-muted-foreground underline hover:text-foreground"
                           >
                             Clear history
                           </button>
@@ -2373,16 +2373,16 @@ export function IntegrationsClient() {
                 {detailsTab === 'settings' && appleWatchConnected && (
                   <div className="space-y-5">
                     <div>
-                      <h4 className="mb-3 text-sm font-medium text-[#1f1e1a]">Sync</h4>
+                      <h4 className="mb-3 text-sm font-medium text-foreground">Sync</h4>
                       {renderAutoSyncDetails('apple_health', appleHealthConnection, appleWatchLastSync, null)}
                     </div>
 
-                    <div className="border-t border-[#e7e5dd] pt-5">
-                      <h4 className="mb-2 text-sm font-medium text-[#1f1e1a]">Danger zone</h4>
-                      <p className="mb-3 text-xs text-[#9e9b8f]">Disconnect this integration. Your synced data will remain in Ritual.</p>
+                    <div className="border-t border-border pt-5">
+                      <h4 className="mb-2 text-sm font-medium text-foreground">Danger zone</h4>
+                      <p className="mb-3 text-xs text-muted-foreground">Disconnect this integration. Your synced data will remain in Ritual.</p>
                       <button
                         onClick={handleAppleWatchDisconnect}
-                        className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
+                        className="rounded-sm border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
                       >
                         Disconnect Apple Watch
                       </button>
