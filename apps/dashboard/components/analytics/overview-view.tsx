@@ -907,6 +907,24 @@ export function OverviewView({
     return false;
   }, []);
 
+  // Metrics where the display should show average, not sum (percentages, rates, averages)
+  const isAverageDisplayMetric = useCallback((habit: Habit) => {
+    const metricType = String(habit.metric_type || '').trim().toLowerCase();
+    const unitType = String(habit.unit_type || '').trim().toLowerCase();
+
+    const averageMetricTypes = new Set([
+      'oxygen_saturation', 'hr', 'resting_hr', 'walking_hr', 'hrv', 'respiratory_rate',
+      'body_mass', 'body_mass_index', 'body_fat_percentage', 'lean_body_mass', 'height', 'waist_circumference',
+      'blood_pressure_systolic', 'blood_pressure_diastolic', 'blood_glucose', 'body_temperature',
+      'walking_speed', 'walking_step_length', 'walking_asymmetry',
+    ]);
+
+    if (averageMetricTypes.has(metricType)) return true;
+    if (unitType.includes('percentage') || unitType === 'bpm' || unitType === '%') return true;
+
+    return false;
+  }, []);
+
   const filteredMetricLogEntries = useMemo<MetricLogEntry[]>(() => {
     return traceSyncComputation(
       'overview.compute.filtered_metric_log_entries',
@@ -1055,8 +1073,11 @@ export function OverviewView({
         ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
         : 0;
 
+      const useAvgDisplay = isAverageDisplayMetric(habit);
+      const displayValue = useAvgDisplay ? average : totalValue;
+
       return {
-        display: formatMetricDisplay(totalValue, unitLabel),
+        display: formatMetricDisplay(displayValue, unitLabel),
         stats: {
           unitLabel,
           sumFormatted: `${formatHabitStatNumber(total)} ${unitLabel}`,
@@ -1165,6 +1186,7 @@ export function OverviewView({
     effectiveCachedStats,
     effectiveComputerActivityDaily,
     formatHabitStatNumber,
+    isAverageDisplayMetric,
     isSleepLikeHabit,
     metricEntriesByHabitId,
     traceSyncComputation,
