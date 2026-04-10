@@ -13,8 +13,8 @@ from typing import Any, Dict, List, Optional
 from services.watcher_service_local_db import (
     get_local_watcher_db_path_impl,
     merge_time_intervals_impl,
-    open_activity_connection_for_user,
 )
+from services.turso_activity_remote import fetch_remote_activity_rows
 from services.turso_user_service import turso_user_service
 
 logger = logging.getLogger(__name__)
@@ -446,6 +446,346 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
         return {"unique_apps": 0, "unique_domains": 0}
 
 
+def _empty_computer_activity_snapshot(
+    *,
+    source: str,
+    empty_reason: str,
+) -> Dict[str, Any]:
+    return {
+        "summary": {
+            "total_active_ms": 0,
+            "total_hours": 0,
+            "total_events": 0,
+            "days_tracked": 0,
+            "unique_apps": 0,
+            "unique_domains": 0,
+            "total_afk_ms": 0,
+            "avg_daily_hours": 0,
+            "source": source,
+        },
+        "daily": [],
+        "apps": [],
+        "domains": [],
+        "source": source,
+        "state": "sync_pending" if source == "sync_pending" else "empty",
+        "sync_pending": source == "sync_pending",
+        "empty_reason": empty_reason,
+    }
+
+
+def _build_top_apps_from_daily_rows_impl(
+    daily_rows: List[Dict[str, Any]],
+    limit: int,
+    *,
+    source: str,
+) -> List[Dict[str, Any]]:
+    grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in daily_rows:
+        app_bundle = str(row.get("app_bundle_id") or "unknown")
+        app_name = str(row.get("app_name") or "Unknown")
+        active_ms = int(row.get("active_ms", 0) or 0)
+        if active_ms <= 0:
+            continue
+
+        bucket = grouped.setdefault(
+            (app_bundle, app_name),
+            {
+                "app_bundle_id": app_bundle,
+                "app_name": app_name,
+                "total_active_ms": 0,
+                "total_events": 0,
+                "days_used": set(),
+            },
+        )
+        bucket["total_active_ms"] += active_ms
+        bucket["total_events"] += int(row.get("events_count", 0) or 0)
+        day = str(row.get("day") or "")
+        if day:
+            bucket["days_used"].add(day)
+
+    ranked = sorted(grouped.values(), key=lambda item: item["total_active_ms"], reverse=True)[
+        : max(1, int(limit or 10))
+    ]
+    return [
+        {
+            "app_bundle_id": item["app_bundle_id"],
+            "app_name": item["app_name"],
+            "total_active_ms": int(item["total_active_ms"]),
+            "total_events": int(item["total_events"]),
+            "days_used": len(item["days_used"]),
+            "hours": round(int(item["total_active_ms"]) / (1000 * 60 * 60), 2),
+            "source": source,
+        }
+        for item in ranked
+    ]
+
+
+def _build_top_domains_from_daily_rows_impl(
+    daily_rows: List[Dict[str, Any]],
+    limit: int,
+    *,
+    source: str,
+) -> List[Dict[str, Any]]:
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in daily_rows:
+        domain = str(row.get("browser_domain") or "").strip()
+        active_ms = int(row.get("active_ms", 0) or 0)
+        if not domain or active_ms <= 0:
+            continue
+
+        bucket = grouped.setdefault(
+            domain,
+            {
+                "domain": domain,
+                "total_active_ms": 0,
+                "total_events": 0,
+                "days_used": set(),
+            },
+        )
+        bucket["total_active_ms"] += active_ms
+        bucket["total_events"] += int(row.get("events_count", 0) or 0)
+        day = str(row.get("day") or "")
+        if day:
+            bucket["days_used"].add(day)
+
+    ranked = sorted(grouped.values(), key=lambda item: item["total_active_ms"], reverse=True)[
+        : max(1, int(limit or 10))
+    ]
+    return [
+        {
+            "domain": item["domain"],
+            "total_active_ms": int(item["total_active_ms"]),
+            "total_events": int(item["total_events"]),
+            "days_used": len(item["days_used"]),
+            "hours": round(int(item["total_active_ms"]) / (1000 * 60 * 60), 2),
+            "minutes": round(int(item["total_active_ms"]) / (1000 * 60), 1),
+            "source": source,
+        }
+        for item in ranked
+    ]
+
+
+def _build_snapshot_from_event_rows_impl(
+    rows: List[tuple[Any, Any, Any, Any, Any, Any]],
+    *,
+    start_ms: int,
+    end_ms: int,
+    source: str,
+    limit: int,
+) -> Dict[str, Any]:
+    detailed_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
+        [(row[0], row[1], row[3], row[4], row[5], row[2]) for row in rows],
+        start_ms,
+        end_ms,
+    )
+    daily_totals = _aggregate_computer_activity_daily_totals_from_events_impl(
+        [(row[0], row[1], row[2], row[3], row[5]) for row in rows],
+        start_ms,
+        end_ms,
+    )
+
+    total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in daily_totals)
+    total_events = sum(int(row.get("events_count", 0) or 0) for row in daily_totals)
+    days_tracked = sum(1 for row in daily_totals if int(row.get("active_ms", 0) or 0) > 0)
+    total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in daily_totals)
+    unique_apps = len(
+        {
+            str(row.get("app_bundle_id") or "").strip()
+            for row in detailed_rows
+            if str(row.get("app_bundle_id") or "").strip()
+        }
+    )
+    unique_domains = len(
+        {
+            str(row.get("browser_domain") or "").strip()
+            for row in detailed_rows
+            if str(row.get("browser_domain") or "").strip()
+        }
+    )
+    total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
+
+    return {
+        "summary": {
+            "total_active_ms": total_active_ms,
+            "total_hours": total_hours,
+            "total_events": total_events,
+            "days_tracked": days_tracked,
+            "unique_apps": unique_apps,
+            "unique_domains": unique_domains,
+            "total_afk_ms": total_afk_ms,
+            "avg_daily_hours": round(total_hours / max(days_tracked, 1), 2),
+            "source": source,
+        },
+        "daily": [
+            {
+                "day": row["day"],
+                "active_hours": round(int(row["active_ms"]) / (1000 * 60 * 60), 2),
+                "active_ms": int(row["active_ms"]),
+                "afk_ms": int(row.get("afk_ms", 0) or 0),
+                "events_count": int(row.get("events_count", 0) or 0),
+                "apps_count": int(row.get("apps_count", 0) or 0),
+                "domains_count": int(row.get("domains_count", 0) or 0),
+                "source": source,
+            }
+            for row in daily_totals
+        ],
+        "apps": _build_top_apps_from_daily_rows_impl(detailed_rows, limit, source=source),
+        "domains": _build_top_domains_from_daily_rows_impl(detailed_rows, limit, source=source),
+        "source": source,
+        "state": "ready",
+        "sync_pending": False,
+    }
+
+
+def _fetch_local_activity_event_rows_impl(
+    *,
+    start_ms: int,
+    end_ms: int,
+    user_ids: List[str],
+    device_id: Optional[str] = None,
+) -> List[tuple[Any, Any, Any, Any, Any, Any]]:
+    import sqlite3
+
+    db_path = get_local_watcher_db_path_impl()
+    if not os.path.exists(db_path):
+        return []
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        device_clause = ""
+        params: List[Any] = [end_ms, start_ms, *user_params]
+        if device_id:
+            device_clause = " AND device_id = ?"
+            params.append(device_id)
+        cursor.execute(
+            """
+            SELECT
+                ts_start,
+                ts_end,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(app_bundle_id, '') AS app_bundle_id,
+                COALESCE(app_name, '') AS app_name,
+                COALESCE(browser_domain, '') AS browser_domain
+            FROM activity_events
+            WHERE ts_start < ? AND ts_end > ?
+            """
+            + user_clause
+            + """
+              AND ts_end > ts_start
+            """
+            + device_clause
+            + """
+            ORDER BY ts_start ASC
+            """,
+            params,
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return rows
+    except Exception as exc:
+        logger.warning("Failed local watcher activity query: %s", exc)
+        return []
+
+
+async def _build_computer_activity_snapshot_impl(
+    service,
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    *,
+    limit: int = 10,
+    device_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+    start_ms = int(start_date_obj.timestamp() * 1000)
+    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+    activity_user_ids = _resolve_activity_user_ids(user_id)
+    user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+    params: List[Any] = [end_ms, start_ms, *activity_user_ids]
+    device_clause = ""
+    if device_id:
+        device_clause = " AND device_id = ?"
+        params.append(device_id)
+
+    remote_result = await fetch_remote_activity_rows(
+        user_id,
+        f"""
+        SELECT
+            ts_start,
+            ts_end,
+            COALESCE(is_afk, 0) AS is_afk,
+            COALESCE(app_bundle_id, '') AS app_bundle_id,
+            COALESCE(app_name, '') AS app_name,
+            COALESCE(browser_domain, '') AS browser_domain
+        FROM activity_events
+        WHERE ts_start < ? AND ts_end > ?
+          AND user_id IN ({user_placeholders})
+          AND ts_end > ts_start
+          {device_clause}
+        ORDER BY ts_start ASC
+        """,
+        params,
+    )
+    if remote_result.rows:
+        return _build_snapshot_from_event_rows_impl(
+            remote_result.rows,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            source="turso_remote",
+            limit=limit,
+        )
+
+    local_rows = _fetch_local_activity_event_rows_impl(
+        start_ms=start_ms,
+        end_ms=end_ms,
+        user_ids=activity_user_ids,
+        device_id=device_id,
+    )
+    if local_rows:
+        snapshot = _build_snapshot_from_event_rows_impl(
+            local_rows,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            source="legacy_fallback",
+            limit=limit,
+        )
+        snapshot["state"] = "legacy_fallback"
+        return snapshot
+
+    if remote_result.expected_remote:
+        return _empty_computer_activity_snapshot(
+            source="sync_pending",
+            empty_reason=remote_result.error or "remote_activity_unhydrated",
+        )
+
+    return _empty_computer_activity_snapshot(
+        source="legacy_fallback",
+        empty_reason="no_activity_rows",
+    )
+
+
+async def get_computer_activity_snapshot_impl(
+    service,
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    *,
+    limit: int = 10,
+    device_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await _build_computer_activity_snapshot_impl(
+        service,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        device_id=device_id,
+    )
+
+
 async def _sync_computer_activity_range_to_tinybird_impl(
     service,
     user_id: str,
@@ -616,348 +956,32 @@ async def get_computer_time_summary_impl(
 ) -> Dict:
     """Get total computer time summary for a date range."""
     perf_start = time.perf_counter()
-    activity_user_ids = _resolve_activity_user_ids(user_id)
-    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-    start_ms = int(start_date_obj.timestamp() * 1000)
-    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-    used_activity_db = False
-
-    async with open_activity_connection_for_user(user_id) as conn:
-        if conn is not None:
-            used_activity_db = True
-            user_placeholders = ", ".join(["?"] * len(activity_user_ids))
-            params: list[Any] = [end_ms, start_ms, *activity_user_ids]
-            device_clause = ""
-            if device_id:
-                device_clause = " AND device_id = ?"
-                params.append(device_id)
-
-            rows = conn.execute(
-                f"""
-                SELECT
-                    ts_start,
-                    ts_end,
-                    COALESCE(is_afk, 0) AS is_afk,
-                    COALESCE(app_bundle_id, '') AS app_bundle_id,
-                    COALESCE(browser_domain, '') AS browser_domain
-                FROM activity_events
-                WHERE ts_start < ? AND ts_end > ?
-                  AND user_id IN ({user_placeholders})
-                  AND ts_end > ts_start
-                  {device_clause}
-                ORDER BY ts_start ASC
-                """,
-                params,
-            ).fetchall()
-
-            if rows:
-                local_daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
-                total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in local_daily_rows)
-                total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in local_daily_rows)
-                total_events = sum(int(row.get("events_count", 0) or 0) for row in local_daily_rows)
-                days_tracked = sum(1 for row in local_daily_rows if int(row.get("active_ms", 0) or 0) > 0)
-                unique_apps = len({
-                    str(row[3] or "").strip()
-                    for row in rows
-                    if str(row[3] or "").strip()
-                })
-                unique_domains = len({
-                    str(row[4] or "").strip()
-                    for row in rows
-                    if str(row[4] or "").strip()
-                })
-                total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
-                avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
-                result = {
-                    "total_active_ms": total_active_ms,
-                    "total_hours": total_hours,
-                    "total_events": total_events,
-                    "days_tracked": days_tracked,
-                    "unique_apps": unique_apps,
-                    "unique_domains": unique_domains,
-                    "total_afk_ms": total_afk_ms,
-                    "avg_daily_hours": avg_daily_hours,
-                    "source": "activity_db",
-                }
-                _log_activity_perf(
-                    "summary",
-                    start=perf_start,
-                    source="activity_db",
-                    user_id=user_id,
-                    start_date=start_date,
-                    end_date=end_date,
-                    row_count=len(local_daily_rows),
-                    extra={
-                        "total_active_ms": total_active_ms,
-                        "events_count": total_events,
-                    },
-                )
-                return result
-            logger.info(
-                "Per-user activity DB returned 0 summary rows for %s %s..%s",
-                user_id,
-                start_date,
-                end_date,
-            )
-
-    local_daily_rows = _get_computer_activity_daily_totals_from_local_db_impl(
-        start_date=start_date,
-        end_date=end_date,
-        user_ids=activity_user_ids,
-    )
-    if local_daily_rows:
-        distinct_counts = _get_computer_activity_distinct_counts_from_local_db_impl(
-            start_date=start_date,
-            end_date=end_date,
-            user_ids=activity_user_ids,
-        )
-        total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in local_daily_rows)
-        total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in local_daily_rows)
-        total_events = sum(int(row.get("events_count", 0) or 0) for row in local_daily_rows)
-        days_tracked = sum(1 for row in local_daily_rows if int(row.get("active_ms", 0) or 0) > 0)
-
-        total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
-        avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
-
-        result = {
-            "total_active_ms": int(total_active_ms),
-            "total_hours": total_hours,
-            "total_events": int(total_events),
-            "days_tracked": int(days_tracked),
-            "unique_apps": int(distinct_counts.get("unique_apps", 0)),
-            "unique_domains": int(distinct_counts.get("unique_domains", 0)),
-            "total_afk_ms": int(total_afk_ms),
-            "avg_daily_hours": avg_daily_hours,
-            "source": "local_dedup",
-        }
-        _log_activity_perf(
-            "summary",
-            start=perf_start,
-            source="local_dedup",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=len(local_daily_rows),
-            extra={
-                "total_active_ms": int(total_active_ms),
-                "events_count": int(total_events),
-            },
-        )
-        return result
-
-    tinybird_rows = await service._get_computer_activity_pipe_rows(
+    snapshot = await _build_computer_activity_snapshot_impl(
+        service,
         user_id=user_id,
         start_date=start_date,
         end_date=end_date,
-        output="summary",
+        limit=10,
+        device_id=device_id,
     )
-    if tinybird_rows:
-        row = tinybird_rows[0]
-        total_active_ms = int(row.get("total_active_ms", 0) or 0)
-        total_events = int(row.get("total_events", 0) or 0)
-        days_tracked = int(row.get("days_tracked", 0) or 0)
-        unique_apps = int(row.get("unique_apps", 0) or 0)
-        avg_daily_ms = float(row.get("avg_daily_ms", 0) or 0)
-
-        result = {
-            "total_active_ms": total_active_ms,
-            "total_hours": round(total_active_ms / (1000 * 60 * 60), 2),
-            "total_events": total_events,
-            "days_tracked": days_tracked,
-            "unique_apps": unique_apps,
-            "unique_domains": int(row.get("unique_domains", 0) or 0),
-            "total_afk_ms": int(row.get("total_afk_ms", 0) or 0),
-            "avg_daily_hours": round(avg_daily_ms / (1000 * 60 * 60), 2),
-            "source": "tinybird",
-        }
-        _log_activity_perf(
-            "summary",
-            start=perf_start,
-            source="tinybird",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=1,
-            extra={
-                "total_active_ms": total_active_ms,
-                "events_count": total_events,
-            },
-        )
-        return result
-
-    if used_activity_db:
-        result = {
-            "total_active_ms": 0,
-            "total_hours": 0,
-            "total_events": 0,
-            "days_tracked": 0,
-            "unique_apps": 0,
-            "avg_daily_hours": 0,
-        }
-        _log_activity_perf(
-            "summary",
-            start=perf_start,
-            source="activity_db_empty",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=0,
-            empty_reason="activity_db_empty",
-        )
-        return result
-
-    import sqlite3
-
-    db_path = get_local_watcher_db_path_impl()
-    if not os.path.exists(db_path):
-        logger.info("Local watcher database not found at: %s", db_path)
-        result = {
-            "total_active_ms": 0,
-            "total_hours": 0,
-            "total_events": 0,
-            "days_tracked": 0,
-            "unique_apps": 0,
-            "avg_daily_hours": 0,
-        }
-        _log_activity_perf(
-            "summary",
-            start=perf_start,
-            source="missing_local_db",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=0,
-            empty_reason="local_db_missing",
-        )
-        return result
-
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        user_clause, user_params = _sqlite_user_filter_clause(activity_user_ids)
-
-        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-        start_ms = int(start_date_obj.timestamp() * 1000)
-        end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-
-        cursor.execute(
-            """
-            SELECT
-                ts_start,
-                ts_end,
-                COALESCE(is_afk, 0) AS is_afk,
-                COALESCE(app_bundle_id, '') AS app_bundle_id,
-                COALESCE(browser_domain, '') AS browser_domain
-            FROM activity_events
-            WHERE ts_start < ? AND ts_end > ?
-            """
-            + user_clause
-            + """
-              AND ts_end > ts_start
-            ORDER BY ts_start ASC
-            """,
-            (end_ms, start_ms, *user_params),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        if not rows:
-            result = {
-                "total_active_ms": 0,
-                "total_hours": 0,
-                "total_events": 0,
-                "days_tracked": 0,
-                "unique_apps": 0,
-                "avg_daily_hours": 0,
-            }
-            _log_activity_perf(
-                "summary",
-                start=perf_start,
-                source="local_sql",
-                user_id=user_id,
-                start_date=start_date,
-                end_date=end_date,
-                row_count=0,
-                empty_reason="local_sql_empty",
-            )
-            return result
-
-        local_daily_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
-        total_active_ms = sum(int(row.get("active_ms", 0) or 0) for row in local_daily_rows)
-        total_events = sum(int(row.get("events_count", 0) or 0) for row in local_daily_rows)
-        days_tracked = sum(1 for row in local_daily_rows if int(row.get("active_ms", 0) or 0) > 0)
-        unique_apps = len({
-            str(row[3] or "").strip()
-            for row in rows
-            if str(row[3] or "").strip()
-        })
-        unique_domains = len({
-            str(row[4] or "").strip()
-            for row in rows
-            if str(row[4] or "").strip()
-        })
-        total_afk_ms = sum(int(row.get("afk_ms", 0) or 0) for row in local_daily_rows)
-
-        total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
-        avg_daily_hours = round(total_hours / max(days_tracked, 1), 2)
-
-        logger.info(
-            "Local watcher summary %s to %s: %sh across %s days, %s apps",
-            start_date,
-            end_date,
-            total_hours,
-            days_tracked,
-            unique_apps,
-        )
-
-        result = {
-            "total_active_ms": total_active_ms,
-            "total_hours": total_hours,
-            "total_events": total_events,
-            "days_tracked": days_tracked,
-            "unique_apps": unique_apps,
-            "unique_domains": unique_domains,
-            "total_afk_ms": total_afk_ms,
-            "avg_daily_hours": avg_daily_hours,
-        }
-        _log_activity_perf(
-            "summary",
-            start=perf_start,
-            source="local_sql",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=days_tracked,
-            extra={
-                "total_active_ms": total_active_ms,
-                "events_count": total_events,
-            },
-        )
-        return result
-    except Exception as e:
-        logger.warning("Error reading computer time summary from local DB: %s", e)
-        result = {
-            "total_active_ms": 0,
-            "total_hours": 0,
-            "total_events": 0,
-            "days_tracked": 0,
-            "unique_apps": 0,
-            "avg_daily_hours": 0,
-        }
-        _log_activity_perf(
-            "summary",
-            start=perf_start,
-            source="local_sql_error",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=0,
-            empty_reason=str(e),
-        )
-        return result
+    summary = dict(snapshot["summary"])
+    _log_activity_perf(
+        "summary",
+        start=perf_start,
+        source=str(snapshot.get("source") or summary.get("source") or "unknown"),
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        row_count=len(snapshot.get("daily") or []),
+        empty_reason=snapshot.get("empty_reason"),
+        extra={
+            "state": snapshot.get("state"),
+            "sync_pending": bool(snapshot.get("sync_pending")),
+            "total_active_ms": int(summary.get("total_active_ms", 0) or 0),
+            "events_count": int(summary.get("total_events", 0) or 0),
+        },
+    )
+    return summary
 
 
 async def get_daily_computer_time_impl(
@@ -967,263 +991,32 @@ async def get_daily_computer_time_impl(
     end_date: str,
     device_id: Optional[str] = None,
 ) -> List[Dict]:
-    """Get daily computer time for charting.
-
-    Uses fast SQL aggregation from the local watcher DB when available,
-    falling back to Tinybird, then to the slower Python dedup path.
-    The SQL path is ~100x faster than the Python dedup path and accurate
-    enough for daily charting (minor overlap in events is negligible).
-    """
+    """Get daily computer time for charting."""
     perf_start = time.perf_counter()
-    activity_user_ids = _resolve_activity_user_ids(user_id)
-    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-    start_ms = int(start_date_obj.timestamp() * 1000)
-    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-    used_activity_db = False
-
-    async with open_activity_connection_for_user(user_id) as conn:
-        if conn is not None:
-            used_activity_db = True
-            user_placeholders = ", ".join(["?"] * len(activity_user_ids))
-            params: list[Any] = [end_ms, start_ms, *activity_user_ids]
-            device_clause = ""
-            if device_id:
-                device_clause = " AND device_id = ?"
-                params.append(device_id)
-
-            rows = conn.execute(
-                f"""
-                SELECT
-                    ts_start,
-                    ts_end,
-                    COALESCE(is_afk, 0) AS is_afk,
-                    COALESCE(app_bundle_id, '') AS app_bundle_id,
-                    COALESCE(browser_domain, '') AS browser_domain
-                FROM activity_events
-                WHERE ts_start < ? AND ts_end > ?
-                  AND user_id IN ({user_placeholders})
-                  AND ts_end > ts_start
-                  {device_clause}
-                ORDER BY ts_start ASC
-                """,
-                params,
-            ).fetchall()
-
-            if rows:
-                aggregated_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
-                result = [
-                    {
-                        "day": row["day"],
-                        "active_hours": round(int(row["active_ms"]) / (1000 * 60 * 60), 2),
-                        "active_ms": int(row["active_ms"]),
-                        "afk_ms": int(row.get("afk_ms", 0) or 0),
-                        "events_count": int(row.get("events_count", 0) or 0),
-                        "apps_count": int(row.get("apps_count", 0) or 0),
-                        "domains_count": int(row.get("domains_count", 0) or 0),
-                        "source": "activity_db",
-                    }
-                    for row in aggregated_rows
-                ]
-                _log_activity_perf(
-                    "daily",
-                    start=perf_start,
-                    source="activity_db",
-                    user_id=user_id,
-                    start_date=start_date,
-                    end_date=end_date,
-                    row_count=len(result),
-                    extra={"query_mode": "deduped_events"},
-                )
-                return result
-            logger.info(
-                "Per-user activity DB returned 0 daily rows for %s %s..%s",
-                user_id,
-                start_date,
-                end_date,
-            )
-
-    import sqlite3 as _sqlite3
-
-    _db_path = get_local_watcher_db_path_impl()
-    if os.path.exists(_db_path):
-        try:
-            _conn = _sqlite3.connect(_db_path)
-            _cursor = _conn.cursor()
-            _user_clause, _user_params = _sqlite_user_filter_clause(activity_user_ids)
-            _cursor.execute(
-                """
-                SELECT
-                    ts_start,
-                    ts_end,
-                    COALESCE(is_afk, 0) AS is_afk,
-                    COALESCE(app_bundle_id, '') AS app_bundle_id,
-                    COALESCE(browser_domain, '') AS browser_domain
-                FROM activity_events
-                WHERE ts_start < ? AND ts_end > ?
-                """
-                + _user_clause
-                + """
-                  AND ts_end > ts_start
-                ORDER BY ts_start ASC
-                """,
-                (end_ms, start_ms, *_user_params),
-            )
-            _rows = _cursor.fetchall()
-            _conn.close()
-
-            if _rows:
-                logger.info(
-                    "Fast SQL daily data %s to %s: %d days",
-                    start_date, end_date, len(_rows),
-                )
-                _aggregated_rows = _aggregate_computer_activity_daily_totals_from_events_impl(_rows, start_ms, end_ms)
-                result = [
-                    {
-                        "day": r["day"],
-                        "active_hours": round((r["active_ms"] or 0) / (1000 * 60 * 60), 2),
-                        "active_ms": r["active_ms"] or 0,
-                        "afk_ms": r.get("afk_ms", 0) or 0,
-                        "events_count": r.get("events_count", 0) or 0,
-                        "apps_count": r.get("apps_count", 0) or 0,
-                        "domains_count": r.get("domains_count", 0) or 0,
-                        "source": "local_sql",
-                    }
-                    for r in _aggregated_rows
-                ]
-                _log_activity_perf(
-                    "daily",
-                    start=perf_start,
-                    source="local_sql",
-                    user_id=user_id,
-                    start_date=start_date,
-                    end_date=end_date,
-                    row_count=len(result),
-                )
-                return result
-        except Exception as _e:
-            logger.warning("Fast SQL daily query failed, falling back: %s", _e)
-
-    tinybird_rows = await service._get_computer_activity_pipe_rows(
+    snapshot = await _build_computer_activity_snapshot_impl(
+        service,
         user_id=user_id,
         start_date=start_date,
         end_date=end_date,
-        output="daily",
+        limit=10,
+        device_id=device_id,
     )
-    if tinybird_rows:
-        result = [
-            {
-                "day": row.get("day"),
-                "active_hours": round(
-                    (int(row.get("total_active_ms", 0) or 0)) / (1000 * 60 * 60),
-                    2,
-                ),
-                "active_ms": int(row.get("total_active_ms", 0) or 0),
-                "afk_ms": int(row.get("total_afk_ms", 0) or 0),
-                "events_count": int(row.get("total_events", 0) or 0),
-                "apps_count": int(row.get("unique_apps", 0) or 0),
-                "domains_count": int(row.get("unique_domains", 0) or 0),
-                "source": "tinybird",
-            }
-            for row in tinybird_rows
-        ]
-        _log_activity_perf(
-            "daily",
-            start=perf_start,
-            source="tinybird",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=len(result),
-        )
-        return result
-
-    if used_activity_db:
-        _log_activity_perf(
-            "daily",
-            start=perf_start,
-            source="activity_db_empty",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=0,
-            empty_reason="activity_db_empty",
-        )
-        return []
-
-    import sqlite3
-
-    db_path = get_local_watcher_db_path_impl()
-    if not os.path.exists(db_path):
-        logger.info("Local watcher database not found at: %s", db_path)
-        _log_activity_perf(
-            "daily",
-            start=perf_start,
-            source="missing_local_db",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            row_count=0,
-            empty_reason="local_db_missing",
-        )
-        return []
-
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        user_clause, user_params = _sqlite_user_filter_clause(activity_user_ids)
-
-        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-        start_ms = int(start_date_obj.timestamp() * 1000)
-        end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-
-        cursor.execute(
-            """
-            SELECT
-                ts_start,
-                ts_end,
-                COALESCE(is_afk, 0) AS is_afk,
-                COALESCE(app_bundle_id, '') AS app_bundle_id,
-                COALESCE(browser_domain, '') AS browser_domain
-            FROM activity_events
-            WHERE ts_start < ? AND ts_end > ?
-            """
-            + user_clause
-            + """
-              AND ts_end > ts_start
-            ORDER BY ts_start ASC
-            """,
-            (end_ms, start_ms, *user_params),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        logger.info(
-            "Local watcher daily data %s to %s: %s days",
-            start_date,
-            end_date,
-            len(rows),
-        )
-
-        aggregated_rows = _aggregate_computer_activity_daily_totals_from_events_impl(rows, start_ms, end_ms)
-
-        return [
-            {
-                "day": r["day"],
-                "active_hours": round((r["active_ms"] or 0) / (1000 * 60 * 60), 2),
-                "active_ms": r["active_ms"] or 0,
-                "afk_ms": r.get("afk_ms", 0) or 0,
-                "events_count": r.get("events_count", 0) or 0,
-                "apps_count": r.get("apps_count", 0) or 0,
-                "domains_count": r.get("domains_count", 0) or 0,
-            }
-            for r in aggregated_rows
-        ]
-    except Exception as e:
-        logger.warning("Error reading daily computer time from local DB: %s", e)
-        return []
+    daily_rows = list(snapshot.get("daily") or [])
+    _log_activity_perf(
+        "daily",
+        start=perf_start,
+        source=str(snapshot.get("source") or "unknown"),
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        row_count=len(daily_rows),
+        empty_reason=snapshot.get("empty_reason"),
+        extra={
+            "state": snapshot.get("state"),
+            "sync_pending": bool(snapshot.get("sync_pending")),
+        },
+    )
+    return daily_rows
 
 
 async def get_usage_daily_breakdown_impl(

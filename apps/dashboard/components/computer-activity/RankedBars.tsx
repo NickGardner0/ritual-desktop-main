@@ -152,6 +152,7 @@ interface RankedBarsProps {
   selectedKey?: string | null
   showTooltip?: boolean
   showIcons?: boolean
+  emptyLabel?: string
 }
 
 export function RankedBars({
@@ -163,6 +164,7 @@ export function RankedBars({
   selectedKey = null,
   showTooltip = true,
   showIcons = true,
+  emptyLabel,
 }: RankedBarsProps) {
   const [expanded, setExpanded] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<RankedBar | null>(null)
@@ -238,7 +240,7 @@ export function RankedBars({
           <Globe className="w-5 h-5 text-gray-300" />
         </div>
         <p className="text-sm text-gray-400">
-          {type === 'domains' ? 'No websites tracked' : 'No apps tracked'}
+          {emptyLabel || (type === 'domains' ? 'No websites tracked' : 'No apps tracked')}
         </p>
       </div>
     )

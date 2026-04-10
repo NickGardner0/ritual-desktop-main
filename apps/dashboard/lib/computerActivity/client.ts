@@ -65,6 +65,10 @@ export interface AggregatedComputerStatsResponse {
   daily: ComputerDailyResponseRow[]
   apps: TopAppResponseRow[]
   domains: TopDomainResponseRow[]
+  source?: string
+  state?: string
+  sync_pending?: boolean
+  empty_reason?: string
 }
 
 const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 65000
@@ -76,6 +80,7 @@ const summaryCache = new Map<string, ComputerSummaryResponse>()
 const dailyCache = new Map<string, ComputerDailyResponseRow[]>()
 const appsCache = new Map<string, TopAppResponseRow[]>()
 const domainsCache = new Map<string, TopDomainResponseRow[]>()
+const aggregateCache = new Map<string, AggregatedComputerStatsResponse>()
 const inflightWatcherRequests = new Map<string, Promise<any>>()
 
 function buildQueryString(params: Record<string, string | number | undefined>) {
@@ -171,6 +176,73 @@ function normalizeDailyRows(rows: any[]): ComputerDailyResponseRow[] {
       apps_count: row.apps_count ?? 0,
       domains_count: row.domain_count ?? 0,
     }))
+}
+
+function normalizeSummaryPayload(data: any): ComputerSummaryResponse {
+  const totalActiveMs = Math.max(0, Number(data?.total_active_ms || 0))
+  return {
+    total_active_ms: totalActiveMs,
+    total_afk_ms: Math.max(0, Number(data?.total_afk_ms || 0)),
+    total_hours: Math.max(0, Number(data?.total_hours || totalActiveMs / (1000 * 60 * 60))),
+    total_events: Math.max(0, Number(data?.total_events || 0)),
+    days_tracked: Math.max(0, Number(data?.days_tracked || 0)),
+    unique_apps: Math.max(0, Number(data?.unique_apps || 0)),
+    unique_domains: Math.max(0, Number(data?.unique_domains || 0)),
+    avg_daily_hours: Math.max(0, Number(data?.avg_daily_hours || 0)),
+    source: data?.source || 'backend',
+  }
+}
+
+function normalizeTopAppsRows(rows: any[]): TopAppResponseRow[] {
+  return rows.map((row) => ({
+    app_bundle_id: String(row.app_bundle_id || ''),
+    app_name: String(row.app_name || row.app_bundle_id || 'Unknown'),
+    total_active_ms: Math.max(0, Number(row.total_active_ms || 0)),
+    total_events: Math.max(0, Number(row.total_events || 0)),
+    hours: Math.max(0, Number(row.hours || 0)),
+    source: row.source || 'backend',
+  }))
+}
+
+function normalizeTopDomainRows(rows: any[]): TopDomainResponseRow[] {
+  return rows.map((row) => ({
+    domain: String(row.domain || 'Unknown'),
+    total_active_ms: Math.max(0, Number(row.total_active_ms || 0)),
+    total_events: Math.max(0, Number(row.total_events || 0)),
+    hours: Math.max(0, Number(row.hours || 0)),
+    minutes: row.minutes == null ? undefined : Math.max(0, Number(row.minutes || 0)),
+    source: row.source || 'backend',
+  }))
+}
+
+function normalizeAggregatedPayload(payload: any): AggregatedComputerStatsResponse {
+  const data = payload?.data || {}
+  return {
+    summary: normalizeSummaryPayload(data.summary || {}),
+    daily: normalizeDailyRows(Array.isArray(data.daily) ? data.daily : []).map((row) => ({
+      ...row,
+      source: row.source || data.source || data.summary?.source || 'backend',
+    })),
+    apps: normalizeTopAppsRows(Array.isArray(data.apps) ? data.apps : []),
+    domains: normalizeTopDomainRows(Array.isArray(data.domains) ? data.domains : []),
+    source: data.source || data.summary?.source || 'backend',
+    state: typeof data.state === 'string' ? data.state : undefined,
+    sync_pending: Boolean(data.sync_pending),
+    empty_reason: typeof data.empty_reason === 'string' ? data.empty_reason : undefined,
+  }
+}
+
+function cacheAggregatedResult(
+  cacheKey: string,
+  params: ComputerActivityRangeParams,
+  limit: number,
+  result: AggregatedComputerStatsResponse,
+) {
+  aggregateCache.set(cacheKey, result)
+  summaryCache.set(getRangeCacheKey('summary', params), result.summary)
+  dailyCache.set(getRangeCacheKey('daily', params), result.daily)
+  appsCache.set(getRangeCacheKey('apps', params, limit), result.apps)
+  domainsCache.set(getRangeCacheKey('domains', params, limit), result.domains)
 }
 
 function getRangeTimestamps(params: ComputerActivityRangeParams) {
@@ -915,12 +987,95 @@ export async function getAggregatedComputerStats(
   params: ComputerActivityRangeParams,
   limit = 10,
 ): Promise<AggregatedComputerStatsResponse> {
+  const cacheKey = getRangeCacheKey('aggregate', params, limit)
+  const stopTimer = startPerfTimer('computer-activity-client', 'getAggregatedComputerStats', {
+    params,
+    limit,
+  })
+
+  try {
+    const payload = await fetchWatcherStatsJson<{ data?: any }>(
+      '/api/watcher/stats/aggregate',
+      {
+        start_date: params.startDate,
+        end_date: params.endDate,
+        limit,
+      },
+    )
+    const result = normalizeAggregatedPayload(payload)
+    cacheAggregatedResult(cacheKey, params, limit, result)
+
+    const hasAnyData =
+      result.summary.total_active_ms > 0
+      || result.daily.length > 0
+      || result.apps.length > 0
+      || result.domains.length > 0
+
+    if (hasAnyData || result.sync_pending || !isTauri() || !shouldAllowDesktopLocalFallback(params)) {
+      stopTimer({
+        success: true,
+        source: result.source || result.summary.source,
+        state: result.state,
+        sync_pending: result.sync_pending,
+        summary_active_ms: result.summary.total_active_ms,
+        daily_rows: result.daily.length,
+        app_rows: result.apps.length,
+        domain_rows: result.domains.length,
+      })
+      return result
+    }
+  } catch (error) {
+    const cached = aggregateCache.get(cacheKey)
+    if (cached) {
+      perfWarn('computer-activity-client', 'aggregate-cache-hit-after-error', {
+        params,
+        limit,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      stopTimer({
+        success: true,
+        source: 'cache',
+        summary_active_ms: cached.summary.total_active_ms,
+        daily_rows: cached.daily.length,
+        app_rows: cached.apps.length,
+        domain_rows: cached.domains.length,
+      })
+      return cached
+    }
+
+    if (!isTauri()) {
+      stopTimer({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    }
+  }
+
   const [summary, daily, apps, domains] = await Promise.all([
     getComputerTimeSummary(params),
     getComputerTimeDaily(params),
     getTopApps(params, limit),
     getTopDomains(params, limit),
   ])
-
-  return { summary, daily, apps, domains }
+  const fallback = {
+    summary,
+    daily,
+    apps,
+    domains,
+    source: summary.source || 'backend',
+    state: 'legacy_fallback',
+    sync_pending: false,
+  } satisfies AggregatedComputerStatsResponse
+  cacheAggregatedResult(cacheKey, params, limit, fallback)
+  stopTimer({
+    success: true,
+    source: fallback.source,
+    state: fallback.state,
+    summary_active_ms: fallback.summary.total_active_ms,
+    daily_rows: fallback.daily.length,
+    app_rows: fallback.apps.length,
+    domain_rows: fallback.domains.length,
+  })
+  return fallback
 }

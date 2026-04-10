@@ -35,6 +35,7 @@ interface VercelBarListCardProps {
   visibleRows?: number;
   /** Optional label clarifying the % comparison baseline (e.g. "vs prior 1M"). */
   comparisonLabel?: string;
+  emptyStateLabels?: Record<string, string>;
 }
 
 // ── Change Badge ──
@@ -107,6 +108,7 @@ export function VercelBarListCard({
   showRangeSelector = false,
   visibleRows = 8,
   comparisonLabel,
+  emptyStateLabels,
 }: VercelBarListCardProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id || '');
 
@@ -191,7 +193,7 @@ export function VercelBarListCard({
 
         {items.length === 0 && (
           <div className="flex items-center justify-center h-24 text-[12px] text-[rgba(39,37,30,0.35)]">
-            No data available
+            {emptyStateLabels?.[activeTab] || 'No data available'}
           </div>
         )}
       </div>

@@ -26,6 +26,7 @@ from services.watcher_service_computer_activity import (
     _query_computer_activity_summary_pipe_impl,
     _resolve_activity_user_ids,
     _sync_computer_activity_range_to_tinybird_impl,
+    get_computer_activity_snapshot_impl,
     get_computer_time_summary_impl,
     get_daily_computer_time_impl,
     get_usage_daily_breakdown_impl,
@@ -563,6 +564,23 @@ class WatcherService:
             user_id=user_id,
             start_date=start_date,
             end_date=end_date,
+            device_id=device_id,
+        )
+
+    async def get_computer_activity_snapshot(
+        self,
+        user_id: str,
+        start_date: str,
+        end_date: str,
+        limit: int = 10,
+        device_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return await get_computer_activity_snapshot_impl(
+            self,
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
             device_id=device_id,
         )
 

@@ -20,7 +20,7 @@ _USER_ACTIVITY_BUNDLES: dict[str, "PerUserReplicaBundle"] = {}
 _USER_ACTIVITY_LOCKS: dict[str, asyncio.Lock] = {}
 _USER_ACTIVITY_REPLICA_SYNC_INTERVAL_SECONDS = max(
     5,
-    int(os.getenv("TURSO_USER_REPLICA_SYNC_INTERVAL_SECONDS", "15") or "15"),
+    int(os.getenv("TURSO_USER_REPLICA_SYNC_INTERVAL_SECONDS", "60") or "60"),
 )
 _TOKEN_REFRESH_LEEWAY_SECONDS = max(
     300,
@@ -359,10 +359,11 @@ async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]
         access.sync_url,
     )
     try:
-        token = await turso_user_service._mint_database_token(
+        token, expires_at_epoch = await turso_user_service.get_cached_database_token(
             access.database_name,
             expiration=turso_user_service.server_token_ttl,
             authorization="full-access",
+            reuse_window_seconds=10 * 60,
         )
     except Exception as exc:
         logger.warning(
@@ -373,9 +374,6 @@ async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]
         )
         raise
     replica_path = turso_user_service.replica_path_for_user(user_id)
-    expiry_epoch = time.time() + turso_user_service._ttl_to_timedelta(
-        turso_user_service.server_token_ttl
-    ).total_seconds()
 
     def _connect() -> object:
         return turso_user_service._open_remote_replica(replica_path, access.sync_url or "", token)
@@ -414,7 +412,6 @@ async def _get_or_create_per_user_bundle(user_id: str) -> Optional[PerUserReplic
     async with _lock_for_user(user_id):
         bundle = _USER_ACTIVITY_BUNDLES.get(user_id)
         if bundle is not None and _bundle_is_fresh(bundle):
-            await _ensure_bundle_synced(bundle)
             logger.info(
                 "Reusing cached per-user activity bundle for %s db=%s replica=%s",
                 user_id,

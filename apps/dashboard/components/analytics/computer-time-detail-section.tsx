@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { type TimeRangePreset } from '@/lib/computerActivity/contracts'
 import {
-  getComputerTimeSummary,
-  getTopApps,
-  getTopDomains,
+  getAggregatedComputerStats,
 } from '@/lib/computerActivity/client'
 import { RankedBars } from '@/components/computer-activity/RankedBars'
 import { UsageBreakdownCard } from '@/components/computer-activity/UsageBreakdownCard'
@@ -115,6 +113,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
   const [summaryActiveMs, setSummaryActiveMs] = useState(0)
   const [apps, setApps] = useState<any[]>([])
   const [domains, setDomains] = useState<any[]>([])
+  const [isSyncPending, setIsSyncPending] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [usageSelection, setUsageSelection] = useState<UsageBreakdownSelection>(null)
@@ -155,18 +154,11 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
         const startDate = toLocalDateString(rangeWindow.start)
         const endDate = toLocalDateString(rangeWindow.end)
 
-        const [summaryResult, topAppsResult, topDomainsResult] = await Promise.allSettled([
-          getComputerTimeSummary({ startDate, endDate }),
-          getTopApps({ startDate, endDate }, 12),
-          getTopDomains({ startDate, endDate }, 12),
-        ])
+        const aggregate = await getAggregatedComputerStats({ startDate, endDate }, 12)
 
         if (cancelled || fetchId !== fetchIdRef.current) return
 
-        const summary =
-          summaryResult.status === 'fulfilled'
-            ? Math.max(0, Number(summaryResult.value.total_active_ms || 0))
-            : 0
+        const summary = Math.max(0, Number(aggregate.summary.total_active_ms || 0))
         const mergeByLabel = <T extends { key: string; label: string; valueMs: number; eventCount: number }>(
           rows: T[],
         ): T[] => {
@@ -184,45 +176,38 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
           return [...byLabel.values()].sort((a, b) => b.valueMs - a.valueMs)
         }
         const topApps =
-          topAppsResult.status === 'fulfilled'
-            ? mergeByLabel(
-                topAppsResult.value
-                  .filter((row) => Number(row.total_active_ms || 0) > 0)
-                  .map((row) => ({
-                    key: row.app_bundle_id || row.app_name || 'unknown-app',
-                    label: row.app_name || row.app_bundle_id || 'Unknown App',
-                    valueMs: Math.max(0, Number(row.total_active_ms || 0)),
-                    eventCount: Math.max(0, Number(row.total_events || 0)),
-                  })),
-              )
-            : []
+          mergeByLabel(
+            aggregate.apps
+              .filter((row) => Number(row.total_active_ms || 0) > 0)
+              .map((row) => ({
+                key: row.app_bundle_id || row.app_name || 'unknown-app',
+                label: row.app_name || row.app_bundle_id || 'Unknown App',
+                valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+                eventCount: Math.max(0, Number(row.total_events || 0)),
+              })),
+          )
         const topDomains =
-          topDomainsResult.status === 'fulfilled'
-            ? mergeByLabel(
-                topDomainsResult.value
-                  .filter((row) => Number(row.total_active_ms || 0) > 0)
-                  .map((row) => ({
-                    key: row.domain || 'unknown-domain',
-                    label: row.domain || 'Unknown',
-                    valueMs: Math.max(0, Number(row.total_active_ms || 0)),
-                    eventCount: Math.max(0, Number(row.total_events || 0)),
-                  })),
-              )
-            : []
+          mergeByLabel(
+            aggregate.domains
+              .filter((row) => Number(row.total_active_ms || 0) > 0)
+              .map((row) => ({
+                key: row.domain || 'unknown-domain',
+                label: row.domain || 'Unknown',
+                valueMs: Math.max(0, Number(row.total_active_ms || 0)),
+                eventCount: Math.max(0, Number(row.total_events || 0)),
+              })),
+          )
 
         setSummaryActiveMs(summary)
         setApps(topApps)
         setDomains(topDomains)
-
-        const failedCount = [summaryResult, topAppsResult, topDomainsResult].filter(
-          (result) => result.status === 'rejected',
-        ).length
+        setIsSyncPending(Boolean(aggregate.sync_pending))
         const hasAnyData = summary > 0 || topApps.length > 0 || topDomains.length > 0
-        setError(failedCount > 0 && !hasAnyData ? 'Failed to load computer activity' : null)
+        setError(null)
         stopTimer({
-          success: failedCount === 0 || hasAnyData,
-          failed_count: failedCount,
+          success: hasAnyData || aggregate.sync_pending,
           has_any_data: hasAnyData,
+          sync_pending: aggregate.sync_pending,
           summary_active_ms: summary,
           app_rows: topApps.length,
           domain_rows: topDomains.length,
@@ -232,6 +217,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
         setError(err instanceof Error ? err.message : 'Failed to load computer activity')
         setApps([])
         setDomains([])
+        setIsSyncPending(false)
         perfError('computer-time-detail-section', 'load-failed', {
           error: err instanceof Error ? err.message : String(err),
           range,
@@ -340,7 +326,7 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
   const hasData = apps.length > 0 || domains.length > 0 || summaryActiveMs > 0
   const activeTimeStr = formatActiveTime(summaryActiveMs)
 
-  if (!isLoading && !hasData && !error) return null
+  if (!isLoading && !hasData && !isSyncPending && !error) return null
 
   return (
     <div className="mt-[5px] grid grid-cols-1 lg:grid-cols-2 gap-[5px]">
@@ -369,13 +355,14 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
           </div>
         )}
 
-        {hasData && (
+        {(hasData || isSyncPending) && (
           <>
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-1 max-h-[272px]">
               <RankedBars
                 items={apps}
                 maxVisible={Infinity}
                 type="apps"
+                emptyLabel={isSyncPending ? 'Syncing activity data' : 'No apps tracked'}
                 showTooltip={false}
                 showIcons
                 selectedKey={usageSelection?.kind === 'app' ? usageSelection.key : null}
@@ -419,13 +406,14 @@ export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailS
           </div>
         </div>
 
-        {hasData && (
+        {(hasData || isSyncPending) && (
           <>
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-1 max-h-[272px]">
               <RankedBars
                 items={domains}
                 maxVisible={Infinity}
                 type="domains"
+                emptyLabel={isSyncPending ? 'Syncing activity data' : 'No websites tracked'}
                 showTooltip={false}
                 showIcons
                 selectedKey={usageSelection?.kind === 'website' ? usageSelection.key : null}

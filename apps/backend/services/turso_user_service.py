@@ -346,6 +346,10 @@ class TursoUserService:
         self.replica_dir.mkdir(parents=True, exist_ok=True)
         self.import_seed_dir = Path(__file__).parent.parent / ".turso_import_seeds"
         self.import_seed_dir.mkdir(parents=True, exist_ok=True)
+        self._token_cache: Dict[tuple[str, str, str], tuple[str, float]] = {}
+        self._token_cache_locks: Dict[tuple[str, str, str], asyncio.Lock] = {}
+        self._schema_ready_dbs: set[str] = set()
+        self._schema_ready_lock = asyncio.Lock()
 
     def is_platform_configured(self) -> bool:
         return bool(self.platform_token and self.organization and self.group)
@@ -366,6 +370,12 @@ class TursoUserService:
 
     def sync_url_for_hostname(self, hostname: str) -> str:
         return f"libsql://{hostname}"
+
+    def client_url_for_sync_url(self, sync_url: str) -> str:
+        parsed = urlparse(str(sync_url or "").strip())
+        if parsed.scheme == "libsql" and parsed.hostname:
+            return f"https://{parsed.hostname}"
+        return str(sync_url or "").strip()
 
     def replica_path_for_user(self, user_id: str) -> Path:
         hashed = hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:24]
@@ -469,6 +479,26 @@ class TursoUserService:
             raise TursoProvisioningError("Turso create database returned no database payload")
         return database
 
+    async def delete_database(self, database_name: str) -> bool:
+        path = f"/v1/organizations/{self.organization}/databases/{database_name}"
+        try:
+            await self._platform_request(
+                "DELETE",
+                path,
+                allowed_statuses=(200, 202, 204),
+            )
+        except TursoProvisioningError as exc:
+            if " 404:" in str(exc):
+                return False
+            raise
+
+        self._schema_ready_dbs.discard(database_name)
+        stale_keys = [key for key in self._token_cache if key[0] == database_name]
+        for key in stale_keys:
+            self._token_cache.pop(key, None)
+            self._token_cache_locks.pop(key, None)
+        return True
+
     async def _mint_database_token(
         self,
         database_name: str,
@@ -486,6 +516,67 @@ class TursoUserService:
         if not token:
             raise TursoProvisioningError("Turso token mint returned an empty JWT")
         return token
+
+    def _token_cache_key(
+        self,
+        database_name: str,
+        *,
+        expiration: str,
+        authorization: str,
+    ) -> tuple[str, str, str]:
+        return (database_name, expiration, authorization)
+
+    def _token_cache_lock(
+        self,
+        database_name: str,
+        *,
+        expiration: str,
+        authorization: str,
+    ) -> asyncio.Lock:
+        key = self._token_cache_key(
+            database_name,
+            expiration=expiration,
+            authorization=authorization,
+        )
+        lock = self._token_cache_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._token_cache_locks[key] = lock
+        return lock
+
+    async def get_cached_database_token(
+        self,
+        database_name: str,
+        *,
+        expiration: str,
+        authorization: str,
+        reuse_window_seconds: int = 0,
+    ) -> tuple[str, float]:
+        key = self._token_cache_key(
+            database_name,
+            expiration=expiration,
+            authorization=authorization,
+        )
+        lock = self._token_cache_lock(
+            database_name,
+            expiration=expiration,
+            authorization=authorization,
+        )
+        async with lock:
+            cached = self._token_cache.get(key)
+            now = time.time()
+            if cached and (cached[1] - now) > max(0, reuse_window_seconds):
+                return cached
+
+            token = await self._mint_database_token(
+                database_name,
+                expiration=expiration,
+                authorization=authorization,
+            )
+            expires_at_epoch = now + self._ttl_to_timedelta(expiration).total_seconds()
+            cached_value = (token, expires_at_epoch)
+            self._token_cache[key] = cached_value
+            return cached_value
 
     async def _load_user(self, user_id: str) -> Optional[UserDB]:
         async with get_db_session() as session:
@@ -830,10 +921,11 @@ class TursoUserService:
         raise TursoProvisioningError("Failed to open remote Turso replica")
 
     async def _ensure_remote_schema(self, user_id: str, sync_url: str, database_name: str) -> None:
-        token = await self._mint_database_token(
+        token, _ = await self.get_cached_database_token(
             database_name,
             expiration=self.server_token_ttl,
             authorization="full-access",
+            reuse_window_seconds=10 * 60,
         )
         replica_path = self.replica_path_for_user(user_id)
 
@@ -849,6 +941,16 @@ class TursoUserService:
                     close()
 
         await asyncio.to_thread(_apply_schema)
+
+    async def _ensure_remote_schema_once(self, user_id: str, sync_url: str, database_name: str) -> None:
+        if database_name in self._schema_ready_dbs:
+            return
+
+        async with self._schema_ready_lock:
+            if database_name in self._schema_ready_dbs:
+                return
+            await self._ensure_remote_schema(user_id, sync_url, database_name)
+            self._schema_ready_dbs.add(database_name)
 
     async def ensure_user_activity_database(self, user_id: str) -> Optional[UserDB]:
         await self.ensure_user_activity_metadata(user_id)
@@ -1502,14 +1604,13 @@ class TursoUserService:
         if self.is_rollout_gate_user(user_id) and user.turso_migrated_at is None:
             raise TursoProvisioningError("Per-user Turso migration has not completed yet")
 
-        await self._ensure_remote_schema(user_id, user.turso_db_url, user.turso_db_name)
-
-        token = await self._mint_database_token(
+        token, expires_at_epoch = await self.get_cached_database_token(
             user.turso_db_name,
             expiration=self.desktop_token_ttl,
             authorization="full-access",
+            reuse_window_seconds=60 * 60,
         )
-        expires_at = (datetime.now(timezone.utc) + self._ttl_to_timedelta(self.desktop_token_ttl)).isoformat()
+        expires_at = datetime.fromtimestamp(expires_at_epoch, tz=timezone.utc).isoformat()
         return DesktopSyncConfig(
             sync_url=user.turso_db_url,
             auth_token=token,

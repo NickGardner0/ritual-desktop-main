@@ -30,13 +30,6 @@ async function getTauriInvoke(): Promise<TauriInvoke> {
   return tauriInvokePromise;
 }
 
-interface TursoSyncConfigResponse {
-  sync_url: string;
-  auth_token: string;
-  expires_at: string;
-  database_name: string;
-}
-
 function RuntimeSyncBridge() {
   const { getToken } = useAuth();
   const { user } = useUser();
@@ -47,9 +40,6 @@ function RuntimeSyncBridge() {
   const lastDashboardRefreshRef = useRef(0);
   const lastProfileSyncKeyRef = useRef<string | null>(null);
   const lastLegacyReconciledUserRef = useRef<string | null>(null);
-  const lastTursoSyncConfigRef = useRef<TursoSyncConfigResponse | null>(null);
-  const lastTursoSyncRefreshRef = useRef(0);
-  const nextTursoSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeSocketRef = useRef<WebSocket | null>(null);
   const realtimeReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realtimeReconnectAttemptRef = useRef(0);
@@ -167,97 +157,6 @@ function RuntimeSyncBridge() {
 
     return () => {
       cancelled = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [bridgeMode, getToken, user?.id]);
-
-  useEffect(() => {
-    if (!isTauri() || !user?.id || bridgeMode !== 'legacy') return;
-
-    let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    const clearScheduledRefresh = () => {
-      if (nextTursoSyncTimeoutRef.current) {
-        clearTimeout(nextTursoSyncTimeoutRef.current);
-        nextTursoSyncTimeoutRef.current = null;
-      }
-    };
-
-    const shouldRefreshTursoConfig = (force: boolean) => {
-      if (force) return true;
-      const now = Date.now();
-      const currentConfig = lastTursoSyncConfigRef.current;
-
-      if (!currentConfig) return true;
-      if ((now - lastTursoSyncRefreshRef.current) >= 30 * 60 * 1000) return true;
-
-      const expiresAtMs = Date.parse(currentConfig.expires_at);
-      if (Number.isFinite(expiresAtMs)) {
-        return (expiresAtMs - now) <= 30 * 60 * 1000;
-      }
-
-      return true;
-    };
-
-    const scheduleExpiryRefresh = (config: TursoSyncConfigResponse) => {
-      clearScheduledRefresh();
-      const expiresAtMs = Date.parse(config.expires_at);
-      if (!Number.isFinite(expiresAtMs)) return;
-
-      const delayMs = Math.max(0, expiresAtMs - Date.now() - 30 * 60 * 1000);
-      nextTursoSyncTimeoutRef.current = setTimeout(() => {
-        void refreshTursoConfig(true);
-      }, delayMs);
-    };
-
-    const refreshTursoConfig = async (force = false) => {
-      if (!shouldRefreshTursoConfig(force)) return;
-
-      try {
-        const token = await getToken();
-        if (!token || cancelled) return;
-
-        const response = await fetch(`${PYTHON_API_BASE}/api/user/turso-sync-config`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          cache: 'no-store',
-        });
-
-        if (!response.ok) {
-          throw new Error(`Turso sync config fetch failed: ${response.status}`);
-        }
-
-        const config = await response.json() as TursoSyncConfigResponse;
-        if (cancelled) return;
-
-        const { invoke } = await import('@tauri-apps/api/tauri');
-        await invoke('write_turso_sync_config', {
-          syncUrl: config.sync_url,
-          authToken: config.auth_token,
-          expiresAt: config.expires_at,
-          databaseName: config.database_name,
-          origin: buildDesktopCommandOrigin('desktop-runtime-bridge:write_turso_sync_config'),
-        });
-
-        lastTursoSyncConfigRef.current = config;
-        lastTursoSyncRefreshRef.current = Date.now();
-        scheduleExpiryRefresh(config);
-      } catch {
-        // Ignore until the native client/backend are ready.
-      }
-    };
-
-    void refreshTursoConfig(true);
-    interval = setInterval(() => {
-      void refreshTursoConfig(false);
-    }, 30 * 60_000);
-
-    return () => {
-      cancelled = true;
-      clearScheduledRefresh();
       if (interval) clearInterval(interval);
     };
   }, [bridgeMode, getToken, user?.id]);

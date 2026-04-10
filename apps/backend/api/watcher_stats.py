@@ -17,6 +17,23 @@ from services.watcher_service import watcher_service
 from .watcher_common import get_current_user
 
 router = APIRouter()
+
+
+def _resolve_date_range(
+    *,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    days_back: Optional[int],
+) -> tuple[str, str]:
+    today = datetime.now()
+    if start_date and end_date:
+        return start_date, end_date
+
+    resolved_end = today.strftime("%Y-%m-%d")
+    resolved_start = (today - timedelta(days=days_back or 30)).strftime("%Y-%m-%d")
+    return resolved_start, resolved_end
+
+
 @router.get("/stats/summary")
 async def get_computer_time_summary(
     start_date: Optional[str] = None,
@@ -102,6 +119,39 @@ async def get_daily_computer_time(
             "end_date": end
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail="Unable to process watcher request.")
+
+
+@router.get("/stats/aggregate")
+async def get_computer_activity_aggregate(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    days_back: Optional[int] = 30,
+    limit: int = 10,
+    device_id: Optional[str] = None,
+    current_user=Depends(get_current_user),
+):
+    """Return summary, daily totals, top apps, and top domains for a single range."""
+    try:
+        start, end = _resolve_date_range(
+            start_date=start_date,
+            end_date=end_date,
+            days_back=days_back,
+        )
+        snapshot = await watcher_service.get_computer_activity_snapshot(
+            user_id=current_user["id"],
+            start_date=start,
+            end_date=end,
+            limit=limit,
+            device_id=device_id,
+        )
+        return {
+            "success": True,
+            "data": snapshot,
+            "start_date": start,
+            "end_date": end,
+        }
+    except Exception:
         raise HTTPException(status_code=500, detail="Unable to process watcher request.")
 
 

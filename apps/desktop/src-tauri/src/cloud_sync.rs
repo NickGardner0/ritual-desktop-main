@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Runtime};
 use tracing::{debug, info, warn};
 
-const CLOUD_SYNC_INTERVAL_SECS: u64 = 15;
-const CLOUD_SYNC_BATCH_SIZE: i64 = 100;
+const CLOUD_SYNC_INTERVAL_SECS: u64 = 60;
+const CLOUD_SYNC_BATCH_SIZE: i64 = 500;
 const CLOUD_SYNC_STARTUP_DELAY_SECS: u64 = 5;
 
 static CLOUD_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);

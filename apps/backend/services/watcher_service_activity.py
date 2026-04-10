@@ -19,10 +19,10 @@ from database.models import (
 )
 from services.watcher_service_local_db import (
     get_local_watcher_db_path_impl,
-    open_activity_connection_for_user,
 )
 from services.watcher_service_computer_activity import (
     _aggregate_computer_activity_daily_rows_from_events_impl,
+    get_computer_activity_snapshot_impl,
     _resolve_activity_user_ids,
     _sqlite_user_filter_clause,
 )
@@ -515,220 +515,27 @@ async def get_top_apps_impl(
 ) -> List[Dict[str, Any]]:
     """Get top apps by active time for a date range."""
     perf_start = time.perf_counter()
-    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-    start_ms = int(start_date_obj.timestamp() * 1000)
-    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-    used_activity_db = False
-
-    async with open_activity_connection_for_user(user_id) as conn:
-        if conn is not None:
-            used_activity_db = True
-            params: list[Any] = [start_ms, end_ms, user_id]
-            device_clause = ""
-            if device_id:
-                device_clause = " AND device_id = ?"
-                params.append(device_id)
-
-            rows = conn.execute(
-                f"""
-                SELECT
-                    ts_start,
-                    ts_end,
-                    app_bundle_id,
-                    app_name
-                FROM activity_events
-                WHERE ts_start >= ? AND ts_start < ?
-                  AND user_id = ?
-                  AND COALESCE(is_afk, 0) = 0
-                  {device_clause}
-                """,
-                params,
-            ).fetchall()
-
-            if rows:
-                daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
-                    [(row[0], row[1], row[2], row[3], "", 0) for row in rows],
-                    start_ms,
-                    end_ms,
-                )
-                result = _rank_top_apps_from_daily_rows(
-                    daily_rows,
-                    limit,
-                    source="activity_db_dedup",
-                )
-                _log_activity_perf(
-                    "top_apps",
-                    start=perf_start,
-                    source="activity_db_dedup",
-                    user_id=user_id,
-                    start_date=start_date,
-                    end_date=end_date,
-                    limit=limit,
-                    row_count=len(result),
-                )
-                return result
-            logger.info(
-                "Per-user activity DB returned 0 top_apps rows for %s %s..%s",
-                user_id,
-                start_date,
-                end_date,
-            )
-
-    local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
-        start_date=start_date,
-        end_date=end_date,
-        user_id=user_id,
-    )
-    if local_daily_rows:
-        result = _rank_top_apps_from_daily_rows(
-            local_daily_rows,
-            limit,
-            source="local_dedup",
-        )
-        if result:
-            _log_activity_perf(
-                "top_apps",
-                start=perf_start,
-                source="local_dedup",
-                user_id=user_id,
-                start_date=start_date,
-                end_date=end_date,
-                limit=limit,
-                row_count=len(result),
-            )
-            return result
-
-    tinybird_rows = await service._get_computer_activity_pipe_rows(
+    snapshot = await get_computer_activity_snapshot_impl(
+        service,
         user_id=user_id,
         start_date=start_date,
         end_date=end_date,
-        output="apps",
         limit=limit,
+        device_id=device_id,
     )
-    if tinybird_rows:
-        result = [
-            {
-                "app_bundle_id": row.get("app_bundle_id"),
-                "app_name": row.get("app_name"),
-                "total_active_ms": int(row.get("total_active_ms", 0) or 0),
-                "total_events": int(row.get("total_events", 0) or 0),
-                "days_used": int(row.get("days_used", 0) or 0),
-                "hours": round((int(row.get("total_active_ms", 0) or 0)) / (1000 * 60 * 60), 2),
-                "source": "tinybird",
-            }
-            for row in tinybird_rows
-        ]
-        _log_activity_perf(
-            "top_apps",
-            start=perf_start,
-            source="tinybird",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=len(result),
-        )
-        return result
-
-    if used_activity_db:
-        _log_activity_perf(
-            "top_apps",
-            start=perf_start,
-            source="activity_db_empty",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=0,
-            empty_reason="activity_db_empty",
-        )
-        return []
-
-    import sqlite3
-
-    db_path = get_local_watcher_db_path_impl()
-
-    if not os.path.exists(db_path):
-        logger.info("Local watcher database not found at: %s", db_path)
-        _log_activity_perf(
-            "top_apps",
-            start=perf_start,
-            source="missing_local_db",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=0,
-            empty_reason="local_db_missing",
-        )
-        return []
-
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        user_ids = _resolve_activity_user_ids(user_id)
-        user_clause, user_params = _sqlite_user_filter_clause(user_ids)
-        query = f"""
-            SELECT
-                ts_start,
-                ts_end,
-                app_bundle_id,
-                app_name,
-                browser_domain,
-                COALESCE(is_afk, 0)
-            FROM activity_events
-            WHERE ts_start >= ? AND ts_start < ?
-              AND COALESCE(is_afk, 0) = 0
-              {user_clause}
-        """
-        params: list[Any] = [start_ms, end_ms, *user_params]
-        if device_id:
-            query += " AND device_id = ?"
-            params.append(device_id)
-
-        cursor.execute(
-            query,
-            params,
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        logger.info(
-            "Local watcher top apps %s to %s: %s apps",
-            start_date,
-            end_date,
-            len(rows),
-        )
-
-        daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(rows, start_ms, end_ms)
-        result = _rank_top_apps_from_daily_rows(daily_rows, limit, source="local_sql_dedup")
-        _log_activity_perf(
-            "top_apps",
-            start=perf_start,
-            source="local_sql_dedup",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=len(result),
-        )
-        return result
-    except Exception as e:
-        logger.warning("Error reading top apps from local DB: %s", e)
-        _log_activity_perf(
-            "top_apps",
-            start=perf_start,
-            source="local_sql_error",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=0,
-            empty_reason=str(e),
-        )
-        return []
+    result = list(snapshot.get("apps") or [])
+    _log_activity_perf(
+        "top_apps",
+        start=perf_start,
+        source=str(snapshot.get("source") or "unknown"),
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        row_count=len(result),
+        empty_reason=snapshot.get("empty_reason"),
+    )
+    return result
 
 
 async def get_top_domains_impl(
@@ -741,224 +548,27 @@ async def get_top_domains_impl(
 ) -> List[Dict[str, Any]]:
     """Get top domains by active time for a date range."""
     perf_start = time.perf_counter()
-    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
-    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-    start_ms = int(start_date_obj.timestamp() * 1000)
-    end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
-    used_activity_db = False
-
-    async with open_activity_connection_for_user(user_id) as conn:
-        if conn is not None:
-            used_activity_db = True
-            params: list[Any] = [start_ms, end_ms, user_id]
-            device_clause = ""
-            if device_id:
-                device_clause = " AND device_id = ?"
-                params.append(device_id)
-
-            rows = conn.execute(
-                f"""
-                SELECT
-                    ts_start,
-                    ts_end,
-                    browser_domain
-                FROM activity_events
-                WHERE ts_start >= ? AND ts_start < ?
-                  AND user_id = ?
-                  AND COALESCE(is_afk, 0) = 0
-                  AND browser_domain IS NOT NULL
-                  AND browser_domain != ''
-                  {device_clause}
-                """,
-                params,
-            ).fetchall()
-
-            if rows:
-                daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
-                    [(row[0], row[1], "browser", "Browser", row[2], 0) for row in rows],
-                    start_ms,
-                    end_ms,
-                )
-                result = _rank_top_domains_from_daily_rows(
-                    daily_rows,
-                    limit,
-                    source="activity_db_dedup",
-                )
-                _log_activity_perf(
-                    "top_domains",
-                    start=perf_start,
-                    source="activity_db_dedup",
-                    user_id=user_id,
-                    start_date=start_date,
-                    end_date=end_date,
-                    limit=limit,
-                    row_count=len(result),
-                )
-                return result
-            logger.info(
-                "Per-user activity DB returned 0 top_domains rows for %s %s..%s",
-                user_id,
-                start_date,
-                end_date,
-            )
-
-    local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
-        start_date=start_date,
-        end_date=end_date,
-        user_id=user_id,
-    )
-    if local_daily_rows:
-        result = _rank_top_domains_from_daily_rows(
-            local_daily_rows,
-            limit,
-            source="local_dedup",
-        )
-        if result:
-            _log_activity_perf(
-                "top_domains",
-                start=perf_start,
-                source="local_dedup",
-                user_id=user_id,
-                start_date=start_date,
-                end_date=end_date,
-                limit=limit,
-                row_count=len(result),
-            )
-            return result
-
-    tinybird_rows = await service._get_computer_activity_pipe_rows(
+    snapshot = await get_computer_activity_snapshot_impl(
+        service,
         user_id=user_id,
         start_date=start_date,
         end_date=end_date,
-        output="domains",
         limit=limit,
+        device_id=device_id,
     )
-    if tinybird_rows:
-        result = [
-            {
-                "domain": row.get("browser_domain"),
-                "total_active_ms": int(row.get("total_active_ms", 0) or 0),
-                "total_events": int(row.get("total_events", 0) or 0),
-                "days_used": int(row.get("days_used", 0) or 0),
-                "hours": round((int(row.get("total_active_ms", 0) or 0)) / (1000 * 60 * 60), 2),
-                "minutes": round((int(row.get("total_active_ms", 0) or 0)) / (1000 * 60), 1),
-                "source": "tinybird",
-            }
-            for row in tinybird_rows
-        ]
-        _log_activity_perf(
-            "top_domains",
-            start=perf_start,
-            source="tinybird",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=len(result),
-        )
-        return result
-
-    if used_activity_db:
-        _log_activity_perf(
-            "top_domains",
-            start=perf_start,
-            source="activity_db_empty",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=0,
-            empty_reason="activity_db_empty",
-        )
-        return []
-
-    import sqlite3
-
-    db_path = get_local_watcher_db_path_impl()
-
-    if not os.path.exists(db_path):
-        logger.info("Local watcher database not found at: %s", db_path)
-        _log_activity_perf(
-            "top_domains",
-            start=perf_start,
-            source="missing_local_db",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=0,
-            empty_reason="local_db_missing",
-        )
-        return []
-
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        user_ids = _resolve_activity_user_ids(user_id)
-        user_clause, user_params = _sqlite_user_filter_clause(user_ids)
-        query = f"""
-            SELECT
-                ts_start,
-                ts_end,
-                browser_domain
-            FROM activity_events
-            WHERE ts_start >= ? AND ts_start < ?
-              AND COALESCE(is_afk, 0) = 0
-              AND browser_domain IS NOT NULL
-              AND browser_domain != ''
-              {user_clause}
-        """
-        params: list[Any] = [start_ms, end_ms, *user_params]
-        if device_id:
-            query += " AND device_id = ?"
-            params.append(device_id)
-
-        cursor.execute(
-            query,
-            params,
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        logger.info(
-            "Local watcher top domains %s to %s: %s domains",
-            start_date,
-            end_date,
-            len(rows),
-        )
-
-        daily_rows = _aggregate_computer_activity_daily_rows_from_events_impl(
-            [(row[0], row[1], "browser", "Browser", row[2], 0) for row in rows],
-            start_ms,
-            end_ms,
-        )
-        result = _rank_top_domains_from_daily_rows(daily_rows, limit, source="local_sql_dedup")
-        _log_activity_perf(
-            "top_domains",
-            start=perf_start,
-            source="local_sql_dedup",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=len(result),
-        )
-        return result
-    except Exception as e:
-        logger.warning("Error reading top domains from local DB: %s", e)
-        _log_activity_perf(
-            "top_domains",
-            start=perf_start,
-            source="local_sql_error",
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            row_count=0,
-            empty_reason=str(e),
-        )
-        return []
+    result = list(snapshot.get("domains") or [])
+    _log_activity_perf(
+        "top_domains",
+        start=perf_start,
+        source=str(snapshot.get("source") or "unknown"),
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        row_count=len(result),
+        empty_reason=snapshot.get("empty_reason"),
+    )
+    return result
 
 
 async def get_domain_daily_breakdown_impl(

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { format, subDays, startOfDay } from 'date-fns';
-import { getTopApps, getTopDomains } from '@/lib/computerActivity/client';
+import { getAggregatedComputerStats } from '@/lib/computerActivity/client';
 
 interface ComputerTimeBarListProps {
   activeRange: BarListRange;
@@ -92,6 +92,7 @@ function getDomainDisplayName(domain: { domain?: string | null }): string {
 export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTimeBarListProps) {
   const [appsData, setAppsData] = useState<BarListItem[]>([]);
   const [domainsData, setDomainsData] = useState<BarListItem[]>([]);
+  const [isSyncPending, setIsSyncPending] = useState(false);
   const fetchIdRef = useRef(0);
 
   // Phase 1: Fetch full-range data (fast, shows results immediately).
@@ -102,17 +103,18 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       const { from, to } = getRangeDatesLocal(activeRange);
       const startDate = format(from, 'yyyy-MM-dd');
       const endDate = format(to, 'yyyy-MM-dd');
-      const [appsFullRaw, domainsFullRaw] = await Promise.all([
-        getTopApps({ startDate, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
-        getTopDomains({ startDate, endDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
-      ]);
+      const current = await getAggregatedComputerStats(
+        { startDate, endDate },
+        BAR_LIST_COMPARE_FETCH_LIMIT,
+      );
 
       if (id !== fetchIdRef.current) return; // stale
+      setIsSyncPending(Boolean(current.sync_pending));
 
       // Merge upstream rows by display name so the same app/domain never
       // appears twice in the rendered list.
-      const appsFull = mergeByName(appsFullRaw, getAppDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
-      const domainsFull = mergeByName(domainsFullRaw, getDomainDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
+      const appsFull = mergeByName(current.apps, getAppDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
+      const domainsFull = mergeByName(current.domains, getDomainDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
 
       // Show data immediately without % changes.
       if (appsFull.length > 0) {
@@ -155,19 +157,19 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
         const priorStartDate = format(priorFrom, 'yyyy-MM-dd');
         const priorEndDate = format(priorTo, 'yyyy-MM-dd');
 
-        const [appsPriorRaw, domainsPriorRaw] = await Promise.all([
-          getTopApps({ startDate: priorStartDate, endDate: priorEndDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
-          getTopDomains({ startDate: priorStartDate, endDate: priorEndDate }, BAR_LIST_COMPARE_FETCH_LIMIT),
-        ]);
+        const prior = await getAggregatedComputerStats(
+          { startDate: priorStartDate, endDate: priorEndDate },
+          BAR_LIST_COMPARE_FETCH_LIMIT,
+        );
 
         if (id !== fetchIdRef.current) return; // stale
 
         const appsPriorByName = new Map<string, number>();
-        for (const merged of mergeByName(appsPriorRaw, getAppDisplayName)) {
+        for (const merged of mergeByName(prior.apps, getAppDisplayName)) {
           appsPriorByName.set(merged.name, merged.hours);
         }
         const domainsPriorByName = new Map<string, number>();
-        for (const merged of mergeByName(domainsPriorRaw, getDomainDisplayName)) {
+        for (const merged of mergeByName(prior.domains, getDomainDisplayName)) {
           domainsPriorByName.set(merged.name, merged.hours);
         }
 
@@ -212,6 +214,7 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       if (id === fetchIdRef.current) {
         setAppsData([]);
         setDomainsData([]);
+        setIsSyncPending(false);
       }
     }
   }, [activeRange]);
@@ -230,6 +233,10 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       data={{
         apps: appsData,
         domains: domainsData,
+      }}
+      emptyStateLabels={{
+        apps: isSyncPending ? 'Syncing activity data' : 'No data available',
+        domains: isSyncPending ? 'Syncing activity data' : 'No data available',
       }}
       showRangeSelector
       activeRange={activeRange}
