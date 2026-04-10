@@ -286,6 +286,7 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
   };
 
   return (
+    <div className="flex w-full justify-center">
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
@@ -325,6 +326,7 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+    </div>
   );
 });
 ActionsCell.displayName = 'ActionsCell';
