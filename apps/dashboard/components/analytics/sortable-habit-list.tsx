@@ -2,7 +2,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { X, LayoutDashboard } from 'lucide-react';
+import { Check, LayoutDashboard, Pencil, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -67,12 +67,15 @@ interface SortableHabitItemProps {
   isTooltipOpen: boolean;
   setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
   getHabitMetricStats: (habit: Habit) => {
+    unitLabel: string;
     sumFormatted: string;
     avgFormatted: string;
     minFormatted: string;
     maxFormatted: string;
     stdDevFormatted: string;
   };
+  onUpdateHabitUnit: (habitId: string | undefined, nextUnit: string) => Promise<void>;
+  isUpdatingUnit: boolean;
   confirmDelete: (habitId: string | undefined) => void;
   isDeleting: boolean;
 }
@@ -85,6 +88,8 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   isTooltipOpen,
   setActiveTooltip,
   getHabitMetricStats,
+  onUpdateHabitUnit,
+  isUpdatingUnit,
   confirmDelete,
   isDeleting,
 }: SortableHabitItemProps) {
@@ -106,6 +111,29 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   };
 
   const habitId = habit.id || '';
+  const [isEditingUnit, setIsEditingUnit] = React.useState(false);
+  const [unitDraft, setUnitDraft] = React.useState(habit.unit_type || '');
+
+  React.useEffect(() => {
+    if (!isEditingUnit) {
+      setUnitDraft(habit.unit_type || '');
+    }
+  }, [habit.unit_type, isEditingUnit]);
+
+  const handleSaveUnit = async () => {
+    const trimmed = unitDraft.trim();
+    if (!trimmed || trimmed === (habit.unit_type || '').trim()) {
+      setIsEditingUnit(false);
+      return;
+    }
+
+    try {
+      await onUpdateHabitUnit(habit.id, trimmed);
+      setIsEditingUnit(false);
+    } catch (error) {
+      console.error('Failed to update habit unit:', error);
+    }
+  };
 
   return (
     <div
@@ -183,6 +211,82 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
                   <span className="text-gray-900">Std Dev</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
                 </div>
+                <div className="my-2 border-t border-gray-200" />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-gray-900">Unit</span>
+                    {isEditingUnit ? null : (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setIsEditingUnit(true);
+                        }}
+                        className="inline-flex items-center gap-1 text-xs text-gray-500 transition-colors hover:text-gray-900"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                  {isEditingUnit ? (
+                    <div className="space-y-2">
+                      <input
+                        autoFocus
+                        value={unitDraft}
+                        onChange={(event) => setUnitDraft(event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleSaveUnit();
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            setIsEditingUnit(false);
+                            setUnitDraft(habit.unit_type || '');
+                          }
+                        }}
+                        placeholder="Percent or %"
+                        className="w-full rounded-sm border border-gray-300 px-2 py-1.5 text-sm text-gray-900 outline-none transition-colors focus:border-gray-500"
+                        maxLength={24}
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setIsEditingUnit(false);
+                            setUnitDraft(habit.unit_type || '');
+                          }}
+                          className="text-xs text-gray-500 transition-colors hover:text-gray-900"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleSaveUnit();
+                          }}
+                          disabled={isUpdatingUnit}
+                          className="inline-flex items-center gap-1 rounded-sm bg-black px-2 py-1 text-xs text-white disabled:opacity-50"
+                        >
+                          {isUpdatingUnit ? (
+                            <BrailleSpinner className="text-[10px] text-white" />
+                          ) : (
+                            <Check className="h-3 w-3" />
+                          )}
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-right tabular-nums text-gray-600">
+                      {s.unitLabel || 'sessions'}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })() : null}
@@ -202,12 +306,15 @@ export interface SortableHabitListProps {
   activeTooltip: string | null;
   setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
   getHabitMetricStats: (habit: Habit) => {
+    unitLabel: string;
     sumFormatted: string;
     avgFormatted: string;
     minFormatted: string;
     maxFormatted: string;
     stdDevFormatted: string;
   };
+  onUpdateHabitUnit: (habitId: string | undefined, nextUnit: string) => Promise<void>;
+  updatingHabitUnitId: string | null | undefined;
   confirmDelete: (habitId: string | undefined) => void;
   deletingHabit: string | null;
 }
@@ -222,6 +329,8 @@ function SortableHabitListInner({
   activeTooltip,
   setActiveTooltip,
   getHabitMetricStats,
+  onUpdateHabitUnit,
+  updatingHabitUnitId,
   confirmDelete,
   deletingHabit,
 }: SortableHabitListProps) {
@@ -270,6 +379,8 @@ function SortableHabitListInner({
                 isTooltipOpen={activeTooltip === habitId}
                 setActiveTooltip={setActiveTooltip}
                 getHabitMetricStats={getHabitMetricStats}
+                onUpdateHabitUnit={onUpdateHabitUnit}
+                isUpdatingUnit={updatingHabitUnitId === habitId}
                 confirmDelete={confirmDelete}
                 isDeleting={deletingHabit === habitId}
               />

@@ -42,6 +42,6 @@ export default async function DesktopBootstrapPage({
     targetParams.set('ritual_transparency_probe', '1');
   }
 
-  const redirectTarget = targetParams.toString() ? `/?${targetParams.toString()}` : '/';
+  const redirectTarget = targetParams.toString() ? `/dashboard?${targetParams.toString()}` : '/dashboard';
   redirect(redirectTarget);
 }

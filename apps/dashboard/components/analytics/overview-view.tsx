@@ -25,6 +25,7 @@ import { getComputerTimeDaily, getComputerTimeSummary } from '@/lib/computerActi
 import { auditLocalStorage, perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
+import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 
 const HabitSelectionModal = dynamic(
   () => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })),
@@ -99,7 +100,15 @@ function formatMetricAmount(value: number, unitType: string): string {
     : rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function isPercentLikeUnit(unitType: string): boolean {
+  const normalized = unitType.trim().toLowerCase();
+  return normalized.includes('percentage') || normalized === 'percent' || normalized === '%';
+}
+
 function formatMetricDisplay(value: number, unitType: string): string {
+  if (isPercentLikeUnit(unitType)) {
+    return `${formatMetricAmount(value, unitType)}%`;
+  }
   return `${formatMetricAmount(value, unitType)} ${unitType}`;
 }
 
@@ -275,6 +284,7 @@ export function OverviewView({
   const firstUsablePaintLoggedRef = useRef(false);
   const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
+  const updateHabitMutation = useUpdateHabitMutation();
 
   const overviewStatsCacheKey = useMemo(() => {
     if (!user?.id) return null;
@@ -920,7 +930,7 @@ export function OverviewView({
     ]);
 
     if (averageMetricTypes.has(metricType)) return true;
-    if (unitType.includes('percentage') || unitType === 'bpm' || unitType === '%') return true;
+    if (unitType.includes('percentage') || unitType === 'percent' || unitType === 'bpm' || unitType === '%') return true;
 
     return false;
   }, []);
@@ -1080,11 +1090,11 @@ export function OverviewView({
         display: formatMetricDisplay(displayValue, unitLabel),
         stats: {
           unitLabel,
-          sumFormatted: `${formatHabitStatNumber(total)} ${unitLabel}`,
-          avgFormatted: `${formatHabitStatNumber(average)} ${unitLabel}`,
-          minFormatted: `${formatHabitStatNumber(min)} ${unitLabel}`,
-          maxFormatted: `${formatHabitStatNumber(max)} ${unitLabel}`,
-          stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} ${unitLabel}`,
+          sumFormatted: formatMetricDisplay(total, unitLabel),
+          avgFormatted: formatMetricDisplay(average, unitLabel),
+          minFormatted: formatMetricDisplay(min, unitLabel),
+          maxFormatted: formatMetricDisplay(max, unitLabel),
+          stdDevFormatted: formatMetricDisplay(Math.sqrt(variance), unitLabel),
           daysWithData: values.filter((value) => value > 0).length,
         },
       };
@@ -1156,17 +1166,17 @@ export function OverviewView({
 
       const stats = effectiveCachedStats[habitId];
       if (stats) {
-        const unitLabel = stats.unit || habit.unit_type || 'sessions';
+        const unitLabel = habit.unit_type || stats.unit || 'sessions';
         const cachedDisplayValue = isAverageDisplayMetric(habit) ? Number(stats.average || 0) : Number(stats.total || 0);
         next.set(habitId, {
           display: formatMetricDisplay(cachedDisplayValue, unitLabel),
           stats: {
             unitLabel,
-            sumFormatted: `${formatHabitStatNumber(stats.total)} ${unitLabel}`,
-            avgFormatted: `${formatHabitStatNumber(stats.average)} ${unitLabel}`,
-            minFormatted: `${formatHabitStatNumber(stats.min)} ${unitLabel}`,
-            maxFormatted: `${formatHabitStatNumber(stats.max)} ${unitLabel}`,
-            stdDevFormatted: `${formatHabitStatNumber(stats.std_dev || Math.sqrt(stats.variance || 0))} ${unitLabel}`,
+            sumFormatted: formatMetricDisplay(Number(stats.total || 0), unitLabel),
+            avgFormatted: formatMetricDisplay(Number(stats.average || 0), unitLabel),
+            minFormatted: formatMetricDisplay(Number(stats.min || 0), unitLabel),
+            maxFormatted: formatMetricDisplay(Number(stats.max || 0), unitLabel),
+            stdDevFormatted: formatMetricDisplay(Number(stats.std_dev || Math.sqrt(stats.variance || 0)), unitLabel),
             daysWithData: stats.days_with_data,
           },
         });
@@ -1210,7 +1220,7 @@ export function OverviewView({
       if (unitType.toLowerCase().includes('minute')) {
         return `${Math.round(previewValue)} Minutes`;
       }
-      return `${formatMetricAmount(previewValue, unitType)} ${unitType}`;
+      return formatMetricDisplay(previewValue, unitType);
     }
 
     return habitMetricDataById.get(habit.id || '')?.display || `0 ${unitType}`;
@@ -1222,14 +1232,26 @@ export function OverviewView({
     const unitLabel = habit.unit_type || 'sessions';
     return habitMetricDataById.get(habit.id || '')?.stats || {
       unitLabel,
-      sumFormatted: `0 ${unitLabel}`,
-      avgFormatted: `0 ${unitLabel}`,
-      minFormatted: `0 ${unitLabel}`,
-      maxFormatted: `0 ${unitLabel}`,
-      stdDevFormatted: `0 ${unitLabel}`,
+      sumFormatted: formatMetricDisplay(0, unitLabel),
+      avgFormatted: formatMetricDisplay(0, unitLabel),
+      minFormatted: formatMetricDisplay(0, unitLabel),
+      maxFormatted: formatMetricDisplay(0, unitLabel),
+      stdDevFormatted: formatMetricDisplay(0, unitLabel),
       daysWithData: 0,
     };
   }, [habitMetricDataById]);
+
+  const handleUpdateHabitUnit = useCallback(async (habitId: string | undefined, nextUnit: string) => {
+    const trimmedUnit = nextUnit.trim();
+    if (!habitId || !trimmedUnit) return;
+
+    await updateHabitMutation.mutateAsync({
+      habitId,
+      updates: {
+        unit_type: trimmedUnit,
+      },
+    });
+  }, [updateHabitMutation]);
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {
@@ -1312,6 +1334,8 @@ export function OverviewView({
         activeTooltip={activeTooltip}
         setActiveTooltip={setActiveTooltip}
         getHabitMetricStats={getHabitMetricStats}
+        onUpdateHabitUnit={handleUpdateHabitUnit}
+        updatingHabitUnitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
         confirmDelete={confirmDelete}
         deletingHabit={deletingHabit}
       />

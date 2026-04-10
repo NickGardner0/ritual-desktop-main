@@ -206,7 +206,7 @@ fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
     let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
     let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
     let mut bootstrap_url = with_query_param(
-        &join_url_path(app_origin, "/desktop/bootstrap"),
+        &join_url_path(app_origin, "/dashboard"),
         &format!("ritual_desktop_env={}", ritual_env),
     );
 
@@ -1331,7 +1331,7 @@ fn main() {
 
         if should_use_local_shell_window() {
           let bootstrap_url_json = serde_json::to_string(&bootstrap_url)
-            .unwrap_or_else(|_| "\"https://desktop.ritualdb.com/desktop/bootstrap\"".to_string());
+            .unwrap_or_else(|_| "\"https://desktop.ritualdb.com/dashboard\"".to_string());
           let _ = window.eval(&format!("window.__RITUAL_BOOTSTRAP_URL__ = {};", bootstrap_url_json));
         }
         let _ = window.show();

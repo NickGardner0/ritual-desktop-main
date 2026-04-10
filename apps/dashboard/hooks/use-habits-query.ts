@@ -432,6 +432,88 @@ export function useCreateHabitMutation() {
 }
 
 /**
+ * Update Habit Mutation with Optimistic Metadata Updates
+ */
+export function useUpdateHabitMutation() {
+  const queryClient = useQueryClient();
+  const { user } = useUser();
+  const { getToken } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      habitId,
+      updates,
+    }: {
+      habitId: string;
+      updates: Partial<Habit>;
+    }) => {
+      const response = await fetchWithAuthRetry(
+        `${PYTHON_API_BASE}/api/habits/${habitId}`,
+        getToken,
+        {
+          method: 'PUT',
+          body: JSON.stringify(updates),
+        },
+      );
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(
+          errText
+            ? `Failed to update habit (${response.status}): ${errText}`
+            : `Failed to update habit: ${response.status}`,
+        );
+      }
+
+      return response.json() as Promise<Habit>;
+    },
+
+    onMutate: async ({ habitId, updates }) => {
+      const queryKey = habitKeys.list(user?.id || 'anonymous');
+
+      await queryClient.cancelQueries({ queryKey });
+
+      const previousHabits = queryClient.getQueryData<Habit[]>(queryKey);
+
+      if (previousHabits) {
+        queryClient.setQueryData<Habit[]>(
+          queryKey,
+          previousHabits.map((habit) =>
+            habit.id === habitId
+              ? {
+                  ...habit,
+                  ...updates,
+                }
+              : habit,
+          ),
+        );
+      }
+
+      return { previousHabits };
+    },
+
+    onError: (err, _vars, context) => {
+      console.error('❌ [React Query] Update habit failed, rolling back:', err);
+      if (context?.previousHabits) {
+        queryClient.setQueryData(
+          habitKeys.list(user?.id || 'anonymous'),
+          context.previousHabits,
+        );
+      }
+    },
+
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: habitKeys.list(user?.id || 'anonymous'),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['analytics-summary', user?.id],
+      });
+    },
+  });
+}
+
+/**
  * Delete Habit Mutation with Optimistic Update
  */
 export function useDeleteHabitMutation() {

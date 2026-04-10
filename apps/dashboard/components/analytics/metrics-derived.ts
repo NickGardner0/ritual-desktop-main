@@ -339,7 +339,7 @@ export function buildHabitMetricCardData({
     currentValue = latestValue || Number(safeSummary.current_value ?? localAverage ?? 0);
   }
 
-  const habitUnit = safeSummary.unit || habit.unit_type || habit.unit || 'count';
+  const habitUnit = habit.unit_type || safeSummary.unit || habit.unit || 'count';
   let change = computeMeaningfulPercentChange(latestValue, previousValue, habitUnit);
   let absoluteChange = latestValue - previousValue;
 
@@ -478,7 +478,7 @@ export function buildMetricsBarData({
   const barData = habits
     .map((habit) => {
       const logs = analyticsDataByHabit[habit.habit_id] || [];
-      const unit = summaryByHabit[habit.habit_id]?.unit || habit.unit_type || 'count';
+      const unit = habit.unit_type || summaryByHabit[habit.habit_id]?.unit || 'count';
       const higherIsBetter = inferHigherIsBetter(habit.habit_name, unit);
 
       const rangeLogs = logs.filter((log) => {

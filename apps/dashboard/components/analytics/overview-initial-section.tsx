@@ -84,6 +84,8 @@ function OverviewInitialSectionInner({
   getHabitMetricDisplay,
   getHabitMetricClassName,
   getHabitMetricStats,
+  onUpdateHabitUnit,
+  updatingHabitUnitId,
   confirmDelete,
   deletingHabit,
   onReorder,
@@ -165,6 +167,8 @@ function OverviewInitialSectionInner({
             activeTooltip={activeTooltip}
             setActiveTooltip={setActiveTooltip}
             getHabitMetricStats={getHabitMetricStats}
+            onUpdateHabitUnit={onUpdateHabitUnit}
+            updatingHabitUnitId={updatingHabitUnitId}
             confirmDelete={confirmDelete}
             deletingHabit={deletingHabit}
           />

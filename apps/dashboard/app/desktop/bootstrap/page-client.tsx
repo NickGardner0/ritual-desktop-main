@@ -44,7 +44,7 @@ function buildDesktopTarget(searchParams: SearchParamsInput): string {
   }
 
   const query = params.toString();
-  return query ? `/?${query}` : '/';
+  return query ? `/dashboard?${query}` : '/dashboard';
 }
 
 export function DesktopBootstrapClient({
