@@ -171,6 +171,31 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           // Respiratory & Blood
           { value: 'blood-oxygen', label: 'Blood Oxygen (SpO2)', metric_type: 'oxygen_saturation', unit: 'Percentage' },
           { value: 'respiratory-rate', label: 'Respiratory Rate', metric_type: 'respiratory_rate', unit: 'Count' },
+          // Body Measurements
+          { value: 'body-mass', label: 'Weight', metric_type: 'body_mass', unit: 'kg' },
+          { value: 'bmi', label: 'BMI', metric_type: 'body_mass_index', unit: 'Count' },
+          { value: 'body-fat', label: 'Body Fat Percentage', metric_type: 'body_fat_percentage', unit: 'Percentage' },
+          { value: 'lean-body-mass', label: 'Lean Body Mass', metric_type: 'lean_body_mass', unit: 'kg' },
+          { value: 'height', label: 'Height', metric_type: 'height', unit: 'cm' },
+          { value: 'waist', label: 'Waist Circumference', metric_type: 'waist_circumference', unit: 'cm' },
+          // Nutrition
+          { value: 'dietary-energy', label: 'Calories Consumed', metric_type: 'dietary_energy', unit: 'Calories' },
+          { value: 'dietary-protein', label: 'Protein', metric_type: 'dietary_protein', unit: 'Grams' },
+          { value: 'dietary-carbs', label: 'Carbohydrates', metric_type: 'dietary_carbs', unit: 'Grams' },
+          { value: 'dietary-fat', label: 'Fat', metric_type: 'dietary_fat', unit: 'Grams' },
+          { value: 'dietary-fiber', label: 'Fiber', metric_type: 'dietary_fiber', unit: 'Grams' },
+          { value: 'dietary-sugar', label: 'Sugar', metric_type: 'dietary_sugar', unit: 'Grams' },
+          { value: 'dietary-water', label: 'Water', metric_type: 'dietary_water', unit: 'ml' },
+          { value: 'dietary-caffeine', label: 'Caffeine', metric_type: 'dietary_caffeine', unit: 'Milligrams' },
+          // Vitals
+          { value: 'bp-systolic', label: 'Blood Pressure (Systolic)', metric_type: 'blood_pressure_systolic', unit: 'mmHg' },
+          { value: 'bp-diastolic', label: 'Blood Pressure (Diastolic)', metric_type: 'blood_pressure_diastolic', unit: 'mmHg' },
+          { value: 'blood-glucose', label: 'Blood Glucose', metric_type: 'blood_glucose', unit: 'mmol/L' },
+          { value: 'body-temp', label: 'Body Temperature', metric_type: 'body_temperature', unit: 'Celsius' },
+          // Mobility
+          { value: 'walking-speed', label: 'Walking Speed', metric_type: 'walking_speed', unit: 'm/s' },
+          { value: 'step-length', label: 'Step Length', metric_type: 'walking_step_length', unit: 'cm' },
+          { value: 'walking-asymmetry', label: 'Walking Asymmetry', metric_type: 'walking_asymmetry', unit: 'Percentage' },
           // Workouts & Mindfulness
           { value: 'workouts', label: 'Workouts', metric_type: 'workout', unit: 'Count' },
           { value: 'mindful-minutes', label: 'Mindful Minutes', metric_type: 'mindful_minutes', unit: 'Minutes' }
