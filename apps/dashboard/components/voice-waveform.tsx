@@ -8,11 +8,6 @@ import { cn } from "@/lib/utils";
 interface VoiceWaveformProps {
   isActive: boolean;
   audioStream?: MediaStream | null;
-  /** Pre-built AnalyserNode from the Deepgram hook's AudioContext.
-   *  When provided, the waveform reuses it instead of creating a second
-   *  AudioContext — fixes the first-click race condition and halves
-   *  resource usage. Falls back to self-managed AudioContext if null. */
-  externalAnalyser?: AnalyserNode | null;
   className?: string;
   barWidth?: number;
   barGap?: number;
@@ -27,7 +22,6 @@ interface VoiceWaveformProps {
 export function VoiceWaveform({
   isActive,
   audioStream,
-  externalAnalyser,
   className,
   barWidth = 3,
   barGap = 2,
@@ -72,11 +66,9 @@ export function VoiceWaveform({
     return () => resizeObserver.disconnect();
   }, []);
 
-  // Setup analyser — prefer the external one from the Deepgram hook's
-  // AudioContext so we don't create a competing second AudioContext.
-  // Falls back to self-managed AudioContext for non-Deepgram voice modes.
+  // Setup audio context from mic stream
   useEffect(() => {
-    if (!isActive) {
+    if (!audioStream || !isActive) {
       // Tear down when inactive
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
@@ -101,22 +93,6 @@ export function VoiceWaveform({
       return;
     }
 
-    // Path A: external analyser from Deepgram hook — zero extra resources
-    if (externalAnalyser) {
-      analyserRef.current = externalAnalyser;
-      return () => {
-        // Don't close — the Deepgram hook owns this AudioContext
-        analyserRef.current = null;
-        barLevelsRef.current = new Float32Array(0);
-      };
-    }
-
-    // Path B: self-managed AudioContext for Whisper/native voice modes
-    if (!audioStream) {
-      analyserRef.current = null;
-      return;
-    }
-
     const audioContext = new AudioContext();
     audioContextRef.current = audioContext;
 
@@ -128,6 +104,7 @@ export function VoiceWaveform({
     const source = audioContext.createMediaStreamSource(audioStream);
     sourceRef.current = source;
     source.connect(analyser);
+    // Don't connect to destination — we don't want to play back the mic
 
     return () => {
       source.disconnect();
@@ -137,7 +114,7 @@ export function VoiceWaveform({
       analyserRef.current = null;
       barLevelsRef.current = new Float32Array(0);
     };
-  }, [externalAnalyser, audioStream, isActive, fftSize, smoothingTimeConstant]);
+  }, [audioStream, isActive, fftSize, smoothingTimeConstant]);
 
   // Animation loop
   useEffect(() => {

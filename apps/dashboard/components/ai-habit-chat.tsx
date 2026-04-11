@@ -11,7 +11,7 @@ import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
 import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
-import { useDeepgramDictation, prefetchDeepgramToken } from '@/lib/voice/use-deepgram-dictation';
+import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -146,7 +146,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
-  const [deepgramAnalyser, setDeepgramAnalyser] = useState<AnalyserNode | null>(null);
   const [partialTranscript, setPartialTranscript] = useState<string | null>(null);
   const [mode, setMode] = useState<InputMode>('log');
   const [isUploadingScreenshot, setIsUploadingScreenshot] = useState(false);
@@ -1004,8 +1003,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   // Swift path, actually lets us do audio-level VAD because we own the mic.
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
-  const deepgramVoicePreferred =
-    (process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'deepgram') === 'deepgram';
+  const deepgramVoicePreferred = false;
 
   const {
     start: startDeepgramDictation,
@@ -1017,9 +1015,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     punctuate: false,
     smartFormat: false,
     numerals: true,
-    endpointingMs: 350,
-    utteranceEndMs: 900,
-    commitStabilityMs: 400,
+    endpointingMs: 900,
+    utteranceEndMs: 1600,
     maxDurationMs: 15000,
     keyterms: [
       'Ritual',
@@ -1039,7 +1036,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       'miles',
     ],
     onAudioStreamChange: setAudioStream,
-    onAnalyserNode: setDeepgramAnalyser,
     onListeningChange: setIsListening,
     onProcessingChange: setIsProcessingVoice,
     onInterimTranscriptChange: (text) => {
@@ -1050,7 +1046,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       partialTranscriptRef.current = null;
       setPartialTranscript(null);
       setInput(normalizeLoggerVoiceTranscript(text));
-      setTimeout(() => textareaRef.current?.focus(), 0);
+      setTimeout(() => textareaRef.current?.focus(), 100);
     },
     onError: setError,
   });
@@ -1208,52 +1204,50 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     setError(null);
 
-    // Desktop: Deepgram is the primary path. Whisper is only used when
-    // streaming dictation support is unavailable, not as a silent startup
-    // fallback for a failed first attempt.
-    if (isTauri()) {
-      if (deepgramSupported) {
-        try {
-          voiceInputModeRef.current = 'deepgram';
-          await startDeepgramDictation();
-          return;
-        } catch (err: any) {
-          voiceInputModeRef.current = null;
-          setIsListening(false);
-          setIsProcessingVoice(false);
-          setError(
-            err?.name === 'NotAllowedError'
-              ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
-              : err?.message || 'Voice logging failed. Please try again.',
-          );
-          return;
-        }
+    if (deepgramVoicePreferred && deepgramSupported) {
+      try {
+        voiceInputModeRef.current = 'deepgram';
+        await startDeepgramDictation();
+        return;
+      } catch {
+        voiceInputModeRef.current = null;
+        setIsListening(false);
+        setIsProcessingVoice(false);
       }
-      if (whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
-        try {
-          await startWhisperRecording();
-          return;
-        } catch {
-          voiceInputModeRef.current = null;
-          setIsListening(false);
-          setIsProcessingVoice(false);
-        }
+    }
+
+    if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
+      try {
+        await startWhisperRecording();
+        return;
+      } catch {
+        voiceInputModeRef.current = null;
+        setIsListening(false);
+        setIsProcessingVoice(false);
+      }
+    }
+
+    if (isTauri()) {
+      try {
+        await startNativeVoiceRecognition();
+        return;
+      } catch {
+        await resetNativeVoiceSession().catch(() => undefined);
+        setIsListening(false);
+        setIsProcessingVoice(false);
+        voiceInputModeRef.current = null;
       }
     }
 
     try {
-      if (deepgramVoicePreferred && deepgramSupported) {
-        voiceInputModeRef.current = 'deepgram';
-        await startDeepgramDictation();
-        return;
-      }
       await startWhisperRecording();
     } catch (err: any) {
       voiceInputModeRef.current = null;
+      const nativeMessage = getNativeSpeechErrorMessage(err);
       setError(
         err?.name === 'NotAllowedError'
           ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
-          : err?.message || 'Voice logging failed. Please try again.',
+          : formatNativeSpeechError(nativeMessage),
       );
       setIsListening(false);
       setIsProcessingVoice(false);
@@ -1886,7 +1880,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               {isListening && audioStream ? (
                 <div className="w-full flex flex-col items-center justify-center gap-1">
                   <div className="w-full h-[42px] flex items-center justify-center">
-                    <VoiceWaveform isActive={true} audioStream={audioStream} externalAnalyser={deepgramAnalyser} className="h-10 w-full" />
+                    <VoiceWaveform isActive={true} audioStream={audioStream} className="h-10 w-full" />
                   </div>
                 </div>
               ) : isListening || isProcessingVoice ? (
@@ -2021,7 +2015,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                         : "text-gray-600 hover:text-gray-800"
                     )}
                     onClick={startVoiceRecognition}
-                    onPointerEnter={prefetchDeepgramToken}
                     aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
                   >
                     {isListening ? (
