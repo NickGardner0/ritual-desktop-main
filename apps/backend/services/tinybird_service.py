@@ -9,10 +9,77 @@ import asyncio
 import time
 import logging
 import httpx
+from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+class CircuitBreaker:
+    """
+    Simple circuit breaker: CLOSED → OPEN → HALF_OPEN → CLOSED.
+
+    CLOSED:    normal operation. Track failures in a sliding window.
+    OPEN:      5 failures within `window_s` → stop calling, buffer events.
+    HALF_OPEN: after `cooldown_s`, allow one probe call.
+               Success → CLOSED (drain buffer). Failure → OPEN.
+    """
+
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        window_s: float = 60.0,
+        cooldown_s: float = 30.0,
+        buffer_maxlen: int = 1000,
+    ):
+        self.failure_threshold = failure_threshold
+        self.window_s = window_s
+        self.cooldown_s = cooldown_s
+
+        self.state = self.CLOSED
+        self._failures: List[float] = []  # timestamps of recent failures
+        self._opened_at: float = 0.0
+        self.buffer: deque = deque(maxlen=buffer_maxlen)
+
+    def record_failure(self) -> None:
+        now = time.monotonic()
+        self._failures.append(now)
+        # Trim failures outside the sliding window
+        cutoff = now - self.window_s
+        self._failures = [t for t in self._failures if t > cutoff]
+
+        if len(self._failures) >= self.failure_threshold:
+            logger.warning(
+                "CircuitBreaker OPEN — %d failures in %.0fs",
+                len(self._failures),
+                self.window_s,
+            )
+            self.state = self.OPEN
+            self._opened_at = now
+
+    def record_success(self) -> None:
+        if self.state == self.HALF_OPEN:
+            logger.info("CircuitBreaker CLOSED — probe succeeded")
+            self.state = self.CLOSED
+            self._failures.clear()
+
+    def allow_request(self) -> bool:
+        if self.state == self.CLOSED:
+            return True
+        if self.state == self.OPEN:
+            if time.monotonic() - self._opened_at >= self.cooldown_s:
+                logger.info("CircuitBreaker HALF_OPEN — allowing probe")
+                self.state = self.HALF_OPEN
+                return True
+            return False
+        # HALF_OPEN — only one probe at a time; block additional calls
+        return False
+
 
 class TinybirdService:
     """Service for Tinybird operations"""
@@ -30,11 +97,19 @@ class TinybirdService:
         
         if not self.token:
             raise ValueError(f"Tinybird token not found for environment: {'cloud' if self.use_cloud else 'local'}")
-        
+
         self.headers = {
             'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json'
         }
+
+        # Circuit breaker for write operations
+        self._breaker = CircuitBreaker(
+            failure_threshold=5,
+            window_s=60.0,
+            cooldown_s=30.0,
+            buffer_maxlen=1000,
+        )
 
     def _format_utc_datetime(self, dt_value: Optional[Any], fallback: Optional[datetime] = None) -> str:
         if dt_value is None:
@@ -186,42 +261,114 @@ class TinybirdService:
                 await asyncio.sleep(interval_seconds)
                 interval_seconds = min(max_interval_seconds, interval_seconds * 1.35)
     
+    async def _drain_buffer(self) -> None:
+        """Send buffered events that accumulated while circuit was open.
+
+        Events are only removed from the buffer after successful ingestion.
+        If a datasource batch fails, its events stay in the deque and the
+        breaker is reopened so a future probe retries them.
+        """
+        if not self._breaker.buffer:
+            return
+
+        # Snapshot and group by datasource
+        items = list(self._breaker.buffer)
+        logger.info("Draining %d buffered Tinybird events", len(items))
+
+        by_ds: Dict[str, List[Dict[str, Any]]] = {}
+        for ds, evt in items:
+            by_ds.setdefault(ds, []).append(evt)
+
+        failed_items: list = []
+        for ds, evts in by_ds.items():
+            try:
+                result = await self._raw_ingest(ds, evts)
+                if not result.get("success"):
+                    logger.warning(
+                        "Drain failed for %s (%d events): %s",
+                        ds, len(evts), result.get("error", "unknown"),
+                    )
+                    failed_items.extend((ds, e) for e in evts)
+            except Exception as exc:
+                logger.warning("Drain exception for %s: %s", ds, exc)
+                failed_items.extend((ds, e) for e in evts)
+
+        # Replace buffer contents: keep only events that failed to send
+        self._breaker.buffer.clear()
+        for pair in failed_items:
+            self._breaker.buffer.append(pair)
+
+        if failed_items:
+            logger.warning(
+                "Drain incomplete — %d events remain buffered, reopening breaker",
+                len(failed_items),
+            )
+            self._breaker.state = CircuitBreaker.OPEN
+            self._breaker._opened_at = time.monotonic()
+
+    async def _raw_ingest(self, datasource: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Low-level HTTP POST to Tinybird Events API (no circuit breaker)."""
+        ndjson = '\n'.join([json.dumps(event) for event in events])
+        url = f"{self.base_url}/v0/events?name={datasource}"
+        event_headers = dict(self.headers)
+        event_headers['Content-Type'] = 'application/x-ndjson'
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(url, headers=event_headers, content=ndjson)
+
+        if response.status_code in (200, 202):
+            return {
+                'success': True,
+                'count': len(events),
+                'message': f'Successfully ingested {len(events)} events to {datasource}',
+            }
+        return {
+            'success': False,
+            'error': response.text,
+            'status_code': response.status_code,
+        }
+
     async def ingest_events(self, datasource: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Ingest events to Tinybird Events API
+        Ingest events to Tinybird Events API with circuit breaker protection.
         """
+        if not self._breaker.allow_request():
+            # Buffer events for later drain
+            for evt in events:
+                self._breaker.buffer.append((datasource, evt))
+            logger.warning(
+                "CircuitBreaker OPEN — buffered %d events for %s (%d in buffer)",
+                len(events), datasource, len(self._breaker.buffer),
+            )
+            return {
+                'success': True,
+                'count': len(events),
+                'message': f'Buffered {len(events)} events (circuit open)',
+                'buffered': True,
+            }
+
         try:
-            # Convert events to NDJSON format
-            ndjson = '\n'.join([json.dumps(event) for event in events])
-            
-            url = f"{self.base_url}/v0/events?name={datasource}"
-            event_headers = dict(self.headers)
-            event_headers['Content-Type'] = 'application/x-ndjson'
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    url,
-                    headers=event_headers,
-                    content=ndjson
-                )
-                
-                if response.status_code in (200, 202):
-                    return {
-                        'success': True,
-                        'count': len(events),
-                        'message': f'Successfully ingested {len(events)} events to {datasource}'
-                    }
-                else:
-                    return {
-                        'success': False,
-                        'error': response.text,
-                        'status_code': response.status_code
-                    }
-                    
+            result = await self._raw_ingest(datasource, events)
+
+            if result.get('success'):
+                self._breaker.record_success()
+                # If circuit just closed, drain any buffered events
+                if self._breaker.state == CircuitBreaker.CLOSED and self._breaker.buffer:
+                    asyncio.create_task(self._drain_buffer())
+            else:
+                self._breaker.record_failure()
+
+            return result
+
         except Exception as e:
+            self._breaker.record_failure()
+            # Buffer on failure so events aren't lost
+            for evt in events:
+                self._breaker.buffer.append((datasource, evt))
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'buffered': True,
             }
     
     async def query_pipe(self, pipe_name: str, params: Dict[str, Any] = None) -> Dict[str, Any]:

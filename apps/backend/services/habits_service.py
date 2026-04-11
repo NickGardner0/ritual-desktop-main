@@ -6,6 +6,7 @@ Used by the FastAPI routers for habits and habit logs.
 import uuid
 import logging
 import json
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,7 +64,76 @@ class HabitsService:
             integration_source == "whoop"
             and (metric_type in {"heart_rate", "hr"} or habit_name == "heart rate")
         )
-    
+
+    async def _safe_background_task(self, coro, task_name: str):
+        """Wrapper for fire-and-forget background tasks with error logging."""
+        try:
+            await coro
+        except Exception as e:
+            logger.error("Background task '%s' failed: %s", task_name, e)
+
+    def _fire_habit_log_side_effects(
+        self, habit_log: HabitLog, habit: Habit, user_id: str
+    ):
+        """Fire-and-forget Tinybird sync, Typesense indexing, and WebSocket notification for a habit log."""
+        if self.tinybird_enabled:
+            asyncio.create_task(
+                self._safe_background_task(
+                    self._sync_habit_log_to_tinybird(habit_log, habit, user_id),
+                    f"tinybird_sync_log:{habit_log.id}",
+                )
+            )
+
+        async def _index_log():
+            from services.search_service import search_service
+            await search_service.index_habit_log(
+                habit_log.model_dump(),
+                user_id,
+                habit_name=habit.name,
+                category=habit.category,
+            )
+
+        asyncio.create_task(
+            self._safe_background_task(_index_log(), f"typesense_index_log:{habit_log.id}")
+        )
+
+        asyncio.create_task(
+            self._safe_background_task(
+                websocket_manager.notify_habit_logged(
+                    {
+                        "id": habit_log.id,
+                        "habit_id": habit_log.habit_id,
+                        "habit_name": habit_log.habit_name,
+                        "date": habit_log.date,
+                        "completed_at": habit_log.completed_at,
+                        "amount": habit_log.amount,
+                        "duration": habit_log.duration,
+                        "status": habit_log.status,
+                    },
+                    user_id,
+                ),
+                f"websocket_notify_log:{habit_log.id}",
+            )
+        )
+
+    def _fire_habit_definition_side_effects(self, habit: Habit, user_id: str):
+        """Fire-and-forget Tinybird sync and Typesense indexing for a habit definition."""
+        if self.tinybird_enabled:
+            asyncio.create_task(
+                self._safe_background_task(
+                    self._sync_habit_to_tinybird(habit),
+                    f"tinybird_sync_habit:{habit.id}",
+                )
+            )
+
+        async def _index_habit():
+            from services.search_service import search_service
+            await search_service.index_habit(habit.model_dump(), user_id)
+
+        asyncio.create_task(
+            self._safe_background_task(_index_habit(), f"typesense_index_habit:{habit.id}")
+        )
+
     async def create_habit(self, habit_data: HabitCreate, user_id: str) -> Habit:
         """
         Create a new habit - mirrors habitsService.createHabit()
@@ -109,21 +179,9 @@ class HabitsService:
                 
                 # Convert to Pydantic model
                 habit = habit_db_to_pydantic(habit_db)
-                
-                # Sync to Tinybird (async, non-blocking)
-                if self.tinybird_enabled:
-                    try:
-                        await self._sync_habit_to_tinybird(habit)
-                        logger.info(f"📊 Habit '{habit.name}' synced to Tinybird")
-                    except Exception as e:
-                        logger.warning(f"⚠️  Tinybird sync failed for habit '{habit.name}': {e}")
-                
-                # Index to Typesense for search (async, non-blocking)
-                try:
-                    from services.search_service import search_service
-                    await search_service.index_habit(habit.model_dump(), user_id)
-                except Exception as e:
-                    logger.warning(f"⚠️  Search index failed for habit '{habit.name}': {e}")
+
+                # Fire-and-forget: Tinybird sync + Typesense indexing (background)
+                self._fire_habit_definition_side_effects(habit, user_id)
 
                 if self._is_whoop_heart_rate_habit(habit):
                     try:
@@ -225,7 +283,10 @@ class HabitsService:
                 updated_habit = await self.get_habit_by_id(habit_id, user_id)
                 if not updated_habit:
                     raise Exception("Habit not found or not authorized")
-                
+
+                # Sync updated name/unit/category/icon to analytics + search
+                self._fire_habit_definition_side_effects(updated_habit, user_id)
+
                 return updated_habit
                 
             except SQLAlchemyError as e:
@@ -307,53 +368,10 @@ class HabitsService:
                 await session.refresh(log_db)
                 
                 habit_log = habit_log_db_to_pydantic(log_db)
-                
-                # Sync to Tinybird (async, non-blocking)
-                if self.tinybird_enabled:
-                    try:
-                        logger.info(f"🔄 Syncing habit log for '{habit.name}' to Tinybird...")
-                        result = await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
-                        if result and result.get('success'):
-                            logger.info(f"✅ Habit log for '{habit.name}' synced to Tinybird ({result.get('count', 0)} events)")
-                        else:
-                            logger.error(f"❌ Tinybird sync failed for habit log: {result.get('error', 'Unknown error')}")
-                            logger.error(f"❌ Tinybird response: {result}")
-                    except Exception as e:
-                        logger.error(f"❌ Tinybird sync exception for habit log: {e}")
-                        import traceback
-                        traceback.print_exc()
-                else:
-                    logger.warning(f"⚠️  Tinybird sync disabled - habit log NOT synced to analytics")
-                
-                # Index to Typesense for search (async, non-blocking)
-                try:
-                    from services.search_service import search_service
-                    await search_service.index_habit_log(
-                        habit_log.model_dump(),
-                        user_id,
-                        habit_name=habit.name,
-                        category=habit.category
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️  Search index failed for habit log: {e}")
 
-                try:
-                    await websocket_manager.notify_habit_logged(
-                        {
-                            "id": habit_log.id,
-                            "habit_id": habit_log.habit_id,
-                            "habit_name": habit_log.habit_name,
-                            "date": habit_log.date,
-                            "completed_at": habit_log.completed_at,
-                            "amount": habit_log.amount,
-                            "duration": habit_log.duration,
-                            "status": habit_log.status,
-                        },
-                        user_id,
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️  Realtime habit notification failed: {e}")
-                
+                # Fire-and-forget: Tinybird + Typesense + WebSocket (background)
+                self._fire_habit_log_side_effects(habit_log, habit, user_id)
+
                 return habit_log
                 
             except SQLAlchemyError as e:
@@ -420,25 +438,8 @@ class HabitsService:
 
                 habit_log = habit_log_db_to_pydantic(log_db)
 
-                if self.tinybird_enabled:
-                    try:
-                        await self._sync_habit_log_to_tinybird(habit_log, habit, user_id)
-                    except Exception as e:
-                        logger.warning(
-                            "⚠️ Tinybird sync failed for rollup log %s: %s", log_db.id, e
-                        )
-
-                try:
-                    from services.search_service import search_service
-
-                    await search_service.index_habit_log(
-                        habit_log.model_dump(),
-                        user_id,
-                        habit_name=habit.name,
-                        category=habit.category,
-                    )
-                except Exception as e:
-                    logger.warning("⚠️ Search index failed for rollup log: %s", e)
+                # Fire-and-forget: Tinybird + Typesense + WebSocket (background)
+                self._fire_habit_log_side_effects(habit_log, habit, user_id)
 
                 return habit_log
             except SQLAlchemyError as e:
@@ -544,7 +545,10 @@ class HabitsService:
                         "habit_name": habit.name
                     })
 
-                # Sync to Tinybird for all created logs
+                # Fire-and-forget background side effects for each log.
+                # Tinybird gets a single batch call; Typesense indexes per-log.
+                # WebSocket is intentionally skipped for batch — callers
+                # (AI log, bulk import) don't need real-time UI push.
                 if self.tinybird_enabled and prepared_logs:
                     batch_payload = [
                         {
@@ -566,16 +570,29 @@ class HabitsService:
                         }
                         for _, log_db, habit in prepared_logs
                     ]
-                    try:
-                        result = await self.tinybird.ingest_habit_logs_batch(batch_payload)
-                        if not result.get("success"):
-                            logger.warning(
-                                "⚠️ Tinybird batch sync failed for batch_log_habits: %s",
-                                result.get("errors") or result.get("error"),
-                            )
-                    except Exception as e:
-                        logger.warning(f"⚠️ Tinybird batch sync failed for batch_log_habits: {e}")
-                
+                    asyncio.create_task(
+                        self._safe_background_task(
+                            self.tinybird.ingest_habit_logs_batch(batch_payload),
+                            "tinybird_batch_sync",
+                        )
+                    )
+
+                # Typesense search indexing for each log
+                for _, log_db, habit in prepared_logs:
+                    async def _index_batch_log(log_row=log_db, h=habit):
+                        from services.search_service import search_service
+                        log = habit_log_db_to_pydantic(log_row)
+                        await search_service.index_habit_log(
+                            log.model_dump(), user_id,
+                            habit_name=h.name, category=h.category,
+                        )
+                    asyncio.create_task(
+                        self._safe_background_task(
+                            _index_batch_log(),
+                            f"typesense_index_batch_log:{log_db.id}",
+                        )
+                    )
+
                 return {
                     "success": True,
                     "results": results,

@@ -18,7 +18,7 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
 import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
-import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
+import { useDeepgramDictation, prefetchDeepgramToken } from '@/lib/voice/use-deepgram-dictation';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -841,6 +841,7 @@ export function ChatClient() {
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const [deepgramAnalyser, setDeepgramAnalyser] = useState<AnalyserNode | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [partialTranscript, setPartialTranscript] = useState<string | null>(null);
   // Mirror of partialTranscript readable from stale closures (poll loop, auto-stop).
@@ -1776,8 +1777,9 @@ export function ChatClient() {
       punctuate: false,
       smartFormat: false,
       numerals: true,
-      endpointingMs: 900,
-      utteranceEndMs: 1600,
+      endpointingMs: 350,
+      utteranceEndMs: 900,
+      commitStabilityMs: 400,
       maxDurationMs: 15000,
       keyterms: [
         'Ritual',
@@ -1797,6 +1799,7 @@ export function ChatClient() {
         'miles',
       ],
       onAudioStreamChange: setAudioStream,
+      onAnalyserNode: setDeepgramAnalyser,
       onListeningChange: setIsListening,
       onProcessingChange: setIsProcessingVoice,
       onInterimTranscriptChange: (text) => {
@@ -1807,7 +1810,7 @@ export function ChatClient() {
         partialTranscriptRef.current = null;
         setPartialTranscript(null);
         setInput(normalizeVoiceTranscript(text));
-        setTimeout(() => textareaRef.current?.focus(), 100);
+        setTimeout(() => textareaRef.current?.focus(), 0);
       },
       onError: setVoiceError,
     });
@@ -1958,16 +1961,7 @@ export function ChatClient() {
 
     setVoiceError(null);
     if (isTauri()) {
-      try {
-        await startNativeVoiceRecognition();
-        return;
-      } catch {
-        await resetNativeVoiceSession().catch(() => undefined);
-        voiceInputModeRef.current = null;
-        setIsListening(false);
-        setIsProcessingVoice(false);
-      }
-      if (deepgramVoicePreferred && deepgramSupported) {
+      if (deepgramSupported) {
         try {
           voiceInputModeRef.current = 'deepgram';
           await startDeepgramDictation();
@@ -1999,11 +1993,10 @@ export function ChatClient() {
       await startWhisperRecording();
     } catch (err: any) {
       voiceInputModeRef.current = null;
-      const nativeMessage = getNativeSpeechErrorMessage(err);
       setVoiceError(
         err?.name === 'NotAllowedError'
           ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
-          : formatNativeSpeechError(nativeMessage),
+          : err?.message || 'Voice mode failed. Please try again.',
       );
       setIsListening(false);
       setIsProcessingVoice(false);
@@ -2163,7 +2156,7 @@ export function ChatClient() {
                   {isListening && (
                     <div className="px-4 pb-1 flex flex-col items-center gap-1">
                       <div className="h-8 w-full max-w-[280px]">
-                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.9} barWidth={4} barGap={2} />
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} externalAnalyser={deepgramAnalyser} sensitivity={2.9} barWidth={4} barGap={2} />
                       </div>
                     </div>
                   )}
@@ -2173,6 +2166,7 @@ export function ChatClient() {
                         <button
                           type="button"
                           onClick={startVoiceRecognition}
+                          onPointerEnter={prefetchDeepgramToken}
                           disabled={isLoading}
                           className={cn(
                             "w-8 h-8 flex items-center justify-center transition-all duration-200",
@@ -2391,7 +2385,7 @@ export function ChatClient() {
                   {isListening && (
                     <div className="px-5 pb-1 flex justify-center">
                       <div className="h-8 w-full max-w-[280px]">
-                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.9} barWidth={4} barGap={2} />
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} externalAnalyser={deepgramAnalyser} sensitivity={2.9} barWidth={4} barGap={2} />
                       </div>
                     </div>
                   )}
@@ -2564,7 +2558,7 @@ export function ChatClient() {
                   {isListening && (
                     <div className="px-4 pb-1 flex flex-col items-center gap-1">
                       <div className="h-8 w-full max-w-[280px]">
-                        <VoiceWaveform isActive={isListening} audioStream={audioStream} sensitivity={2.9} barWidth={4} barGap={2} />
+                        <VoiceWaveform isActive={isListening} audioStream={audioStream} externalAnalyser={deepgramAnalyser} sensitivity={2.9} barWidth={4} barGap={2} />
                       </div>
                     </div>
                   )}

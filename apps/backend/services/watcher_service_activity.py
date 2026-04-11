@@ -30,6 +30,40 @@ from services.watcher_service_computer_activity import (
 logger = logging.getLogger(__name__)
 
 
+def rollup_key_from_row(row) -> tuple:
+    """Build the composite key used to match existing DB rows to computed rollups.
+
+    The key must stay in sync with the event-aggregation key built during
+    rollup computation (see compute_daily_activity_rollup_impl).
+    """
+    return (row.device_id, row.app_bundle_id, row.window_title or "")
+
+
+def merge_rollups_with_existing(
+    rollups: Dict,
+    existing_rows: list,
+    now_ms: int,
+) -> tuple:
+    """Pure merge: returns (updates, inserts) lists.
+
+    ``updates`` — list of (existing_row, data) tuples where the row should be patched.
+    ``inserts`` — list of data dicts that have no matching existing row.
+    """
+    existing_map = {}
+    for row in existing_rows:
+        existing_map[rollup_key_from_row(row)] = row
+
+    updates = []
+    inserts = []
+    for key, data in rollups.items():
+        existing = existing_map.get(key)
+        if existing:
+            updates.append((existing, data))
+        else:
+            inserts.append(data)
+    return updates, inserts
+
+
 def _rank_top_apps_from_daily_rows(
     daily_rows: List[Dict[str, Any]],
     limit: int,
@@ -408,37 +442,42 @@ async def compute_daily_rollup_impl(
                 rollups[key]["active_ms"] += duration_ms
                 rollups[key]["events_count"] += 1
 
-        for _, data in rollups.items():
-            result = await session.execute(
-                select(DailyActivityRollupDB).where(
-                    DailyActivityRollupDB.user_id == user_id,
-                    DailyActivityRollupDB.device_id == data["device_id"],
-                    DailyActivityRollupDB.day == day,
-                    DailyActivityRollupDB.app_bundle_id == data["app_bundle_id"],
-                    DailyActivityRollupDB.window_title == data["window_title"],
-                )
+        # Bulk fetch all existing rollups for this user+day in ONE query
+        # instead of N individual SELECTs (was N+1 pattern).
+        device_ids = list(set(d["device_id"] for d in rollups.values()))
+        existing_result = await session.execute(
+            select(DailyActivityRollupDB).where(
+                DailyActivityRollupDB.user_id == user_id,
+                DailyActivityRollupDB.day == day,
+                DailyActivityRollupDB.device_id.in_(device_ids),
             )
-            existing = result.scalar_one_or_none()
+        )
+        existing_rows = existing_result.scalars().all()
 
-            if existing:
-                existing.active_ms = data["active_ms"]
-                existing.events_count = data["events_count"]
-                existing.updated_at = now_ms
-            else:
-                rollup = DailyActivityRollupDB(
-                    day=day,
-                    device_id=data["device_id"],
-                    user_id=user_id,
-                    app_bundle_id=data["app_bundle_id"],
-                    app_name=data["app_name"],
-                    window_title=data["window_title"],
-                    window_title_hash=data["window_title_hash"],
-                    active_ms=data["active_ms"],
-                    events_count=data["events_count"],
-                    created_at=now_ms,
-                    updated_at=now_ms,
-                )
-                session.add(rollup)
+        updates, inserts = merge_rollups_with_existing(
+            rollups, existing_rows, now_ms,
+        )
+
+        for existing, data in updates:
+            existing.active_ms = data["active_ms"]
+            existing.events_count = data["events_count"]
+            existing.updated_at = now_ms
+
+        for data in inserts:
+            rollup = DailyActivityRollupDB(
+                day=day,
+                device_id=data["device_id"],
+                user_id=user_id,
+                app_bundle_id=data["app_bundle_id"],
+                app_name=data["app_name"],
+                window_title=data["window_title"],
+                window_title_hash=data["window_title_hash"],
+                active_ms=data["active_ms"],
+                events_count=data["events_count"],
+                created_at=now_ms,
+                updated_at=now_ms,
+            )
+            session.add(rollup)
 
         await session.commit()
 

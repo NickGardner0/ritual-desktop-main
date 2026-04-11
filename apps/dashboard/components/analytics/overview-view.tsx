@@ -886,7 +886,7 @@ export function OverviewView({
       }
       fetchHabits();
       fetchHabitLogs();
-    }, 30_000);
+    }, 60_000);
 
     return () => clearInterval(retryTimer);
   }, [user, isBackendUnavailable, fetchHabits, fetchHabitLogs]);

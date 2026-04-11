@@ -11,7 +11,7 @@ import { habitLogKeys } from '@/hooks/use-habits-query';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
-const DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS = 30_000;
+const DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS = 60_000;
 
 interface RuntimeBridgeSignalsResponse {
   token_refresh_request?: number;

@@ -9,8 +9,11 @@ type DeepgramDictationOptions = {
   endpointingMs?: number;
   utteranceEndMs?: number;
   maxDurationMs?: number;
+  /** Auto-commit after is_final stability (ms). 0 = wait for UtteranceEnd. */
+  commitStabilityMs?: number;
   keyterms?: string[];
   onAudioStreamChange?: (stream: MediaStream | null) => void;
+  onAnalyserNode?: (node: AnalyserNode | null) => void;
   onListeningChange?: (listening: boolean) => void;
   onProcessingChange?: (processing: boolean) => void;
   onInterimTranscriptChange?: (text: string | null) => void;
@@ -72,25 +75,57 @@ function downsampleChunk(
   return Int16Array.from(samples);
 }
 
+// ---------------------------------------------------------------------------
+// Token cache — avoids 200-800ms round-trip on every voice session.
+// Token TTL is 120s; we refresh with a 15s safety margin.
+// ---------------------------------------------------------------------------
+
+let cachedToken: string | null = null;
+let cachedTokenExpiry = 0;
+let tokenFetchPromise: Promise<string> | null = null;
+
 async function fetchDeepgramToken(): Promise<string> {
-  const response = await fetch('/api/deepgram/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    throw new Error(payload?.error || 'Deepgram token request failed');
+  const now = Date.now();
+  if (cachedToken && now < cachedTokenExpiry) {
+    return cachedToken;
   }
 
-  const payload = await response.json();
-  if (!payload?.token) {
-    throw new Error('Deepgram token response missing token');
-  }
+  // Deduplicate concurrent fetches
+  if (tokenFetchPromise) return tokenFetchPromise;
 
-  return payload.token as string;
+  tokenFetchPromise = (async () => {
+    try {
+      const response = await fetch('/api/deepgram/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Deepgram token request failed');
+      }
+
+      const payload = await response.json();
+      if (!payload?.token) {
+        throw new Error('Deepgram token response missing token');
+      }
+
+      cachedToken = payload.token as string;
+      const ttl = (payload.expiresIn ?? 120) as number;
+      // Refresh 15s before expiry to avoid using a stale token
+      cachedTokenExpiry = Date.now() + (ttl - 15) * 1000;
+      return cachedToken;
+    } finally {
+      tokenFetchPromise = null;
+    }
+  })();
+
+  return tokenFetchPromise;
+}
+
+/** Pre-warm the token cache. Call on mic button hover or component mount. */
+export function prefetchDeepgramToken(): void {
+  fetchDeepgramToken().catch(() => {});
 }
 
 export function useDeepgramDictation(options: DeepgramDictationOptions) {
@@ -100,8 +135,10 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioNodeRef = useRef<AudioWorkletNode | ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const timeoutRef = useRef<number | null>(null);
+  const commitTimerRef = useRef<number | null>(null);
   const activeRef = useRef(false);
   const manualStopRef = useRef(false);
   const queuedChunksRef = useRef<ArrayBuffer[]>([]);
@@ -129,17 +166,26 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     }
   }, []);
 
+  const clearCommitTimer = useCallback(() => {
+    if (commitTimerRef.current) {
+      window.clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+  }, []);
+
   const cleanup = useCallback(
     async ({ suppressError = true }: { suppressError?: boolean } = {}) => {
       activeRef.current = false;
       manualStopRef.current = false;
       sessionIdRef.current = 0;
       clearTimer();
+      clearCommitTimer();
       queuedChunksRef.current = [];
       segmentBufferRef.current = [];
       interimRef.current = '';
       optionsRef.current.onInterimTranscriptChange?.(null);
       optionsRef.current.onAudioStreamChange?.(null);
+      optionsRef.current.onAnalyserNode?.(null);
       optionsRef.current.onListeningChange?.(false);
       optionsRef.current.onProcessingChange?.(false);
 
@@ -161,6 +207,9 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         audioNodeRef.current?.disconnect();
       } catch {}
       try {
+        analyserNodeRef.current?.disconnect();
+      } catch {}
+      try {
         sourceNodeRef.current?.disconnect();
       } catch {}
       try {
@@ -173,6 +222,7 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       } catch {}
 
       audioNodeRef.current = null;
+      analyserNodeRef.current = null;
       sourceNodeRef.current = null;
       gainNodeRef.current = null;
       audioContextRef.current = null;
@@ -182,7 +232,7 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         streamRef.current = null;
       }
     },
-    [clearTimer],
+    [clearTimer, clearCommitTimer],
   );
 
   const commitBufferedTranscript = useCallback(() => {
@@ -197,9 +247,10 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
   }, []);
 
   const finalizeAndStop = useCallback(async () => {
+    clearCommitTimer();
     commitBufferedTranscript();
     await cleanup();
-  }, [cleanup, commitBufferedTranscript]);
+  }, [cleanup, clearCommitTimer, commitBufferedTranscript]);
 
   const stop = useCallback(() => {
     if (!activeRef.current) return;
@@ -222,6 +273,15 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
 
     const source = audioContext.createMediaStreamSource(stream);
     sourceNodeRef.current = source;
+
+    // Single AnalyserNode shared with the waveform visualizer — eliminates
+    // the second AudioContext that VoiceWaveform used to create on its own.
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.22;
+    analyserNodeRef.current = analyser;
+    source.connect(analyser);
+    optionsRef.current.onAnalyserNode?.(analyser);
 
     const gainNode = audioContext.createGain();
     gainNode.gain.value = 0;
@@ -292,6 +352,11 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     segmentBufferRef.current = [];
     interimRef.current = '';
 
+    // Kick off token fetch in parallel with getUserMedia + audio pipeline.
+    // This overlaps the ~200-800ms token round-trip with the ~100-500ms
+    // mic permission + AudioContext setup, eliminating the serial waterfall.
+    const tokenPromise = fetchDeepgramToken();
+
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -305,7 +370,6 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       return;
     }
     streamRef.current = stream;
-    optionsRef.current.onAudioStreamChange?.(stream);
 
     try {
       await connectAudioPipeline(stream);
@@ -318,13 +382,17 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       return;
     }
 
+    // Emit stream + listening state together so the waveform effect sees
+    // both on the same React render — fixes the first-click race condition
+    // where audioStream arrived before isActive.
+    optionsRef.current.onAudioStreamChange?.(stream);
     activeRef.current = true;
     optionsRef.current.onListeningChange?.(true);
     optionsRef.current.onProcessingChange?.(false);
 
     let token: string;
     try {
-      token = await fetchDeepgramToken();
+      token = await tokenPromise;
     } catch (error) {
       await cleanup();
       throw error;
@@ -389,10 +457,14 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       };
     });
 
+    const commitStabilityMs = optionsRef.current.commitStabilityMs ?? 0;
+
     ws.onmessage = (event) => {
       const payload = JSON.parse(String(event.data)) as DeepgramListenResult;
 
       if (payload.type === 'SpeechStarted') {
+        // New speech resets the commit stability timer — user is still talking
+        clearCommitTimer();
         return;
       }
 
@@ -417,9 +489,24 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
         }
         interimRef.current = '';
         emitInterim();
+
+        // Auto-commit: if no new is_final arrives within commitStabilityMs,
+        // commit immediately instead of waiting for UtteranceEnd (~1-2s more).
+        // For short habit-logging utterances this cuts perceived latency in half.
+        if (commitStabilityMs > 0) {
+          clearCommitTimer();
+          commitTimerRef.current = window.setTimeout(() => {
+            void finalizeAndStop();
+          }, commitStabilityMs);
+        }
       } else {
         interimRef.current = transcript;
         emitInterim();
+
+        // Interim speech resets commit timer — user is still talking
+        if (commitStabilityMs > 0) {
+          clearCommitTimer();
+        }
       }
 
     };
@@ -442,7 +529,7 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     timeoutRef.current = window.setTimeout(() => {
       stop();
     }, optionsRef.current.maxDurationMs ?? 15000);
-  }, [cleanup, clearTimer, connectAudioPipeline, emitInterim, finalizeAndStop, isSupported, stop]);
+  }, [cleanup, clearTimer, clearCommitTimer, connectAudioPipeline, emitInterim, finalizeAndStop, isSupported, stop]);
 
   useEffect(() => {
     return () => {
