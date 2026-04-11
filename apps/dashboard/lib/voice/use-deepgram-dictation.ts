@@ -424,7 +424,11 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       }
     }
 
-    const ws = new WebSocket(url.toString(), ['token', token]);
+    // Deepgram temporary JWTs should be passed via the `token` query param for
+    // browser/client-side listen websockets. Using the JWT as a websocket
+    // subprotocol is brittle in desktop webviews and can fail the handshake.
+    url.searchParams.set('token', token);
+    const ws = new WebSocket(url.toString());
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
@@ -432,25 +436,41 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       const timeout = window.setTimeout(() => {
         reject(new Error('Deepgram connection timed out'));
       }, 8000);
+      let settled = false;
+
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        fn();
+      };
 
       ws.onopen = () => {
-        window.clearTimeout(timeout);
-        const queued = queuedChunksRef.current.splice(0);
-        for (const chunk of queued) {
-          if (ws.readyState !== WebSocket.OPEN) break;
-          ws.send(chunk);
-        }
-        resolve();
+        settle(() => {
+          const queued = queuedChunksRef.current.splice(0);
+          for (const chunk of queued) {
+            if (ws.readyState !== WebSocket.OPEN) break;
+            ws.send(chunk);
+          }
+          resolve();
+        });
       };
 
       ws.onerror = () => {
-        window.clearTimeout(timeout);
-        reject(new Error('Deepgram connection failed'));
+        settle(() => {
+          reject(new Error('Deepgram connection failed'));
+        });
       };
 
-      ws.onclose = () => {
-        window.clearTimeout(timeout);
-        reject(new Error('Deepgram connection closed before ready'));
+      ws.onclose = (event) => {
+        settle(() => {
+          const reason = event.reason?.trim()
+            ? `: ${event.reason.trim()}`
+            : event.code
+              ? ` (code ${event.code})`
+              : '';
+          reject(new Error(`Deepgram connection closed before ready${reason}`));
+        });
       };
     });
 
