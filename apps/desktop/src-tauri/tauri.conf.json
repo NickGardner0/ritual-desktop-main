@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "Ritual",
-      "version": "0.1.29"
+      "version": "0.1.30"
   },
   "tauri": {
     "macOSPrivateApi": true,
@@ -163,7 +163,7 @@
           "enableTauriAPI": true
         }
       ],
-      "csp": "default-src 'self' https:; connect-src 'self' https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:3031 http://127.0.0.1:3031 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
+      "csp": "default-src 'self' https:; connect-src 'self' https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:3031 http://127.0.0.1:3031 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
     },
     "updater": {
       "active": true,
