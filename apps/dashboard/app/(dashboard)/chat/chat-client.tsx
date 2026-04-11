@@ -15,7 +15,7 @@ import { useHabits } from '@/contexts/HabitsContext';
 import { ViewModeToggle, type ViewMode } from '@/components/analytics/view-mode-toggle';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import { isTauri } from '@/lib/tauri-utils';
+import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
 import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
@@ -1646,9 +1646,9 @@ export function ChatClient() {
     setVoiceError(null);
     setIsProcessingVoice(false);
     await resetNativeVoiceSession();
-    await startNativeDesktopSpeechRecognition();
-    voiceInputModeRef.current = 'native';
-    setIsListening(true);
+    if (!(await ensureMicrophonePermission())) {
+      throw new Error('microphone-permission-denied');
+    }
 
     // Parallel mic stream used purely to power the waveform. (Audio-level silence
     // detection is unreliable because Swift's AVAudioEngine effectively captures
@@ -1656,14 +1656,28 @@ export function ChatClient() {
     // detect end-of-speech via transcript stability in the poll loop below.
     nativeVoicePartialLastChangeRef.current = 0;
     nativeVoicePartialLastValueRef.current = '';
+    let vizStream: MediaStream | null = null;
     try {
-      const vizStream = await navigator.mediaDevices.getUserMedia({
+      vizStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       setAudioStream(vizStream);
     } catch {
       // Non-critical — waveform just won't animate.
     }
+
+    try {
+      await startNativeDesktopSpeechRecognition();
+    } catch (error) {
+      if (vizStream) {
+        vizStream.getTracks().forEach((track) => track.stop());
+        setAudioStream(null);
+      }
+      throw error;
+    }
+
+    voiceInputModeRef.current = 'native';
+    setIsListening(true);
 
     const PARTIAL_STABLE_MS = 700;
 
@@ -1748,7 +1762,8 @@ export function ChatClient() {
 
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
-  const deepgramVoicePreferred = false;
+  const deepgramVoicePreferred =
+    (process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'deepgram') === 'deepgram';
 
   const normalizeVoiceTranscript = (text: string): string => {
     return text.trim().replace(/[.?!]\s*$/, '');
@@ -1942,41 +1957,45 @@ export function ChatClient() {
     }
 
     setVoiceError(null);
-    if (deepgramVoicePreferred && deepgramSupported) {
-      try {
-        voiceInputModeRef.current = 'deepgram';
-        await startDeepgramDictation();
-        return;
-      } catch {
-        voiceInputModeRef.current = null;
-        setIsListening(false);
-        setIsProcessingVoice(false);
-      }
-    }
-    if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
-      try {
-        await startWhisperRecording();
-        return;
-      } catch {
-        voiceInputModeRef.current = null;
-        setIsListening(false);
-        setIsProcessingVoice(false);
-      }
-    }
-
     if (isTauri()) {
       try {
         await startNativeVoiceRecognition();
         return;
-      } catch (nativeError) {
+      } catch {
         await resetNativeVoiceSession().catch(() => undefined);
+        voiceInputModeRef.current = null;
         setIsListening(false);
         setIsProcessingVoice(false);
-        voiceInputModeRef.current = null;
+      }
+      if (deepgramVoicePreferred && deepgramSupported) {
+        try {
+          voiceInputModeRef.current = 'deepgram';
+          await startDeepgramDictation();
+          return;
+        } catch {
+          voiceInputModeRef.current = null;
+          setIsListening(false);
+          setIsProcessingVoice(false);
+        }
+      }
+      if (whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
+        try {
+          await startWhisperRecording();
+          return;
+        } catch {
+          voiceInputModeRef.current = null;
+          setIsListening(false);
+          setIsProcessingVoice(false);
+        }
       }
     }
 
     try {
+      if (deepgramVoicePreferred && deepgramSupported) {
+        voiceInputModeRef.current = 'deepgram';
+        await startDeepgramDictation();
+        return;
+      }
       await startWhisperRecording();
     } catch (err: any) {
       voiceInputModeRef.current = null;

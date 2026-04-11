@@ -10,7 +10,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { VoiceWaveform, VoiceWaveformMini } from './voice-waveform';
 import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
-import { isTauri } from '@/lib/tauri-utils';
+import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import {
   clearNativeDesktopSpeechState,
@@ -644,6 +644,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     // Track AI chat message for logging mode
     trackAIChatMessageSent({ messageLength: inputText.length });
 
+    // Clear immediately for responsive logger UX; restore below if clarification
+    // or an error requires the original text again.
+    setInput('');
+
     // OPTIMISTIC UPDATE: Try to parse locally first for instant feedback
     const localParsed = parseHabitInput(inputText);
     if (localParsed?.success && localParsed.habitName && onHabitUpdate) {
@@ -736,11 +740,17 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       
       // Show error if nothing worked
       if (!result.success && result.clarifications?.length === 0) {
+        setInput(inputText);
+        setIsFocused(true);
+        setTimeout(() => textareaRef.current?.focus(), 0);
         setError(result.message || 'Could not log any habits. Please try again.');
       }
 
     } catch (err) {
       console.error('Log error:', err);
+      setInput(inputText);
+      setIsFocused(true);
+      setTimeout(() => textareaRef.current?.focus(), 0);
       setError('Failed to process your request. Please try again.');
     } finally {
       setIsLoading(false);
@@ -871,9 +881,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     setError(null);
     setIsProcessingVoice(false);
     await resetNativeVoiceSession();
-    await startNativeDesktopSpeechRecognition();
-    voiceInputModeRef.current = 'native';
-    setIsListening(true);
+    if (!(await ensureMicrophonePermission())) {
+      throw new Error('microphone-permission-denied');
+    }
 
     // Parallel mic stream: used purely to power the waveform visualization.
     // (Audio-level silence detection is unreliable because Swift's AVAudioEngine
@@ -881,14 +891,28 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     // duplicate. We use transcript-stability auto-stop instead — see poll loop.)
     nativeVoicePartialLastChangeRef.current = 0;
     nativeVoicePartialLastValueRef.current = '';
+    let vizStream: MediaStream | null = null;
     try {
-      const vizStream = await navigator.mediaDevices.getUserMedia({
+      vizStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       setAudioStream(vizStream);
     } catch {
       // Non-critical — waveform just won't animate.
     }
+
+    try {
+      await startNativeDesktopSpeechRecognition();
+    } catch (error) {
+      if (vizStream) {
+        vizStream.getTracks().forEach((track) => track.stop());
+        setAudioStream(null);
+      }
+      throw error;
+    }
+
+    voiceInputModeRef.current = 'native';
+    setIsListening(true);
 
     // Transcript-stability auto-stop: if the partial transcript hasn't advanced
     // for PARTIAL_STABLE_MS while we have non-empty text, Swift has effectively
@@ -979,7 +1003,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   // Swift path, actually lets us do audio-level VAD because we own the mic.
   const whisperVoiceEnabled =
     (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
-  const deepgramVoicePreferred = false;
+  const deepgramVoicePreferred =
+    (process.env.NEXT_PUBLIC_VOICE_PROVIDER ?? 'deepgram') === 'deepgram';
 
   const {
     start: startDeepgramDictation,
@@ -1177,45 +1202,47 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     setError(null);
 
-    if (deepgramVoicePreferred && deepgramSupported) {
-      try {
-        voiceInputModeRef.current = 'deepgram';
-        await startDeepgramDictation();
-        return;
-      } catch {
-        voiceInputModeRef.current = null;
-        setIsListening(false);
-        setIsProcessingVoice(false);
-      }
-    }
-
-    // Tauri: prefer MediaRecorder + Whisper when the flag is on and the runtime
-    // supports it. Fall back to the native Swift path on any failure.
-    if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
-      try {
-        await startWhisperRecording();
-        return;
-      } catch {
-        voiceInputModeRef.current = null;
-        setIsListening(false);
-        setIsProcessingVoice(false);
-        // Fall through to native Swift recognition.
-      }
-    }
-
+    // Desktop: prefer native speech first for immediate waveform + transcript
+    // updates. Network transcription remains the fallback.
     if (isTauri()) {
       try {
         await startNativeVoiceRecognition();
         return;
-      } catch (nativeError) {
+      } catch {
         await resetNativeVoiceSession().catch(() => undefined);
+        voiceInputModeRef.current = null;
         setIsListening(false);
         setIsProcessingVoice(false);
-        voiceInputModeRef.current = null;
+      }
+      if (deepgramVoicePreferred && deepgramSupported) {
+        try {
+          voiceInputModeRef.current = 'deepgram';
+          await startDeepgramDictation();
+          return;
+        } catch {
+          voiceInputModeRef.current = null;
+          setIsListening(false);
+          setIsProcessingVoice(false);
+        }
+      }
+      if (whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
+        try {
+          await startWhisperRecording();
+          return;
+        } catch {
+          voiceInputModeRef.current = null;
+          setIsListening(false);
+          setIsProcessingVoice(false);
+        }
       }
     }
 
     try {
+      if (deepgramVoicePreferred && deepgramSupported) {
+        voiceInputModeRef.current = 'deepgram';
+        await startDeepgramDictation();
+        return;
+      }
       await startWhisperRecording();
     } catch (err: any) {
       voiceInputModeRef.current = null;

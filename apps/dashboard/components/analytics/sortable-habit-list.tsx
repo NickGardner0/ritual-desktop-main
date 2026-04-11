@@ -139,7 +139,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`group w-full max-w-2xl flex justify-between items-center gap-12 h-[29px] px-1 bg-white hover:bg-[#F7F7F7] cursor-grab active:cursor-grabbing ${
+      className={`group w-full max-w-2xl flex justify-between items-center gap-8 h-[29px] px-1 bg-white hover:bg-[#F7F7F7] cursor-grab active:cursor-grabbing ${
         isDragging ? 'shadow-lg bg-[#F3F3F3] opacity-90' : ''
       }`}
       {...attributes}
@@ -161,7 +161,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       </div>
       <div
         ref={metricTriggerRef}
-        className="flex items-center space-x-2 cursor-default relative tooltip-container flex-shrink-0"
+        className="flex items-center space-x-1.5 cursor-default relative tooltip-container flex-shrink-0"
         onClick={(e) => {
           e.stopPropagation();
           setActiveTooltip(prev => prev === habitId ? null : habitId);
