@@ -109,12 +109,12 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
 }) => {
   const numericChange = Number(change ?? 0);
   const isNeutral = change === undefined || !Number.isFinite(numericChange);
-  const trend = isNeutral ? 'neutral' : (isPositive ? 'up' : 'down');
-  // Arrow direction always reflects raw change. Color reflects whether the change
-  // is an improvement: if higherIsBetter is unknown, fall back to direction-only.
   const isImprovement = isNeutral
     ? false
     : (higherIsBetter == null ? isPositive : (higherIsBetter ? isPositive : !isPositive));
+  const trend = isNeutral
+    ? 'neutral'
+    : ((higherIsBetter == null ? isPositive : isImprovement) ? 'up' : 'down');
   const changeColorClass = isNeutral
     ? 'text-[rgba(39,37,30,0.65)]'
     : (isImprovement ? 'text-[#136A22]' : 'text-[#A23544]');

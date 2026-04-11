@@ -267,6 +267,11 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     );
   }, []);
 
+  useEffect(() => {
+    if (!isSupported) return;
+    prefetchDeepgramToken();
+  }, [isSupported]);
+
   const connectAudioPipeline = useCallback(async (stream: MediaStream) => {
     const audioContext = new AudioContext();
     audioContextRef.current = audioContext;
@@ -382,14 +387,6 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       return;
     }
 
-    // Emit stream + listening state together so the waveform effect sees
-    // both on the same React render — fixes the first-click race condition
-    // where audioStream arrived before isActive.
-    optionsRef.current.onAudioStreamChange?.(stream);
-    activeRef.current = true;
-    optionsRef.current.onListeningChange?.(true);
-    optionsRef.current.onProcessingChange?.(false);
-
     let token: string;
     try {
       token = await tokenPromise;
@@ -457,6 +454,14 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
       };
     });
 
+    // Only mark the session as "live" once the Deepgram websocket is open.
+    // Until then, the UI stays in a processing/connecting state so users do
+    // not speak into a session that still might fail and fall back.
+    optionsRef.current.onAudioStreamChange?.(stream);
+    activeRef.current = true;
+    optionsRef.current.onListeningChange?.(true);
+    optionsRef.current.onProcessingChange?.(false);
+
     const commitStabilityMs = optionsRef.current.commitStabilityMs ?? 0;
 
     ws.onmessage = (event) => {
@@ -521,7 +526,7 @@ export function useDeepgramDictation(options: DeepgramDictationOptions) {
     };
 
     ws.onerror = () => {
-      optionsRef.current.onError?.('Deepgram streaming failed. Falling back to local voice.');
+      optionsRef.current.onError?.('Deepgram streaming failed. Please try again.');
       void cleanup();
     };
 

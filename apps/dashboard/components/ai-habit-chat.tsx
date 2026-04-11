@@ -1202,21 +1202,31 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       stopVoiceRecording();
       return;
     }
+    if (isProcessingVoice) {
+      return;
+    }
 
     setError(null);
 
-    // Desktop: use the network transcription stack only. Deepgram is the
-    // primary path and Whisper remains the fallback.
+    // Desktop: Deepgram is the primary path. Whisper is only used when
+    // streaming dictation support is unavailable, not as a silent startup
+    // fallback for a failed first attempt.
     if (isTauri()) {
       if (deepgramSupported) {
         try {
           voiceInputModeRef.current = 'deepgram';
           await startDeepgramDictation();
           return;
-        } catch {
+        } catch (err: any) {
           voiceInputModeRef.current = null;
           setIsListening(false);
           setIsProcessingVoice(false);
+          setError(
+            err?.name === 'NotAllowedError'
+              ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
+              : err?.message || 'Voice logging failed. Please try again.',
+          );
+          return;
         }
       }
       if (whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {

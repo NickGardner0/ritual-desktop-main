@@ -113,6 +113,11 @@ export function isComprehensiveWeeklyRecapQuery(text: string): boolean {
   }
 
   const broadWeeklyPatterns = [
+    'how was my week',
+    'how has my week been',
+    'how was this week',
+    'give me a weekly recap',
+    'weekly recap',
     'weekly habit recap',
     'weekly habit summary',
     'how did my habits do this week',
@@ -126,6 +131,18 @@ export function isComprehensiveWeeklyRecapQuery(text: string): boolean {
   }
 
   return /\b(this week|last week|past week)\b/.test(normalized) && /\b(habit|habits|tracked)\b/.test(normalized);
+}
+
+export function isHotLoadWeeklyDemoQuery(text: string): boolean {
+  const normalized = (text || '').toLowerCase().trim().replace(/[!?]+$/g, '');
+  if (!normalized) return false;
+
+  return [
+    'how was my week',
+    'how has my week been',
+    'how was this week',
+    'give me a weekly recap',
+  ].includes(normalized);
 }
 
 export function isDailyOverviewQuery(text: string): boolean {

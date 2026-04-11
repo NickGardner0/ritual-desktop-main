@@ -77,10 +77,9 @@ function ChangeBadge({
   }
 
   const isUp = change > 0;
-  // Arrow always reflects direction; color reflects improvement when we know
-  // higherIsBetter, otherwise falls back to direction-only.
   const isImprovement = higherIsBetter == null ? isUp : (higherIsBetter ? isUp : !isUp);
-  const arrow = isUp ? '↗' : '↘';
+  const arrowPointsUp = higherIsBetter == null ? isUp : isImprovement;
+  const arrow = arrowPointsUp ? '↗' : '↘';
 
   if (isImprovement) {
     return (

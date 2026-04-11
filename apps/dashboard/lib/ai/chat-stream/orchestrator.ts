@@ -30,6 +30,7 @@ import {
 import {
   buildContextMemoryNarrative,
   streamWeeklyOverviewNarrative,
+  buildWeeklyOverviewNarrative,
   inferRecapAnchorDate,
   buildCalendarStyleActivitySummary,
   buildRichActivitySummaryFromStoryPlan,
@@ -40,6 +41,7 @@ import type { WeeklyOverviewPayload } from './narrative';
 import {
   classifyRetrievalRoute,
   isComprehensiveWeeklyRecapQuery,
+  isHotLoadWeeklyDemoQuery,
   isDailyOverviewQuery,
   isMonthlyOverviewQuery,
   isExplicitLastWeekQuery,
@@ -179,6 +181,23 @@ function safeJsonParse<T>(raw: string): T | null {
   } catch {
     return null;
   }
+}
+
+async function* streamHotLoadWeeklyOverviewNarrative(
+  payloadPromise: Promise<{
+    payload: WeeklyOverviewPayload | null;
+    title: string;
+  }>,
+): AsyncGenerator<string> {
+  yield "Here’s the shape of your week.\n\n";
+
+  const { payload, title } = await payloadPromise;
+  if (!payload?.success) {
+    yield 'I was unable to retrieve your weekly data. Please try again.';
+    return;
+  }
+
+  yield buildWeeklyOverviewNarrative(payload, title);
 }
 
 async function enrichActivitySummaryContext(
@@ -694,11 +713,88 @@ export async function handleChatStreamPost(req: NextRequest) {
       !isVoiceMode &&
       forcedToolName &&
       ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'getActivitySummary'].includes(forcedToolName);
+    const hotLoadWeeklyDemo =
+      !isVoiceMode &&
+      forcedToolName === 'getWeeklyOverview' &&
+      isHotLoadWeeklyDemoQuery(latestUserContent);
 
     if (deterministicFastPath) {
       console.log(`⚡ [${elapsed(t0)}] Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
 
       const toolResults: ChatToolResults = { allStats: [], allBreakdowns: [] };
+
+      if (hotLoadWeeklyDemo) {
+        console.log(`⚡ [${elapsed(t0)}] Hot-loading weekly demo query`);
+
+        const weeklyOverviewResultPromise = (async () => {
+          try {
+            const toolResultJson = await executeGetWeeklyOverview(
+              token,
+              {
+                daysBack: weeklyOverviewQueryParams.daysBack,
+                startDate: weeklyOverviewQueryParams.startDate,
+                endDate: weeklyOverviewQueryParams.endDate,
+              },
+              timezone,
+              strictThisWeekForWeeklyOverview,
+              localOverviewActivity,
+            );
+
+            const parsed = JSON.parse(toolResultJson);
+            if (parsed.success) {
+              toolResults.weeklyOverview = parsed;
+              if (parsed.suggested_followups) {
+                toolResults.suggested_followups = parsed.suggested_followups;
+              }
+            }
+
+            const title = getOverviewTitleFromQuery(
+              forcedToolName,
+              latestUserContent,
+              toolResults.activitySummary || toolResults.contextMemoryRecap,
+              timezone,
+            );
+
+            return {
+              payload: parsed.success ? (parsed as WeeklyOverviewPayload) : null,
+              title,
+              canvasToolPayload: buildCanvasToolPayload(toolResults),
+            };
+          } catch (error) {
+            console.error('❌ Hot-load weekly overview failed:', error);
+            return {
+              payload: null,
+              title: 'Weekly Activity Overview',
+              canvasToolPayload: null,
+            };
+          }
+        })();
+
+        const conversationId = await conversationIdPromise;
+        console.log(`⏱️ [${elapsed(t0)}] Conversation ID resolved: ${conversationId ? 'yes' : 'none'}`);
+        console.log(`⏱️ [${elapsed(t0)}] Hot-load weekly response created`);
+
+        return createChatStreamResponse({
+          conversationId,
+          source: {
+            type: 'stream',
+            tokens: streamHotLoadWeeklyOverviewNarrative(
+              weeklyOverviewResultPromise.then(({ payload, title }) => ({ payload, title })),
+            ),
+          },
+          canvasToolPayload: null,
+          canvasToolPayloadPromise: weeklyOverviewResultPromise.then(({ canvasToolPayload }) => canvasToolPayload),
+          onComplete: conversationId
+            ? (fullText, finalCanvasToolPayload) => {
+                console.log(`⏱️ [${elapsed(t0)}] Hot-load weekly stream complete (${fullText.length} chars)`);
+                saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload).catch(err => {
+                  console.error('❌ Failed to save assistant message:', err);
+                });
+              }
+            : undefined,
+        });
+      }
+
       let toolResultJson: string;
 
       switch (forcedToolName) {
@@ -833,9 +929,9 @@ export async function handleChatStreamPost(req: NextRequest) {
         source: streamSource,
         canvasToolPayload,
         onComplete: streamSource.type === 'stream' && conversationId
-          ? (fullText) => {
+          ? (fullText, finalCanvasToolPayload) => {
               console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
-              saveMessage(token, conversationId, 'assistant', fullText, canvasToolPayload).catch(err => {
+              saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload ?? canvasToolPayload).catch(err => {
                 console.error('❌ Failed to save assistant message:', err);
               });
             }

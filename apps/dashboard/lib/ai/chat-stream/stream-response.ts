@@ -52,11 +52,13 @@ export interface ChatStreamResponseOptions {
   source: StreamSource;
   /** Canvas/visualization data sent after text (null = omit). */
   canvasToolPayload: Record<string, unknown> | null;
+  /** Deferred canvas/visualization data for paths that hot-load text first. */
+  canvasToolPayloadPromise?: Promise<Record<string, unknown> | null>;
   /**
    * Called once the full text is available (after streaming completes).
    * Use for fire-and-forget persistence.
    */
-  onComplete?: (fullText: string) => void;
+  onComplete?: (fullText: string, canvasToolPayload: Record<string, unknown> | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +92,19 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
         );
       }
 
+      const deferredCanvasToolPayloadPromise = options.canvasToolPayloadPromise
+        ? options.canvasToolPayloadPromise
+            .then((payload) => {
+              if (payload) {
+                controller.enqueue(
+                  encoder.encode(`__TOOL_DATA__${JSON.stringify(payload)}__END_TOOL_DATA__\n`),
+                );
+              }
+              return payload;
+            })
+            .catch(() => null)
+        : Promise.resolve<Record<string, unknown> | null>(options.canvasToolPayload);
+
       // 3. Stream text content
       let fullText: string;
 
@@ -112,9 +127,11 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
         }
       }
 
+      const finalCanvasToolPayload = await deferredCanvasToolPayloadPromise;
+
       // 4. Notify caller with full text (for persistence)
       if (options.onComplete) {
-        options.onComplete(fullText);
+        options.onComplete(fullText, finalCanvasToolPayload);
       }
 
       controller.close();

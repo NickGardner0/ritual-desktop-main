@@ -1958,6 +1958,9 @@ export function ChatClient() {
       stopVoiceRecording();
       return;
     }
+    if (isProcessingVoice) {
+      return;
+    }
 
     setVoiceError(null);
     if (isTauri()) {
@@ -1966,10 +1969,16 @@ export function ChatClient() {
           voiceInputModeRef.current = 'deepgram';
           await startDeepgramDictation();
           return;
-        } catch {
+        } catch (err: any) {
           voiceInputModeRef.current = null;
           setIsListening(false);
           setIsProcessingVoice(false);
+          setVoiceError(
+            err?.name === 'NotAllowedError'
+              ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
+              : err?.message || 'Voice mode failed. Please try again.',
+          );
+          return;
         }
       }
       if (whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
