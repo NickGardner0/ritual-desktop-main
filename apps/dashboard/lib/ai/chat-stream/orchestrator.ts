@@ -30,7 +30,6 @@ import {
 import {
   buildContextMemoryNarrative,
   streamWeeklyOverviewNarrative,
-  buildWeeklyOverviewNarrative,
   inferRecapAnchorDate,
   buildCalendarStyleActivitySummary,
   buildRichActivitySummaryFromStoryPlan,
@@ -189,7 +188,7 @@ async function* streamHotLoadWeeklyOverviewNarrative(
     title: string;
   }>,
 ): AsyncGenerator<string> {
-  yield "Here’s the shape of your week.\n\n";
+  yield "Pulling the main patterns from your week together...\n\n";
 
   const { payload, title } = await payloadPromise;
   if (!payload?.success) {
@@ -197,7 +196,9 @@ async function* streamHotLoadWeeklyOverviewNarrative(
     return;
   }
 
-  yield buildWeeklyOverviewNarrative(payload, title);
+  for await (const token of streamWeeklyOverviewNarrative(payload, title)) {
+    yield token;
+  }
 }
 
 async function enrichActivitySummaryContext(
