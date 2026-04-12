@@ -93,6 +93,17 @@ const items = [
   },
 ];
 
+const itemGroups = [
+  {
+    label: "Workspace",
+    items: items.slice(0, 4),
+  },
+  {
+    label: "System",
+    items: items.slice(4),
+  },
+];
+
 interface ItemProps {
   item: {
     path: string;
@@ -134,8 +145,8 @@ const ChildItem = ({
         {/* Child item text */}
         <div
           className={cn(
-            "ml-[35px] mr-[15px] h-[32px] flex items-center",
-            "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
+            "ml-[58px] mr-[14px] h-[30px] flex items-center rounded-[10px] pl-3",
+            "border-l border-[rgba(32,32,28,0.10)]",
             "transition-all duration-200 ease-standard",
             showChild
               ? "opacity-100 translate-x-0"
@@ -149,10 +160,10 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-[450] transition-colors duration-200",
-              "text-gray-600 group-hover/child:text-gray-900",
+              "text-[12px] font-[450] transition-colors duration-200",
+              "text-[#6f6b62] group-hover/child:text-[#1e1d1a]",
               "whitespace-nowrap overflow-hidden",
-              isActive && "text-gray-900",
+              isActive && "text-[#1e1d1a]",
             )}
           >
             {child.name}
@@ -220,33 +231,34 @@ const Item = ({
         {...getPrefetchProps()}
       >
         <div className="relative">
-          {/* Keep a stable click target in both modes without active borders */}
           <div
             className={cn(
-              "h-[40px] transition-all duration-200 ease-standard",
+              "h-[42px] transition-all duration-200 ease-standard rounded-[13px] border",
               isExpanded 
-                ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
-                : "ml-[15px] w-[40px] rounded-none",
+                ? "ml-[10px] mr-[10px] w-[calc(100%-20px)]" 
+                : "mx-auto w-[44px]",
+              isActive
+                ? "border-[rgba(17,24,39,0.06)] bg-[rgba(255,255,255,0.78)] shadow-[0_1px_0_rgba(255,255,255,0.75),0_10px_26px_rgba(15,23,42,0.04)]"
+                : "border-transparent bg-transparent group-hover:border-[rgba(17,24,39,0.04)] group-hover:bg-[rgba(255,255,255,0.46)]",
             )}
           />
 
-          {/* Icon - always in same position from sidebar edge */}
           <div className={cn(
-            "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
-            "text-[#111111]",
-            isCollapsedActive && "scale-[1.04]"
+            "absolute top-0 left-[12px] w-[40px] h-[42px] flex items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
+            isActive ? "text-[#161616]" : "text-[#58554e]",
+            isCollapsedActive && "scale-[1.03]"
           )}>
-            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.6 : 2.15} />
+            <Icon className="w-[18px] h-[18px]" strokeWidth={isActive ? 2.45 : 2.05} />
           </div>
 
           {isExpanded && (
-            <div className="absolute top-0 left-[55px] right-[4px] h-[40px] flex items-center pointer-events-none">
+            <div className="absolute top-0 left-[52px] right-[12px] h-[42px] flex items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] transition-colors duration-200 text-[#2a2a2a] group-hover:text-[#111111]",
+                  "text-[14px] font-[500] transition-colors duration-200 text-[#35322c] group-hover:text-[#111111]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-[#111111] font-[600]",
+                  isActive && "text-[#111111] font-[560]",
                 )}
               >
                 {item.name}
@@ -256,8 +268,8 @@ const Item = ({
                   type="button"
                   onClick={handleChevronClick}
                   className={cn(
-                    "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto mr-3",
-                    "text-[#3a3a3a] hover:text-[#111111] pointer-events-auto",
+                    "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto rounded-[10px] mr-0",
+                    "text-[#6a665e] hover:text-[#111111] pointer-events-auto hover:bg-[rgba(255,255,255,0.48)]",
                     isActive && "text-[#111111]",
                     shouldShowChildren && "rotate-180",
                   )}
@@ -335,32 +347,44 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   }, [isExpanded]);
 
   return (
-    <div className="mt-3 w-full">
+    <div className="mt-2 w-full">
       <nav className="w-full">
-        <div className="flex flex-col gap-2">
-          {items.map((item) => {
-            // Improved active state logic
-            const isActive = pathname === item.path || 
-              pathname === item.path + "/" ||
-              (pathname === "/" && item.path === "/dashboard") ||
-              (pathname === "/dashboard/" && item.path === "/dashboard") ||
-              (pathname?.startsWith(item.path) && item.path !== "/dashboard");
+        <div className="flex flex-col gap-4">
+          {itemGroups.map((group) => (
+            <div key={group.label} className="w-full">
+              {isExpanded && (
+                <div className="px-4 pb-2">
+                  <span className="text-[10px] font-[560] uppercase tracking-[0.16em] text-[#8b867d]">
+                    {group.label}
+                  </span>
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                {group.items.map((item) => {
+                  const isActive = pathname === item.path || 
+                    pathname === item.path + "/" ||
+                    (pathname === "/" && item.path === "/dashboard") ||
+                    (pathname === "/dashboard/" && item.path === "/dashboard") ||
+                    (pathname?.startsWith(item.path) && item.path !== "/dashboard");
 
-            return (
-              <Item
-                key={item.path}
-                item={item}
-                isActive={isActive}
-                isExpanded={isExpanded}
-                isItemExpanded={expandedItem === item.path}
-                onToggle={(path) => {
-                  setExpandedItem(expandedItem === path ? null : path);
-                }}
-                onSelect={onSelect}
-                onSettingsClick={() => setShowSettingsModal(true)}
-              />
-            );
-          })}
+                  return (
+                    <Item
+                      key={item.path}
+                      item={item}
+                      isActive={isActive}
+                      isExpanded={isExpanded}
+                      isItemExpanded={expandedItem === item.path}
+                      onToggle={(path) => {
+                        setExpandedItem(expandedItem === path ? null : path);
+                      }}
+                      onSelect={onSelect}
+                      onSettingsClick={() => setShowSettingsModal(true)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </nav>
       

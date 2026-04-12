@@ -140,6 +140,7 @@ interface CommandPaletteProps {
   onOpenLogger?: () => void;
   onOpenImport?: () => void;
   onOpenSettings?: () => void;
+  compact?: boolean;
 }
 
 // ================================
@@ -152,6 +153,7 @@ export default function CommandPalette({
   onOpenLogger,
   onOpenImport,
   onOpenSettings,
+  compact = false,
 }: CommandPaletteProps) {
   const [open, setOpen] = React.useState(initialOpen);
   const [query, setQuery] = React.useState("");
@@ -400,12 +402,16 @@ export default function CommandPalette({
           className
         )}
       >
-        <div className="flex items-center gap-2">
-          <span>Search</span>
-          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 border border-gray-200/90 bg-[#F0F0F0]/90 px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-            <span className="text-xs">⌘</span>K
-          </kbd>
-        </div>
+        {compact ? (
+          <Search className="h-4 w-4 text-[#5e5a52]" />
+        ) : (
+          <div className="flex items-center gap-2">
+            <span>Search</span>
+            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 border border-gray-200/90 bg-[#F0F0F0]/90 px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+              <span className="text-xs">⌘</span>K
+            </kbd>
+          </div>
+        )}
       </Button>
     );
   }
