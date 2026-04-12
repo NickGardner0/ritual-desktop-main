@@ -275,24 +275,38 @@
   }
 
 
-  /* Tauri drag region styles - Midday approach */
+  /* Generic Tauri drag surface.
+     Apply this to the actual toolbar/sidebar chrome rather than layering a
+     fixed invisible overlay above the app, which can steal clicks. */
   .tauri-drag-region {
-    @apply fixed top-0 left-0 right-0 h-5 z-[51];
     -webkit-app-region: drag !important;
-    pointer-events: auto !important;
     user-select: none !important;
+    cursor: default !important;
   }
 
   .no-drag {
     -webkit-app-region: no-drag !important;
+    user-select: auto !important;
+    cursor: default !important;
+  }
+
+  .no-drag * {
+    -webkit-app-region: no-drag !important;
+  }
+
+  /* Keep interactive controls feeling native inside draggable chrome. */
+  .no-drag button,
+  .no-drag a,
+  .no-drag [role="button"],
+  .no-drag [role="tab"],
+  .no-drag summary {
     cursor: pointer !important;
   }
 
-  /* Force pointer cursor on buttons in no-drag areas */
-  .no-drag button,
-  .no-drag .no-drag {
-    -webkit-app-region: no-drag !important;
-    cursor: pointer !important;
+  .no-drag input,
+  .no-drag textarea,
+  .no-drag [contenteditable="true"] {
+    cursor: text !important;
   }
 
   /* Remove all borders and outlines from the root elements */
@@ -426,40 +440,28 @@
     background:
       linear-gradient(
         180deg,
-        rgba(255, 255, 255, 0.92) 0%,
-        rgba(252, 252, 250, 0.88) 42%,
-        rgba(249, 249, 247, 0.85) 100%
+        rgba(246, 245, 243, 0.97) 0%,
+        rgba(244, 243, 240, 0.95) 42%,
+        rgba(242, 241, 238, 0.93) 100%
       );
-    background-color: rgba(252, 252, 250, 0.90);
-    border-right: 0 solid transparent;
+    background-color: rgba(244, 243, 240, 0.95);
+    /* Subtle 1px separator line between sidebar and content — native macOS
+       apps (Finder, Notes, ChatGPT) always have this divider. */
+    border-right: 1px solid rgba(0, 0, 0, 0.09);
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
        higher opacity backgrounds above preserve the frosted look. */
-    box-shadow:
-      inset -1px 0 0 rgba(39, 37, 30, 0.04),
-      inset 0 1px 0 rgba(255, 255, 255, 0.54);
+    box-shadow: none;
   }
 
   html.desktop .sidebar-vibrancy .sidebar-header {
     border-color: rgba(0, 0, 0, 0.025);
   }
 
+  /* Removed right-edge gradient — the border-right separator replaces it. */
   html.desktop .sidebar-vibrancy::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 24px;
-    pointer-events: none;
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.18) 58%,
-      rgba(255, 255, 255, 0.36) 100%
-    );
-    opacity: 1;
+    display: none;
   }
 
   /* ===== macOS Liquid Glass Sidebar (native NSGlassEffectView) ===== */
@@ -495,23 +497,20 @@
     background-color: transparent !important;
   }
 
-  /* Sidebar: semi-transparent white over the native glass.
-     The NSGlassEffectView provides the blur of what's behind the window.
-     This white overlay makes it frosty — lower alpha = more see-through.
-     0.32 keeps the same look while making it a touch more transparent. */
+  /* Sidebar: semi-transparent overlay on the native glass.
+     Lower alpha = more of the native NSGlassEffectView shows through.
+     The 1px border-right creates the native sidebar/content separator. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.72) 0%,
-      rgba(252, 252, 250, 0.52) 46%,
-      rgba(249, 249, 247, 0.42) 100%
+      rgba(255, 255, 255, 0.38) 0%,
+      rgba(252, 252, 250, 0.28) 46%,
+      rgba(249, 249, 247, 0.22) 100%
     ) !important;
-    background-color: rgba(252, 252, 250, 0.44) !important;
-    border-right: 0 solid transparent !important;
-    box-shadow:
-      inset -1px 0 0 rgba(39, 37, 30, 0.032),
-      inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
+    background-color: rgba(252, 252, 250, 0.26) !important;
+    border-right: 1px solid rgba(0, 0, 0, 0.10) !important;
+    box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -540,22 +539,10 @@
     opacity: 0.72;
   }
 
+  /* Removed right-edge gradient for glass mode — border-right handles separation. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 26px;
-    pointer-events: none;
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.14) 52%,
-      rgba(255, 255, 255, 0.28) 100%
-    );
-    opacity: 1;
+    display: none;
   }
 
   /* Opaque main content — covers the glass so only sidebar is glassy */

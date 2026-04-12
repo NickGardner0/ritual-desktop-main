@@ -583,6 +583,48 @@ fn configure_macos_window_transparency(window: &tauri::Window) {
     }
 }
 
+/// Reposition macOS traffic lights (close/minimize/zoom) into the sidebar region.
+/// Called after window creation and on every resize, since macOS resets button
+/// positions when the window frame changes.
+#[cfg(target_os = "macos")]
+fn reposition_traffic_lights(window: &tauri::Window) {
+    use cocoa::base::id;
+    use objc::{msg_send, sel, sel_impl};
+
+    let Ok(raw) = window.ns_window() else { return };
+    unsafe {
+        let ns_win: id = raw as id;
+        // Button constants: Close=0, Miniaturize=1, Zoom=2
+        let close: id = msg_send![ns_win, standardWindowButton: 0_u64];
+        let minimize: id = msg_send![ns_win, standardWindowButton: 1_u64];
+        let zoom: id = msg_send![ns_win, standardWindowButton: 2_u64];
+
+        if close.is_null() || minimize.is_null() || zoom.is_null() {
+            return;
+        }
+
+        // Traffic-light geometry: slightly tighter to match native macOS
+        // placement inside the 70px collapsed sidebar.
+        let x_start: f64 = 16.0;
+        let x_spacing: f64 = 20.0;
+
+        // We need to position relative to the title-bar container.
+        // In overlay mode the buttons live in the title-bar accessory view.
+        // Get the superview (titlebar container) height so we can set y correctly.
+        let close_super: id = msg_send![close, superview];
+        let super_frame: cocoa::foundation::NSRect = msg_send![close_super, frame];
+        let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
+        // Centre the buttons vertically within a 52px region from the top.
+        // The y-axis is flipped (0 = bottom of superview).
+        let toolbar_height: f64 = 52.0;
+        let y = super_frame.size.height - toolbar_height / 2.0 - btn_frame.size.height / 2.0;
+
+        let _: () = msg_send![close,    setFrameOrigin: cocoa::foundation::NSPoint::new(x_start, y)];
+        let _: () = msg_send![minimize, setFrameOrigin: cocoa::foundation::NSPoint::new(x_start + x_spacing, y)];
+        let _: () = msg_send![zoom,     setFrameOrigin: cocoa::foundation::NSPoint::new(x_start + x_spacing * 2.0, y)];
+    }
+}
+
 /// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
 #[cfg(target_os = "macos")]
 fn apply_vibrancy_fallback(window: &tauri::Window) {
@@ -1284,6 +1326,9 @@ fn main() {
             info!("Main window glass disabled for stable production rendering");
           }
 
+          // Position traffic lights into the sidebar region (macOS native feel).
+          reposition_traffic_lights(&window);
+
           let detached_sidebar_enabled = !transparency_probe
             && env::var("RITUAL_DETACHED_SIDEBAR")
               .map(|v| {
@@ -1301,11 +1346,14 @@ fn main() {
             let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
             let app_handle_for_sync = app.handle();
+            let traffic_light_window = window.clone();
             window.on_window_event(move |event| {
               match event {
                 tauri::WindowEvent::Moved(_)
                 | tauri::WindowEvent::Resized(_)
                 | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                  // Re-position traffic lights on resize (macOS resets them)
+                  reposition_traffic_lights(&traffic_light_window);
                   let state = app_handle_for_sync.state::<SidebarWindowState>();
                   let width = state.get_width();
                   let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
@@ -1326,6 +1374,14 @@ fn main() {
             if let Some(sidebar_window) = app.get_window("sidebar") {
               let _ = sidebar_window.close();
             }
+            // Non-detached mode: still re-position traffic lights on resize or
+            // display scale changes (moving between monitors can reset them).
+            let traffic_light_window = window.clone();
+            window.on_window_event(move |event| {
+              if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                reposition_traffic_lights(&traffic_light_window);
+              }
+            });
           }
         }
 

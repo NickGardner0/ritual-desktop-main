@@ -126,12 +126,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Suspense>
       ) : null}
       
-      {/* Window Drag Region - Midday's minimal top-only approach */}
-      <div
-        data-tauri-drag-region
-        className="tauri-drag-region"
-      />
-      
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
       {!shouldHideAppSidebar && !detachedSidebarMode && (
         <Sidebar />
@@ -139,15 +133,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Main Content Area */}
       <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-white">
-        {/* Top Header - available on normal dashboard routes and chat route */}
+        {/* Top Header — the header itself is the draggable toolbar chrome.
+            Interactive controls opt out via no-drag so blank space still drags
+            like a native macOS titlebar. */}
         {!isFullScreenChat && (
-        <header className="content-opaque relative px-5 h-[56px] flex items-center bg-white overflow-hidden">
+        <header
+          data-tauri-drag-region
+          className="content-opaque tauri-drag-region relative px-5 h-[52px] flex items-center bg-white overflow-hidden"
+        >
           {isChatRoute && (
             <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
           )}
-          <div className="relative flex items-center w-full translate-y-[6px]">
+          <div className="relative flex items-center w-full translate-y-[4px]">
             {/* Left zone — Search + page-specific left actions */}
-            <div className="flex items-center space-x-2.5 min-w-0">
+            <div className="no-drag flex items-center space-x-2.5 min-w-0">
               {!isChatRoute && (
                 <div>
                   <CommandPalette
@@ -161,11 +160,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
             {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
             <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-              <div id="header-center-slot" className="pointer-events-auto flex items-center" />
+              <div id="header-center-slot" className="pointer-events-auto no-drag flex items-center" />
             </div>
 
             {/* Right zone — Date picker, + button, etc. */}
-            <div id="header-right-slot" className="ml-auto flex items-center gap-2 min-w-0" />
+            <div id="header-right-slot" className="no-drag ml-auto flex items-center gap-2 min-w-0" />
           </div>
         </header>
         )}

@@ -335,7 +335,7 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   }, [isExpanded]);
 
   return (
-    <div className="mt-6 w-full">
+    <div className="mt-3 w-full">
       <nav className="w-full">
         <div className="flex flex-col gap-2">
           {items.map((item) => {
