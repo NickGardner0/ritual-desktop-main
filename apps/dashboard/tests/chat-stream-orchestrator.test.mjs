@@ -102,6 +102,12 @@ describe("Query Classifiers", () => {
       if (!normalized) return false;
       if (isContextMemoryRecapQuery(normalized)) return false;
       const broadWeeklyPatterns = [
+        "how was my week",
+        "how has my week been",
+        "how was this week",
+        "how was last week",
+        "how has last week been",
+        "give me a weekly recap",
         "weekly habit recap",
         "weekly habit summary",
         "how did my habits do this week",
@@ -116,10 +122,12 @@ describe("Query Classifiers", () => {
       );
     }
 
-    test("matches 'How was my week?' → false (no 'habit' keyword)", () => {
-      // This is important: "How was my week?" does NOT match weekly recap
-      // because it lacks "habit" keyword — it falls to other classifiers
-      assert.equal(isComprehensiveWeeklyRecapQuery("How was my week?"), false);
+    test("matches 'How was my week?'", () => {
+      assert.equal(isComprehensiveWeeklyRecapQuery("How was my week?"), true);
+    });
+
+    test("matches 'How was last week?'", () => {
+      assert.equal(isComprehensiveWeeklyRecapQuery("How was last week?"), true);
     });
 
     test("matches 'weekly habit recap'", () => {

@@ -116,6 +116,8 @@ export function isComprehensiveWeeklyRecapQuery(text: string): boolean {
     'how was my week',
     'how has my week been',
     'how was this week',
+    'how was last week',
+    'how has last week been',
     'give me a weekly recap',
     'weekly recap',
     'weekly habit recap',
@@ -141,6 +143,8 @@ export function isHotLoadWeeklyDemoQuery(text: string): boolean {
     'how was my week',
     'how has my week been',
     'how was this week',
+    'how was last week',
+    'how has last week been',
     'give me a weekly recap',
   ].includes(normalized);
 }
