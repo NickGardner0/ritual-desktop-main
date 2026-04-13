@@ -300,7 +300,7 @@
   .no-drag [role="button"],
   .no-drag [role="tab"],
   .no-drag summary {
-    cursor: pointer !important;
+    cursor: default !important;
   }
 
   .no-drag input,
@@ -440,14 +440,14 @@
     background:
       linear-gradient(
         180deg,
-        rgba(244, 242, 237, 0.985) 0%,
-        rgba(241, 239, 234, 0.97) 44%,
-        rgba(238, 236, 230, 0.95) 100%
+        rgba(246, 245, 243, 0.97) 0%,
+        rgba(244, 243, 240, 0.95) 42%,
+        rgba(242, 241, 238, 0.93) 100%
       );
-    background-color: rgba(241, 239, 234, 0.97);
+    background-color: rgba(244, 243, 240, 0.95);
     /* Subtle 1px separator line between sidebar and content — native macOS
        apps (Finder, Notes, ChatGPT) always have this divider. */
-    border-right: 1px solid rgba(0, 0, 0, 0.11);
+    border-right: 1px solid rgba(0, 0, 0, 0.09);
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
@@ -504,12 +504,12 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(250, 248, 244, 0.46) 0%,
-      rgba(246, 243, 238, 0.34) 46%,
-      rgba(242, 239, 233, 0.28) 100%
+      rgba(255, 255, 255, 0.38) 0%,
+      rgba(252, 252, 250, 0.28) 46%,
+      rgba(249, 249, 247, 0.22) 100%
     ) !important;
-    background-color: rgba(246, 243, 238, 0.32) !important;
-    border-right: 1px solid rgba(0, 0, 0, 0.12) !important;
+    background-color: rgba(252, 252, 250, 0.26) !important;
+    border-right: 1px solid rgba(0, 0, 0, 0.10) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -536,7 +536,7 @@
     background:
       linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.015) 38%, rgba(255, 255, 255, 0.0) 100%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.58;
+    opacity: 0.72;
   }
 
   /* Removed right-edge gradient for glass mode — border-right handles separation. */
@@ -560,6 +560,13 @@
   }
 
   /* ===== End macOS Liquid Glass Sidebar ===== */
+
+  /* Key fix: Set default cursor for all desktop elements */
+  .desktop div,
+  .desktop a,
+  .desktop button {
+    cursor: default !important;
+  }
 
   /* Team dropdown must stay opaque/interactive inside vibrancy sidebar */
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu,

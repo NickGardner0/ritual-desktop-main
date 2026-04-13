@@ -13,6 +13,11 @@ const Sidebar = dynamic(
   { ssr: false }
 );
 
+const CommandPalette = dynamic(
+  () => import('@/components/habit-selector'),
+  { ssr: false }
+);
+
 /** Syncs route to detached sidebar - uses useSearchParams so must be in Suspense */
 function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolean }) {
   const pathname = usePathname();
@@ -123,7 +128,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
       {!shouldHideAppSidebar && !detachedSidebarMode && (
-        <Sidebar initialSearchOpen={shouldOpenWhoopModal} />
+        <Sidebar />
       )}
 
       {/* Main Content Area */}
@@ -142,6 +147,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="relative flex items-center w-full translate-y-[4px]">
             {/* Left zone — Search + page-specific left actions */}
             <div className="no-drag flex items-center space-x-2.5 min-w-0">
+              {!isChatRoute && (
+                <div>
+                  <CommandPalette
+                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
+                    initialOpen={shouldOpenWhoopModal}
+                  />
+                </div>
+              )}
               <div id="header-left-slot" className="flex items-center space-x-2.5" />
             </div>
 
