@@ -249,6 +249,20 @@ function isOverviewActivityQuery(text: string): boolean {
   return patterns.some((pattern) => normalized.includes(pattern));
 }
 
+function isHotLoadWeeklyDemoText(text: string): boolean {
+  const normalized = (text || '').toLowerCase().trim().replace(/[!?]+$/g, '');
+  if (!normalized) return false;
+
+  return [
+    'how was my week',
+    'how has my week been',
+    'how was this week',
+    'how was last week',
+    'how has last week been',
+    'give me a weekly recap',
+  ].includes(normalized);
+}
+
 function getToolLabel(text: string): string {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return 'Thinking...';
@@ -1193,13 +1207,17 @@ export function ChatClient() {
     setMessages(newMessages);
     
     let localOverviewActivity: LocalOverviewActivityBundle[] | null = null;
-    try {
-      localOverviewActivity = await maybeBuildLocalOverviewActivity(
-        text,
-        Intl.DateTimeFormat().resolvedOptions().timeZone,
-      );
-    } catch (error) {
-      console.warn('Local overview activity prefetch failed:', error);
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const shouldSkipBlockingLocalOverviewPrefetch = isHotLoadWeeklyDemoText(text);
+    if (!shouldSkipBlockingLocalOverviewPrefetch) {
+      try {
+        localOverviewActivity = await maybeBuildLocalOverviewActivity(
+          text,
+          timezone,
+        );
+      } catch (error) {
+        console.warn('Local overview activity prefetch failed:', error);
+      }
     }
     
     try {
@@ -1213,7 +1231,7 @@ export function ChatClient() {
         },
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          timezone,
           conversationId: conversationId, // Include conversation ID for persistence
           responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
           screenSearchResults: null,
