@@ -445,9 +445,7 @@
         rgba(242, 241, 238, 0.93) 100%
       );
     background-color: rgba(244, 243, 240, 0.95);
-    /* Subtle 1px separator line between sidebar and content — native macOS
-       apps (Finder, Notes, ChatGPT) always have this divider. */
-    border-right: 1px solid rgba(0, 0, 0, 0.09);
+    border-right: none;
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
@@ -459,9 +457,21 @@
     border-color: rgba(0, 0, 0, 0.025);
   }
 
-  /* Removed right-edge gradient — the border-right separator replaces it. */
   html.desktop .sidebar-vibrancy::after {
-    display: none;
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -1px;
+    bottom: 0;
+    width: 26px;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      rgba(92, 86, 78, 0.065) 0%,
+      rgba(92, 86, 78, 0.028) 20%,
+      rgba(92, 86, 78, 0.012) 42%,
+      rgba(92, 86, 78, 0.0) 100%
+    );
   }
 
   /* ===== macOS Liquid Glass Sidebar (native NSGlassEffectView) ===== */
@@ -509,7 +519,7 @@
       rgba(249, 249, 247, 0.22) 100%
     ) !important;
     background-color: rgba(252, 252, 250, 0.26) !important;
-    border-right: 1px solid rgba(0, 0, 0, 0.10) !important;
+    border-right: none !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -539,10 +549,16 @@
     opacity: 0.72;
   }
 
-  /* Removed right-edge gradient for glass mode — border-right handles separation. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::after {
-    display: none;
+    display: block;
+    background: linear-gradient(
+      90deg,
+      rgba(86, 80, 72, 0.055) 0%,
+      rgba(86, 80, 72, 0.022) 22%,
+      rgba(86, 80, 72, 0.008) 44%,
+      rgba(86, 80, 72, 0.0) 100%
+    );
   }
 
   /* Opaque main content — covers the glass so only sidebar is glassy */

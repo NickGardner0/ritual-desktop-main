@@ -603,8 +603,9 @@ fn reposition_traffic_lights(window: &tauri::Window) {
             return;
         }
 
-        // Traffic-light geometry: slightly tighter to match native macOS
-        // placement inside the 70px collapsed sidebar.
+        // Traffic-light geometry: keep the tighter x-spacing, but restore a
+        // higher vertical placement so the buttons sit nearer the native macOS
+        // top inset and no longer push the sidebar logo downward.
         let x_start: f64 = 16.0;
         let x_spacing: f64 = 20.0;
 
@@ -614,10 +615,10 @@ fn reposition_traffic_lights(window: &tauri::Window) {
         let close_super: id = msg_send![close, superview];
         let super_frame: cocoa::foundation::NSRect = msg_send![close_super, frame];
         let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        // Centre the buttons vertically within a 52px region from the top.
+        // Use an explicit top inset instead of centering in the 52px toolbar.
         // The y-axis is flipped (0 = bottom of superview).
-        let toolbar_height: f64 = 52.0;
-        let y = super_frame.size.height - toolbar_height / 2.0 - btn_frame.size.height / 2.0;
+        let top_inset: f64 = 14.0;
+        let y = super_frame.size.height - top_inset - btn_frame.size.height;
 
         let _: () = msg_send![close,    setFrameOrigin: cocoa::foundation::NSPoint::new(x_start, y)];
         let _: () = msg_send![minimize, setFrameOrigin: cocoa::foundation::NSPoint::new(x_start + x_spacing, y)];
