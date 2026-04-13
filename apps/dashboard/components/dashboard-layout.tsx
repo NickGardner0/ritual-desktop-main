@@ -132,14 +132,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       )}
 
       {/* Main Content Area */}
-      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-white">
+      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
         {/* Top Header — the header itself is the draggable toolbar chrome.
             Interactive controls opt out via no-drag so blank space still drags
             like a native macOS titlebar. */}
         {!isFullScreenChat && (
         <header
           data-tauri-drag-region
-          className="content-opaque tauri-drag-region relative px-5 h-[52px] flex items-center bg-white overflow-hidden"
+          className="content-opaque tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
         >
           {isChatRoute && (
             <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
@@ -170,7 +170,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
 
         {/* Main Content */}
-        <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-white`}>
+        <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
           {children}
         </main>
       </div>

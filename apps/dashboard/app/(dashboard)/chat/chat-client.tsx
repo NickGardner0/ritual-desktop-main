@@ -2085,7 +2085,7 @@ export function ChatClient() {
   // Loading conversation state
   if (isLoadingConversation) {
     return (
-      <div className="h-full flex flex-col bg-white relative">
+      <div className="h-full flex flex-col bg-[var(--content-bg)] relative">
         <div className="flex-1 flex items-center justify-center">
           <div className="flex items-center gap-2">
             <BrailleSpinner className="text-base text-gray-400" />
@@ -2099,7 +2099,7 @@ export function ChatClient() {
   // Pending first message state: show the query immediately while the stream boots.
   if (messages.length === 0 && isLoading && currentQuestion.trim()) {
     return (
-      <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
+      <div className="h-full w-full min-w-0 flex bg-[var(--content-bg)] relative overflow-hidden">
         {renderCollapsedSidebarToggle()}
 
         <div className="flex-1 min-w-0 overflow-x-hidden flex flex-col">
@@ -2132,7 +2132,7 @@ export function ChatClient() {
             </div>
           </div>
 
-          <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-lg">
+          <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-[rgba(252,252,252,0.86)] to-transparent backdrop-blur-lg">
             <div className="max-w-[680px] mx-auto px-8">
               <form onSubmit={handleSubmit}>
                 <div className="bg-[rgba(247,247,247,0.85)] backdrop-blur-lg border border-gray-200/80 shadow-sm overflow-hidden transition-shadow">
