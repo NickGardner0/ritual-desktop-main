@@ -77,6 +77,15 @@ interface LoggingResult {
   affectedHabitIds?: string[];
 }
 
+interface ParsedHabitInput {
+  habitName: string;
+  amount: number | null;
+  duration: number | null; // minutes for duration-based logs
+  unit: string;
+  activity: string;
+  success: true;
+}
+
 interface HabitOption {
   id: string;
   name: string;
@@ -300,13 +309,16 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   // Instant local suggestions
   useEffect(() => {
-    const localSuggestions = buildInstantSuggestions({
-      mode,
-      query: deferredInput,
-      habits,
-      habitLogs,
-      limit: 4,
-    });
+    const deterministicSuggestion = buildDeterministicLogSuggestion(deferredInput);
+    const localSuggestions = deterministicSuggestion
+      ? [deterministicSuggestion]
+      : buildInstantSuggestions({
+          mode,
+          query: deferredInput,
+          habits,
+          habitLogs,
+          limit: 4,
+        });
 
     startTransition(() => {
       setSuggestions(localSuggestions);
@@ -317,6 +329,13 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   // Async server enrichment
   useEffect(() => {
+    const deterministicSuggestion = buildDeterministicLogSuggestion(deferredInput);
+    if (deterministicSuggestion) {
+      suggestionsAbortRef.current?.abort();
+      suggestionsAbortRef.current = null;
+      return;
+    }
+
     const localSuggestions = buildInstantSuggestions({
       mode,
       query: deferredInput,
@@ -474,10 +493,11 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     // fractional helpers
     out = out.replace(/\bhalf\b/gi, '0.5');
     out = out.replace(/\b(a\s+)?quarter\b/gi, '0.25');
-    // "a" before a unit, e.g. "walked a mile" → "walked 1 mile"
+    // "a" / "an" before a unit, e.g. "walked a mile" → "walked 1 mile"
+    // or "worked out for an hour" → "worked out for 1 hour"
     out = out.replace(
-      /\ba\s+(mile|miles|page|pages|hour|hours|minute|minutes|step|steps|kilometer|kilometers|km|rep|reps)\b/gi,
-      '1 $1',
+      /\b(a|an)\s+(mile|miles|page|pages|hour|hours|minute|minutes|step|steps|kilometer|kilometers|km|rep|reps)\b/gi,
+      '1 $2',
     );
     return out;
   };
@@ -491,7 +511,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   };
 
   // Smart habit parsing that uses your actual habits
-  const parseHabitInput = (rawText: string) => {
+  const parseHabitInput = (rawText: string): ParsedHabitInput | null => {
     const text = wordsToDigits(rawText);
     const lowerText = text.toLowerCase();
 
@@ -620,6 +640,162 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     return null;
   };
 
+  const getHabitByParsedName = (habitName?: string | null) => {
+    if (!habitName) return null;
+    const matched = habits.find((habit) => habit.name.toLowerCase() === habitName.toLowerCase());
+    if (!matched?.id) return null;
+    return {
+      id: matched.id,
+      name: matched.name,
+      unit_type: matched.unit_type || '',
+    };
+  };
+
+  const getParsedDisplayValue = (
+    parsed: ParsedHabitInput,
+    habitUnit?: string | null,
+  ): { value: number; unitLabel: string } => {
+    if (parsed.amount != null) {
+      return {
+        value: parsed.amount,
+        unitLabel: parsed.unit || habitUnit || 'Count',
+      };
+    }
+
+    const normalizedHabitUnit = (habitUnit || parsed.unit || '').toLowerCase();
+    if (parsed.duration != null) {
+      if (normalizedHabitUnit === 'hours') {
+        return {
+          value: Math.round((parsed.duration / 60) * 10) / 10,
+          unitLabel: 'Hours',
+        };
+      }
+
+      return {
+        value: Math.round(parsed.duration * 10) / 10,
+        unitLabel: parsed.unit || habitUnit || 'Minutes',
+      };
+    }
+
+    return {
+      value: 1,
+      unitLabel: parsed.unit || habitUnit || 'Count',
+    };
+  };
+
+  const formatParsedValueLabel = (value: number, unitLabel: string) => {
+    if (unitLabel === 'Hours') {
+      return `${value} ${value === 1 ? 'hour' : 'hours'}`;
+    }
+    if (unitLabel === 'Minutes') {
+      return `${value} min`;
+    }
+    if (unitLabel === 'Pages') {
+      return `${value} ${value === 1 ? 'page' : 'pages'}`;
+    }
+    if (unitLabel === 'Steps') {
+      return `${value} ${value === 1 ? 'step' : 'steps'}`;
+    }
+    if (unitLabel === 'Miles') {
+      return `${value} ${value === 1 ? 'mile' : 'miles'}`;
+    }
+    if (unitLabel === 'Milligrams') {
+      return `${value}mg`;
+    }
+    if (unitLabel === 'Count') {
+      return `${value}`;
+    }
+    return `${value} ${unitLabel.toLowerCase()}`;
+  };
+
+  const buildDeterministicLogSuggestion = (query: string): ChatSuggestion | null => {
+    if (mode !== 'log' || !query.trim()) return null;
+    const parsed = parseHabitInput(query);
+    if (!parsed?.success) return null;
+
+    const matchedHabit = getHabitByParsedName(parsed.habitName);
+    if (!matchedHabit) return null;
+
+    const { value, unitLabel } = getParsedDisplayValue(parsed, matchedHabit.unit_type);
+
+    return {
+      text: `${matchedHabit.name} — ${formatParsedValueLabel(value, unitLabel)}`,
+      type: 'log_phrase',
+      habit_id: matchedHabit.id,
+      habit_name: matchedHabit.name,
+      unit_type: matchedHabit.unit_type || undefined,
+      value,
+      hint: `Log ${matchedHabit.name}`,
+      score: 1000,
+      source: 'local',
+    };
+  };
+
+  const getLocalDateString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const submitDirectParsedLog = async (
+    inputText: string,
+    parsed: ParsedHabitInput,
+    matchedHabit: HabitOption,
+  ): Promise<boolean> => {
+    const sessionToken = await getToken();
+    const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const response = await fetch('/api/logs/batch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
+      },
+      body: JSON.stringify({
+        items: [
+          {
+            habit_id: matchedHabit.id,
+            date: getLocalDateString(),
+            amount: parsed.amount ?? null,
+            duration: parsed.duration != null ? Math.round(parsed.duration * 60) : null,
+            unit: matchedHabit.unit_type || parsed.unit || 'Count',
+            source: 'ai_log_v2_fast',
+            notes: inputText,
+          },
+        ],
+        client_event_id: clientEventId,
+      }),
+    });
+
+    const result = await response.json().catch(() => null);
+    const firstResult = result?.results?.[0];
+    if (!response.ok || !result?.success || !firstResult?.success) {
+      throw new Error(result?.error || result?.message || 'Direct log failed');
+    }
+
+    const { value, unitLabel } = getParsedDisplayValue(parsed, matchedHabit.unit_type);
+    trackHabitLogged({
+      habitId: matchedHabit.id,
+      habitName: matchedHabit.name,
+      value,
+      unit: unitLabel,
+      source: 'ai_chat',
+    });
+
+    if (onHabitUpdate) {
+      onHabitUpdate({
+        success: true,
+        refreshNeeded: true,
+        playSound: false,
+        affectedHabitIds: [matchedHabit.id],
+        message: `Logged ${matchedHabit.name}`,
+      });
+    }
+
+    return true;
+  };
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -636,8 +812,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       return;
     }
 
-    // Log mode: Phase 5A multi-intent processing
-    setIsLoading(true);
+    // Log mode: fast single-habit path first, then fall back to AI parsing.
     setError(null);
     setClarifications([]);
     
@@ -650,13 +825,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     // OPTIMISTIC UPDATE: Try to parse locally first for instant feedback
     const localParsed = parseHabitInput(inputText);
-    if (localParsed?.success && localParsed.habitName && onHabitUpdate) {
-      // Find the matching habit to get the ID
-      const matchedHabit = habits.find(h => 
-        h.name.toLowerCase() === localParsed.habitName?.toLowerCase()
-      );
-      
-      if (matchedHabit) {
+    const matchedHabit = getHabitByParsedName(localParsed?.habitName);
+
+    if (localParsed?.success && matchedHabit) {
+      if (onHabitUpdate) {
         // Send optimistic update IMMEDIATELY (before API call)
         onHabitUpdate({
           success: true,
@@ -666,11 +838,28 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
           amount: localParsed.amount || undefined,
           unit: localParsed.unit || matchedHabit.unit_type || undefined,
           playSound: true,
-          refreshNeeded: false, // Don't refresh yet, wait for API
+          refreshNeeded: false,
         });
-        console.log('⚡ Optimistic update sent for:', matchedHabit.name);
+        console.log('⚡ Direct local log path for:', matchedHabit.name);
+      }
+
+      try {
+        await submitDirectParsedLog(inputText, localParsed, matchedHabit);
+        setInput('');
+        setIsFocused(false);
+        return;
+      } catch (err) {
+        console.error('Direct log error:', err);
+        setInput((current) => current.trim() ? current : inputText);
+        setIsFocused(true);
+        setTimeout(() => textareaRef.current?.focus(), 0);
+        setError('Failed to log your habit. Please try again.');
+        return;
       }
     }
+
+    // Fall back to AI parsing only when the local fast path cannot resolve a single habit.
+    setIsLoading(true);
 
     try {
       if (!user) throw new Error('User not authenticated');
