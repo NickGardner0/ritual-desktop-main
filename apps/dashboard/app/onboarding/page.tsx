@@ -211,7 +211,7 @@ export default function OnboardingPage() {
         className="fixed top-0 left-0 right-0 h-12 z-50"
       />
 
-      <div className="relative z-20 m-auto flex w-full max-w-[400px] flex-col">
+      <div className="relative z-20 m-auto flex w-full max-w-[340px] flex-col">
         <div className="text-center">
           <h1 className="text-lg mb-2 font-medium">Welcome to Ritual</h1>
           <p className="text-gray-500 text-sm mb-8">
@@ -228,7 +228,7 @@ export default function OnboardingPage() {
                 <FormItem>
                   <FormLabel className="text-xs text-gray-500 font-normal">Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your name" className="rounded-none" {...field} />
+                    <Input placeholder="Enter your name" className="rounded-sm" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -243,11 +243,11 @@ export default function OnboardingPage() {
                   <FormLabel className="text-xs text-gray-500 font-normal">Age</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger className="rounded-none hover:bg-[#F3F3F3]">
+                      <SelectTrigger className="rounded-sm hover:bg-[#F3F3F3]">
                         <SelectValue placeholder="Select age range" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent className="rounded-none">
+                    <SelectContent className="rounded-sm">
                       {ageBrackets.map((age) => (
                         <SelectItem key={age} value={age}>
                           {age}
@@ -268,11 +268,11 @@ export default function OnboardingPage() {
                   <FormLabel className="text-xs text-gray-500 font-normal">Gender</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <SelectTrigger className="rounded-none hover:bg-[#F3F3F3]">
+                      <SelectTrigger className="rounded-sm hover:bg-[#F3F3F3]">
                         <SelectValue placeholder="Select gender" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent className="rounded-none">
+                    <SelectContent className="rounded-sm">
                       {genderOptions.map((gender) => (
                         <SelectItem key={gender} value={gender}>
                           {gender}

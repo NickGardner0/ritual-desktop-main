@@ -37,7 +37,7 @@ export function Sidebar() {
         data-tauri-drag-region
         className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center"
       >
-        <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[20px] transition-none">
+        <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[21px] transition-none">
           <img
             src="/images/eclipse.svg"
             alt="Ritual Logo"

@@ -445,7 +445,7 @@
         rgba(242, 241, 238, 0.93) 100%
       );
     background-color: rgba(244, 243, 240, 0.95);
-    border-right: 1px solid hsl(var(--border));
+    border-right: 1px solid hsl(var(--border) / 0.72);
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
@@ -506,7 +506,7 @@
       rgba(249, 249, 247, 0.22) 100%
     ) !important;
     background-color: rgba(252, 252, 250, 0.26) !important;
-    border-right: 1px solid hsl(var(--border)) !important;
+    border-right: 1px solid hsl(var(--border) / 0.72) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;

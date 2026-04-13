@@ -52,13 +52,13 @@ export function MultiSelect({
                     variant="outline"
                     role="combobox"
                     aria-expanded={open}
-                    className="w-full justify-between font-normal rounded-none hover:bg-[#F3F3F3]"
+                    className="w-full justify-between font-normal rounded-sm hover:bg-[#F3F3F3]"
                 >
                     {value.length > 0 ? `${value.length} selected` : placeholder}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-none" align="start" side={side} avoidCollisions={false} sideOffset={4}>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-sm" align="start" side={side} avoidCollisions={false} sideOffset={4}>
                 <Command>
                     <CommandInput placeholder={searchPlaceholder} />
                     <CommandList className="max-h-[150px]">
@@ -72,7 +72,7 @@ export function MultiSelect({
                                 >
                                     <div
                                         className={cn(
-                                            "mr-2 h-4 w-4 border border-gray-300 rounded-none flex items-center justify-center",
+                                            "mr-2 h-4 w-4 border border-gray-300 rounded-sm flex items-center justify-center",
                                             value.includes(option) && "bg-black border-black"
                                         )}
                                     >

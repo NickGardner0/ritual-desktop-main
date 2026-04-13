@@ -450,11 +450,11 @@ export function HomeClient() {
             {/* Page 2: Why Ritual */}
             {currentPage === 2 && (
               <div className="animate-in fade-in duration-500">
-                <div className="max-w-lg mx-auto text-left text-gray-900 px-8">
-                  <p className="text-xl leading-relaxed">
+                <div className="max-w-xl mx-auto text-left text-gray-900 px-8">
+                  <p className="text-xl leading-snug">
                     Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior.
                   </p>
-                  <p className="text-xl leading-relaxed mt-6">
+                  <p className="text-xl leading-snug mt-6">
                     As you connect your wearable devices and create logs in the app, the system quietly generates metadata. Over time, your scattered behavior and patterns become structured data that start to form a model of your life.
                   </p>
                   <div className="mt-10 flex flex-col items-center gap-4">
@@ -553,7 +553,7 @@ export function HomeClient() {
               <div className="flex items-center justify-center">
                 <button
                   onClick={handleNext}
-                  className="px-12 py-2.5 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium"
+                  className="px-10 py-2 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium hover:bg-[#27251E]"
                   style={{ fontWeight: 500 }}
                 >
                   {currentPage === 1 && 'Get Started'}

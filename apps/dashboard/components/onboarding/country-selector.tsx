@@ -34,13 +34,13 @@ export function CountrySelector({ value, onChange }: CountrySelectorProps) {
                     variant="outline"
                     role="combobox"
                     aria-expanded={open}
-                    className="w-full justify-between font-normal rounded-none hover:bg-[#F3F3F3]"
+                    className="w-full justify-between font-normal rounded-sm hover:bg-[#F3F3F3]"
                 >
                     {value ? value : "Select country"}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-none" align="start" side="bottom" avoidCollisions={false} sideOffset={4}>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 rounded-sm" align="start" side="bottom" avoidCollisions={false} sideOffset={4}>
                 <Command>
                     <CommandInput placeholder="Search country..." />
                     <CommandList className="max-h-[200px]">
