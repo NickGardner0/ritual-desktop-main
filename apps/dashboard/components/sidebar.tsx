@@ -31,14 +31,13 @@ export function Sidebar() {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Logo Header — back in the unified 52px toolbar band so it aligns with
-          the Search button. Traffic lights are moved higher in native code to
-          avoid overlap. */}
+      {/* Logo Header — keep a taller reserved band so the logo sits cleanly
+          below the macOS traffic lights without overlap. */}
       <div
         data-tauri-drag-region
-        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[52px] w-[70px] flex items-center justify-center"
+        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center"
       >
-        <Link href="/" className="no-drag flex h-full w-full items-center justify-center pt-[18px] transition-none">
+        <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[18px] transition-none">
           <img
             src="/images/eclipse.svg"
             alt="Ritual Logo"
@@ -47,8 +46,8 @@ export function Sidebar() {
         </Link>
       </div>
 
-      {/* Main Navigation — top padding accounts for 52px header band */}
-      <div className="flex flex-col w-full pt-[52px] flex-1">
+      {/* Main Navigation — top padding accounts for taller logo/header band */}
+      <div className="flex flex-col w-full pt-[70px] flex-1">
         <MainMenu 
           isExpanded={isExpanded} 
           onCloseSidebar={() => setIsExpanded(false)}

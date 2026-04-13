@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "Ritual",
-      "version": "0.1.32"
+      "version": "0.1.33"
   },
   "tauri": {
     "macOSPrivateApi": true,
