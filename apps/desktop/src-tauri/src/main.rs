@@ -605,7 +605,7 @@ fn reposition_traffic_lights(window: &tauri::Window) {
 
         // Traffic-light geometry: keep the tighter x-spacing, but move the
         // buttons back up closer to the native macOS top inset.
-        let x_start: f64 = 16.0;
+        let x_start: f64 = 11.0;
         let x_spacing: f64 = 20.0;
 
         // We need to position relative to the title-bar container.
@@ -616,7 +616,7 @@ fn reposition_traffic_lights(window: &tauri::Window) {
         let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
         // Use a tighter explicit top inset instead of centering in the toolbar.
         // The y-axis is flipped (0 = bottom of superview).
-        let top_inset: f64 = 5.0;
+        let top_inset: f64 = 4.0;
         let y = super_frame.size.height - top_inset - btn_frame.size.height;
 
         let _: () = msg_send![close,    setFrameOrigin: cocoa::foundation::NSPoint::new(x_start, y)];
