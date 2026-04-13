@@ -2,7 +2,6 @@
 
 import { cn } from "@/lib/utils";
 
-import Link from "next/link";
 import { useState, useRef, useCallback } from "react";
 import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
@@ -31,20 +30,11 @@ export function Sidebar() {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {/* Logo Header — keep a taller reserved band so the logo sits cleanly
-          below the macOS traffic lights without overlap. */}
+      {/* Reserved top band for traffic lights/titlebar spacing during demos. */}
       <div
         data-tauri-drag-region
         className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center"
-      >
-        <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[21px] transition-none">
-          <img
-            src="/images/eclipse.svg"
-            alt="Ritual Logo"
-            className="w-[22px] h-[22px] flex-shrink-0"
-          />
-        </Link>
-      </div>
+      />
 
       {/* Main Navigation — top padding accounts for taller logo/header band */}
       <div className="flex flex-col w-full pt-[70px] flex-1">
