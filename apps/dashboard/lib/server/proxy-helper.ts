@@ -40,6 +40,7 @@ export function createProxyHandler(
       let userId: string | null = null;
 
       const authHeader = request.headers.get("authorization") ?? "";
+      const forceFresh = request.headers.get("x-ritual-force-fresh") === "1";
       if (authHeader.toLowerCase().startsWith("bearer ")) {
         // Tauri / programmatic caller — skip Clerk entirely
         token = authHeader.slice(7);
@@ -61,7 +62,7 @@ export function createProxyHandler(
       const fetchInit: RequestInit = {
         method,
         cache: "no-store",
-        headers: buildBackendAuthHeaders({ userId, token }),
+        headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
         signal: AbortSignal.timeout(timeout),
       };
 

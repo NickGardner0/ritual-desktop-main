@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
     }
 
     const token = await getToken();
+    const forceFresh = request.headers.get("x-ritual-force-fresh") === "1";
     const queryString = new URLSearchParams({
       kind,
       key,
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
 
     const response = await fetch(url, {
       method: "GET",
-      headers: buildBackendAuthHeaders({ userId, token }),
+      headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
       signal: AbortSignal.timeout(15000),
     });
 

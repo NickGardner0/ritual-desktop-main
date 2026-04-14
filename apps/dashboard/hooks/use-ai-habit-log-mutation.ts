@@ -1,8 +1,13 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { habitKeys, habitLogKeys } from '@/hooks/use-habits-query';
-import { dashboardSnapshotKeys } from '@/lib/dashboard/dashboard-snapshot';
+import {
+  applyOptimisticHabitLogUpdate,
+  invalidateHabitData,
+  ritualQueryKeys,
+  rollbackOptimisticHabitLogUpdate,
+} from '@/lib/query-invalidation';
+import { markReadConsistencyRequired } from '@/lib/read-consistency';
 
 type HabitUpdateHandler = ((habitData: any) => void) | undefined;
 
@@ -78,18 +83,6 @@ function getLocalDateString() {
   return `${year}-${month}-${day}`;
 }
 
-async function invalidateRitualQueries(
-  queryClient: ReturnType<typeof useQueryClient>,
-  userId?: string | null,
-) {
-  const queryUserId = userId ?? 'anonymous';
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: habitKeys.list(queryUserId) }),
-    queryClient.invalidateQueries({ queryKey: habitLogKeys.list(queryUserId) }),
-    queryClient.invalidateQueries({ queryKey: dashboardSnapshotKeys.byUser(queryUserId) }),
-  ]);
-}
-
 export function useAiHabitLogMutation({
   userId,
   getToken,
@@ -104,6 +97,24 @@ export function useAiHabitLogMutation({
   const queryClient = useQueryClient();
 
   const directLogMutation = useMutation({
+    onMutate: async ({ inputText, parsed, matchedHabit }) => {
+      const queryUserId = userId ?? 'anonymous';
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitLogsList(queryUserId) }),
+        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
+      ]);
+
+      return applyOptimisticHabitLogUpdate(queryClient, queryUserId, {
+        id: `temp-${Date.now()}`,
+        habit_id: matchedHabit.id,
+        amount: parsed.amount ?? undefined,
+        duration: parsed.duration != null ? Math.round(parsed.duration * 60) : undefined,
+        unit: matchedHabit.unit_type || parsed.unit || 'Count',
+        date: getLocalDateString(),
+        status: 'completed',
+        notes: inputText,
+      });
+    },
     mutationFn: async ({ inputText, parsed, matchedHabit, displayValue }: DirectLogParams) => {
       const sessionToken = await getToken();
       const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -140,6 +151,9 @@ export function useAiHabitLogMutation({
         displayValue,
       };
     },
+    onError: (_error, _variables, context) => {
+      rollbackOptimisticHabitLogUpdate(queryClient, userId ?? 'anonymous', context);
+    },
     onSuccess: async ({ matchedHabit, displayValue }) => {
       trackHabitLogged({
         habitId: matchedHabit.id,
@@ -157,7 +171,8 @@ export function useAiHabitLogMutation({
         message: `Logged ${matchedHabit.name}`,
       });
 
-      await invalidateRitualQueries(queryClient, userId);
+      markReadConsistencyRequired(userId);
+      await invalidateHabitData(queryClient, userId);
     },
   });
 
@@ -210,12 +225,30 @@ export function useAiHabitLogMutation({
       }
 
       if (successfulLogs.length > 0) {
-        await invalidateRitualQueries(queryClient, userId);
+        markReadConsistencyRequired(userId);
+        await invalidateHabitData(queryClient, userId);
       }
     },
   });
 
   const clarificationMutation = useMutation({
+    onMutate: async ({ clarification, habitId }) => {
+      const queryUserId = userId ?? 'anonymous';
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitLogsList(queryUserId) }),
+        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
+      ]);
+
+      return applyOptimisticHabitLogUpdate(queryClient, queryUserId, {
+        id: `temp-clarify-${Date.now()}`,
+        habit_id: habitId,
+        amount: clarification.value ?? undefined,
+        unit: clarification.unit ?? undefined,
+        date: clarification.date,
+        status: 'completed',
+        notes: `Logged via clarification: ${clarification.habit_hint}`,
+      });
+    },
     mutationFn: async ({ clarification, habitId, habitName }: ClarificationParams) => {
       const sessionToken = await getToken();
       const response = await fetch('/api/logs/batch', {
@@ -248,6 +281,9 @@ export function useAiHabitLogMutation({
         clarification,
       };
     },
+    onError: (_error, _variables, context) => {
+      rollbackOptimisticHabitLogUpdate(queryClient, userId ?? 'anonymous', context);
+    },
     onSuccess: async ({ habitId, habitName, clarification }) => {
       onHabitUpdate?.({
         success: true,
@@ -264,7 +300,8 @@ export function useAiHabitLogMutation({
         source: 'ai_chat',
       });
 
-      await invalidateRitualQueries(queryClient, userId);
+      markReadConsistencyRequired(userId);
+      await invalidateHabitData(queryClient, userId);
     },
   });
 

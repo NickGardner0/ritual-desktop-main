@@ -21,7 +21,6 @@ import type { Habit as StoredHabit } from '@/contexts/HabitsContext';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { habitKeys } from '@/hooks/use-habits-query';
 import MiniSearch from 'minisearch';
-import dynamic from 'next/dynamic';
 import {
   productivityHabits,
   fitnessHealthHabits,
@@ -33,14 +32,6 @@ import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { isTauri } from '@/lib/tauri-utils';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 
-const IconPicker = dynamic(() => import('./IconPicker'), {
-  ssr: false,
-  loading: () => (
-    <div className="h-10 w-full border border-gray-200 bg-white px-3 py-2 text-sm text-gray-400">
-      Loading icons...
-    </div>
-  ),
-});
 
 /** Fixed width so Connect / Manual / Connected columns align across rows */
 const connectRowActionClass =
@@ -134,8 +125,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [selectedHabit, setSelectedHabit] = React.useState<any | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [showCustomization, setShowCustomization] = useState(false);
-  // Icon values are provider-aware strings (e.g. lucide names or mui:Name)
-  const [selectedIcon, setSelectedIcon] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('Count');
   const [isMetricDropdownOpen, setIsMetricDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(''); // Search state
@@ -352,7 +341,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     return getHabitsForCategory(selectedCategory || '');
   }, [searchQuery, searchResults, selectedCategory]);
   
-  // Constrain metric dropdown to card bounds (same approach as IconPicker)
+  // Constrain metric dropdown to card bounds
   function useFloatingWithinCard(
     open: boolean,
     anchorRef: React.RefObject<HTMLElement | null>,
@@ -690,7 +679,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setSearchQuery('');
     }
   };
-  // Emoji functionality removed - now using enhanced IconPicker with Material Symbols
 
   // Metric type options - units of measurement only (not activities/habits)
   const metricOptions = [
@@ -756,7 +744,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                    : selectedCategory === 'garmin' ? 'Garmin'
                    : selectedCategory === 'plaid' ? 'Plaid'
                    : 'Manual',
-        icon: selectedIcon || 'lucide:layout-dashboard',
+        icon: 'lucide:layout-dashboard',
         unit_type: habitUnit,
         integration_source: selectedCategory === 'whoop' ? 'whoop'
                           : selectedCategory === 'applewatch' ? 'apple_health'
@@ -802,7 +790,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setSelectedHabit(null);
       setSelectedCategory(null);
       setShowCustomization(false);
-      setSelectedIcon('');
       setSelectedMetric('Count');
       setCustomHabitName('');
       onClose();
@@ -979,21 +966,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   />
                 </div>
 
-                {/* Icon Selection */}
-                <div className="flex items-center gap-4">
-                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Icon</label>
-                  <div className="flex-1">
-                    <IconPicker
-                      value={selectedIcon}
-                      onChange={(name) => setSelectedIcon(name)}
-                      anchorClassName="flex items-center justify-between w-full px-3 py-2 border border-gray-200 rounded-sm bg-white text-sm font-normal text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-10"
-                      portalRef={floatingLayerRef}
-                      withinCardRef={cardRef}
-                      minMenuHeight={260}
-                      desiredMenuWidth={384}
-                    />
-                  </div>
-                </div>
 
                 {/* Metric Type Selection */}
                 <div className="flex items-center gap-4">

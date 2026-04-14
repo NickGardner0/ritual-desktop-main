@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { QUERY_POLICY } from '@/lib/query-policies';
 import { cn } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -221,7 +222,7 @@ function useWhoopStatus() {
       const data = await response.json();
       return data; // return full status object
     },
-    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
   });
 }
@@ -256,7 +257,7 @@ function useAppleWatchStatus() {
         deviceName: activeDevices[0]?.device_name || null,
       };
     },
-    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
   });
 }
@@ -279,7 +280,7 @@ function useWearableConnections() {
 
       return response.json();
     },
-    staleTime: 1000 * 30,
+    staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
   });
 }
@@ -302,7 +303,7 @@ function useFinancialConnections() {
 
       return response.json();
     },
-    staleTime: 1000 * 30,
+    staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
   });
 }
@@ -338,7 +339,7 @@ function useComputerTrackingStatus() {
         return { connected: false, enabled: false, deviceName: null, deviceId: null };
       }
     },
-    staleTime: 1000 * 60 * 2, // Cache for 2 minutes
+    staleTime: QUERY_POLICY.general.staleTime,
     enabled: !!user?.id,
   });
 }
@@ -439,7 +440,7 @@ function useIntegrationsOverview() {
         },
       };
     },
-    staleTime: 1000 * 60 * 2,
+    staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
   });
 }
@@ -3548,7 +3549,7 @@ export function IntegrationsClient() {
           isConnected={appleWatchConnected}
           onConnect={handleAppleWatchConnect}
           onDisconnect={handleAppleWatchDisconnect}
-          onDetails={() => openIntegrationDetails('applewatch')}
+          onDetails={() => router.replace('/integrations?openSettings=apple-health')}
         />
 
         {/* Whoop Card */}

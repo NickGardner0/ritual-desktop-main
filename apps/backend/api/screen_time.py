@@ -3,7 +3,8 @@
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from database.connection import force_local_replica_sync
 
 
 def create_screen_time_router(
@@ -20,6 +21,10 @@ def create_screen_time_router(
     from services.screen_time_service import screen_time_service
 
     router = APIRouter(tags=["screen-time"])
+
+    async def maybe_force_fresh_read(request: Request):
+        if request.headers.get("x-ritual-force-fresh") == "1":
+            await force_local_replica_sync()
 
     @router.post(
         "/api/screen-time/register_device",
@@ -62,10 +67,12 @@ def create_screen_time_router(
         response_model=ScreenTimeSummaryResponse,
     )
     async def get_screen_time_summary(
+        request: Request,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         current_user=Depends(get_current_user),
     ):
+        await maybe_force_fresh_read(request)
         today = datetime.now().strftime("%Y-%m-%d")
         start = start_date or today
         end = end_date or today
@@ -74,12 +81,14 @@ def create_screen_time_router(
 
     @router.get("/api/screen-time/stats/top-apps")
     async def get_screen_time_top_apps(
+        request: Request,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         days_back: Optional[int] = 30,
         limit: int = 10,
         current_user=Depends(get_current_user),
     ):
+        await maybe_force_fresh_read(request)
         today = datetime.now()
         if start_date and end_date:
             start = start_date
@@ -98,12 +107,14 @@ def create_screen_time_router(
 
     @router.get("/api/screen-time/stats/top-domains")
     async def get_screen_time_top_domains(
+        request: Request,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         days_back: Optional[int] = 30,
         limit: int = 10,
         current_user=Depends(get_current_user),
     ):
+        await maybe_force_fresh_read(request)
         today = datetime.now()
         if start_date and end_date:
             start = start_date
@@ -122,6 +133,7 @@ def create_screen_time_router(
 
     @router.get("/api/screen-time/breakdown")
     async def get_screen_time_breakdown(
+        request: Request,
         kind: str,
         key: str,
         start_date: str,
@@ -130,6 +142,7 @@ def create_screen_time_router(
     ):
         if kind not in {"app", "website"}:
             raise HTTPException(status_code=400, detail="Invalid kind, must be 'app' or 'website'")
+        await maybe_force_fresh_read(request)
         rows = await screen_time_service.get_daily_breakdown(
             current_user["id"],
             kind,

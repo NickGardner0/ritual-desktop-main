@@ -6,6 +6,7 @@ import {
   overviewActivityKeys,
   type OverviewActivityRangeKey,
 } from '@/lib/ai/chat-stream/overview-activity-query';
+import { QUERY_POLICY } from '@/lib/query-policies';
 
 export function useOverviewActivityQuery({
   userId,
@@ -24,7 +25,8 @@ export function useOverviewActivityQuery({
     queryKey: overviewActivityKeys.detail(queryUserId, timezone, rangeKey),
     queryFn: () => getOverviewActivityBundle(rangeKey, timezone),
     enabled: enabled && Boolean(userId),
-    staleTime: 1000 * 60 * 5,
+    staleTime: QUERY_POLICY.overviewActivity.staleTime,
+    gcTime: QUERY_POLICY.overviewActivity.gcTime,
     refetchOnWindowFocus: false,
   });
 }

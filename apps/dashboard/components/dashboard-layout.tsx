@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
-import { useSidebarMode } from '@/contexts/SidebarModeContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -11,11 +10,6 @@ import dynamic from 'next/dynamic';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
-  { ssr: false }
-);
-
-const SidebarToggleButton = dynamic(
-  () => import('@/components/sidebar').then(m => ({ default: m.SidebarToggleButton })),
   { ssr: false }
 );
 
@@ -51,14 +45,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(70);
   const { isFullScreenChat } = useAI();
-  const { mode: sidebarMode } = useSidebarMode();
   const pathname = usePathname();
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
-  const titlebarLeftInset = !isChatRoute && !isFullScreenChat
-    ? (sidebarMode === 'hidden' ? 112 : 44)
-    : 0;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -137,12 +127,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       ) : null}
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-      {!shouldHideAppSidebar && !detachedSidebarMode && (
-        <>
-          <Sidebar />
-          <SidebarToggleButton />
-        </>
-      )}
+      {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
 
       {/* Main Content Area */}
       <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
@@ -161,9 +146,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {/* Left zone — Search + page-specific left actions */}
             <div
               className="no-drag flex items-center space-x-2.5 min-w-0"
-              style={{
-                paddingLeft: !isFullScreenChat ? titlebarLeftInset : 0,
-              }}
             >
               {!isChatRoute && (
                 <div>

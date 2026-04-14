@@ -18,6 +18,18 @@ import { useUser, useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
 import type { Habit, HabitLog } from '@/contexts/HabitsContext';
 import { useAnalytics } from '@/lib/analytics';
+import { QUERY_POLICY } from '@/lib/query-policies';
+import {
+  applyOptimisticHabitLogUpdate,
+  invalidateHabitData,
+  rollbackOptimisticHabitLogUpdate,
+  ritualQueryKeys,
+} from '@/lib/query-invalidation';
+import {
+  getReadConsistencyHeaders,
+  markReadConsistencyRequired,
+  shouldForceFreshRead,
+} from '@/lib/read-consistency';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const LOCAL_HABITS_API = '/api/habits';
@@ -179,14 +191,18 @@ export const habitLogKeys = {
 export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
+  const bypassPersistedSnapshot = useMemo(
+    () => shouldForceFreshRead(user?.id),
+    [user?.id],
+  );
   const fallbackSnapshot = useMemo(() => {
-    if (!user?.id) return null;
+    if (!user?.id || bypassPersistedSnapshot) return null;
 
     return (
       getSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.list(user.id))
       || readPersistedSnapshot<Habit[]>(HABITS_SNAPSHOT_STORAGE_KEY, user.id)
     );
-  }, [queryClient, user?.id]);
+  }, [bypassPersistedSnapshot, queryClient, user?.id]);
 
   return useQuery({
     queryKey: habitKeys.list(user?.id || 'anonymous'),
@@ -198,6 +214,9 @@ export function useHabitsQuery() {
       const response = await fetch(LOCAL_HABITS_API, {
         cache: 'no-store',
         credentials: 'include',
+        headers: {
+          ...getReadConsistencyHeaders(user.id),
+        },
       });
 
       if (!response.ok) {
@@ -212,7 +231,8 @@ export function useHabitsQuery() {
     initialData: fallbackSnapshot?.data,
     initialDataUpdatedAt: fallbackSnapshot?.updatedAt,
     enabled: isLoaded && !!user?.id,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: QUERY_POLICY.optimisticEntity.staleTime,
+    gcTime: QUERY_POLICY.optimisticEntity.gcTime,
   });
 }
 
@@ -222,14 +242,18 @@ export function useHabitsQuery() {
 export function useHabitLogsQuery() {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
+  const bypassPersistedSnapshot = useMemo(
+    () => shouldForceFreshRead(user?.id),
+    [user?.id],
+  );
   const fallbackSnapshot = useMemo(() => {
-    if (!user?.id) return null;
+    if (!user?.id || bypassPersistedSnapshot) return null;
 
     return (
       getSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.list(user.id))
       || readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user.id)
     );
-  }, [queryClient, user?.id]);
+  }, [bypassPersistedSnapshot, queryClient, user?.id]);
 
   return useQuery({
     queryKey: habitLogKeys.list(user?.id || 'anonymous'),
@@ -241,6 +265,9 @@ export function useHabitLogsQuery() {
       const response = await fetch(LOCAL_HABIT_LOGS_API, {
         cache: 'no-store',
         credentials: 'include',
+        headers: {
+          ...getReadConsistencyHeaders(user.id),
+        },
       });
 
       if (!response.ok) {
@@ -263,7 +290,8 @@ export function useHabitLogsQuery() {
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background
     // polling/refetch-on-focus.
-    staleTime: 1000 * 60 * 5,
+    staleTime: QUERY_POLICY.optimisticEntity.staleTime,
+    gcTime: QUERY_POLICY.optimisticEntity.gcTime,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
@@ -327,49 +355,36 @@ export function useLogHabitMutation() {
 
     // Optimistic update - instant UI feedback!
     onMutate: async (newLog) => {
-      const queryKey = habitLogKeys.list(user?.id || 'anonymous');
+      const queryUserId = user?.id || 'anonymous';
+      const queryKey = habitLogKeys.list(queryUserId);
 
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey });
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey }),
+        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
+      ]);
 
-      // Snapshot previous value
-      const previousLogs = queryClient.getQueryData<HabitLog[]>(queryKey);
-
-      // Optimistically update
-      if (previousLogs) {
-        queryClient.setQueryData<HabitLog[]>(queryKey, (old = []) => [
-          ...old,
-          { ...newLog, id: `temp-${Date.now()}` } as HabitLog,
-        ]);
-      }
+      const rollback = applyOptimisticHabitLogUpdate(queryClient, queryUserId, {
+        ...newLog,
+        id: `temp-${Date.now()}`,
+      } as HabitLog);
 
       if (process.env.NODE_ENV !== 'production') { console.log('⚡ [React Query] Optimistic update applied!'); }
 
-      return { previousLogs };
+      return rollback;
     },
 
     // Rollback on error
     onError: (err, newLog, context) => {
       console.error('❌ [React Query] Log failed, rolling back:', err);
-      if (context?.previousLogs) {
-        queryClient.setQueryData(
-          habitLogKeys.list(user?.id || 'anonymous'),
-          context.previousLogs
-        );
-      }
+      rollbackOptimisticHabitLogUpdate(queryClient, user?.id || 'anonymous', context);
     },
 
     // Refetch after mutation completes
     onSettled: async () => {
+      markReadConsistencyRequired(user?.id);
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Refetching logs after mutation...'); }
-      // Invalidate habit logs to mark as stale (will refetch on next mount)
-      await queryClient.invalidateQueries({ 
-        queryKey: habitLogKeys.list(user?.id || 'anonymous')
-      });
-      // CRITICAL: Invalidate analytics cache - marks as stale so it refetches when page opens
-      await queryClient.invalidateQueries({ 
-        queryKey: ['analytics-summary', user?.id]
-      });
+      await invalidateHabitData(queryClient, user?.id || 'anonymous');
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Analytics cache invalidated - will refetch on navigation!'); }
     },
   });
@@ -416,9 +431,8 @@ export function useCreateHabitMutation() {
 
     onSuccess: (data) => {
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit created, refetching...'); }
-      queryClient.invalidateQueries({ 
-        queryKey: habitKeys.list(user?.id || 'anonymous') 
-      });
+      markReadConsistencyRequired(user?.id);
+      void invalidateHabitData(queryClient, user?.id || 'anonymous');
       
       // Track analytics event
       trackHabitCreated({
@@ -503,12 +517,8 @@ export function useUpdateHabitMutation() {
     },
 
     onSettled: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: habitKeys.list(user?.id || 'anonymous'),
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ['analytics-summary', user?.id],
-      });
+      markReadConsistencyRequired(user?.id);
+      await invalidateHabitData(queryClient, user?.id || 'anonymous');
     },
   });
 }
@@ -582,9 +592,8 @@ export function useDeleteHabitMutation() {
 
     onSettled: () => {
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Refetching habits after delete...'); }
-      queryClient.invalidateQueries({ 
-        queryKey: habitKeys.list(user?.id || 'anonymous') 
-      });
+      markReadConsistencyRequired(user?.id);
+      void invalidateHabitData(queryClient, user?.id || 'anonymous');
     },
   });
 }

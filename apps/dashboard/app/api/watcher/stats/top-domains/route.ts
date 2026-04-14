@@ -21,11 +21,12 @@ export async function GET(request: NextRequest) {
     }
 
     const token = await getToken();
+    const forceFresh = request.headers.get('x-ritual-force-fresh') === '1';
     const url = `${BACKEND_URL}/api/watcher/stats/top-domains${queryString ? `?${queryString}` : ""}`;
 
     const response = await fetch(url, {
       method: "GET",
-      headers: buildBackendAuthHeaders({ userId, token }),
+      headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
       cache: "no-store",
       signal: AbortSignal.timeout(65000),
     });

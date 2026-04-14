@@ -7,7 +7,6 @@ import { useState, useRef, useCallback } from "react";
 import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
-import { PanelLeft } from "lucide-react";
 
 const COLLAPSED_WIDTH = 70;
 const EXPANDED_WIDTH = 190;
@@ -26,9 +25,6 @@ export function Sidebar() {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = setTimeout(() => setIsHovered(false), 100);
   }, []);
-
-  // hidden mode: render nothing (toggle button is in DashboardLayout)
-  if (mode === "hidden") return null;
 
   // Determine visual expansion state based on mode
   const isExpanded =
@@ -81,26 +77,5 @@ export function Sidebar() {
         <TeamDropdown isExpanded={isExpanded} placement="sidebar" />
       </div>
     </aside>
-  );
-}
-
-/** Titlebar toggle button positioned beside the macOS traffic lights. */
-export function SidebarToggleButton() {
-  const { mode, toggleVisibility } = useSidebarMode();
-  const isHidden = mode === "hidden";
-
-  return (
-    <button
-      type="button"
-      onClick={toggleVisibility}
-      className={cn(
-        "fixed top-[6px] left-[88px] z-[100] no-drag flex h-[22px] w-[22px] items-center justify-center rounded-[6px] border border-[rgba(17,24,39,0.10)] bg-[rgba(255,255,255,0.78)] text-[#7a7a72] transition-colors hover:bg-[rgba(255,255,255,0.96)] hover:text-[#27251E]",
-        !isHidden && "border-transparent bg-transparent hover:bg-[rgba(17,24,39,0.05)]",
-      )}
-      title={isHidden ? "Show sidebar" : "Hide sidebar"}
-      aria-label={isHidden ? "Show sidebar" : "Hide sidebar"}
-    >
-      <PanelLeft className="h-[18px] w-[18px]" strokeWidth={2.2} />
-    </button>
   );
 }

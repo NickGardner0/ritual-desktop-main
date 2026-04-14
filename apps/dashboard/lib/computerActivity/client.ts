@@ -7,6 +7,7 @@ import {
 } from './tauri-activity'
 import { normalizeComputerDailySummaryRow } from './normalize'
 import { perfError, perfInfo, perfWarn, startPerfTimer } from '@/lib/perf-debug'
+import { getReadConsistencyHeaders } from '@/lib/read-consistency'
 
 // Product rule:
 // - User-facing computer activity analytics should read from backend `/api/watcher/stats/*`
@@ -125,6 +126,9 @@ async function fetchWatcherStatsJson<T>(
       response = await fetch(`${path}${queryString ? `?${queryString}` : ''}`, {
         cache: 'no-store',
         credentials: 'include',
+        headers: {
+          ...getReadConsistencyHeaders(),
+        },
         signal: controller.signal,
       })
     } catch (error) {
@@ -161,6 +165,15 @@ async function fetchWatcherStatsJson<T>(
   } finally {
     inflightWatcherRequests.delete(requestKey)
   }
+}
+
+export function clearComputerActivityClientCaches(): void {
+  summaryCache.clear()
+  dailyCache.clear()
+  appsCache.clear()
+  domainsCache.clear()
+  aggregateCache.clear()
+  inflightWatcherRequests.clear()
 }
 
 function normalizeDailyRows(rows: any[]): ComputerDailyResponseRow[] {

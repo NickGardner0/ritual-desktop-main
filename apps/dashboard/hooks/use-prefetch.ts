@@ -10,6 +10,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { habitKeys, habitLogKeys } from './use-habits-query';
+import { QUERY_POLICY } from '@/lib/query-policies';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
@@ -48,7 +49,7 @@ export function usePrefetchHabits() {
         console.log('✅ [Prefetch] Habits loaded!');
         return habits;
       },
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: QUERY_POLICY.staticResource.staleTime,
     });
   };
 
@@ -88,7 +89,7 @@ export function usePrefetchHabitLogs() {
         console.log('✅ [Prefetch] Habit logs loaded!');
         return logs;
       },
-      staleTime: 1000 * 60 * 2, // 2 minutes
+      staleTime: QUERY_POLICY.general.staleTime,
     });
   };
 
@@ -168,7 +169,7 @@ export function usePrefetchAnalytics() {
           }
         };
       },
-      staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+      staleTime: QUERY_POLICY.staticResource.staleTime,
     });
   };
 

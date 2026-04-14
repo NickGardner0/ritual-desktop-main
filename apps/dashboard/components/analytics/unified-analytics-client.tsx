@@ -27,11 +27,12 @@ import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { habitKeys, habitLogKeys } from '@/hooks/use-habits-query';
+import { habitLogKeys } from '@/hooks/use-habits-query';
 import { useUser } from '@clerk/nextjs';
 import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query';
-import { computerSnapshotKeys } from '@/hooks/use-computer-snapshot-query';
 import { perfInfo } from '@/lib/perf-debug';
+import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
+import { markReadConsistencyRequired } from '@/lib/read-consistency';
 // Import from separate file to avoid pulling in recharts (~500KB)
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
@@ -153,11 +154,8 @@ function UnifiedAnalyticsContent({
           return;
         }
         if (result?.success && result?.synced) {
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: habitKeys.list(user?.id || 'anonymous') }),
-            queryClient.invalidateQueries({ queryKey: habitLogKeys.list(user?.id || 'anonymous') }),
-            queryClient.invalidateQueries({ queryKey: computerSnapshotKeys.byUser(user?.id || 'anonymous') }),
-          ]);
+          markReadConsistencyRequired(user?.id);
+          await invalidateAfterComputerSync(queryClient, user?.id);
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -490,11 +488,8 @@ function UnifiedAnalyticsContent({
                     // Backend confirmed - now refresh from database
                     console.log('🔄 Backend confirmed success, refreshing from database...');
                     try {
-                      await Promise.all([
-                        fetchHabits(),
-                        fetchHabitLogs(),
-                        queryClient.invalidateQueries({ queryKey: habitLogKeys.all })
-                      ]);
+                      markReadConsistencyRequired(user?.id);
+                      await invalidateHabitData(queryClient, user?.id);
                       console.log('✅ Dashboard data refreshed after habit log');
                       
                       // Play sound on successful multi-intent log (when no optimistic update was done)

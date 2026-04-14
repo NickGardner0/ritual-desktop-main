@@ -13,6 +13,7 @@ import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-in
 import { useHabitLogsQuery, useHabitsQuery } from '@/hooks/use-habits-query';
 import { getAnalyticsRangeKey } from '@/lib/dashboard/analytics-range';
 import { perfInfo } from '@/lib/perf-debug';
+import { QUERY_POLICY } from '@/lib/query-policies';
 
 function buildFallbackSnapshot(
   userId: string | null,
@@ -93,7 +94,8 @@ export function useDashboardSnapshotQuery({
     enabled:
       Boolean(queryClient.getQueryData(queryKey)) ||
       (Boolean(resolvedUserId) && habitsQuery.isFetched && habitLogsQuery.isFetched),
-    staleTime: 1000 * 60 * 5,
+    staleTime: QUERY_POLICY.dashboardSnapshot.staleTime,
+    gcTime: QUERY_POLICY.dashboardSnapshot.gcTime,
   });
 
   return {

@@ -1,8 +1,7 @@
 'use client';
 
 import React from 'react';
-import dynamic from 'next/dynamic';
-import { Check, LayoutDashboard, Pencil, X } from 'lucide-react';
+import { Check, Pencil, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -24,39 +23,6 @@ import { StatsTooltip } from '@/components/stats-tooltip';
 import type { Habit } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { getHabitDisplayName } from '@/lib/computer-time-habit';
-
-const DynamicIcon = dynamic(() => import('@/components/ui/dynamic-icon'), {
-  ssr: false,
-  loading: () => <LayoutDashboard className="w-4 h-4 text-black" />,
-});
-
-function HabitIcon({ iconName }: { iconName: string }) {
-  return <DynamicIcon name={iconName} className="w-4 h-4 text-black" />;
-}
-
-const HABIT_ICON_MAP: Record<string, string> = {
-  'deep work': '🧠',
-  'lightning deep work': '⚡',
-  'meditation': '🧘',
-  'exercise': '💪',
-  'reading': '📚',
-  'journaling': '📝',
-  'sleep': '😴',
-  'water': '💧',
-  'learning': '🎓',
-  'coding': '💻',
-  'writing': '✍️',
-  'music': '🎵',
-  'research': '🔍',
-  'skill practice': '🎯',
-  'cold showers': '🚿',
-  'standup check-in': '📞',
-};
-
-function getHabitIcon(name: string) {
-  const key = name.toLowerCase().replace(/\s+/g, ' ');
-  return HABIT_ICON_MAP[key] || '📈';
-}
 
 interface SortableHabitItemProps {
   habit: Habit;
@@ -145,18 +111,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       {...attributes}
       {...listeners}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className="flex items-center justify-center w-5 h-5 flex-shrink-0 self-center -translate-y-px">
-          {habit.icon ? (
-            /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(habit.icon) ? (
-              <span className="text-base leading-none inline-flex items-center">{habit.icon}</span>
-            ) : (
-              <HabitIcon iconName={habit.icon} />
-            )
-          ) : (
-            <span className="text-base leading-none inline-flex items-center">{getHabitIcon(displayName)}</span>
-          )}
-        </span>
+      <div className="flex min-w-0 items-center">
         <span className="text-[17.5px] font-normal text-gray-900 truncate leading-none">{displayName}</span>
       </div>
       <div

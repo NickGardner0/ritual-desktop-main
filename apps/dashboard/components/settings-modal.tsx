@@ -21,7 +21,7 @@ import { useRouter } from 'next/navigation';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
-import { AppleHealthSyncStatus } from './apple-health-sync-status';
+import { AppleWatchSettings } from './apple-watch-settings';
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -58,7 +58,6 @@ const fontOptions: { value: FontOption; label: string }[] = [
 ];
 
 const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
-  { value: 'hidden', label: 'Hidden' },
   { value: 'compact', label: 'Compact' },
   { value: 'hover', label: 'Expand on Hover' },
   { value: 'expanded', label: 'Always Expanded' },
@@ -348,25 +347,8 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
 
             {/* Apple Watch tab */}
             {activeTab === 'apple-health' && (
-              <div className="p-4 space-y-3">
-                <AppleHealthSyncStatus showDevices={true} />
-
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <h4 className="text-sm font-medium text-gray-900 mb-1">How it works</h4>
-                  <p className="text-xs text-gray-500 leading-relaxed">
-                    Install the Ritual Companion app on your iPhone to sync Apple Watch data. The app
-                    syncs automatically in the background when new health data is recorded.
-                  </p>
-                </div>
-
-                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <h4 className="text-sm font-medium text-gray-900 mb-1">Troubleshooting</h4>
-                  <ul className="text-xs text-gray-500 space-y-1">
-                    <li>• Make sure the Companion app has Health permissions enabled</li>
-                    <li>• Check that background app refresh is enabled for Ritual</li>
-                    <li>• Try opening the Companion app to trigger a manual sync</li>
-                  </ul>
-                </div>
+              <div className="p-4">
+                <AppleWatchSettings />
               </div>
             )}
           </div>

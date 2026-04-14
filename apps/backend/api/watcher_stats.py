@@ -11,8 +11,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from database.connection import force_local_replica_sync
 from services.watcher_service import watcher_service
 from .watcher_common import get_current_user
 
@@ -34,8 +35,14 @@ def _resolve_date_range(
     return resolved_start, resolved_end
 
 
+async def _maybe_force_fresh_read(request: Request):
+    if request.headers.get("x-ritual-force-fresh") == "1":
+        await force_local_replica_sync()
+
+
 @router.get("/stats/summary")
 async def get_computer_time_summary(
+    request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     device_id: Optional[str] = None,
@@ -53,6 +60,7 @@ async def get_computer_time_summary(
     from datetime import datetime, timedelta
     
     try:
+        await _maybe_force_fresh_read(request)
         # Default to today if no dates provided
         today = datetime.now().strftime("%Y-%m-%d")
         start = start_date or today
@@ -77,6 +85,7 @@ async def get_computer_time_summary(
 
 @router.get("/stats/daily")
 async def get_daily_computer_time(
+    request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     days_back: Optional[int] = 30,
@@ -96,6 +105,7 @@ async def get_daily_computer_time(
     from datetime import datetime, timedelta
     
     try:
+        await _maybe_force_fresh_read(request)
         today = datetime.now()
         
         if start_date and end_date:
@@ -124,6 +134,7 @@ async def get_daily_computer_time(
 
 @router.get("/stats/aggregate")
 async def get_computer_activity_aggregate(
+    request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     days_back: Optional[int] = 30,
@@ -133,6 +144,7 @@ async def get_computer_activity_aggregate(
 ):
     """Return summary, daily totals, top apps, and top domains for a single range."""
     try:
+        await _maybe_force_fresh_read(request)
         start, end = _resolve_date_range(
             start_date=start_date,
             end_date=end_date,
@@ -157,6 +169,7 @@ async def get_computer_activity_aggregate(
 
 @router.get("/stats/top-apps")
 async def get_top_apps_stats(
+    request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     days_back: Optional[int] = 30,
@@ -177,6 +190,7 @@ async def get_top_apps_stats(
     from datetime import datetime, timedelta
     
     try:
+        await _maybe_force_fresh_read(request)
         today = datetime.now()
         
         if start_date and end_date:
@@ -204,6 +218,7 @@ async def get_top_apps_stats(
         raise HTTPException(status_code=500, detail="Unable to process watcher request.")
 @router.get("/stats/top-domains")
 async def get_top_domains(
+    request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     days_back: Optional[int] = 30,
@@ -226,6 +241,7 @@ async def get_top_domains(
     from datetime import datetime, timedelta
     
     try:
+        await _maybe_force_fresh_read(request)
         today = datetime.now()
         
         if start_date and end_date:
@@ -362,6 +378,7 @@ async def get_domain_details(
 
 @router.get("/breakdown")
 async def get_usage_breakdown(
+    request: Request,
     kind: str,
     key: str,
     start_date: str,
@@ -386,6 +403,7 @@ async def get_usage_breakdown(
         raise HTTPException(status_code=400, detail="Missing key")
     
     try:
+        await _maybe_force_fresh_read(request)
         breakdown = await watcher_service.get_usage_daily_breakdown(
             user_id=current_user["id"],
             kind=kind,

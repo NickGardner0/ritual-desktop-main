@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, select
 
-from database.connection import get_db_session
+from database.connection import force_local_replica_sync, get_db_session
 from database.models import ScheduledBlockDB
 from database.helpers import user_db_to_profile
 from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitUpdate
@@ -86,6 +86,11 @@ def _validate_scheduled_block_values(day: str, start_minutes: int, end_minutes: 
 
     if end_minutes <= start_minutes:
         raise HTTPException(status_code=400, detail="end_minutes must be greater than start_minutes")
+
+
+async def _maybe_force_fresh_read(request: Request):
+    if request.headers.get("x-ritual-force-fresh") == "1":
+        await force_local_replica_sync()
 
 
 def create_core_router(
@@ -214,6 +219,7 @@ def create_core_router(
         current_user=Depends(get_current_user),
     ):
         try:
+            await _maybe_force_fresh_read(request)
             return await habits_service.get_habits(current_user["id"])
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
@@ -299,15 +305,24 @@ def create_core_router(
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.get("/api/habits/{habit_id}/logs", response_model=List[HabitLog])
-    async def get_habit_logs(habit_id: str, current_user=Depends(get_current_user)):
+    async def get_habit_logs(
+        habit_id: str,
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
         try:
+            await _maybe_force_fresh_read(request)
             return await habits_service.get_habit_logs(habit_id, current_user["id"])
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.get("/api/habit-logs", response_model=List[HabitLog])
-    async def get_all_habit_logs(current_user=Depends(get_current_user)):
+    async def get_all_habit_logs(
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
         try:
+            await _maybe_force_fresh_read(request)
             return await habits_service.get_habit_logs(None, current_user["id"])
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")

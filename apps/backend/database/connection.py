@@ -161,6 +161,50 @@ async def get_db_session():
             await session.rollback()
             raise
 
+async def force_local_replica_sync() -> bool:
+    """Best-effort immediate sync for read-after-write consistency-sensitive reads."""
+    if LOCAL_ONLY_MODE:
+        return False
+
+    sync_engine = getattr(engine, "sync_engine", None)
+    if sync_engine is None:
+        return False
+
+    def _sync_once() -> bool:
+        raw_conn = None
+        try:
+            raw_conn = sync_engine.raw_connection()
+            candidates = [
+                raw_conn,
+                getattr(raw_conn, "connection", None),
+                getattr(raw_conn, "driver_connection", None),
+                getattr(getattr(raw_conn, "connection", None), "driver_connection", None),
+                getattr(getattr(raw_conn, "connection", None), "dbapi_connection", None),
+            ]
+            for candidate in candidates:
+                sync_method = getattr(candidate, "sync", None)
+                if callable(sync_method):
+                    sync_method()
+                    return True
+            return False
+        finally:
+            if raw_conn is not None:
+                try:
+                    raw_conn.close()
+                except Exception:
+                    pass
+
+    try:
+        import asyncio
+
+        synced = await asyncio.to_thread(_sync_once)
+        if synced:
+            logger.info("🔄 Forced local replica sync before consistency-sensitive read")
+        return synced
+    except Exception as exc:
+        logger.warning("Failed forcing local replica sync: %s", exc)
+        return False
+
 async def init_database(*, fast_startup: bool = False):
     """
     Initialize database - verifies connection and waits for sync.

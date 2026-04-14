@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 
@@ -11,17 +12,13 @@ export async function GET(request: NextRequest) {
     }
 
     const token = await getToken();
+    const forceFresh = request.headers.get("x-ritual-force-fresh") === "1";
     const queryString = request.nextUrl.searchParams.toString();
     const url = `${BACKEND_URL}/api/screen-time/stats/top-domains${queryString ? `?${queryString}` : ""}`;
 
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "X-User-ID": userId,
-        "X-Internal-Key": process.env.INTERNAL_API_KEY || "",
-      },
+      headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
       signal: AbortSignal.timeout(15000),
     });
 

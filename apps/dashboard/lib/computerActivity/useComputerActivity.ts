@@ -10,7 +10,8 @@
 
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { isTauri } from '@/lib/tauri-utils'
 import {
   ActivityBreakdownSource,
@@ -35,6 +36,8 @@ import {
   invokeDetailedActivityWithInitRetry,
 } from './tauri-activity'
 import { getAggregatedComputerStats } from './client'
+import { QUERY_POLICY } from '@/lib/query-policies'
+import { getReadConsistencyHeaders } from '@/lib/read-consistency'
 
 // ============================================================
 // Time range helpers
@@ -88,9 +91,20 @@ async function fetchScreenTimeAggregatedStats(startTs: number, endTs: number): P
     const [summaryRes, appsRes, domainsRes] = await Promise.all([
       fetch(`/api/screen-time/stats/summary?start_date=${startDate}&end_date=${endDate}`, {
         cache: 'no-store',
+        headers: {
+          ...getReadConsistencyHeaders(),
+        },
       }),
-      fetch(`/api/screen-time/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`),
-      fetch(`/api/screen-time/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`),
+      fetch(`/api/screen-time/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`, {
+        headers: {
+          ...getReadConsistencyHeaders(),
+        },
+      }),
+      fetch(`/api/screen-time/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`, {
+        headers: {
+          ...getReadConsistencyHeaders(),
+        },
+      }),
     ])
 
     if (!summaryRes.ok || !appsRes.ok || !domainsRes.ok) {
@@ -128,59 +142,16 @@ async function fetchAggregatedStats(startTs: number, endTs: number): Promise<Agg
   }
 }
 
-// ============================================================
-// Cache for API responses
-// ============================================================
-
-interface CacheEntry {
-  events: ActivityEvent[]
-  aggregated: AggregatedComputerStats | null
-  timestamp: number
-  range: { start: number; end: number }
-}
-
-const cache = new Map<string, CacheEntry>()
-const CACHE_TTL_MS = 60 * 1000
-const STALE_TTL_MS = 5 * 60 * 1000
-
-function getCacheKey(source: ActivityBreakdownSource, start: number, end: number): string {
-  const roundedStart = Math.floor(start / 60000) * 60000
-  const roundedEnd = Math.floor(end / 60000) * 60000
-  return `${source}:${roundedStart}-${roundedEnd}`
-}
-
-function getCached(source: ActivityBreakdownSource, start: number, end: number): { events: ActivityEvent[] | null; aggregated: AggregatedComputerStats | null; isStale: boolean } {
-  const key = getCacheKey(source, start, end)
-  const entry = cache.get(key)
-
-  if (!entry) return { events: null, aggregated: null, isStale: true }
-
-  const age = Date.now() - entry.timestamp
-  if (age > STALE_TTL_MS) return { events: null, aggregated: null, isStale: true }
-
-  return {
-    events: entry.events,
-    aggregated: entry.aggregated,
-    isStale: age > CACHE_TTL_MS,
-  }
-}
-
-function setCache(source: ActivityBreakdownSource, start: number, end: number, events: ActivityEvent[], aggregated: AggregatedComputerStats | null): void {
-  const key = getCacheKey(source, start, end)
-  cache.set(key, {
-    events,
-    aggregated,
-    timestamp: Date.now(),
-    range: { start, end },
-  })
-
-  if (cache.size > 20) {
-    const entries = Array.from(cache.entries())
-    entries.sort((a, b) => a[1].timestamp - b[1].timestamp)
-    for (let i = 0; i < 10; i++) {
-      cache.delete(entries[i][0])
-    }
-  }
+export const computerActivityKeys = {
+  all: ['computer-activity'] as const,
+  aggregated: (source: ActivityBreakdownSource, rangeKey: string) =>
+    [...computerActivityKeys.all, 'aggregated', source, rangeKey] as const,
+  events: (
+    source: ActivityBreakdownSource,
+    rangeKey: string,
+    limit: number,
+    skipEventFetch: boolean,
+  ) => [...computerActivityKeys.all, 'events', source, rangeKey, limit, skipEventFetch ? 'skip' : 'full'] as const,
 }
 
 async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
@@ -268,121 +239,96 @@ export function useComputerActivity(
     refreshIntervalMs = 60000,
     skipEventFetch = false,
   } = options
-  
+  const queryClient = useQueryClient()
   const [range, setRange] = useState<TimeRangePreset>(initialRange)
-  const [events, setEvents] = useState<ActivityEvent[]>([])
-  const [aggregatedStats, setAggregatedStats] = useState<AggregatedComputerStats | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  
+
   // Drill-down state
   const [selectedSegment, setSelectedSegment] = useState<SessionSegment | null>(null)
   const [drillDownData, setDrillDownData] = useState<DrillDownData | null>(null)
   const [isDrillLoading, setIsDrillLoading] = useState(false)
-  
-  // Request ID to prevent stale updates
-  const requestIdRef = useRef(0)
-  
+
   // Computed time range
   const timeRange = useMemo(() => getTimeRangeMs(range), [range])
-  
-  // Fetch data, showing cached results immediately when available
-  const fetchData = useCallback(async () => {
-    const currentRequestId = ++requestIdRef.current
-    setError(null)
+  const rangeKey = useMemo(
+    () => `${source}:${range}:${Math.floor(timeRange.start / 60000)}:${Math.floor(timeRange.end / 60000)}`,
+    [range, source, timeRange.end, timeRange.start],
+  )
+  const eventLimitByRange: Record<TimeRangePreset, number> = {
+    '6H': 2000,
+    '12H': 4000,
+    '1D': 8000,
+    '7D': 20000,
+    '30D': 60000,
+    '90D': 120000,
+    'ALL': 200000,
+  }
+  const eventLimit = eventLimitByRange[range]
 
-    const { events: cachedEvents, aggregated: cachedAgg, isStale } = getCached(source, timeRange.start, timeRange.end)
-
-    if (cachedEvents && cachedAgg) {
-      setEvents(cachedEvents)
-      setAggregatedStats(cachedAgg)
-      setIsLoading(false)
-      if (!isStale) return
-    } else {
-      setIsLoading(true)
-    }
-
-    const eventLimitByRange: Record<TimeRangePreset, number> = {
-      '6H': 2000,
-      '12H': 4000,
-      '1D': 8000,
-      '7D': 20000,
-      '30D': 60000,
-      '90D': 120000,
-      'ALL': 200000,
-    }
-    const eventLimit = eventLimitByRange[range]
-
-    try {
-      const eventsPromise = source === 'desktop'
-        ? (skipEventFetch
-            ? Promise.resolve<ActivityEvent[]>(cachedEvents || [])
-            : (cachedEvents
-                ? Promise.resolve(cachedEvents)
-                : fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)))
-        : Promise.resolve<ActivityEvent[]>([])
-      const aggregatedPromise = source === 'desktop'
+  const aggregatedQuery = useQuery({
+    queryKey: computerActivityKeys.aggregated(source, rangeKey),
+    queryFn: () => (
+      source === 'desktop'
         ? fetchAggregatedStats(timeRange.start, timeRange.end)
         : fetchScreenTimeAggregatedStats(timeRange.start, timeRange.end)
+    ),
+    placeholderData: (previous) => previous ?? null,
+    staleTime: QUERY_POLICY.computerSnapshot.staleTime,
+    gcTime: QUERY_POLICY.computerSnapshot.gcTime,
+    refetchOnWindowFocus: false,
+    refetchInterval: autoRefresh ? refreshIntervalMs : false,
+    refetchIntervalInBackground: autoRefresh,
+  })
 
-      const aggregated = await aggregatedPromise
-      let hasAggregatedData = false
-      if (currentRequestId === requestIdRef.current) {
-        setAggregatedStats(aggregated)
-        hasAggregatedData = Boolean(
-          Number(aggregated?.summary?.total_active_ms || 0) > 0
-          || (aggregated?.daily?.length || 0) > 0
-          || (aggregated?.apps?.length || 0) > 0
-          || (aggregated?.domains?.length || 0) > 0
-        )
-        if (hasAggregatedData) {
-          setIsLoading(false)
-        }
+  const eventsQuery = useQuery({
+    queryKey: computerActivityKeys.events(source, rangeKey, eventLimit, skipEventFetch),
+    queryFn: async () => {
+      if (source !== 'desktop' || skipEventFetch) {
+        return [] as ActivityEvent[]
       }
 
-      const rawEvents = await eventsPromise
-      const dedupedEvents = cachedEvents === rawEvents ? rawEvents : deduplicateEvents(rawEvents)
+      const rawEvents = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
+      const dedupedEvents = deduplicateEvents(rawEvents)
+      if (dedupedEvents.length < rawEvents.length && process.env.NODE_ENV !== 'production') {
+        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
+      }
+      return dedupedEvents
+    },
+    enabled: source === 'desktop',
+    placeholderData: (previous) => previous ?? [],
+    staleTime: QUERY_POLICY.computerEvents.staleTime,
+    gcTime: QUERY_POLICY.computerEvents.gcTime,
+    refetchOnWindowFocus: false,
+    refetchInterval: autoRefresh && source === 'desktop' ? refreshIntervalMs : false,
+    refetchIntervalInBackground: autoRefresh,
+  })
 
-      if (cachedEvents !== rawEvents && dedupedEvents.length < rawEvents.length) {
-        if (process.env.NODE_ENV !== 'production') { console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`) }
-      }
+  const events = source === 'desktop' ? (eventsQuery.data ?? []) : []
+  const aggregatedStats = aggregatedQuery.data ?? null
+  const hasAggregatedData = Boolean(
+    Number(aggregatedStats?.summary?.total_active_ms || 0) > 0
+    || (aggregatedStats?.daily?.length || 0) > 0
+    || (aggregatedStats?.apps?.length || 0) > 0
+    || (aggregatedStats?.domains?.length || 0) > 0
+  )
+  const isLoading = source === 'desktop'
+    ? ((aggregatedQuery.isLoading || aggregatedQuery.isFetching) && !hasAggregatedData)
+      || (!skipEventFetch && eventsQuery.isLoading && !hasAggregatedData)
+    : (aggregatedQuery.isLoading || aggregatedQuery.isFetching) && !hasAggregatedData
+  const error = (
+    aggregatedQuery.error
+    || (source === 'desktop' ? eventsQuery.error : null)
+  ) instanceof Error
+    ? (
+        aggregatedQuery.error
+        || (source === 'desktop' ? eventsQuery.error : null)
+      )!.message
+    : null
 
-      if (currentRequestId === requestIdRef.current) {
-        setEvents(dedupedEvents)
-        setCache(source, timeRange.start, timeRange.end, dedupedEvents, aggregated)
-        if (!hasAggregatedData) {
-          setIsLoading(false)
-        }
-      }
-    } catch (err) {
-      if (currentRequestId === requestIdRef.current) {
-        if (!cachedEvents) {
-          setError(err instanceof Error ? err.message : 'Failed to load data')
-          setAggregatedStats(null)
-        }
-        setIsLoading(false)
-      }
-    }
-  }, [range, source, timeRange.start, timeRange.end, skipEventFetch])
-  
-  // Initial fetch and range changes
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
-  
-  // Auto-refresh
-  useEffect(() => {
-    if (!autoRefresh) return
-    
-    const interval = setInterval(fetchData, refreshIntervalMs)
-    return () => clearInterval(interval)
-  }, [autoRefresh, refreshIntervalMs, fetchData])
-  
   // Clear drill-down when range changes
   useEffect(() => {
     setSelectedSegment(null)
     setDrillDownData(null)
-  }, [range])
+  }, [range, source])
   
   // Handle segment selection for drill-down
   const selectSegment = useCallback(async (segment: SessionSegment | null) => {
@@ -412,6 +358,17 @@ export function useComputerActivity(
       setIsDrillLoading(false)
     }
   }, [events])
+
+  const refresh = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: computerActivityKeys.aggregated(source, rangeKey),
+    })
+    if (source === 'desktop') {
+      void queryClient.invalidateQueries({
+        queryKey: computerActivityKeys.events(source, rangeKey, eventLimit, skipEventFetch),
+      })
+    }
+  }, [eventLimit, queryClient, rangeKey, skipEventFetch, source])
   
   // Build view model from events
   const viewModel = useMemo<ActivityBreakdownViewModel>(() => {
@@ -549,7 +506,7 @@ export function useComputerActivity(
     viewModel,
     range,
     setRange,
-    refresh: fetchData,
+    refresh,
     selectedSegment,
     selectSegment,
     drillDownData,

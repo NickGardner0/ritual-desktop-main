@@ -1,4 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
+import { QUERY_POLICY } from '@/lib/query-policies';
 
 /**
  * Query Client Configuration - Inspired by Midday
@@ -11,11 +12,12 @@ import { QueryClient } from '@tanstack/react-query';
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Cache data for 5 minutes (desktop app, local data)
-      staleTime: 1000 * 60 * 5,
+      // Default desktop-web mixed policy. Hotter or colder domains should
+      // override this at the hook level.
+      staleTime: QUERY_POLICY.general.staleTime,
       
       // Keep unused data in cache for 10 minutes
-      gcTime: 1000 * 60 * 10,
+      gcTime: QUERY_POLICY.general.gcTime,
       
       // Don't refetch when window regains focus (desktop app behavior)
       refetchOnWindowFocus: false,
@@ -43,4 +45,3 @@ export const queryClient = new QueryClient({
     },
   },
 });
-

@@ -2,10 +2,12 @@ export function buildBackendAuthHeaders({
   userId,
   token,
   contentType = "application/json",
+  forceFresh = false,
 }: {
   userId?: string | null
   token?: string | null
   contentType?: string
+  forceFresh?: boolean
 }): HeadersInit {
   const headers: Record<string, string> = {}
 
@@ -15,6 +17,10 @@ export function buildBackendAuthHeaders({
 
   if (token) {
     headers.Authorization = `Bearer ${token}`
+  }
+
+  if (forceFresh) {
+    headers["X-Ritual-Force-Fresh"] = "1"
   }
 
   const internalKey = process.env.INTERNAL_API_KEY?.trim()

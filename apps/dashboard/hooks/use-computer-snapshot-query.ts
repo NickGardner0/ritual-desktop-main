@@ -13,6 +13,7 @@ import {
   type TopDomainResponseRow,
 } from '@/lib/computerActivity/client';
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
+import { QUERY_POLICY } from '@/lib/query-policies';
 
 export type ComputerSnapshot = {
   summary: ComputerSummaryResponse;
@@ -92,7 +93,8 @@ export function useComputerSnapshotQuery({
     },
     enabled: enabled && Boolean(userId),
     placeholderData: (previous) => previous ?? EMPTY_COMPUTER_SNAPSHOT,
-    staleTime: 1000 * 60,
+    staleTime: QUERY_POLICY.computerSnapshot.staleTime,
+    gcTime: QUERY_POLICY.computerSnapshot.gcTime,
     refetchOnWindowFocus: false,
   });
 }

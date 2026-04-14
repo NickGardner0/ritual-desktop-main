@@ -7,7 +7,8 @@ import { usePathname } from 'next/navigation';
 import { DesktopUpdater } from '@/components/desktop-updater';
 import { buildDesktopCommandOrigin, desktopHasCapability, desktopSetAuthToken } from '@/lib/desktop-runtime';
 import { isTauri } from '@/lib/tauri-utils';
-import { habitLogKeys } from '@/hooks/use-habits-query';
+import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
+import { markReadConsistencyRequired } from '@/lib/read-consistency';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
@@ -212,11 +213,8 @@ function RuntimeSyncBridge() {
           && dashboardRefreshTimestamp !== lastDashboardRefreshRef.current
         ) {
           lastDashboardRefreshRef.current = dashboardRefreshTimestamp;
-          const userId = user?.id || 'anonymous';
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
-            queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
-          ]);
+          markReadConsistencyRequired(user?.id);
+          await invalidateAfterComputerSync(queryClient, user?.id);
         }
       } catch {
         // Ignore outside desktop runtime.
@@ -259,11 +257,8 @@ function RuntimeSyncBridge() {
     let unlistenToken: (() => void) | null = null;
 
     const handleDashboardRefresh = async () => {
-      const userId = user?.id || 'anonymous';
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-summary', userId] }),
-      ]);
+      markReadConsistencyRequired(user?.id);
+      await invalidateAfterComputerSync(queryClient, user?.id);
     };
 
     const handleTokenRefresh = async () => {
@@ -395,10 +390,8 @@ function RuntimeSyncBridge() {
             const payload = JSON.parse(event.data);
             if (payload?.type !== 'habit_logged') return;
 
-            void Promise.all([
-              queryClient.invalidateQueries({ queryKey: habitLogKeys.all }),
-              queryClient.invalidateQueries({ queryKey: ['analytics-summary', user.id] }),
-            ]);
+            markReadConsistencyRequired(user.id);
+            void invalidateHabitData(queryClient, user.id);
 
             if (payload.playSound) {
               playRemoteHabitLogSound();

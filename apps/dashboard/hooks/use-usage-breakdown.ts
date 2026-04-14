@@ -6,6 +6,8 @@ import type {
   BreakdownResponse,
   UsageBreakdownKind,
 } from '@/lib/computerActivity/contracts';
+import { QUERY_POLICY } from '@/lib/query-policies';
+import { getReadConsistencyHeaders } from '@/lib/read-consistency';
 
 export interface UsageBreakdownParams {
   source?: ActivityBreakdownSource;
@@ -28,7 +30,11 @@ export function useUsageBreakdown({
     queryKey: ['usage-breakdown', source, kind, key, start, end],
     queryFn: async () => {
       const params = new URLSearchParams({ source, kind, key, start, end });
-      const response = await fetch(`/api/computer-activity/breakdown?${params.toString()}`);
+      const response = await fetch(`/api/computer-activity/breakdown?${params.toString()}`, {
+        headers: {
+          ...getReadConsistencyHeaders(),
+        },
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -38,7 +44,7 @@ export function useUsageBreakdown({
       return response.json() as Promise<BreakdownResponse>;
     },
     enabled: enabled && !!kind && !!key && !!start && !!end,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 10,
+    staleTime: QUERY_POLICY.computerBreakdown.staleTime,
+    gcTime: QUERY_POLICY.computerBreakdown.gcTime,
   });
 }
