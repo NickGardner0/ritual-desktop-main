@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
+import { useSidebarMode } from '@/contexts/SidebarModeContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -50,9 +51,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(70);
   const { isFullScreenChat } = useAI();
+  const { mode: sidebarMode } = useSidebarMode();
   const pathname = usePathname();
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
+  const shouldReserveTitlebarToggleSpace = !isFullScreenChat && sidebarMode === 'hidden';
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -154,7 +157,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           )}
           <div className="relative flex items-center w-full translate-y-[4px]">
             {/* Left zone — Search + page-specific left actions */}
-            <div className="no-drag flex items-center space-x-2.5 min-w-0">
+            <div
+              className="no-drag flex items-center space-x-2.5 min-w-0"
+              style={{
+                paddingLeft: shouldReserveTitlebarToggleSpace ? 34 : 0,
+              }}
+            >
               {!isChatRoute && (
                 <div>
                   <CommandPalette
