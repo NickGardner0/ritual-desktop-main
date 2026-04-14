@@ -39,7 +39,7 @@ import {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const APPLE_WATCH_SWITCH_CLASS =
-  'data-[state=checked]:bg-[#34C759] data-[state=unchecked]:bg-[#E5E7EB]';
+  'data-[state=checked]:bg-lime-500 data-[state=unchecked]:bg-[#E5E7EB]';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -898,7 +898,7 @@ export function AppleWatchSettings() {
         <div className="space-y-3">
           {/* Auto sync */}
           <div className="rounded-sm border border-gray-200 bg-white">
-            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-3 py-3">
+            <div className="flex items-start justify-between gap-3 px-3 py-3">
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Auto sync</p>
                 <p className="mt-0.5 text-xs text-gray-900">Keep Apple Watch updated automatically.</p>
@@ -978,7 +978,7 @@ function NavRow({ label, description, onClick, border, last }: { label: string; 
       onClick={onClick}
       className={cn(
         'flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-[#F8F8F7]',
-        !last && 'border-b border-gray-100',
+        '',
       )}
     >
       <div>
@@ -1074,16 +1074,13 @@ function MetricCategoryCard({
 
       {/* Metric rows */}
       {expanded && (
-        <div className="border-t border-gray-200">
+        <div>
           {metrics.map((metric, i) => {
             const isEnabled = selected.has(metric.type);
             return (
               <div
                 key={metric.type}
-                className={cn(
-                  'flex items-center gap-3 px-3.5 py-2.5',
-                  i < metrics.length - 1 && 'border-b border-gray-100',
-                )}
+                className="flex items-center gap-3 px-3.5 py-2.5"
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-medium text-gray-900 leading-tight">{metric.name}</p>
@@ -1096,7 +1093,7 @@ function MetricCategoryCard({
                   onClick={() => onToggle(metric.type, !isEnabled)}
                   className={cn(
                     'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-                    isEnabled ? 'bg-[#34C759]' : 'bg-gray-200',
+                    isEnabled ? 'bg-lime-500' : 'bg-gray-200',
                   )}
                 >
                   <span

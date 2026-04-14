@@ -329,6 +329,18 @@
     outline: none !important;
   }
 
+  html.desktop .app-container {
+    padding: 10px;
+    box-sizing: border-box;
+    background: transparent !important;
+  }
+
+  html.desktop .window-shell {
+    border: 1px solid rgba(15, 23, 42, 0.05);
+    background: linear-gradient(180deg, rgba(252, 252, 250, 0.96) 0%, rgba(249, 249, 247, 0.94) 100%);
+    box-shadow: 0 16px 42px rgba(15, 23, 42, 0.10);
+  }
+
 
 
   /* Desktop App - Midday's approach */
@@ -440,12 +452,12 @@
     background:
       linear-gradient(
         180deg,
-        rgba(246, 245, 243, 0.97) 0%,
-        rgba(244, 243, 240, 0.95) 42%,
-        rgba(242, 241, 238, 0.93) 100%
+        rgba(248, 248, 246, 0.96) 0%,
+        rgba(247, 247, 245, 0.94) 46%,
+        rgba(245, 245, 243, 0.92) 100%
       );
-    background-color: rgba(244, 243, 240, 0.95);
-    border-right: 1px solid hsl(var(--border) / 0.72);
+    background-color: rgba(247, 247, 245, 0.94);
+    border-right: 1px solid hsl(var(--border) / 0.44);
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
@@ -501,12 +513,12 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.38) 0%,
-      rgba(252, 252, 250, 0.28) 46%,
-      rgba(249, 249, 247, 0.22) 100%
+      rgba(255, 255, 255, 0.24) 0%,
+      rgba(251, 251, 249, 0.18) 52%,
+      rgba(249, 249, 247, 0.14) 100%
     ) !important;
-    background-color: rgba(252, 252, 250, 0.26) !important;
-    border-right: 1px solid hsl(var(--border) / 0.72) !important;
+    background-color: rgba(250, 250, 248, 0.16) !important;
+    border-right: 1px solid hsl(var(--border) / 0.46) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -526,14 +538,7 @@
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.015) 38%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.72;
+    display: none;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,

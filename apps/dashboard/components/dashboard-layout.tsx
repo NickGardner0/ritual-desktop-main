@@ -43,7 +43,7 @@ interface DashboardLayoutProps {
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
-  const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(70);
+  const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(76);
   const { isFullScreenChat } = useAI();
   const pathname = usePathname();
   const isChatRoute = pathname === '/chat';
@@ -87,7 +87,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       try {
         const state = await invoke<{ width?: number }>('sidebar_get_main_state');
         if (typeof state?.width === 'number') {
-          setDetachedSidebarWidth(Math.max(70, Math.min(240, state.width)));
+          setDetachedSidebarWidth(Math.max(76, Math.min(240, state.width)));
         }
       } catch (error) {
         console.error('Failed to get detached sidebar state:', error);
@@ -95,7 +95,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       unlisten = await listen<number>('sidebar:width', (event) => {
         if (typeof event.payload === 'number') {
-          setDetachedSidebarWidth(Math.max(70, Math.min(240, event.payload)));
+          setDetachedSidebarWidth(Math.max(76, Math.min(240, event.payload)));
         }
       });
 
@@ -126,56 +126,56 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Suspense>
       ) : null}
       
-      {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-      {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
+      <div className="window-shell relative flex h-full w-full overflow-hidden rounded-[14px]">
+        {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
+        {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
 
-      {/* Main Content Area */}
-      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
-        {/* Top Header — the header itself is the draggable toolbar chrome.
-            Interactive controls opt out via no-drag so blank space still drags
-            like a native macOS titlebar. */}
-        {!isFullScreenChat && (
-        <header
-          data-tauri-drag-region
-          className="content-opaque titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
-        >
-          {isChatRoute && (
-            <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
+        {/* Main Content Area */}
+        <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
+          {/* Top Header — the header itself is the draggable toolbar chrome.
+              Interactive controls opt out via no-drag so blank space still drags
+              like a native macOS titlebar. */}
+          {!isFullScreenChat && (
+          <header
+            data-tauri-drag-region
+            className="content-opaque titlebar-region tauri-drag-region relative px-4 h-[46px] flex items-center bg-[var(--content-bg)] overflow-hidden"
+          >
+            {isChatRoute && (
+              <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.035)] bg-[rgba(247,247,245,0.92)]" />
+            )}
+            <div className="relative flex items-center w-full">
+              {/* Left zone — Search + page-specific left actions */}
+              <div
+                className="no-drag flex items-center space-x-2.5 min-w-0"
+              >
+                {!isChatRoute && (
+                  <div>
+                    <CommandPalette
+                      className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-[rgba(15,23,42,0.06)] bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-white rounded-[8px]"
+                      initialOpen={shouldOpenWhoopModal}
+                    />
+                  </div>
+                )}
+                <div id="header-left-slot" className="flex items-center space-x-2.5" />
+              </div>
+
+              {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
+              <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+                <div id="header-center-slot" className="pointer-events-auto no-drag flex items-center" />
+              </div>
+
+              {/* Right zone — Date picker, + button, etc. */}
+              <div id="header-right-slot" className="no-drag ml-auto flex items-center gap-2 min-w-0" />
+            </div>
+          </header>
           )}
-          <div className="relative flex items-center w-full translate-y-[4px]">
-            {/* Left zone — Search + page-specific left actions */}
-            <div
-              className="no-drag flex items-center space-x-2.5 min-w-0"
-            >
-              {!isChatRoute && (
-                <div>
-                  <CommandPalette
-                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
-                    initialOpen={shouldOpenWhoopModal}
-                  />
-                </div>
-              )}
-              <div id="header-left-slot" className="flex items-center space-x-2.5" />
-            </div>
 
-            {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
-            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-              <div id="header-center-slot" className="pointer-events-auto no-drag flex items-center" />
-            </div>
-
-            {/* Right zone — Date picker, + button, etc. */}
-            <div id="header-right-slot" className="no-drag ml-auto flex items-center gap-2 min-w-0" />
-          </div>
-        </header>
-        )}
-
-        {/* Main Content */}
-        <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
-          {children}
-        </main>
+          {/* Main Content */}
+          <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
+            {children}
+          </main>
+        </div>
       </div>
-
-
     </div>
   );
 }

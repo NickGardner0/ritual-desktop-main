@@ -155,8 +155,8 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className="pt-6 flex-1 overflow-auto pb-4">
-        <div className="max-w-[456px] mx-auto w-full">
+      <div className="pt-7 flex-1 overflow-auto pb-5">
+        <div className="max-w-[560px] mx-auto w-full">
           <SortableHabitList
             habits={orderedHabits}
             onReorder={onReorder}

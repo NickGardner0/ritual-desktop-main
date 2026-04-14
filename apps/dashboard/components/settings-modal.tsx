@@ -193,7 +193,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
             {activeTab === 'account' && (
               <div className="p-4 space-y-0">
                 {/* Profile */}
-                <div className="pb-3 mb-0 flex items-center gap-2.5 border-b border-gray-200/60">
+                <div className="pb-3 mb-0 flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-[13px] font-medium flex-shrink-0">
                     {userInitial}
                   </div>
@@ -401,7 +401,7 @@ function SettingsRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="py-3 flex items-center justify-between border-b border-gray-200/60">
+    <div className="py-3 flex items-center justify-between">
       <div className="flex items-center gap-2.5">
         {icon}
         <span className="text-sm font-normal text-gray-900">{label}</span>
@@ -429,7 +429,7 @@ function SettingsActionRow({
       onClick={onClick}
       className={cn(
         'w-full py-3 flex items-center gap-2.5 hover:bg-gray-50/40 transition-colors',
-        !last && 'border-b border-gray-200/60',
+        '',
       )}
     >
       {icon}

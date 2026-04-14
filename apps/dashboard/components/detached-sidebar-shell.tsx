@@ -39,7 +39,9 @@ const items = [
 export function DetachedSidebarShell() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activePath, setActivePath] = useState("/dashboard");
-  const width = isExpanded ? 240 : 70;
+  const collapsedWidth = 76;
+  const expandedWidth = 202;
+  const width = isExpanded ? expandedWidth : collapsedWidth;
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -48,7 +50,7 @@ export function DetachedSidebarShell() {
       try {
         const state = await invoke<SidebarState>("sidebar_get_main_state");
         if (state?.path) setActivePath(state.path);
-        if (typeof state?.width === "number") setIsExpanded(state.width > 70);
+        if (typeof state?.width === "number") setIsExpanded(state.width > collapsedWidth);
       } catch (error) {
         console.error("Failed to read sidebar state:", error);
       }
@@ -94,14 +96,15 @@ export function DetachedSidebarShell() {
     <aside
       className={cn(
         "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-stretch overflow-hidden flex z-[1002]",
-        isExpanded ? "w-[240px]" : "w-[70px]",
+        isExpanded ? "w-[202px]" : "w-[76px]",
       )}
       style={{ transition: 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)' }}
       onMouseEnter={() => setIsExpanded(true)}
       onMouseLeave={() => setIsExpanded(false)}
     >
       <div
-        className="sidebar-header absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center transition-all duration-200 ease-standard"
+        className="sidebar-header absolute top-0 left-0 z-[2] h-[70px] flex items-center justify-center transition-all duration-200 ease-standard"
+        style={{ width: collapsedWidth }}
       >
         <button
           type="button"

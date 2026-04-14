@@ -248,22 +248,22 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-6 px-1.5 py-[2px] bg-[var(--content-bg)] hover:bg-[#fafafa] cursor-grab active:cursor-grabbing ${
+        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-14 min-h-[42px] rounded-[6px] px-3 py-[4px] bg-[var(--content-bg)] hover:bg-[#f5f5f4] cursor-grab active:cursor-grabbing ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}
         {...listeners}
       >
         <div className="min-w-0 flex items-center">
-          <span className="text-[17.5px] font-normal text-gray-900 truncate leading-[1.03]">{displayName}</span>
+          <span className="text-[17.5px] font-normal text-gray-900 truncate leading-[1.08]">{displayName}</span>
         </div>
         <div
           ref={metricTriggerRef}
-          className="flex items-center gap-1 cursor-default relative tooltip-container flex-shrink-0"
+          className="flex items-center justify-self-end gap-1.5 cursor-default relative tooltip-container flex-shrink-0"
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
         >
-          <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums leading-[1.03]">
+          <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums leading-[1.08]">
             <span className={getHabitMetricClassName(habit)}>
               {getHabitMetricDisplay(habit, hoveredValue)}
             </span>

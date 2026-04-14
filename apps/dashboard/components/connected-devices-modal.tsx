@@ -134,7 +134,7 @@ export function ConnectedDevicesBar() {
 
   return (
     <>
-      <div className="fixed bottom-[14px] left-[70px] right-0 flex justify-end pr-[calc((100%-70px-640px)/2-12px)] pointer-events-none">
+      <div className="fixed bottom-[14px] left-[76px] right-0 flex justify-end pr-[calc((100%-76px-640px)/2-12px)] pointer-events-none">
         <button
           type="button"
           onClick={() => setOpen(true)}

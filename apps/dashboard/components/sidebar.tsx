@@ -8,8 +8,8 @@ import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 
-const COLLAPSED_WIDTH = 70;
-const EXPANDED_WIDTH = 190;
+const COLLAPSED_WIDTH = 76;
+const EXPANDED_WIDTH = 202;
 
 export function Sidebar() {
   const { mode } = useSidebarMode();
@@ -53,7 +53,8 @@ export function Sidebar() {
           below the macOS traffic lights without overlap. */}
       <div
         data-tauri-drag-region
-        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[80px] w-[70px] flex items-center justify-center"
+        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[80px] flex items-center justify-center"
+        style={{ width: COLLAPSED_WIDTH }}
       >
         <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[31px] transition-none">
           <img
@@ -65,7 +66,7 @@ export function Sidebar() {
       </div>
 
       {/* Main Navigation — top padding accounts for the dedicated titlebar lane above the logo. */}
-      <div className="flex flex-col w-full pt-[80px] flex-1">
+      <div className="flex flex-col w-full pt-[84px] flex-1">
         <MainMenu
           isExpanded={isExpanded}
           onCloseSidebar={() => setIsHovered(false)}
