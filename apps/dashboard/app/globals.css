@@ -691,17 +691,6 @@
     transition: all 0.2s ease-out;
   }
 
-  button[class~="bg-white"]:not(:disabled):hover,
-  a[class~="bg-white"]:hover,
-  input[type="button"][class~="bg-white"]:not(:disabled):hover,
-  input[type="submit"][class~="bg-white"]:not(:disabled):hover,
-  button[class~="bg-background"]:not(:disabled):hover,
-  a[class~="bg-background"]:hover,
-  input[type="button"][class~="bg-background"]:not(:disabled):hover,
-  input[type="submit"][class~="bg-background"]:not(:disabled):hover {
-    background-color: #f7f7f7;
-  }
-
   /* Unify black-button hover behavior across the app to match Home "Sign In". */
   button[class~="bg-black"]:not(:disabled),
   a[class~="bg-black"],

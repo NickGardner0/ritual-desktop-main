@@ -84,8 +84,8 @@ function OverviewInitialSectionInner({
   getHabitMetricDisplay,
   getHabitMetricClassName,
   getHabitMetricStats,
-  onUpdateHabitUnit,
-  updatingHabitUnitId,
+  onUpdateHabitDetails,
+  updatingHabitId,
   confirmDelete,
   deletingHabit,
   onReorder,
@@ -156,7 +156,7 @@ function OverviewInitialSectionInner({
       )}
 
       <div className="pt-6 flex-1 overflow-auto pb-4">
-        <div className="max-w-[484px] mx-auto w-full">
+        <div className="max-w-[438px] mx-auto w-full">
           <SortableHabitList
             habits={orderedHabits}
             onReorder={onReorder}
@@ -167,8 +167,8 @@ function OverviewInitialSectionInner({
             activeTooltip={activeTooltip}
             setActiveTooltip={setActiveTooltip}
             getHabitMetricStats={getHabitMetricStats}
-            onUpdateHabitUnit={onUpdateHabitUnit}
-            updatingHabitUnitId={updatingHabitUnitId}
+            onUpdateHabitDetails={onUpdateHabitDetails}
+            updatingHabitId={updatingHabitId}
             confirmDelete={confirmDelete}
             deletingHabit={deletingHabit}
           />

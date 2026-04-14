@@ -230,18 +230,18 @@ const Item = ({
           />
 
           <div className={cn(
-            "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
-            "text-[#111111]",
+            "absolute top-1/2 left-[15px] flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
+            "text-[#0f0f0f]",
             isCollapsedActive && "scale-[1.04]"
           )}>
-            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.6 : 2.15} />
+            <Icon className="relative -translate-y-px h-5 w-5" strokeWidth={isActive ? 2.7 : 2.3} />
           </div>
 
           {isExpanded && (
-            <div className="absolute top-0 left-[55px] right-[4px] h-[40px] flex items-center pointer-events-none">
+            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[40px] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] transition-colors duration-200 text-[#2a2a2a] group-hover:text-[#111111]",
+                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#262626] group-hover:text-[#111111]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
                   isActive && "text-[#111111] font-[600]",

@@ -731,17 +731,29 @@ export function OverviewView({
     };
   }, [habitMetricDataById]);
 
-  const handleUpdateHabitUnit = useCallback(async (habitId: string | undefined, nextUnit: string) => {
-    const trimmedUnit = nextUnit.trim();
-    if (!habitId || !trimmedUnit) return;
+  const handleUpdateHabitDetails = useCallback(
+    async (
+      habitId: string | undefined,
+      updates: { name?: string; unit_type?: string },
+    ) => {
+      if (!habitId) return;
 
-    await updateHabitMutation.mutateAsync({
-      habitId,
-      updates: {
-        unit_type: trimmedUnit,
-      },
-    });
-  }, [updateHabitMutation]);
+      const nextUpdates: { name?: string; unit_type?: string } = {};
+      if (typeof updates.name === 'string' && updates.name.trim()) {
+        nextUpdates.name = updates.name.trim();
+      }
+      if (typeof updates.unit_type === 'string' && updates.unit_type.trim()) {
+        nextUpdates.unit_type = updates.unit_type.trim();
+      }
+      if (Object.keys(nextUpdates).length === 0) return;
+
+      await updateHabitMutation.mutateAsync({
+        habitId,
+        updates: nextUpdates,
+      });
+    },
+    [updateHabitMutation],
+  );
 
   const handleHabitCreated = useCallback(async (newHabit: Habit) => {
     try {
@@ -824,8 +836,8 @@ export function OverviewView({
         activeTooltip={activeTooltip}
         setActiveTooltip={setActiveTooltip}
         getHabitMetricStats={getHabitMetricStats}
-        onUpdateHabitUnit={handleUpdateHabitUnit}
-        updatingHabitUnitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
+        onUpdateHabitDetails={handleUpdateHabitDetails}
+        updatingHabitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
         confirmDelete={confirmDelete}
         deletingHabit={deletingHabit}
       />
@@ -906,7 +918,7 @@ export function OverviewView({
               <Button
                 variant="outline"
                 onClick={cancelDelete}
-                className="rounded-sm px-3 py-1.5 text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]"
+                className="rounded-sm px-3 py-1.5 text-sm hover:bg-white focus:bg-white"
               >
                 Cancel
               </Button>

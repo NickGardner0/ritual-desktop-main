@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Pencil, X } from 'lucide-react';
 import {
   DndContext,
@@ -40,10 +41,109 @@ interface SortableHabitItemProps {
     maxFormatted: string;
     stdDevFormatted: string;
   };
-  onUpdateHabitUnit: (habitId: string | undefined, nextUnit: string) => Promise<void>;
-  isUpdatingUnit: boolean;
+  onUpdateHabitDetails: (
+    habitId: string | undefined,
+    updates: { name?: string; unit_type?: string },
+  ) => Promise<void>;
+  isUpdatingHabit: boolean;
   confirmDelete: (habitId: string | undefined) => void;
   isDeleting: boolean;
+}
+
+function HabitEditDialog({
+  open,
+  habit,
+  nameDraft,
+  unitDraft,
+  onNameChange,
+  onUnitChange,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  open: boolean;
+  habit: Habit;
+  nameDraft: string;
+  unitDraft: string;
+  onNameChange: (value: string) => void;
+  onUnitChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+  isSaving: boolean;
+}) {
+  if (!open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-black/10" onClick={onClose} />
+      <div
+        className="relative w-full max-w-[540px] rounded-sm border border-gray-200 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.14)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-7 py-5">
+          <h3 className="text-[17px] font-medium text-gray-900">Edit Habit</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-7 w-7 items-center justify-center text-gray-400 transition-colors hover:text-gray-700"
+            aria-label="Close edit habit dialog"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-6 px-7 py-6">
+          <div className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-x-6 gap-y-4">
+            <label htmlFor={`habit-name-${habit.id || 'unknown'}`} className="text-sm text-gray-500">
+              Title
+            </label>
+            <input
+              id={`habit-name-${habit.id || 'unknown'}`}
+              value={nameDraft}
+              onChange={(event) => onNameChange(event.target.value)}
+              className="h-11 rounded-sm border border-gray-200 px-3 text-sm text-gray-900 outline-none transition-colors focus:border-gray-400"
+              maxLength={72}
+            />
+
+            <label htmlFor={`habit-unit-${habit.id || 'unknown'}`} className="text-sm text-gray-500">
+              Unit
+            </label>
+            <input
+              id={`habit-unit-${habit.id || 'unknown'}`}
+              value={unitDraft}
+              onChange={(event) => onUnitChange(event.target.value)}
+              className="h-11 rounded-sm border border-gray-200 px-3 text-sm text-gray-900 outline-none transition-colors focus:border-gray-400"
+              maxLength={24}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-gray-100 px-7 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:text-gray-900"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={isSaving}
+            className="inline-flex items-center gap-1.5 rounded-sm bg-black px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[#27251E] disabled:opacity-50"
+          >
+            {isSaving ? (
+              <BrailleSpinner className="text-[10px] text-white" />
+            ) : (
+              <Check className="h-3.5 w-3.5" />
+            )}
+            Save
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 const SortableHabitItem = React.memo(function SortableHabitItem({
@@ -54,8 +154,8 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   isTooltipOpen,
   setActiveTooltip,
   getHabitMetricStats,
-  onUpdateHabitUnit,
-  isUpdatingUnit,
+  onUpdateHabitDetails,
+  isUpdatingHabit,
   confirmDelete,
   isDeleting,
 }: SortableHabitItemProps) {
@@ -77,46 +177,59 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   };
 
   const habitId = habit.id || '';
-  const [isEditingUnit, setIsEditingUnit] = React.useState(false);
+  const [isEditingDetails, setIsEditingDetails] = React.useState(false);
+  const [nameDraft, setNameDraft] = React.useState(habit.name || '');
   const [unitDraft, setUnitDraft] = React.useState(habit.unit_type || '');
 
   React.useEffect(() => {
-    if (!isEditingUnit) {
+    if (!isEditingDetails) {
+      setNameDraft(habit.name || '');
       setUnitDraft(habit.unit_type || '');
     }
-  }, [habit.unit_type, isEditingUnit]);
+  }, [habit.name, habit.unit_type, isEditingDetails]);
 
-  const handleSaveUnit = async () => {
+  const handleSaveDetails = async () => {
+    const trimmedName = nameDraft.trim();
     const trimmed = unitDraft.trim();
-    if (!trimmed || trimmed === (habit.unit_type || '').trim()) {
-      setIsEditingUnit(false);
+    const nextUpdates: { name?: string; unit_type?: string } = {};
+
+    if (trimmedName && trimmedName !== (habit.name || '').trim()) {
+      nextUpdates.name = trimmedName;
+    }
+    if (trimmed && trimmed !== (habit.unit_type || '').trim()) {
+      nextUpdates.unit_type = trimmed;
+    }
+
+    if (Object.keys(nextUpdates).length === 0) {
+      setIsEditingDetails(false);
       return;
     }
 
     try {
-      await onUpdateHabitUnit(habit.id, trimmed);
-      setIsEditingUnit(false);
+      await onUpdateHabitDetails(habit.id, nextUpdates);
+      setIsEditingDetails(false);
     } catch (error) {
-      console.error('Failed to update habit unit:', error);
+      console.error('Failed to update habit details:', error);
     }
   };
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`group w-full max-w-2xl flex justify-between items-center gap-8 h-[29px] px-1 bg-[var(--content-bg)] hover:bg-[#fafafa] cursor-grab active:cursor-grabbing ${
-        isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
-      }`}
-      {...attributes}
-      {...listeners}
-    >
-      <div className="flex min-w-0 items-center">
+    <>
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-1.5 py-[3px] bg-[var(--content-bg)] cursor-grab active:cursor-grabbing ${
+          isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
+        }`}
+        {...attributes}
+        {...listeners}
+      >
+        <div className="min-w-0 flex items-center">
         <span className="text-[17.5px] font-normal text-gray-900 truncate leading-none">{displayName}</span>
       </div>
       <div
         ref={metricTriggerRef}
-        className="flex items-center space-x-1.5 cursor-default relative tooltip-container flex-shrink-0"
+        className="flex items-center gap-1 cursor-default relative tooltip-container flex-shrink-0"
         onClick={(e) => {
           e.stopPropagation();
           setActiveTooltip(prev => prev === habitId ? null : habitId);
@@ -127,6 +240,19 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
             {getHabitMetricDisplay(habit, hoveredValue)}
           </span>
         </span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsEditingDetails(true);
+          }}
+          disabled={isUpdatingHabit}
+          className={`p-1 text-gray-400 hover:text-gray-700 transition-opacity disabled:opacity-50 ${
+            isTooltipOpen || isUpdatingHabit ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+          title="Edit habit"
+        >
+          <Pencil className="w-3 h-3" />
+        </button>
         <button
           onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
           disabled={isDeleting}
@@ -166,88 +292,31 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
                   <span className="text-gray-900">Std Dev</span>
                   <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
                 </div>
-                <div className="my-2 border-t border-gray-200" />
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-gray-900">Unit</span>
-                    {isEditingUnit ? null : (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setIsEditingUnit(true);
-                        }}
-                        className="inline-flex items-center gap-1 text-xs text-gray-500 transition-colors hover:text-gray-900"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Edit
-                      </button>
-                    )}
-                  </div>
-                  {isEditingUnit ? (
-                    <div className="space-y-2">
-                      <input
-                        autoFocus
-                        value={unitDraft}
-                        onChange={(event) => setUnitDraft(event.target.value)}
-                        onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            void handleSaveUnit();
-                          }
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            setIsEditingUnit(false);
-                            setUnitDraft(habit.unit_type || '');
-                          }
-                        }}
-                        placeholder="Percent or %"
-                        className="w-full rounded-sm border border-gray-300 px-2 py-1.5 text-sm text-gray-900 outline-none transition-colors focus:border-gray-500"
-                        maxLength={24}
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setIsEditingUnit(false);
-                            setUnitDraft(habit.unit_type || '');
-                          }}
-                          className="text-xs text-gray-500 transition-colors hover:text-gray-900"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void handleSaveUnit();
-                          }}
-                          disabled={isUpdatingUnit}
-                          className="inline-flex items-center gap-1 rounded-sm bg-black px-2 py-1 text-xs text-white disabled:opacity-50"
-                        >
-                          {isUpdatingUnit ? (
-                            <BrailleSpinner className="text-[10px] text-white" />
-                          ) : (
-                            <Check className="h-3 w-3" />
-                          )}
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-right tabular-nums text-gray-600">
-                      {s.unitLabel || 'sessions'}
-                    </div>
-                  )}
-                </div>
               </div>
             );
           })() : null}
         </StatsTooltip>
       </div>
-    </div>
+      </div>
+
+      <HabitEditDialog
+        open={isEditingDetails}
+        habit={habit}
+        nameDraft={nameDraft}
+        unitDraft={unitDraft}
+        onNameChange={setNameDraft}
+        onUnitChange={setUnitDraft}
+        onClose={() => {
+          setIsEditingDetails(false);
+          setNameDraft(habit.name || '');
+          setUnitDraft(habit.unit_type || '');
+        }}
+        onSave={() => {
+          void handleSaveDetails();
+        }}
+        isSaving={isUpdatingHabit}
+      />
+    </>
   );
 });
 
@@ -268,8 +337,11 @@ export interface SortableHabitListProps {
     maxFormatted: string;
     stdDevFormatted: string;
   };
-  onUpdateHabitUnit: (habitId: string | undefined, nextUnit: string) => Promise<void>;
-  updatingHabitUnitId: string | null | undefined;
+  onUpdateHabitDetails: (
+    habitId: string | undefined,
+    updates: { name?: string; unit_type?: string },
+  ) => Promise<void>;
+  updatingHabitId: string | null | undefined;
   confirmDelete: (habitId: string | undefined) => void;
   deletingHabit: string | null;
 }
@@ -284,8 +356,8 @@ function SortableHabitListInner({
   activeTooltip,
   setActiveTooltip,
   getHabitMetricStats,
-  onUpdateHabitUnit,
-  updatingHabitUnitId,
+  onUpdateHabitDetails,
+  updatingHabitId,
   confirmDelete,
   deletingHabit,
 }: SortableHabitListProps) {
@@ -334,8 +406,8 @@ function SortableHabitListInner({
                 isTooltipOpen={activeTooltip === habitId}
                 setActiveTooltip={setActiveTooltip}
                 getHabitMetricStats={getHabitMetricStats}
-                onUpdateHabitUnit={onUpdateHabitUnit}
-                isUpdatingUnit={updatingHabitUnitId === habitId}
+                onUpdateHabitDetails={onUpdateHabitDetails}
+                isUpdatingHabit={updatingHabitId === habitId}
                 confirmDelete={confirmDelete}
                 isDeleting={deletingHabit === habitId}
               />

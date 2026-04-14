@@ -1029,7 +1029,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               <div className="flex justify-end items-center gap-3 mt-auto pt-6 border-t border-gray-100">
                 <button
                   onClick={handleBack}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-[#F3F3F3] rounded-sm transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 rounded-sm transition-colors"
                 >
                   Cancel
                 </button>

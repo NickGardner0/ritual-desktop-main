@@ -8,10 +8,21 @@
  * settings, and disconnect.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ComponentType } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import {
+  Apple,
+  Activity,
+  ChevronRight,
+  ChevronDown,
+  Dumbbell,
+  HeartPulse,
+  MoonStar,
+  Ruler,
+  Sparkles,
+  Waves,
+} from 'lucide-react';
 import { isTauri } from '@/lib/tauri-utils';
 import { cn } from '@/lib/utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -27,6 +38,8 @@ import {
 } from '@/components/ui/select';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const APPLE_WATCH_SWITCH_CLASS =
+  'data-[state=checked]:bg-[#34C759] data-[state=unchecked]:bg-[#E5E7EB]';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -570,7 +583,7 @@ export function AppleWatchSettings() {
           className={cn(
             'inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-medium',
             connected
-              ? 'border-gray-200 bg-gray-50 text-gray-900'
+              ? 'border-gray-200 bg-white text-gray-900'
               : 'border-gray-200 bg-white text-gray-500',
           )}
         >
@@ -580,7 +593,7 @@ export function AppleWatchSettings() {
       </div>
 
       {/* Tab bar */}
-      <div className="inline-flex items-center rounded-sm border border-gray-200 bg-gray-50 p-0.5">
+      <div className="inline-flex items-center rounded-sm border border-gray-200 bg-[#F8F8F7] p-0.5">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -588,7 +601,7 @@ export function AppleWatchSettings() {
             className={cn(
               'rounded-sm px-2.5 py-1 text-xs font-medium transition-colors',
               tab === t.key
-                ? 'border border-gray-200 bg-white text-gray-900'
+                ? 'border border-gray-200 bg-white text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
                 : 'text-gray-500 hover:text-gray-700',
             )}
           >
@@ -640,7 +653,7 @@ export function AppleWatchSettings() {
           )}
 
           {!connected && (
-            <div className="rounded-sm border border-dashed border-gray-300 bg-gray-50 p-4 text-center">
+            <div className="rounded-sm border border-gray-200 bg-[#F8F8F7] p-4 text-center">
               <p className="text-sm font-medium text-gray-900">Not connected</p>
               <p className="mt-1 text-xs text-gray-500">Open the Ritual Companion app on your iPhone to connect.</p>
             </div>
@@ -757,6 +770,7 @@ export function AppleWatchSettings() {
             <div className="mb-2 flex items-center justify-between">
               <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Scheduled export</p>
               <Switch
+                className={APPLE_WATCH_SWITCH_CLASS}
                 checked={Boolean(exportSchedule?.enabled)}
                 onCheckedChange={(checked) => {
                   if (!scheduleLoaded) loadExportSchedule();
@@ -891,6 +905,7 @@ export function AppleWatchSettings() {
               </div>
               <div className="flex items-center gap-1.5">
                 <Switch
+                  className={APPLE_WATCH_SWITCH_CLASS}
                   checked={autoSyncEnabled}
                   onCheckedChange={(checked) => handleSyncSettingsUpdate({ auto_sync_enabled: checked, sync_hour: syncHour })}
                 />
@@ -962,7 +977,7 @@ function NavRow({ label, description, onClick, border, last }: { label: string; 
     <button
       onClick={onClick}
       className={cn(
-        'flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-gray-50',
+        'flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-[#F8F8F7]',
         !last && 'border-b border-gray-100',
       )}
     >
@@ -984,7 +999,7 @@ function PillButton({ children, active, onClick, small }: { children: React.Reac
         small ? 'px-1.5 py-0.5' : 'px-2.5 py-1',
         active
           ? 'border-gray-900 bg-gray-900 text-white'
-          : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
+          : 'border-gray-200 bg-white text-gray-500 hover:bg-[#F8F8F7]',
       )}
     >
       {children}
@@ -996,30 +1011,30 @@ function PillButton({ children, active, onClick, small }: { children: React.Reac
 // Granola-style metric toggle cards
 // ---------------------------------------------------------------------------
 
-/** Icons for metric categories — maps category name to an emoji/symbol */
-const CATEGORY_ICONS: Record<string, string> = {
-  Activity: '🏃',
-  'Body Measurements': '📐',
-  'Heart & Vitals': '❤️',
-  Heart: '❤️',
-  Vitals: '🫀',
-  Sleep: '😴',
-  Nutrition: '🍎',
-  Mobility: '🦿',
-  Mindfulness: '🧘',
-  Reproductive: '🩺',
-  Workouts: '💪',
-  Other: '📊',
+/** Icons for metric categories — maps category name to a neutral Lucide icon */
+const CATEGORY_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  Activity,
+  'Body Measurements': Ruler,
+  'Heart & Vitals': HeartPulse,
+  Heart: HeartPulse,
+  Vitals: Waves,
+  Sleep: MoonStar,
+  Nutrition: Apple,
+  Mobility: Sparkles,
+  Mindfulness: Sparkles,
+  Reproductive: Sparkles,
+  Workouts: Dumbbell,
+  Other: Activity,
 };
 
-function getCategoryIcon(category: string): string {
+function getCategoryIcon(category: string): ComponentType<{ className?: string }> {
   // Exact match first, then partial match
   if (CATEGORY_ICONS[category]) return CATEGORY_ICONS[category];
   const lower = category.toLowerCase();
   for (const [key, icon] of Object.entries(CATEGORY_ICONS)) {
     if (lower.includes(key.toLowerCase())) return icon;
   }
-  return '📊';
+  return Activity;
 }
 
 function MetricCategoryCard({
@@ -1034,20 +1049,20 @@ function MetricCategoryCard({
   const [expanded, setExpanded] = useState(true);
   const metrics = category.metrics || [];
   const enabledCount = metrics.filter((m) => selected.has(m.type)).length;
-  const icon = getCategoryIcon(category.category);
+  const CategoryIcon = getCategoryIcon(category.category);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+    <div className="overflow-hidden rounded-sm border border-gray-200 bg-white">
       {/* Category header */}
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left hover:bg-gray-50/50 transition-colors"
+        className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-[#F8F8F7]"
       >
-        <span className="text-base leading-none">{icon}</span>
+        <CategoryIcon className="h-4 w-4 flex-shrink-0 text-[#222222]" />
         <div className="flex-1 min-w-0">
           <span className="text-[13px] font-medium text-gray-900">{category.category}</span>
-          <span className="ml-1.5 text-[11px] text-gray-400">{enabledCount}/{metrics.length}</span>
+          <span className="ml-1.5 text-[11px] text-gray-500">{enabledCount}/{metrics.length}</span>
         </div>
         <ChevronDown
           className={cn(
@@ -1059,7 +1074,7 @@ function MetricCategoryCard({
 
       {/* Metric rows */}
       {expanded && (
-        <div className="border-t border-dashed border-gray-200">
+        <div className="border-t border-gray-200">
           {metrics.map((metric, i) => {
             const isEnabled = selected.has(metric.type);
             return (
@@ -1067,7 +1082,7 @@ function MetricCategoryCard({
                 key={metric.type}
                 className={cn(
                   'flex items-center gap-3 px-3.5 py-2.5',
-                  i < metrics.length - 1 && 'border-b border-dashed border-gray-100',
+                  i < metrics.length - 1 && 'border-b border-gray-100',
                 )}
               >
                 <div className="flex-1 min-w-0">
@@ -1081,7 +1096,7 @@ function MetricCategoryCard({
                   onClick={() => onToggle(metric.type, !isEnabled)}
                   className={cn(
                     'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-                    isEnabled ? 'bg-[#4a4a2e]' : 'bg-gray-200',
+                    isEnabled ? 'bg-[#34C759]' : 'bg-gray-200',
                   )}
                 >
                   <span
