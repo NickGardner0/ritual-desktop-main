@@ -14,6 +14,10 @@ const COMPUTER_ACTIVITY_HABIT_ALIASES = new Set([
   "computer time",
 ]);
 const COMPUTER_TIME_DISPLAY_NAME = "Computer Time";
+const HABIT_DISPLAY_ALIASES = {
+  "caffeine consumption": "Caffeine",
+  "nicotine consumption": "Nicotine",
+};
 
 function normalizeHabitName(name) {
   return String(name || "")
@@ -23,9 +27,10 @@ function normalizeHabitName(name) {
 }
 
 function getHabitDisplayName(name) {
-  return COMPUTER_ACTIVITY_HABIT_ALIASES.has(normalizeHabitName(name))
+  const normalized = normalizeHabitName(name);
+  return COMPUTER_ACTIVITY_HABIT_ALIASES.has(normalized)
     ? COMPUTER_TIME_DISPLAY_NAME
-    : String(name || "");
+    : HABIT_DISPLAY_ALIASES[normalized] || String(name || "");
 }
 
 function toYmdUtc(date) {

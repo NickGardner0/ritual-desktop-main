@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Pencil, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -161,6 +161,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
+  const metricClickTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     attributes,
     listeners,
@@ -188,6 +189,14 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     }
   }, [habit.name, habit.unit_type, isEditingDetails]);
 
+  React.useEffect(() => {
+    return () => {
+      if (metricClickTimeoutRef.current) {
+        clearTimeout(metricClickTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleSaveDetails = async () => {
     const trimmedName = nameDraft.trim();
     const trimmed = unitDraft.trim();
@@ -213,90 +222,99 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     }
   };
 
+  const handleMetricClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (metricClickTimeoutRef.current) {
+      clearTimeout(metricClickTimeoutRef.current);
+    }
+    metricClickTimeoutRef.current = setTimeout(() => {
+      setActiveTooltip((prev) => (prev === habitId ? null : habitId));
+      metricClickTimeoutRef.current = null;
+    }, 180);
+  };
+
+  const handleMetricDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (metricClickTimeoutRef.current) {
+      clearTimeout(metricClickTimeoutRef.current);
+      metricClickTimeoutRef.current = null;
+    }
+    setActiveTooltip(null);
+    setIsEditingDetails(true);
+  };
+
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-1.5 py-[3px] bg-[var(--content-bg)] cursor-grab active:cursor-grabbing ${
+        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-6 px-1.5 py-[2px] bg-[var(--content-bg)] hover:bg-[#fafafa] cursor-grab active:cursor-grabbing ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}
         {...listeners}
       >
         <div className="min-w-0 flex items-center">
-        <span className="text-[17.5px] font-normal text-gray-900 truncate leading-none">{displayName}</span>
-      </div>
-      <div
-        ref={metricTriggerRef}
-        className="flex items-center gap-1 cursor-default relative tooltip-container flex-shrink-0"
-        onClick={(e) => {
-          e.stopPropagation();
-          setActiveTooltip(prev => prev === habitId ? null : habitId);
-        }}
-      >
-        <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums">
-          <span className={getHabitMetricClassName(habit)}>
-            {getHabitMetricDisplay(habit, hoveredValue)}
+          <span className="text-[17.5px] font-normal text-gray-900 truncate leading-[1.03]">{displayName}</span>
+        </div>
+        <div
+          ref={metricTriggerRef}
+          className="flex items-center gap-1 cursor-default relative tooltip-container flex-shrink-0"
+          onClick={handleMetricClick}
+          onDoubleClick={handleMetricDoubleClick}
+        >
+          <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums leading-[1.03]">
+            <span className={getHabitMetricClassName(habit)}>
+              {getHabitMetricDisplay(habit, hoveredValue)}
+            </span>
           </span>
-        </span>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsEditingDetails(true);
-          }}
-          disabled={isUpdatingHabit}
-          className={`p-1 text-gray-400 hover:text-gray-700 transition-opacity disabled:opacity-50 ${
-            isTooltipOpen || isUpdatingHabit ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          }`}
-          title="Edit habit"
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); confirmDelete(habit.id); }}
-          disabled={isDeleting}
-          className={`p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50 ${
-            isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          }`}
-          title="Delete habit"
-        >
-          {isDeleting ? (
-            <BrailleSpinner className="text-xs text-gray-500" />
-          ) : (
-            <X className="w-3 h-3" />
-          )}
-        </button>
-        <StatsTooltip open={isTooltipOpen} triggerRef={metricTriggerRef}>
-          {isTooltipOpen ? (() => {
-            const s = getHabitMetricStats(habit);
-            return (
-              <div className="space-y-1.5 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Sum</span>
-                  <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              confirmDelete(habit.id);
+            }}
+            disabled={isDeleting}
+            className={`p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50 ${
+              isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}
+            title="Delete habit"
+          >
+            {isDeleting ? (
+              <BrailleSpinner className="text-xs text-gray-500" />
+            ) : (
+              <X className="w-3 h-3" />
+            )}
+          </button>
+          <StatsTooltip open={isTooltipOpen} triggerRef={metricTriggerRef}>
+            {isTooltipOpen ? (() => {
+              const s = getHabitMetricStats(habit);
+              return (
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Sum</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.sumFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Average</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Min</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Max</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-900">Std Dev</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Average</span>
-                  <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.avgFormatted}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Min</span>
-                  <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.minFormatted}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Max</span>
-                  <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-900">Std Dev</span>
-                  <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
-                </div>
-              </div>
-            );
-          })() : null}
-        </StatsTooltip>
-      </div>
+              );
+            })() : null}
+          </StatsTooltip>
+        </div>
       </div>
 
       <HabitEditDialog

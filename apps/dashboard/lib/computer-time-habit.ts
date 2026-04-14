@@ -5,6 +5,10 @@ const COMPUTER_HABIT_ALIASES = new Set([
 ]);
 
 export const COMPUTER_HABIT_DISPLAY_NAME = 'Computer Time';
+const HABIT_DISPLAY_ALIASES: Record<string, string> = {
+  'caffeine consumption': 'Caffeine',
+  'nicotine consumption': 'Nicotine',
+};
 
 export function normalizeHabitName(name: string | undefined): string {
   return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -15,6 +19,7 @@ export function isComputerHabitName(name: string | undefined): boolean {
 }
 
 export function getHabitDisplayName(name: string | undefined): string {
-  return isComputerHabitName(name) ? COMPUTER_HABIT_DISPLAY_NAME : (name || '');
+  if (isComputerHabitName(name)) return COMPUTER_HABIT_DISPLAY_NAME;
+  const normalized = normalizeHabitName(name);
+  return HABIT_DISPLAY_ALIASES[normalized] || (name || '');
 }
-
