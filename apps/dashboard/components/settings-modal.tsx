@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, AlertTriangle, X, ChevronDown, Monitor, Type
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { useFont, FontOption } from '@/contexts/FontContext';
+import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleHealthSyncStatus } from './apple-health-sync-status';
 
@@ -23,6 +24,13 @@ const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'system-ui', label: 'System UI' },
 ];
 
+const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
+  { value: 'hidden', label: 'Hidden' },
+  { value: 'compact', label: 'Compact' },
+  { value: 'hover', label: 'Expand on Hover' },
+  { value: 'expanded', label: 'Always Expanded' },
+];
+
 const SETTINGS_PANEL_CLASS =
   'relative bg-[#FCFCFB] w-full max-w-[520px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-xl z-10 overflow-hidden max-h-[min(560px,calc(100vh-2rem))] flex flex-col';
 const SETTINGS_HEADER_CLASS =
@@ -34,9 +42,11 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const { signOut, openUserProfile } = useClerk();
   const router = useRouter();
   const { font, setFont } = useFont();
+  const { mode: sidebarMode, setMode: setSidebarMode } = useSidebarMode();
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
+  const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
   const [currentView, setCurrentView] = useState<SettingsView>('account');
   const [showRetrievalHealth, setShowRetrievalHealth] = useState(false);
   const wasOpenRef = useRef(false);
@@ -295,6 +305,55 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                         >
                           {option.label}
                           {font === option.value && (
+                            <span className="text-black text-xs">✓</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Sidebar Mode */}
+            <div className="py-3 flex items-center justify-between border-b border-gray-200/60">
+              <div className="flex items-center gap-2.5">
+                <svg className="w-4 h-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="9" y1="3" x2="9" y2="21" />
+                </svg>
+                <span className="text-sm font-normal text-gray-900">Sidebar</span>
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => setShowSidebarDropdown(!showSidebarDropdown)}
+                  className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  <span>
+                    {sidebarModeOptions.find(o => o.value === sidebarMode)?.label}
+                  </span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                {showSidebarDropdown && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowSidebarDropdown(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg rounded-lg z-20 min-w-[170px] py-1">
+                      {sidebarModeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => {
+                            setSidebarMode(option.value);
+                            setShowSidebarDropdown(false);
+                          }}
+                          className={`w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center justify-between ${
+                            sidebarMode === option.value ? 'text-gray-900' : 'text-gray-600'
+                          }`}
+                        >
+                          {option.label}
+                          {sidebarMode === option.value && (
                             <span className="text-black text-xs">✓</span>
                           )}
                         </button>

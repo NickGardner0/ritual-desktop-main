@@ -28,6 +28,7 @@ function shouldPersistQuery(query: Query): boolean {
 
   const persistableScopes = [
     'habits',
+    'dashboard-snapshot',
     'whoop-status',
     'apple-watch-status',
     'wearable-connections',

@@ -4,6 +4,7 @@ import React, { startTransition, useDeferredValue, useEffect, useRef, useState, 
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X, Check } from 'lucide-react';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
@@ -16,9 +17,15 @@ import { ViewModeToggle, type ViewMode } from '@/components/analytics/view-mode-
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
-import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
-import { getStrictThisWeekRange } from '@/lib/ai/chat-stream/weekly-overview-utils.mjs';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
+import { useOverviewActivityQuery } from '@/hooks/use-overview-activity-query';
+import {
+  getOverviewActivityBundle,
+  getOverviewActivityRangeKeysForText,
+  overviewActivityKeys,
+  type LocalOverviewActivityBundle,
+  type OverviewActivityRangeKey,
+} from '@/lib/ai/chat-stream/overview-activity-query';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -184,85 +191,6 @@ interface Message {
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
 }
 
-type LocalOverviewActivityBundle = {
-  startDate: string;
-  endDate: string;
-  daily: Array<{
-    day: string;
-    active_hours: number;
-    events_count: number;
-    apps_count: number;
-  }>;
-  apps: Array<{
-    app_bundle_id: string;
-    app_name: string;
-    hours: number;
-    total_events: number;
-  }>;
-  domains: Array<{
-    domain: string;
-    hours: number;
-    total_events: number;
-  }>;
-  source: 'cloud_first' | 'tauri_fallback';
-};
-
-function getTimezoneYmd(date: Date, timezone?: string): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone || 'UTC',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  return formatter.format(date);
-}
-
-function shiftYmd(ymd: string, deltaDays: number): string {
-  const [year, month, day] = ymd.split('-').map(Number);
-  const date = new Date(Date.UTC(year, (month || 1) - 1, day || 1, 12, 0, 0));
-  date.setUTCDate(date.getUTCDate() + deltaDays);
-  return date.toISOString().slice(0, 10);
-}
-
-function isOverviewActivityQuery(text: string): boolean {
-  const normalized = (text || '').toLowerCase().trim();
-  if (!normalized) return false;
-  const patterns = [
-    'how was my week',
-    'how was my month',
-    'how was my day',
-    'weekly overview',
-    'weekly summary',
-    'weekly recap',
-    'daily overview',
-    'daily summary',
-    'daily recap',
-    'monthly overview',
-    'monthly summary',
-    'monthly recap',
-    'this week',
-    'last week',
-    'this month',
-    'last month',
-    'today',
-  ];
-  return patterns.some((pattern) => normalized.includes(pattern));
-}
-
-function isHotLoadWeeklyDemoText(text: string): boolean {
-  const normalized = (text || '').toLowerCase().trim().replace(/[!?]+$/g, '');
-  if (!normalized) return false;
-
-  return [
-    'how was my week',
-    'how has my week been',
-    'how was this week',
-    'how was last week',
-    'how has last week been',
-    'give me a weekly recap',
-  ].includes(normalized);
-}
-
 function getToolLabel(text: string): string {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return 'Thinking...';
@@ -278,83 +206,6 @@ function getToolLabel(text: string): string {
   if (/trend/.test(normalized)) return 'Analyzing trends...';
   if (/screen|computer|app usage/.test(normalized)) return 'Fetching activity data...';
   return 'Analyzing your habits...';
-}
-
-async function buildLocalOverviewActivityBundle(
-  startDate: string,
-  endDate: string,
-): Promise<LocalOverviewActivityBundle> {
-  const [detailed, daily] = await Promise.all([
-    Promise.all([
-      getTopApps({ startDate, endDate }, 25),
-      getTopDomains({ startDate, endDate }, 25),
-    ]),
-    getComputerTimeDaily({ startDate, endDate }),
-  ]);
-  const [apps, domains] = detailed;
-  const source: LocalOverviewActivityBundle['source'] =
-    [...daily, ...apps, ...domains].some((row) => row?.source === 'tauri_fallback')
-      ? 'tauri_fallback'
-      : 'cloud_first';
-
-  return {
-    startDate,
-    endDate,
-    daily: daily.map((row) => ({
-      day: row.day,
-      active_hours: Number(row.active_hours || 0),
-      events_count: Number(row.events_count || 0),
-      apps_count: Number(row.apps_count || 0),
-    })),
-    apps: apps.map((row) => ({
-      app_bundle_id: row.app_bundle_id,
-      app_name: row.app_name,
-      hours: Number(row.hours || 0),
-      total_events: Number(row.total_events || 0),
-    })),
-    domains: domains.map((row) => ({
-      domain: row.domain,
-      hours: Number(row.hours || 0),
-      total_events: Number(row.total_events || 0),
-    })),
-    source,
-  };
-}
-
-async function maybeBuildLocalOverviewActivity(
-  text: string,
-  timezone?: string,
-): Promise<LocalOverviewActivityBundle[] | null> {
-  if (!isTauri() || !isOverviewActivityQuery(text)) {
-    return null;
-  }
-
-  const todayYmd = getTimezoneYmd(new Date(), timezone || 'UTC');
-  const rollingWeek = {
-    startDate: shiftYmd(todayYmd, -7),
-    endDate: todayYmd,
-  };
-  const thisWeek = getStrictThisWeekRange(timezone || 'UTC', new Date());
-  const lastWeek = {
-    startDate: shiftYmd(thisWeek.startDate, -7),
-    endDate: shiftYmd(thisWeek.startDate, -1),
-  };
-  const monthRange = {
-    startDate: shiftYmd(todayYmd, -29),
-    endDate: todayYmd,
-  };
-
-  const bundles = await Promise.allSettled([
-    buildLocalOverviewActivityBundle(todayYmd, todayYmd),
-    buildLocalOverviewActivityBundle(rollingWeek.startDate, rollingWeek.endDate),
-    buildLocalOverviewActivityBundle(thisWeek.startDate, thisWeek.endDate),
-    buildLocalOverviewActivityBundle(lastWeek.startDate, lastWeek.endDate),
-    buildLocalOverviewActivityBundle(monthRange.startDate, monthRange.endDate),
-  ]);
-
-  return bundles
-    .filter((result): result is PromiseFulfilledResult<LocalOverviewActivityBundle> => result.status === 'fulfilled')
-    .map((result) => result.value);
 }
 
 // Smarter canvas data extraction - looks for patterns in the response
@@ -820,6 +671,7 @@ export function ChatClient() {
   const initialConversationId = searchParams.get('conversation');
   const { getToken } = useAuth();
   const { user } = useUser();
+  const queryClient = useQueryClient();
   const { habits, habitLogs } = useHabits();
 
   // Time-of-day greeting
@@ -902,6 +754,22 @@ export function ChatClient() {
   );
   const effectiveCanvasWidth = Math.min(canvasWidth, maxCanvasWidthForViewport);
   const deferredInput = useDeferredValue(input.trim());
+  const timezone = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    [],
+  );
+  const overviewIntentRangeKeys = useMemo(
+    () => getOverviewActivityRangeKeysForText(deferredInput),
+    [deferredInput],
+  );
+  const primaryOverviewRangeKey = overviewIntentRangeKeys[0] ?? 'rolling-week';
+
+  useOverviewActivityQuery({
+    userId: user?.id,
+    timezone,
+    rangeKey: primaryOverviewRangeKey,
+    enabled: isTauri() && overviewIntentRangeKeys.length > 0,
+  });
 
   useEffect(() => {
     setHeaderLeftSlot(document.getElementById('header-left-slot'));
@@ -928,6 +796,26 @@ export function ChatClient() {
     if (newView === 'chat') return;
     router.push(`/dashboard?view=${newView}`);
   }, [router]);
+
+  const prefetchOverviewActivityRange = useCallback((rangeKey: OverviewActivityRangeKey) => {
+    if (!user?.id || !isTauri()) return;
+    void queryClient.prefetchQuery({
+      queryKey: overviewActivityKeys.detail(user.id, timezone, rangeKey),
+      queryFn: () => getOverviewActivityBundle(rangeKey, timezone),
+      staleTime: 1000 * 60 * 5,
+    });
+  }, [queryClient, timezone, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !isTauri()) return;
+    (['today', 'rolling-week', 'this-week', 'last-week', 'month'] as OverviewActivityRangeKey[])
+      .forEach(prefetchOverviewActivityRange);
+  }, [prefetchOverviewActivityRange, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !isTauri() || overviewIntentRangeKeys.length === 0) return;
+    overviewIntentRangeKeys.forEach(prefetchOverviewActivityRange);
+  }, [overviewIntentRangeKeys, prefetchOverviewActivityRange, user?.id]);
 
   const fetchSuggestions = useCallback(async (
     query: string,
@@ -1206,19 +1094,15 @@ export function ChatClient() {
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     
-    let localOverviewActivity: LocalOverviewActivityBundle[] | null = null;
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const shouldSkipBlockingLocalOverviewPrefetch = isHotLoadWeeklyDemoText(text);
-    if (!shouldSkipBlockingLocalOverviewPrefetch) {
-      try {
-        localOverviewActivity = await maybeBuildLocalOverviewActivity(
-          text,
-          timezone,
-        );
-      } catch (error) {
-        console.warn('Local overview activity prefetch failed:', error);
-      }
-    }
+    const overviewRangeKeys = getOverviewActivityRangeKeysForText(text);
+    const cachedOverviewBundles = overviewRangeKeys
+      .map((rangeKey) =>
+        queryClient.getQueryData<LocalOverviewActivityBundle | null>(
+          overviewActivityKeys.detail(user?.id ?? 'anonymous', timezone, rangeKey),
+        ),
+      )
+      .filter((bundle): bundle is LocalOverviewActivityBundle => Boolean(bundle));
+    const localOverviewActivity = cachedOverviewBundles.length > 0 ? cachedOverviewBundles : null;
     
     try {
       const token = await getToken();

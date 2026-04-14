@@ -16,6 +16,7 @@ import { DesktopRuntimeBridge } from '@/components/desktop-runtime-bridge';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { AIProvider } from '@/contexts/AIContext';
 import { FontProvider } from '@/contexts/FontContext';
+import { SidebarModeProvider } from '@/contexts/SidebarModeContext';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { needsPermissionsOnboarding } from '@/lib/onboarding-flow';
@@ -59,12 +60,14 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
   
   return (
     <FontProvider>
+    <SidebarModeProvider>
     <AIProvider>
       <DesktopRuntimeBridge />
       <DashboardLayout>
         {children}
       </DashboardLayout>
     </AIProvider>
+    </SidebarModeProvider>
     </FontProvider>
   );
 }

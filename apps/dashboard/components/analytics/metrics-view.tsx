@@ -46,7 +46,6 @@ import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import { MetricsInitialSection } from '@/components/analytics/metrics-initial-section';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
 import { isTauri } from '@/lib/tauri-utils';
-import { getComputerTimeDaily } from '@/lib/computerActivity/client';
 import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import {
   COMPUTER_HABIT_DISPLAY_NAME,
@@ -79,6 +78,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })),
@@ -494,7 +494,7 @@ export function MetricsView({
   const hasInitialMetricsSummary = Boolean(initialSummaryMetrics && Object.keys(initialSummaryMetrics).length > 0);
   const hasInitialBarListAnalytics = Boolean(initialBarListAnalyticsData && Object.keys(initialBarListAnalyticsData).length > 0);
   const hasInitialBarListSummary = Boolean(initialBarListSummaryMetrics && Object.keys(initialBarListSummaryMetrics).length > 0);
-  const skippedInitialCanonicalFetchRef = useRef(false);
+  const lastHydratedCanonicalRangeKeyRef = useRef<string | null>(null);
   const skippedInitialBarListFetchRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
@@ -522,7 +522,6 @@ export function MetricsView({
   const [loadingCorrelation, setLoadingCorrelation] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [realtimeRefreshTick, setRealtimeRefreshTick] = useState(0);
-  const [computerActivityDaily, setComputerActivityDaily] = useState<MetricDailyRow[]>([]);
   const [heartRateExpandedSeries, setHeartRateExpandedSeries] = useState<HeartRateSeriesRow[]>([]);
   const [heartRateExpandedSummary, setHeartRateExpandedSummary] = useState<HeartRateSummaryRow | null>(null);
 
@@ -570,7 +569,6 @@ export function MetricsView({
   const metricsFirstUsablePaintLoggedRef = useRef(false);
   const lastCanonicalFetchKeyRef = useRef<string | null>(null);
   const lastBarListFetchKeyRef = useRef<string | null>(null);
-  const lastComputerFetchKeyRef = useRef<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
 
@@ -578,6 +576,24 @@ export function MetricsView({
     ? `${dateRange.from.toISOString()}|${dateRange.to.toISOString()}`
     : 'all-time';
   const lastSyncedBarListRangeKeyRef = useRef<string | null>(null);
+  const computerSnapshotQuery = useComputerSnapshotQuery({
+    userId: user?.id,
+    dateRange,
+    enabled: isUserLoaded && Boolean(user?.id),
+    allTimeDays: 90,
+  });
+  const computerActivityDaily = useMemo<MetricDailyRow[]>(
+    () =>
+      (computerSnapshotQuery.data?.daily ?? []).map((row) => ({
+        day: row.day,
+        active_hours: row.active_hours,
+        active_ms: row.active_ms,
+        events_count: row.events_count,
+        apps_count: row.apps_count ?? 0,
+        domains_count: row.domains_count ?? 0,
+      })),
+    [computerSnapshotQuery.data?.daily],
+  );
 
   useEffect(() => {
     perfInfo('metrics-view', 'mount', {
@@ -659,6 +675,17 @@ export function MetricsView({
     lastSyncedBarListRangeKeyRef.current = dateRangeSyncKey;
     setBarListRange(dateRangeToBarListRange(dateRange));
   }, [dateRange, dateRangeSyncKey]);
+
+  useEffect(() => {
+    setAnalyticsData(initialAnalyticsData ?? {});
+    setSummaryMetrics(initialSummaryMetrics ?? {});
+    if (
+      Object.keys(initialAnalyticsData ?? {}).length > 0
+      || Object.keys(initialSummaryMetrics ?? {}).length > 0
+    ) {
+      lastHydratedCanonicalRangeKeyRef.current = dateRangeSyncKey;
+    }
+  }, [dateRangeSyncKey, initialAnalyticsData, initialSummaryMetrics]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1019,6 +1046,9 @@ export function MetricsView({
     if (!isUserLoaded || !user?.id) return;
 
     const habitsToFetch = visibleMetricHabitIds;
+    const hasQueryBackedCanonicalData =
+      Object.keys(initialAnalyticsData ?? {}).length > 0 ||
+      Object.keys(initialSummaryMetrics ?? {}).length > 0;
 
     if (habitsToFetch.length === 0) {
       setAnalyticsData({});
@@ -1301,8 +1331,15 @@ export function MetricsView({
       }
     };
 
-    if (!dateRange?.from && hasInitialMetricsAnalytics && hasInitialMetricsSummary && !skippedInitialCanonicalFetchRef.current) {
-      skippedInitialCanonicalFetchRef.current = true;
+    if (
+      hasQueryBackedCanonicalData
+      && (
+        (!dateRange?.from && hasInitialMetricsAnalytics && hasInitialMetricsSummary)
+        || Boolean(dateRange?.from)
+      )
+      && lastHydratedCanonicalRangeKeyRef.current !== dateRangeSyncKey
+    ) {
+      lastHydratedCanonicalRangeKeyRef.current = dateRangeSyncKey;
       setLoading(false);
       return;
     }
@@ -1320,6 +1357,8 @@ export function MetricsView({
     realtimeRefreshTick,
     user?.id,
     getToken,
+    initialAnalyticsData,
+    initialSummaryMetrics,
     hasInitialMetricsAnalytics,
     hasInitialMetricsSummary,
   ]);
@@ -1463,87 +1502,6 @@ export function MetricsView({
     hasInitialBarListAnalytics,
     hasInitialBarListSummary,
   ]);
-
-  useEffect(() => {
-    if (!isUserLoaded || !user?.id) return;
-
-    const now = new Date();
-    const hasExplicitRange = !!(dateRange?.from && dateRange?.to);
-    // Keep the background computer-activity sparkline range bounded so it does not
-    // trigger very large daily-series fetches during initial Metrics paint.
-    // When the user picked a custom range, fetch one extra window-length
-    // backwards so the spark card can compare against the prior equivalent window.
-    const explicitFrom = hasExplicitRange ? dateRange!.from! : subDays(now, 90);
-    const explicitTo = hasExplicitRange ? dateRange!.to! : now;
-    const explicitWindowMs = hasExplicitRange
-      ? dateRange!.to!.getTime() - dateRange!.from!.getTime()
-      : 0;
-    const fetchFrom = hasExplicitRange
-      ? new Date(explicitFrom.getTime() - explicitWindowMs)
-      : explicitFrom;
-    const startDate = format(fetchFrom, 'yyyy-MM-dd');
-    const endDate = format(explicitTo, 'yyyy-MM-dd');
-    const controller = new AbortController();
-    let fetchTimer: ReturnType<typeof setTimeout> | null = null;
-    const computerFetchKey = `${startDate}|${endDate}`;
-
-    const fetchComputerActivity = async () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return;
-      }
-      if (
-        lastComputerFetchKeyRef.current === computerFetchKey &&
-        computerActivityDaily.length > 0
-      ) {
-        return;
-      }
-      lastComputerFetchKeyRef.current = computerFetchKey;
-
-      const stopTimer = startPerfTimer('metrics-view', 'fetch-computer-activity-daily', {
-        start_date: startDate,
-        end_date: endDate,
-      });
-      try {
-        const dailyRows: MetricDailyRow[] = (await getComputerTimeDaily({ startDate, endDate }))
-          .map((row) => ({
-            day: row.day,
-            active_hours: row.active_hours,
-            active_ms: row.active_ms,
-            events_count: row.events_count,
-            apps_count: row.apps_count ?? 0,
-            domains_count: row.domains_count ?? 0,
-          }))
-          .filter((row) => Boolean(row && row.day && row.active_hours >= 0))
-          .sort((a, b) => a.day.localeCompare(b.day));
-
-        if (controller.signal.aborted) return;
-
-        setComputerActivityDaily(dailyRows);
-        stopTimer({
-          success: true,
-          row_count: dailyRows.length,
-        });
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        lastComputerFetchKeyRef.current = null;
-        perfError('metrics-view', 'fetch-computer-activity-daily-failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        setComputerActivityDaily([]);
-        stopTimer({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    };
-
-    fetchTimer = setTimeout(fetchComputerActivity, hasExplicitRange ? 0 : 250);
-
-    return () => {
-      controller.abort();
-      if (fetchTimer) clearTimeout(fetchTimer);
-    };
-  }, [computerActivityDaily.length, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), isUserLoaded, user?.id]);
 
   useEffect(() => {
     if (metricsFirstUsablePaintLoggedRef.current) return;

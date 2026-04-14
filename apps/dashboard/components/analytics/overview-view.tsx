@@ -10,22 +10,25 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import type { DateRange } from 'react-day-picker';
-import { isWithinInterval, parseISO, format, startOfDay, endOfDay, subDays } from 'date-fns';
+import { isWithinInterval, parseISO, format, startOfDay, endOfDay } from 'date-fns';
 import * as Sentry from '@sentry/nextjs';
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
-import { analyticsApi, type HabitStats } from '@/lib/services/analytics-api';
+import type { HabitStats } from '@/lib/services/analytics-api';
 import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
-import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
-import { getComputerTimeDaily, getComputerTimeSummary } from '@/lib/computerActivity/client';
-import { auditLocalStorage, perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
+import { perfInfo } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
 import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
+import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
+import type {
+  ComputerDailyResponseRow as ComputerDailyRow,
+  ComputerSummaryResponse as ComputerSummaryState,
+} from '@/lib/computerActivity/client';
 
 const HabitSelectionModal = dynamic(
   () => import("@/components/habit-selection-modal").then(m => ({ default: m.HabitSelectionModal })),
@@ -37,21 +40,6 @@ const DataImportModal = dynamic(
   { ssr: false }
 );
 
-
-interface ComputerDailyRow {
-  day: string;
-  active_hours: number;
-  active_ms: number;
-  events_count: number;
-}
-
-interface ComputerSummaryState {
-  total_active_ms: number;
-  total_hours: number;
-  total_events?: number;
-  days_tracked?: number;
-  avg_daily_hours?: number;
-}
 
 interface MetricLogEntry {
   habitId: string;
@@ -75,8 +63,6 @@ interface HabitMetricData {
   stats: HabitMetricStatsData;
 }
 
-const OVERVIEW_STATS_CACHE_VERSION = 'v3';
-const OVERVIEW_STATS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 const EMPTY_OVERVIEW_LOGS: any[] = [];
 
 function formatMetricAmount(value: number, unitType: string): string {
@@ -105,13 +91,6 @@ function isPercentLikeUnit(unitType: string): boolean {
   return normalized.includes('percentage') || normalized === 'percent' || normalized === '%';
 }
 
-function formatMetricDisplay(value: number, unitType: string): string {
-  if (isPercentLikeUnit(unitType)) {
-    return `${formatMetricAmount(value, unitType)}%`;
-  }
-  return `${formatMetricAmount(value, unitType)} ${unitType}`;
-}
-
 function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummaryState {
   const totalActiveMs = rows.reduce((sum, row) => sum + Number(row.active_ms || 0), 0);
   const totalHours = rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
@@ -120,6 +99,7 @@ function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummary
 
   return {
     total_active_ms: totalActiveMs,
+    total_afk_ms: 0,
     total_hours: totalHours,
     total_events: totalEvents,
     days_tracked: daysTracked,
@@ -127,81 +107,11 @@ function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummary
   };
 }
 
-function readOverviewStatsCache(cacheKey: string | null): Record<string, HabitStats> {
-  if (typeof window === 'undefined' || !cacheKey) return {};
-
-  try {
-    const raw = window.localStorage.getItem(cacheKey);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw) as {
-      timestamp?: number;
-      stats?: Record<string, HabitStats>;
-    };
-
-    if (!parsed?.stats) return {};
-    if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
-      window.localStorage.removeItem(cacheKey);
-      return {};
-    }
-
-    return parsed.stats;
-  } catch (cacheError) {
-    console.warn('Failed to restore overview stats cache:', cacheError);
-    return {};
+function formatMetricDisplay(value: number, unitType: string): string {
+  if (isPercentLikeUnit(unitType)) {
+    return `${formatMetricAmount(value, unitType)}%`;
   }
-}
-
-function readOverviewComputerCache(cacheKey: string | null): ComputerDailyRow[] {
-  if (typeof window === 'undefined' || !cacheKey) return [];
-
-  try {
-    const raw = window.localStorage.getItem(cacheKey);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw) as {
-      timestamp?: number;
-      rows?: ComputerDailyRow[];
-    };
-
-    if (!parsed?.rows) return [];
-    if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
-      window.localStorage.removeItem(cacheKey);
-      return [];
-    }
-
-    return parsed.rows
-      .map(normalizeComputerDailySummaryRow)
-      .filter((row): row is ComputerDailyRow => Boolean(row));
-  } catch (cacheError) {
-    console.warn('Failed to restore overview computer cache:', cacheError);
-    return [];
-  }
-}
-
-function readOverviewComputerSummaryCache(cacheKey: string | null): ComputerSummaryState | null {
-  if (typeof window === 'undefined' || !cacheKey) return null;
-
-  try {
-    const raw = window.localStorage.getItem(`${cacheKey}:summary`);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as {
-      timestamp?: number;
-      summary?: ComputerSummaryState | null;
-    };
-
-    if (!parsed?.summary) return null;
-    if (parsed.timestamp && Date.now() - parsed.timestamp > OVERVIEW_STATS_CACHE_MAX_AGE_MS) {
-      window.localStorage.removeItem(`${cacheKey}:summary`);
-      return null;
-    }
-
-    return parsed.summary;
-  } catch (cacheError) {
-    console.warn('Failed to restore overview computer summary cache:', cacheError);
-    return null;
-  }
+  return `${formatMetricAmount(value, unitType)} ${unitType}`;
 }
 
 interface OverviewViewProps {
@@ -225,8 +135,8 @@ export function OverviewView({
     process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DEBUG_PERF === '1'
     || process.env.NEXT_PUBLIC_SENTRY_SMOKE_TEST_DESKTOP === '1'
   );
-  const { user, isLoaded: userLoaded, isSignedIn } = useUser();
-  const { isLoaded, getToken } = useAuth();
+  const { user } = useUser();
+  const { isLoaded } = useAuth();
   const {
     habits,
     habitLogs,
@@ -264,44 +174,33 @@ export function OverviewView({
   const [optimisticLogs, setOptimisticLogs] = useState<any[]>([]);
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
 
-  // Cached stats from Python analytics API
-  const hasInitialOverviewStats = Boolean(initialOverviewStats && Object.keys(initialOverviewStats).length > 0);
-  const skippedInitialStatsFetchRef = useRef(false);
-  const [cachedStats, setCachedStats] = useState<Record<string, HabitStats>>(initialOverviewStats ?? {});
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [statsResolved, setStatsResolved] = useState(hasInitialOverviewStats);
-  const [statsRangeKey, setStatsRangeKey] = useState<string>('all-time');
-
   // History scrubber state
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
   const [scrubberHoveredValues, setScrubberHoveredValues] = useState<Record<string, number> | null>(null);
   const [scrubberSelectedDate, setScrubberSelectedDate] = useState<string | null>(null);
-  const [computerActivityDaily, setComputerActivityDaily] = useState<ComputerDailyRow[]>([]);
-  const [computerActivityResolved, setComputerActivityResolved] = useState(false);
-  const [computerActivitySummary, setComputerActivitySummary] = useState<ComputerSummaryState | null>(null);
-  const [computerRangeKey, setComputerRangeKey] = useState<string>('all-time');
-  const lastGoodComputerActivityRef = useRef<ComputerDailyRow[]>([]);
   const firstUsablePaintLoggedRef = useRef(false);
   const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const isBackendUnavailable = habits.length === 0 && !isLoading && Boolean(error);
   const updateHabitMutation = useUpdateHabitMutation();
-
-  const overviewStatsCacheKey = useMemo(() => {
-    if (!user?.id) return null;
-    return `ritual:overview-stats:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
-  }, [user?.id]);
-
-  const activeRangeKey = useMemo(() => {
-    if (!dateRange?.from) return 'all-time';
-    const fromKey = format(dateRange.from, 'yyyy-MM-dd');
-    const toKey = format(dateRange.to ?? dateRange.from, 'yyyy-MM-dd');
-    return `${fromKey}:${toKey}`;
-  }, [dateRange?.from, dateRange?.to]);
-
-  const overviewComputerCacheKey = useMemo(() => {
-    if (!user?.id) return null;
-    return `ritual:overview-computer:${OVERVIEW_STATS_CACHE_VERSION}:${user.id}:all-time`;
-  }, [user?.id]);
+  const statsLoading = false;
+  const effectiveCachedStats = useMemo(
+    () => initialOverviewStats ?? {},
+    [initialOverviewStats],
+  );
+  const computerSnapshotQuery = useComputerSnapshotQuery({
+    userId: user?.id,
+    dateRange,
+    enabled: Boolean(user?.id),
+  });
+  const effectiveComputerActivityDaily = useMemo<ComputerDailyRow[]>(
+    () => computerSnapshotQuery.data?.daily ?? [],
+    [computerSnapshotQuery.data?.daily],
+  );
+  const effectiveComputerActivitySummary = useMemo<ComputerSummaryState | null>(
+    () => computerSnapshotQuery.data?.summary ?? null,
+    [computerSnapshotQuery.data?.summary],
+  );
+  const computerActivityResolved = !user?.id || computerSnapshotQuery.isFetched || computerSnapshotQuery.isSuccess;
 
   const traceSyncComputation = useCallback(<T,>(
     name: string,
@@ -320,53 +219,6 @@ export function OverviewView({
       fn,
     );
   }, [desktopPerfDebug]);
-
-  const bootstrappedCachedStats = useMemo(
-    () => (dateRange?.from ? {} : readOverviewStatsCache(overviewStatsCacheKey)),
-    [dateRange?.from, overviewStatsCacheKey],
-  );
-
-  const bootstrappedComputerActivityDaily = useMemo(
-    () => (dateRange?.from ? [] : readOverviewComputerCache(overviewComputerCacheKey)),
-    [dateRange?.from, overviewComputerCacheKey],
-  );
-
-  const bootstrappedComputerActivitySummary = useMemo(
-    () => (dateRange?.from ? null : readOverviewComputerSummaryCache(overviewComputerCacheKey)),
-    [dateRange?.from, overviewComputerCacheKey],
-  );
-
-  const effectiveCachedStats = useMemo(() => {
-    if (statsRangeKey === activeRangeKey && (statsResolved || Object.keys(cachedStats).length > 0)) {
-      return cachedStats;
-    }
-    return activeRangeKey === 'all-time' ? bootstrappedCachedStats : {};
-  }, [activeRangeKey, bootstrappedCachedStats, cachedStats, statsRangeKey, statsResolved]);
-
-  const effectiveComputerActivityDaily = useMemo(() => {
-    if (computerRangeKey === activeRangeKey && (computerActivityResolved || computerActivityDaily.length > 0)) {
-      return computerActivityDaily;
-    }
-    return activeRangeKey === 'all-time' ? bootstrappedComputerActivityDaily : [];
-  }, [
-    activeRangeKey,
-    bootstrappedComputerActivityDaily,
-    computerActivityDaily,
-    computerRangeKey,
-    computerActivityResolved,
-  ]);
-
-  const effectiveComputerActivitySummary = useMemo(() => {
-    if (computerRangeKey === activeRangeKey && computerActivitySummary) {
-      return computerActivitySummary;
-    }
-    return activeRangeKey === 'all-time' ? bootstrappedComputerActivitySummary : null;
-  }, [
-    activeRangeKey,
-    bootstrappedComputerActivitySummary,
-    computerActivitySummary,
-    computerRangeKey,
-  ]);
 
   const handleScrubberHover = useCallback((date: string | null, values: Record<string, number> | null) => {
     setScrubberHoveredDate(date);
@@ -414,368 +266,6 @@ export function OverviewView({
       });
     }
   }, []);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'production') return;
-    auditLocalStorage(
-      'overview-view',
-      [overviewStatsCacheKey, overviewComputerCacheKey, 'ritual:react-query-cache:v1'].filter(
-        (key): key is string => Boolean(key),
-      ),
-    );
-  }, [overviewComputerCacheKey, overviewStatsCacheKey]);
-
-  // Reset current-scope state when the selected range changes so stale rows
-  // from a previous scope never bleed into the next render.
-  useEffect(() => {
-    setCachedStats({});
-    setStatsResolved(false);
-    setStatsRangeKey(activeRangeKey);
-    setComputerActivityDaily([]);
-    setComputerActivityResolved(false);
-    setComputerActivitySummary(null);
-    setComputerRangeKey(activeRangeKey);
-  }, [activeRangeKey]);
-
-  useEffect(() => {
-    if (activeRangeKey !== 'all-time') return;
-    if (computerRangeKey === activeRangeKey && computerActivityDaily.length > 0) return;
-    if (bootstrappedComputerActivityDaily.length > 0) {
-      perfInfo('overview-view', 'restore-computer-cache', {
-        cache_key: overviewComputerCacheKey,
-        row_count: bootstrappedComputerActivityDaily.length,
-      });
-      setComputerActivityDaily(bootstrappedComputerActivityDaily);
-      setComputerRangeKey('all-time');
-      lastGoodComputerActivityRef.current = bootstrappedComputerActivityDaily;
-    }
-  }, [activeRangeKey, bootstrappedComputerActivityDaily, computerActivityDaily.length, computerRangeKey, overviewComputerCacheKey]);
-
-  useEffect(() => {
-    if (activeRangeKey !== 'all-time') return;
-    if (computerRangeKey === activeRangeKey && computerActivitySummary) return;
-    if (bootstrappedComputerActivitySummary) {
-      perfInfo('overview-view', 'restore-computer-summary-cache', {
-        cache_key: overviewComputerCacheKey,
-        total_active_ms: Number(bootstrappedComputerActivitySummary.total_active_ms || 0),
-      });
-      setComputerActivitySummary(bootstrappedComputerActivitySummary);
-      setComputerRangeKey('all-time');
-    }
-  }, [activeRangeKey, bootstrappedComputerActivitySummary, computerActivitySummary, computerRangeKey, overviewComputerCacheKey]);
-
-  // Fetch stats from Python analytics API
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!habits.length) return;
-      if (!dateRange?.from && hasInitialOverviewStats && !skippedInitialStatsFetchRef.current) {
-        skippedInitialStatsFetchRef.current = true;
-        setStatsResolved(true);
-        return;
-      }
-
-      const stopTimer = startPerfTimer('overview-view', 'fetch-stats', {
-        habit_count: habits.length,
-        has_date_range: Boolean(dateRange?.from),
-      });
-      try {
-        const requestRangeKey = activeRangeKey;
-        setStatsResolved(false);
-        setStatsLoading(true);
-        const token = await getToken();
-        if (!token) {
-          stopTimer({ skipped: 'missing-token' });
-          return;
-        }
-
-        const params: { startDate?: string; endDate?: string; daysBack?: number } = {};
-        if (dateRange?.from) {
-          params.startDate = format(dateRange.from, 'yyyy-MM-dd');
-          if (dateRange.to) {
-            params.endDate = format(dateRange.to, 'yyyy-MM-dd');
-          } else {
-            params.endDate = params.startDate;
-          }
-        } else {
-          // Cap "All time" to 3 years — 36500 days (~100 years) was causing very slow loads
-          params.daysBack = 1095;
-        }
-
-        const result = await Sentry.startSpan(
-          {
-            name: 'overview.fetch_habit_stats',
-            op: 'ui.load',
-            attributes: {
-              habit_count: habits.length,
-              has_date_range: Boolean(dateRange?.from),
-              days_back: params.daysBack ?? 0,
-            },
-          },
-          async () => analyticsApi.getHabitStats(token, params),
-        );
-
-        if (result.success && result.habits) {
-          const statsMap: Record<string, HabitStats> = {};
-          result.habits.forEach(stat => {
-            statsMap[stat.id] = stat;
-          });
-          setStatsRangeKey(requestRangeKey);
-          setCachedStats(statsMap);
-
-          if (typeof window !== 'undefined' && !dateRange?.from && overviewStatsCacheKey) {
-            window.localStorage.setItem(
-              overviewStatsCacheKey,
-              JSON.stringify({
-                timestamp: Date.now(),
-                stats: statsMap,
-              }),
-            );
-          }
-
-          stopTimer({
-            success: true,
-            stats_count: result.habits.length,
-            cache_written: !dateRange?.from,
-          });
-        } else {
-          stopTimer({ success: false, reason: 'empty-result' });
-        }
-      } catch (error) {
-        perfError('overview-view', 'fetch-stats-failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        stopTimer({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        setStatsLoading(false);
-        setStatsResolved(true);
-      }
-    };
-
-    fetchStats();
-  }, [activeRangeKey, dateRange, getToken, habitLogs.length, habits, hasInitialOverviewStats, overviewStatsCacheKey]);
-
-  useEffect(() => {
-    if (!userLoaded || !isSignedIn || !user) return;
-
-    const controller = new AbortController();
-    let refreshTimer: ReturnType<typeof setInterval> | null = null;
-    let deferredDailyTimer: number | null = null;
-
-    const fetchComputerActivity = async () => {
-      const stopTimer = startPerfTimer('overview-view', 'fetch-computer-activity', {
-        has_date_range: Boolean(dateRange?.from),
-      });
-      try {
-        const requestRangeKey = activeRangeKey;
-        setComputerActivityResolved(false);
-        const now = new Date();
-        // When "All time" (dateRange undefined), use 3-year range like habit stats
-        let startDate: string;
-        let endDate: string;
-        if (dateRange?.from) {
-          startDate = format(dateRange.from, 'yyyy-MM-dd');
-          endDate = format(dateRange.to ?? dateRange.from, 'yyyy-MM-dd');
-          const rows = await Sentry.startSpan(
-            {
-              name: 'overview.fetch_computer_time_daily',
-              op: 'ui.load',
-              attributes: {
-                start_date: startDate,
-                end_date: endDate,
-                mode: 'range',
-              },
-            },
-            async () => getComputerTimeDaily({
-              startDate,
-              endDate,
-            }),
-          );
-          if (controller.signal.aborted) return;
-          const normalizedRows = Array.isArray(rows) ? rows : [];
-          const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0);
-          setComputerRangeKey(requestRangeKey);
-          setComputerActivityDaily(normalizedRows);
-
-          setComputerActivitySummary(buildComputerSummaryFromRows(normalizedRows))
-
-          if (typeof window !== 'undefined' && !dateRange?.from && overviewComputerCacheKey) {
-            window.localStorage.setItem(
-              overviewComputerCacheKey,
-              JSON.stringify({
-                timestamp: Date.now(),
-                rows: normalizedRows,
-              }),
-            );
-          }
-          stopTimer({
-            success: true,
-            mode: 'daily-range',
-            row_count: normalizedRows.length,
-            meaningful_rows: hasMeaningfulRows,
-          });
-          return;
-        } else {
-          startDate = format(subDays(now, 1095), 'yyyy-MM-dd');
-          endDate = format(now, 'yyyy-MM-dd');
-        }
-
-        if (isDesktopShell) {
-          const hasComputerHabit = habits.some((habit) => isComputerHabitName(habit.name));
-          if (!dateRange?.from && hasComputerHabit) {
-            if (bootstrappedComputerActivitySummary) {
-              setComputerActivitySummary(bootstrappedComputerActivitySummary);
-            }
-            perfInfo('overview-view', 'computer-summary-bootstrap-used', {
-              used_cached_summary: Boolean(bootstrappedComputerActivitySummary),
-            });
-          }
-        }
-
-        const summary = await Sentry.startSpan(
-          {
-            name: 'overview.fetch_computer_time_summary',
-            op: 'ui.load',
-            attributes: {
-              start_date: startDate,
-              end_date: endDate,
-              mode: dateRange?.from ? 'range' : 'all-time',
-            },
-          },
-          async () => getComputerTimeSummary({
-            startDate,
-            endDate,
-          }),
-        );
-        if (controller.signal.aborted) return;
-        setComputerRangeKey(requestRangeKey);
-        setComputerActivitySummary({
-          total_active_ms: Number(summary.total_active_ms || 0),
-          total_hours: Number(summary.total_hours || 0),
-          total_events: Number(summary.total_events || 0),
-          days_tracked: Number(summary.days_tracked || 0),
-          avg_daily_hours: Number(summary.avg_daily_hours || 0),
-        })
-
-        if (typeof window !== 'undefined' && overviewComputerCacheKey) {
-          window.localStorage.setItem(
-            `${overviewComputerCacheKey}:summary`,
-            JSON.stringify({
-              timestamp: Date.now(),
-              summary: {
-                total_active_ms: Number(summary.total_active_ms || 0),
-                total_hours: Number(summary.total_hours || 0),
-                total_events: Number(summary.total_events || 0),
-                days_tracked: Number(summary.days_tracked || 0),
-                avg_daily_hours: Number(summary.avg_daily_hours || 0),
-              },
-            }),
-          );
-        }
-
-        const existingRows =
-          lastGoodComputerActivityRef.current.length > 0
-            ? lastGoodComputerActivityRef.current
-            : bootstrappedComputerActivityDaily
-        if (existingRows.length > 0) {
-          setComputerActivityDaily(existingRows)
-        }
-
-        deferredDailyTimer = window.setTimeout(async () => {
-          if (controller.signal.aborted) return
-          try {
-            const rows = await Sentry.startSpan(
-              {
-                name: 'overview.fetch_computer_time_daily_deferred',
-                op: 'ui.load',
-                attributes: {
-                  start_date: startDate,
-                  end_date: endDate,
-                  mode: 'deferred-all-time',
-                },
-              },
-              async () => getComputerTimeDaily({ startDate, endDate }),
-            )
-            if (controller.signal.aborted) return
-            const normalizedRows = Array.isArray(rows) ? rows : []
-            const hasMeaningfulRows = normalizedRows.some((row) => Number(row.active_ms || 0) > 0)
-            if (!hasMeaningfulRows) return
-            lastGoodComputerActivityRef.current = normalizedRows
-            setComputerRangeKey(requestRangeKey)
-            setComputerActivityDaily(normalizedRows)
-            setComputerActivitySummary(buildComputerSummaryFromRows(normalizedRows))
-            if (typeof window !== 'undefined' && overviewComputerCacheKey) {
-              window.localStorage.setItem(
-                overviewComputerCacheKey,
-                JSON.stringify({
-                  timestamp: Date.now(),
-                  rows: normalizedRows,
-                }),
-              )
-              window.localStorage.setItem(
-                `${overviewComputerCacheKey}:summary`,
-                JSON.stringify({
-                  timestamp: Date.now(),
-                  summary: buildComputerSummaryFromRows(normalizedRows),
-                }),
-              )
-            }
-            perfInfo('overview-view', 'deferred-computer-daily-loaded', {
-              row_count: normalizedRows.length,
-              is_desktop: isDesktopShell,
-            })
-          } catch (dailyError) {
-            if (!controller.signal.aborted) {
-              perfError('overview-view', 'deferred-computer-daily-failed', {
-                error: dailyError instanceof Error ? dailyError.message : String(dailyError),
-                is_desktop: isDesktopShell,
-              })
-            }
-          }
-        }, isDesktopShell ? 1200 : 800)
-
-        stopTimer({
-          success: true,
-          mode: isDesktopShell ? 'summary-first-desktop' : 'summary-first',
-          total_active_ms: Number(summary.total_active_ms || 0),
-        });
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        perfError('overview-view', 'fetch-computer-activity-failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        stopTimer({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      } finally {
-        if (!controller.signal.aborted) {
-          setComputerActivityResolved(true);
-        }
-      }
-    };
-
-    fetchComputerActivity();
-    if (!dateRange?.from) {
-      refreshTimer = setInterval(() => {
-        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-          return;
-        }
-        void fetchComputerActivity();
-      }, isDesktopShell ? 5 * 60_000 : 60_000);
-    }
-    return () => {
-      controller.abort();
-      if (deferredDailyTimer) {
-        clearTimeout(deferredDailyTimer);
-      }
-      if (refreshTimer) {
-        clearInterval(refreshTimer);
-      }
-    };
-  }, [activeRangeKey, bootstrappedComputerActivityDaily, bootstrappedComputerActivitySummary, dateRange?.from?.toISOString(), dateRange?.to?.toISOString(), habits, isDesktopShell, overviewComputerCacheKey, userLoaded, isSignedIn, user]);
 
   useEffect(() => {
     if (firstUsablePaintLoggedRef.current) return;

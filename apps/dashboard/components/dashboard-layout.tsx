@@ -13,6 +13,11 @@ const Sidebar = dynamic(
   { ssr: false }
 );
 
+const SidebarToggleButton = dynamic(
+  () => import('@/components/sidebar').then(m => ({ default: m.SidebarToggleButton })),
+  { ssr: false }
+);
+
 const CommandPalette = dynamic(
   () => import('@/components/habit-selector'),
   { ssr: false }
@@ -128,7 +133,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       
       {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
       {!shouldHideAppSidebar && !detachedSidebarMode && (
-        <Sidebar />
+        <>
+          <Sidebar />
+          <SidebarToggleButton />
+        </>
       )}
 
       {/* Main Content Area */}

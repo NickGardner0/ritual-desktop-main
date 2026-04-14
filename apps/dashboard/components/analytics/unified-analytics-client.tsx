@@ -29,7 +29,8 @@ import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { habitKeys, habitLogKeys } from '@/hooks/use-habits-query';
 import { useUser } from '@clerk/nextjs';
-import type { DashboardDerivedInitialData } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
+import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query';
+import { computerSnapshotKeys } from '@/hooks/use-computer-snapshot-query';
 import { perfInfo } from '@/lib/perf-debug';
 // Import from separate file to avoid pulling in recharts (~500KB)
 const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
@@ -90,9 +91,9 @@ function ControlLoadingFallback() {
 
 // Inner component that uses the filter context
 function UnifiedAnalyticsContent({
-  initialDerivedData,
+  initialUserId,
 }: {
-  initialDerivedData?: DashboardDerivedInitialData;
+  initialUserId?: string | null;
 }) {
   const { viewMode, setViewMode, dateRange, setDateRange, selectedHabits, setSelectedHabits, toggleHabit, selectAllHabits, clearHabitSelection } = useAnalyticsFilters();
   const router = useRouter();
@@ -115,6 +116,7 @@ function UnifiedAnalyticsContent({
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
+  const { snapshot: dashboardSnapshot } = useDashboardSnapshotQuery({ initialUserId, dateRange });
   const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const firstViewReadyLoggedRef = useRef(false);
 
@@ -154,6 +156,7 @@ function UnifiedAnalyticsContent({
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: habitKeys.list(user?.id || 'anonymous') }),
             queryClient.invalidateQueries({ queryKey: habitLogKeys.list(user?.id || 'anonymous') }),
+            queryClient.invalidateQueries({ queryKey: computerSnapshotKeys.byUser(user?.id || 'anonymous') }),
           ]);
         }
       } catch (error) {
@@ -228,11 +231,11 @@ function UnifiedAnalyticsContent({
   useEffect(() => {
     if (firstViewReadyLoggedRef.current) return;
     if (viewMode === 'overview') {
-      const hasOverviewPayload = Boolean(initialDerivedData?.overviewStats && Object.keys(initialDerivedData.overviewStats).length > 0);
+      const hasOverviewPayload = Boolean(dashboardSnapshot.overviewStats && Object.keys(dashboardSnapshot.overviewStats).length > 0);
       if (!hasOverviewPayload && habits.length === 0) return;
     }
     if (viewMode === 'metrics') {
-      const hasMetricsPayload = Boolean(initialDerivedData?.metricsAnalyticsData && Object.keys(initialDerivedData.metricsAnalyticsData).length > 0);
+      const hasMetricsPayload = Boolean(dashboardSnapshot.metricsAnalyticsData && Object.keys(dashboardSnapshot.metricsAnalyticsData).length > 0);
       if (!hasMetricsPayload && habits.length === 0) return;
     }
 
@@ -258,7 +261,7 @@ function UnifiedAnalyticsContent({
         if (frame2) window.cancelAnimationFrame(frame2);
       }
     };
-  }, [habits.length, initialDerivedData, viewMode]);
+  }, [dashboardSnapshot.metricsAnalyticsData, dashboardSnapshot.overviewStats, habits.length, viewMode]);
   
   // Update URL when view mode changes
   const handleViewChange = useCallback((newView: ViewMode) => {
@@ -361,7 +364,7 @@ function UnifiedAnalyticsContent({
           {viewMode === 'overview' && (
             <OverviewView
               hideControls={true}
-              initialOverviewStats={initialDerivedData?.overviewStats}
+              initialOverviewStats={dashboardSnapshot.overviewStats}
             />
           )}
         </div>
@@ -380,10 +383,10 @@ function UnifiedAnalyticsContent({
           {viewMode === 'metrics' && (
             <MetricsView
               hideControls={true}
-              initialAnalyticsData={initialDerivedData?.metricsAnalyticsData}
-              initialSummaryMetrics={initialDerivedData?.metricsSummaryMetrics}
-              initialBarListAnalyticsData={initialDerivedData?.metricsBarListAnalyticsData}
-              initialBarListSummaryMetrics={initialDerivedData?.metricsBarListSummaryMetrics}
+              initialAnalyticsData={dashboardSnapshot.metricsAnalyticsData}
+              initialSummaryMetrics={dashboardSnapshot.metricsSummaryMetrics}
+              initialBarListAnalyticsData={dashboardSnapshot.metricsBarListAnalyticsData}
+              initialBarListSummaryMetrics={dashboardSnapshot.metricsBarListSummaryMetrics}
             />
           )}
         </div>
@@ -558,17 +561,17 @@ function getInitialViewMode(searchParams: URLSearchParams): ViewMode {
 // Main component with provider wrapper
 export function UnifiedAnalyticsClient({
   initialViewMode,
-  initialDerivedData,
+  initialUserId,
 }: {
   initialViewMode?: ViewMode;
-  initialDerivedData?: DashboardDerivedInitialData;
+  initialUserId?: string | null;
 }) {
   const searchParams = useSearchParams();
   const resolvedInitialViewMode = initialViewMode ?? getInitialViewMode(searchParams);
 
   return (
     <AnalyticsFilterProvider initialViewMode={resolvedInitialViewMode}>
-      <UnifiedAnalyticsContent initialDerivedData={initialDerivedData} />
+      <UnifiedAnalyticsContent initialUserId={initialUserId} />
     </AnalyticsFilterProvider>
   );
 }

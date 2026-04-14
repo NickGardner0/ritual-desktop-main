@@ -34,7 +34,7 @@ export default async function DashboardPage({
         <HydrationBoundary state={initialData.dehydratedState}>
           <ClientDashboard
             initialViewMode={initialData.initialViewMode}
-            initialDerivedData={initialData.derived}
+            initialUserId={initialData.initialUserId}
           />
         </HydrationBoundary>
       </div>

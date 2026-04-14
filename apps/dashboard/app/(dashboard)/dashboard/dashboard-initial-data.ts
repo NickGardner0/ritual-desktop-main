@@ -28,8 +28,17 @@ export interface DashboardDerivedInitialData {
   metricsBarListSummaryMetrics: Record<string, MetricsSummaryRow>;
 }
 
+export interface DashboardSnapshot extends DashboardDerivedInitialData {
+  meta: {
+    userId: string | null;
+    snapshotKey: string;
+    generatedAt: number;
+    hydratedFrom: 'server' | 'client-derived' | 'persisted-query' | 'empty';
+  };
+}
+
 export interface DashboardInitialData {
   dehydratedState: DehydratedState;
   initialViewMode: ViewMode;
-  derived: DashboardDerivedInitialData;
+  initialUserId: string | null;
 }

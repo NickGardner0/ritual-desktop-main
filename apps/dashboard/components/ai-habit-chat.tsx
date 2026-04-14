@@ -12,6 +12,7 @@ import { useAnalytics } from '@/lib/analytics';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
+import { useAiHabitLogMutation } from '@/hooks/use-ai-habit-log-mutation';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -150,7 +151,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
@@ -199,6 +199,18 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const searchParams = useSearchParams();
   const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
   const deferredInput = useDeferredValue(input.trim());
+  const {
+    submitDirectLog,
+    submitAiFallback,
+    submitClarification,
+    isAiSubmitting,
+  } = useAiHabitLogMutation({
+    userId: user?.id,
+    getToken,
+    onHabitUpdate,
+    trackHabitLogged,
+  });
+  const submitButtonLoading = isAiSubmitting;
 
   const GENERIC_MATCH_WORDS = useMemo(
     () => new Set(['consumption', 'intake', 'time', 'duration', 'daily']),
@@ -731,74 +743,9 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     };
   };
 
-  const getLocalDateString = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const submitDirectParsedLog = async (
-    inputText: string,
-    parsed: ParsedHabitInput,
-    matchedHabit: HabitOption,
-  ): Promise<boolean> => {
-    const sessionToken = await getToken();
-    const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-    const response = await fetch('/api/logs/batch', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
-      },
-      body: JSON.stringify({
-        items: [
-          {
-            habit_id: matchedHabit.id,
-            date: getLocalDateString(),
-            amount: parsed.amount ?? null,
-            duration: parsed.duration != null ? Math.round(parsed.duration * 60) : null,
-            unit: matchedHabit.unit_type || parsed.unit || 'Count',
-            source: 'ai_log_v2_fast',
-            notes: inputText,
-          },
-        ],
-        client_event_id: clientEventId,
-      }),
-    });
-
-    const result = await response.json().catch(() => null);
-    const firstResult = result?.results?.[0];
-    if (!response.ok || !result?.success || !firstResult?.success) {
-      throw new Error(result?.error || result?.message || 'Direct log failed');
-    }
-
-    const { value, unitLabel } = getParsedDisplayValue(parsed, matchedHabit.unit_type);
-    trackHabitLogged({
-      habitId: matchedHabit.id,
-      habitName: matchedHabit.name,
-      value,
-      unit: unitLabel,
-      source: 'ai_chat',
-    });
-
-    if (onHabitUpdate) {
-      onHabitUpdate({
-        success: true,
-        refreshNeeded: true,
-        playSound: false,
-        affectedHabitIds: [matchedHabit.id],
-        message: `Logged ${matchedHabit.name}`,
-      });
-    }
-
-    return true;
-  };
-
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || submitButtonLoading) return;
 
     const inputText = input.trim();
 
@@ -844,7 +791,12 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       }
 
       try {
-        await submitDirectParsedLog(inputText, localParsed, matchedHabit);
+        await submitDirectLog({
+          inputText,
+          parsed: localParsed,
+          matchedHabit,
+          displayValue: getParsedDisplayValue(localParsed, matchedHabit.unit_type),
+        });
         setInput('');
         setIsFocused(false);
         return;
@@ -859,60 +811,8 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     }
 
     // Fall back to AI parsing only when the local fast path cannot resolve a single habit.
-    setIsLoading(true);
-
     try {
-      if (!user) throw new Error('User not authenticated');
-      const sessionToken = await getToken();
-      
-      // Generate client event ID for idempotency
-      const clientEventId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-      const response = await fetch('/api/chat/habits', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: inputText }],
-          userId: user.id,
-          clientEventId,
-        }),
-      });
-
-      const result: LoggingResult = await response.json();
-      
-      // Handle successful logs
-      if (result.logged && result.logged.length > 0) {
-        const successfulLogs = result.logged.filter(r => r.success);
-        
-        if (successfulLogs.length > 0) {
-          // Track each logged habit
-          successfulLogs.forEach(log => {
-            if (log.habit_id && log.habit_name) {
-              trackHabitLogged({
-                habitId: log.habit_id,
-                habitName: log.habit_name,
-                value: log.value,
-                unit: log.unit || undefined,
-                source: 'ai_chat',
-              });
-            }
-          });
-          
-          // Trigger background refresh to sync with server (no sound - already played)
-          if (onHabitUpdate && result.refreshNeeded) {
-            onHabitUpdate({
-              success: true,
-              refreshNeeded: true,
-              playSound: false, // Sound already played in optimistic update
-              affectedHabitIds: result.affectedHabitIds,
-              message: result.message
-            });
-          }
-        }
-      }
+      const result: LoggingResult = await submitAiFallback(inputText);
       
       // Handle clarifications needed
       if (result.clarifications && result.clarifications.length > 0) {
@@ -941,8 +841,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       setIsFocused(true);
       setTimeout(() => textareaRef.current?.focus(), 0);
       setError('Failed to process your request. Please try again.');
-    } finally {
-      setIsLoading(false);
     }
   };
   
@@ -950,66 +848,19 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   const handleClarificationSelect = async (clarificationIndex: number, habitId: string, habitName: string) => {
     const clarification = clarifications[clarificationIndex];
     if (!clarification) return;
-    
-    setIsLoading(true);
-    
-    try {
-      const sessionToken = await getToken();
-      const apiUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-      
-      // Direct log to the selected habit
-      const response = await fetch(`${apiUrl}/api/logs/batch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
-        },
-        body: JSON.stringify({
-          items: [{
-            habit_id: habitId,
-            date: clarification.date,
-            amount: clarification.value,
-            unit: clarification.unit,
-            source: 'ai_log_v2',
-            notes: `Logged via clarification: ${clarification.habit_hint}`
-          }],
-          client_event_id: `clarify-${Date.now()}`
-        }),
-      });
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          // Remove from clarifications
-          setClarifications(prev => prev.filter((_, i) => i !== clarificationIndex));
-          setInput('');
-          setIsFocused(false);
-          
-          // Refresh dashboard + play sound (no popup)
-          if (onHabitUpdate) {
-            onHabitUpdate({
-              success: true,
-              refreshNeeded: true,
-              playSound: true,
-              affectedHabitIds: [habitId]
-            });
-          }
-          
-          // Track
-          trackHabitLogged({
-            habitId,
-            habitName,
-            value: clarification.value ?? undefined,
-            unit: clarification.unit || undefined,
-            source: 'ai_chat',
-          });
-        }
-      }
+    try {
+      await submitClarification({
+        clarification,
+        habitId,
+        habitName,
+      });
+      setClarifications(prev => prev.filter((_, i) => i !== clarificationIndex));
+      setInput('');
+      setIsFocused(false);
     } catch (err) {
       console.error('Clarification log error:', err);
       setError('Failed to log. Please try again.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -2097,7 +1948,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
                   }
                   className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent py-1.5 font-normal leading-6"
                   rows={1}
-                  disabled={isLoading}
+                  disabled={submitButtonLoading}
                   readOnly={isListening}
                 />
               )}
@@ -2262,10 +2113,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={!input.trim() || isLoading}
+                disabled={!input.trim() || submitButtonLoading}
                 className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors duration-200 hover:bg-[#27251E] disabled:cursor-not-allowed"
               >
-                {isLoading ? (
+                {submitButtonLoading ? (
                   <BrailleSpinner className="text-sm text-white" />
                 ) : (
                   <ArrowUp className="w-4 h-4" />

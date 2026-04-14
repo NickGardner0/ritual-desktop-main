@@ -6,30 +6,52 @@ import Link from "next/link";
 import { useState, useRef, useCallback } from "react";
 import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
+import { useSidebarMode } from "@/contexts/SidebarModeContext";
+import { PanelLeft } from "lucide-react";
+
+const COLLAPSED_WIDTH = 70;
+const EXPANDED_WIDTH = 210;
 
 export function Sidebar() {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { mode, setMode } = useSidebarMode();
+  const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMouseEnter = useCallback(() => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setIsExpanded(true), 50);
+    hoverTimerRef.current = setTimeout(() => setIsHovered(true), 50);
   }, []);
 
   const handleMouseLeave = useCallback(() => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setIsExpanded(false), 100);
+    hoverTimerRef.current = setTimeout(() => setIsHovered(false), 100);
   }, []);
+
+  // hidden mode: render nothing (toggle button is in DashboardLayout)
+  if (mode === "hidden") return null;
+
+  // Determine visual expansion state based on mode
+  const isExpanded =
+    mode === "expanded" ? true : mode === "hover" ? isHovered : false;
+
+  // Only attach hover handlers in hover mode
+  const hoverProps =
+    mode === "hover"
+      ? { onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave }
+      : {};
+
+  const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
 
   return (
     <aside
       className={cn(
         "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between pb-4 items-stretch overflow-hidden hidden md:flex",
-        isExpanded ? "w-[240px]" : "w-[70px]",
       )}
-      style={{ transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)" }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      style={{
+        width,
+        transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+      }}
+      {...hoverProps}
     >
       {/* Logo Header — keep a taller reserved band so the logo sits cleanly
           below the macOS traffic lights without overlap. */}
@@ -48,9 +70,9 @@ export function Sidebar() {
 
       {/* Main Navigation — top padding accounts for taller logo/header band */}
       <div className="flex flex-col w-full pt-[70px] flex-1">
-        <MainMenu 
-          isExpanded={isExpanded} 
-          onCloseSidebar={() => setIsExpanded(false)}
+        <MainMenu
+          isExpanded={isExpanded}
+          onCloseSidebar={() => setIsHovered(false)}
         />
       </div>
 
@@ -59,5 +81,23 @@ export function Sidebar() {
         <TeamDropdown isExpanded={isExpanded} placement="sidebar" />
       </div>
     </aside>
+  );
+}
+
+/** Toggle button shown when sidebar is in "hidden" mode */
+export function SidebarToggleButton() {
+  const { mode, setMode } = useSidebarMode();
+
+  if (mode !== "hidden") return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setMode("hover")}
+      className="fixed top-[18px] left-[18px] z-[100] p-1.5 rounded-md text-gray-500 hover:text-gray-800 hover:bg-gray-100/80 transition-colors"
+      title="Show sidebar"
+    >
+      <PanelLeft className="w-[18px] h-[18px]" strokeWidth={1.8} />
+    </button>
   );
 }

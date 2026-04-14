@@ -3,23 +3,22 @@
 import { useEffect, useRef } from 'react';
 import { UnifiedAnalyticsClient } from '@/components/analytics/unified-analytics-client';
 import type { ViewMode } from '@/components/analytics/view-mode-toggle';
-import type { DashboardDerivedInitialData } from './dashboard-initial-data';
 import { perfInfo } from '@/lib/perf-debug';
 
 export function ClientDashboard({
   initialViewMode,
-  initialDerivedData,
+  initialUserId,
 }: {
   initialViewMode: ViewMode;
-  initialDerivedData: DashboardDerivedInitialData;
+  initialUserId: string | null;
 }) {
   const mountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   useEffect(() => {
     perfInfo('client-dashboard', 'mount', {
       initial_view_mode: initialViewMode,
-      has_overview_stats: Boolean(initialDerivedData?.overviewStats && Object.keys(initialDerivedData.overviewStats).length > 0),
-      has_metrics_data: Boolean(initialDerivedData?.metricsAnalyticsData && Object.keys(initialDerivedData.metricsAnalyticsData).length > 0),
+      has_server_snapshot: Boolean(initialUserId),
+      initial_user_id: initialUserId,
     });
 
     let frame1 = 0;
@@ -42,12 +41,12 @@ export function ClientDashboard({
         if (frame2) window.cancelAnimationFrame(frame2);
       }
     };
-  }, [initialDerivedData, initialViewMode]);
+  }, [initialUserId, initialViewMode]);
 
   return (
     <UnifiedAnalyticsClient
       initialViewMode={initialViewMode}
-      initialDerivedData={initialDerivedData}
+      initialUserId={initialUserId}
     />
   );
 }
