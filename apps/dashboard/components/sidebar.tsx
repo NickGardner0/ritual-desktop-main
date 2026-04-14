@@ -10,35 +10,10 @@ import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { PanelLeft } from "lucide-react";
 
 const COLLAPSED_WIDTH = 70;
-const EXPANDED_WIDTH = 200;
-
-function TitlebarToggleIconButton({
-  onClick,
-  className,
-  title,
-}: {
-  onClick: () => void;
-  className?: string;
-  title: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "no-drag flex h-[20px] w-[20px] items-center justify-center rounded-[6px] text-[#7a7a72] transition-colors hover:bg-[rgba(17,24,39,0.05)] hover:text-[#27251E]",
-        className,
-      )}
-      title={title}
-      aria-label={title}
-    >
-      <PanelLeft className="h-[16px] w-[16px]" strokeWidth={2.15} />
-    </button>
-  );
-}
+const EXPANDED_WIDTH = 190;
 
 export function Sidebar() {
-  const { mode, toggleVisibility } = useSidebarMode();
+  const { mode } = useSidebarMode();
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -82,12 +57,9 @@ export function Sidebar() {
           below the macOS traffic lights without overlap. */}
       <div
         data-tauri-drag-region
-        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[70px] w-[70px] flex items-center justify-center"
+        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[80px] w-[70px] flex items-center justify-center"
       >
-        <div className="absolute top-[7px] left-[42px]">
-          <TitlebarToggleIconButton onClick={toggleVisibility} title="Toggle sidebar" />
-        </div>
-        <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[21px] transition-none">
+        <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[31px] transition-none">
           <img
             src="/images/eclipse.svg"
             alt="Ritual Logo"
@@ -96,8 +68,8 @@ export function Sidebar() {
         </Link>
       </div>
 
-      {/* Main Navigation — top padding accounts for taller logo/header band */}
-      <div className="flex flex-col w-full pt-[70px] flex-1">
+      {/* Main Navigation — top padding accounts for the dedicated titlebar lane above the logo. */}
+      <div className="flex flex-col w-full pt-[80px] flex-1">
         <MainMenu
           isExpanded={isExpanded}
           onCloseSidebar={() => setIsHovered(false)}
@@ -115,11 +87,20 @@ export function Sidebar() {
 /** Titlebar toggle button positioned beside the macOS traffic lights. */
 export function SidebarToggleButton() {
   const { mode, toggleVisibility } = useSidebarMode();
-  if (mode !== "hidden") return null;
+  const isHidden = mode === "hidden";
 
   return (
-    <div className="fixed top-[7px] left-[42px] z-[100]">
-      <TitlebarToggleIconButton onClick={toggleVisibility} title="Show sidebar" />
-    </div>
+    <button
+      type="button"
+      onClick={toggleVisibility}
+      className={cn(
+        "fixed top-[6px] left-[88px] z-[100] no-drag flex h-[22px] w-[22px] items-center justify-center rounded-[6px] border border-[rgba(17,24,39,0.10)] bg-[rgba(255,255,255,0.78)] text-[#7a7a72] transition-colors hover:bg-[rgba(255,255,255,0.96)] hover:text-[#27251E]",
+        !isHidden && "border-transparent bg-transparent hover:bg-[rgba(17,24,39,0.05)]",
+      )}
+      title={isHidden ? "Show sidebar" : "Hide sidebar"}
+      aria-label={isHidden ? "Show sidebar" : "Hide sidebar"}
+    >
+      <PanelLeft className="h-[18px] w-[18px]" strokeWidth={2.2} />
+    </button>
   );
 }

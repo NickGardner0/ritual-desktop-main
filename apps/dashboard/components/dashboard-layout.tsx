@@ -53,9 +53,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { isFullScreenChat } = useAI();
   const { mode: sidebarMode } = useSidebarMode();
   const pathname = usePathname();
+  const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
-  const shouldReserveTitlebarToggleSpace = !isFullScreenChat && sidebarMode === 'hidden';
+  const titlebarLeftInset = !isChatRoute && !isFullScreenChat
+    ? (sidebarMode === 'hidden' ? 112 : 44)
+    : 0;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -116,7 +119,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [detachedSidebarMode]);
 
-  const isChatRoute = pathname === '/chat';
   const shouldHideAppSidebar = isFullScreenChat || isChatRoute;
 
   return (
@@ -160,7 +162,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <div
               className="no-drag flex items-center space-x-2.5 min-w-0"
               style={{
-                paddingLeft: shouldReserveTitlebarToggleSpace ? 34 : 0,
+                paddingLeft: !isFullScreenChat ? titlebarLeftInset : 0,
               }}
             >
               {!isChatRoute && (
