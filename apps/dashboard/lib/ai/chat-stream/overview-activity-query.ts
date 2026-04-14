@@ -38,6 +38,50 @@ export const overviewActivityKeys = {
     [...overviewActivityKeys.all, userId, timezone, rangeKey] as const,
 };
 
+export function hasMeaningfulOverviewActivity(
+  bundle: LocalOverviewActivityBundle | null | undefined,
+): boolean {
+  if (!bundle) return false;
+
+  const hasDailyActivity = Array.isArray(bundle.daily) && bundle.daily.some((row) =>
+    Number(row.active_hours || 0) > 0
+    || Number(row.events_count || 0) > 0
+    || Number(row.apps_count || 0) > 0,
+  );
+  const hasAppDetail = Array.isArray(bundle.apps) && bundle.apps.some((row) =>
+    Number(row.hours || 0) > 0 || Number(row.total_events || 0) > 0,
+  );
+  const hasDomainDetail = Array.isArray(bundle.domains) && bundle.domains.some((row) =>
+    Number(row.hours || 0) > 0 || Number(row.total_events || 0) > 0,
+  );
+
+  return hasDailyActivity || hasAppDetail || hasDomainDetail;
+}
+
+export function hasCompleteOverviewActivityDetail(
+  bundle: LocalOverviewActivityBundle | null | undefined,
+): boolean {
+  if (!bundle) return false;
+
+  const hasDailyActivity = Array.isArray(bundle.daily) && bundle.daily.some((row) =>
+    Number(row.active_hours || 0) > 0
+    || Number(row.events_count || 0) > 0
+    || Number(row.apps_count || 0) > 0,
+  );
+  const hasAppDetail = Array.isArray(bundle.apps) && bundle.apps.some((row) =>
+    Number(row.hours || 0) > 0 || Number(row.total_events || 0) > 0,
+  );
+  const hasDomainDetail = Array.isArray(bundle.domains) && bundle.domains.some((row) =>
+    Number(row.hours || 0) > 0 || Number(row.total_events || 0) > 0,
+  );
+
+  if (!hasDailyActivity) {
+    return true;
+  }
+
+  return hasAppDetail || hasDomainDetail;
+}
+
 function getTimezoneYmd(date: Date, timezone?: string): string {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone || 'UTC',

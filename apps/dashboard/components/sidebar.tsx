@@ -84,20 +84,25 @@ export function Sidebar() {
   );
 }
 
-/** Toggle button shown when sidebar is in "hidden" mode */
+/** Titlebar toggle button positioned beside the macOS traffic lights. */
 export function SidebarToggleButton() {
-  const { mode, setMode } = useSidebarMode();
-
-  if (mode !== "hidden") return null;
+  const { mode, toggleVisibility } = useSidebarMode();
+  const isHidden = mode === "hidden";
 
   return (
     <button
       type="button"
-      onClick={() => setMode("hover")}
-      className="fixed top-[18px] left-[18px] z-[100] p-1.5 rounded-md text-gray-500 hover:text-gray-800 hover:bg-gray-100/80 transition-colors"
-      title="Show sidebar"
+      onClick={toggleVisibility}
+      className={cn(
+        "fixed top-[8px] left-[78px] z-[100] no-drag flex h-[20px] w-[20px] items-center justify-center rounded-[6px] border border-transparent transition-colors",
+        isHidden
+          ? "text-[#6b6b63] hover:bg-[rgba(17,24,39,0.06)] hover:text-[#27251E]"
+          : "text-[#7a7a72] hover:bg-[rgba(17,24,39,0.05)] hover:text-[#27251E]",
+      )}
+      title={isHidden ? "Show sidebar" : "Hide sidebar"}
+      aria-label={isHidden ? "Show sidebar" : "Hide sidebar"}
     >
-      <PanelLeft className="w-[18px] h-[18px]" strokeWidth={1.8} />
+      <PanelLeft className="h-[14px] w-[14px]" strokeWidth={1.85} />
     </button>
   );
 }

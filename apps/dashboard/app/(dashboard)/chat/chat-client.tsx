@@ -21,6 +21,7 @@ import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import { useOverviewActivityQuery } from '@/hooks/use-overview-activity-query';
 import {
   getOverviewActivityBundle,
+  hasCompleteOverviewActivityDetail,
   getOverviewActivityRangeKeysForText,
   overviewActivityKeys,
   type LocalOverviewActivityBundle,
@@ -1101,7 +1102,9 @@ export function ChatClient() {
           overviewActivityKeys.detail(user?.id ?? 'anonymous', timezone, rangeKey),
         ),
       )
-      .filter((bundle): bundle is LocalOverviewActivityBundle => Boolean(bundle));
+      .filter((bundle): bundle is LocalOverviewActivityBundle =>
+        hasCompleteOverviewActivityDetail(bundle),
+      );
     const localOverviewActivity = cachedOverviewBundles.length > 0 ? cachedOverviewBundles : null;
     
     try {
