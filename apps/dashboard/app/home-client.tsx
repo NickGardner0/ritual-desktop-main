@@ -404,7 +404,7 @@ export function HomeClient() {
   // NEW USER: Show 4-page welcome flow
   if (isNewUser) {
     return (
-      <div className="min-h-screen bg-white flex flex-col relative welcome-page" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
+      <div className="min-h-screen bg-white flex flex-col relative welcome-page" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
         <ClerkOAuthHandler enabled={currentPage === 3} mode={showSignUp ? 'sign_up' : 'sign_in'} />
         <style jsx global>{`
           .welcome-page [class*="user"], 
@@ -598,7 +598,7 @@ export function HomeClient() {
 
   // RETURNING USER: Show simple home page with Sign In
   return (
-    <div className="min-h-screen bg-white relative flex flex-col" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
+    <div className="min-h-screen bg-white relative flex flex-col" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
       {/* Window Drag Region */}
       <div
         data-tauri-drag-region

@@ -138,7 +138,7 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
       onClick={onClick}
       style={{
         transition: 'border-color 200ms ease-out, background-color 200ms ease-out, box-shadow 200ms ease-out',
-        fontFamily: "'Inter', 'FK Grotesk Neue', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        fontFamily: 'var(--ritual-selected-font-family)',
       }}
     >
       {onRemove ? (

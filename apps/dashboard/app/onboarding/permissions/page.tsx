@@ -235,7 +235,7 @@ export default function PermissionsOnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-gray-900" style={{ fontFamily: "'FK Grotesk Neue', sans-serif" }}>
+    <div className="min-h-screen bg-white text-gray-900" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
       <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-12 z-50" />
 
       <main className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col items-center justify-center px-6">

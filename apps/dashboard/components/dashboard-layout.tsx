@@ -111,6 +111,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const shouldHideAppSidebar = isFullScreenChat || isChatRoute;
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (detachedSidebarMode || shouldHideAppSidebar) {
+      document.documentElement.style.setProperty('--ritual-sidebar-current-width', '0px');
+    }
+  }, [detachedSidebarMode, shouldHideAppSidebar]);
+
   return (
     <div className={`app-container flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
       {/* Sync route to detached sidebar (useSearchParams requires Suspense) */}

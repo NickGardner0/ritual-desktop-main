@@ -1,8 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
-export type FontOption = 'fk-grotesk' | 'system-ui';
+export type FontOption = 'fk-grotesk' | 'system-ui' | 'geist-sans';
 
 interface FontContextType {
   font: FontOption;
@@ -17,6 +17,7 @@ const FONT_STORAGE_KEY = 'ritual-font-preference';
 const fontClasses: Record<FontOption, string> = {
   'fk-grotesk': 'font-sans',
   'system-ui': 'font-system-ui',
+  'geist-sans': 'font-geist-sans',
 };
 
 export function FontProvider({ children }: { children: ReactNode }) {
@@ -26,12 +27,12 @@ export function FontProvider({ children }: { children: ReactNode }) {
     }
 
     const stored = localStorage.getItem(FONT_STORAGE_KEY);
-    if (stored === 'geist-sans' || stored === 'neue-haas') {
+    if (stored === 'neue-haas') {
       localStorage.setItem(FONT_STORAGE_KEY, 'system-ui');
       return 'system-ui';
     }
 
-    if (stored === 'fk-grotesk' || stored === 'system-ui') {
+    if (stored === 'fk-grotesk' || stored === 'system-ui' || stored === 'geist-sans') {
       return stored;
     }
 
@@ -45,6 +46,24 @@ export function FontProvider({ children }: { children: ReactNode }) {
   };
 
   const fontClass = fontClasses[font];
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const allFontClasses = Object.values(fontClasses);
+    const targets = [document.documentElement, document.body];
+
+    targets.forEach((target) => {
+      allFontClasses.forEach((className) => target.classList.remove(className));
+      target.classList.add(fontClass);
+    });
+
+    return () => {
+      targets.forEach((target) => {
+        target.classList.remove(fontClass);
+      });
+    };
+  }, [fontClass]);
 
   return (
     <FontContext.Provider value={{ font, setFont, fontClass }}>

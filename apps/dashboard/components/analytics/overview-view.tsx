@@ -595,6 +595,25 @@ export function OverviewView({
           if (!habitId) continue;
 
       if (isComputerHabitName(habit.name)) {
+        const cachedStats = effectiveCachedStats[habitId];
+        const shouldUseCachedComputerFallback = Boolean(cachedStats) && computerSnapshotQuery.isPlaceholderData;
+
+        if (shouldUseCachedComputerFallback && cachedStats) {
+          next.set(habitId, {
+            display: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
+            stats: {
+              unitLabel: 'Hours',
+              sumFormatted: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
+              avgFormatted: `${formatHabitStatNumber(Number(cachedStats.average || 0))} Hours`,
+              minFormatted: `${formatHabitStatNumber(Number(cachedStats.min || 0))} Hours`,
+              maxFormatted: `${formatHabitStatNumber(Number(cachedStats.max || 0))} Hours`,
+              stdDevFormatted: `${formatHabitStatNumber(Number(cachedStats.std_dev || Math.sqrt(cachedStats.variance || 0)))} Hours`,
+              daysWithData: Number(cachedStats.days_with_data || 0),
+            },
+          });
+          continue;
+        }
+
         const rows = effectiveComputerActivityDaily;
         const rowsSummary = rows.length > 0 ? buildComputerSummaryFromRows(rows) : null;
         const summaryForDisplay = !dateRange?.from && rowsSummary
@@ -690,6 +709,7 @@ export function OverviewView({
     isAverageDisplayMetric,
     isSleepLikeHabit,
     metricEntriesByHabitId,
+    computerSnapshotQuery.isPlaceholderData,
     traceSyncComputation,
   ]);
 
