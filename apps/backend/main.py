@@ -87,6 +87,9 @@ STARTUP_MAINTENANCE_DELAY_SECONDS = float(
 ENABLE_STARTUP_MAINTENANCE_TASK = os.getenv(
     "ENABLE_STARTUP_MAINTENANCE_TASK", "0"
 ).lower() in {"1", "true", "yes", "on"}
+ENABLE_INTERNAL_SCHEDULER = os.getenv(
+    "ENABLE_INTERNAL_SCHEDULER", "0"
+).lower() in {"1", "true", "yes", "on"}
 
 # Rate limiting setup
 limiter = Limiter(key_func=get_remote_address)
@@ -530,6 +533,197 @@ async def _semantic_summary_worker_loop() -> None:
         await asyncio.sleep(sleep_seconds)
 
 
+# ---------------------------------------------------------------------------
+# Internal hourly scheduler — replaces Trigger.dev for proactive SMS + syncs
+# ---------------------------------------------------------------------------
+
+async def _internal_scheduler_loop() -> None:
+    """Background loop that fires once per hour to run scheduled tasks.
+
+    Replaces external schedulers (Trigger.dev, Railway cron) by calling
+    service methods directly — no HTTP round-trips or extra auth needed.
+
+    Tasks executed each tick:
+    1. Proactive SMS sweep (all trigger types — each checks user local time)
+    2. Wearable syncs (Whoop, Oura, Garmin, Tesla) for users whose
+       configured sync_hour matches the current UTC hour
+    3. Financial (Plaid) sync for matching sync_hour
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
+    # Let other startup work finish first
+    await asyncio.sleep(30)
+    logger.info("⏰ Internal scheduler loop started (runs every hour)")
+
+    while True:
+        current_hour = _dt.now(_tz.utc).hour
+        logger.info("⏰ Scheduler tick — UTC hour %d", current_hour)
+
+        # --- 1. Proactive SMS sweep ---
+        try:
+            from services.proactive_sms_service import run_hourly_proactive_sweep
+
+            results = await run_hourly_proactive_sweep()
+            total_sent = sum(r.get("sent", 0) for r in results)
+            logger.info(
+                "📬 Proactive SMS sweep complete: %d messages sent across %d trigger types",
+                total_sent, len(results),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Proactive SMS sweep failed: %s", exc)
+
+        # --- 2. Whoop sync ---
+        try:
+            from services.whoop_service import whoop_service as _whoop
+            from services.wearable_connection_service import wearable_connection_service as _wc
+            from database.connection import get_db_session
+            from database.models import WhoopIntegrationDB
+            from sqlalchemy import select as _sel
+            import json as _json
+
+            async with get_db_session() as session:
+                rows = await session.execute(
+                    _sel(WhoopIntegrationDB).where(WhoopIntegrationDB.is_active.is_(True))
+                )
+                integrations = rows.scalars().all()
+
+            synced = 0
+            for integration in integrations:
+                canonical = await _wc.get_connection(integration.user_id, "whoop")
+                settings = {}
+                if canonical and canonical.settings_json:
+                    try:
+                        settings = _json.loads(canonical.settings_json)
+                    except Exception:
+                        pass
+                if not settings.get("auto_sync_enabled", True):
+                    continue
+                configured_hour = int(
+                    settings.get("sync_hour",
+                                 settings.get("whoop_sync_hour",
+                                              integration.whoop_sync_hour or 9))
+                )
+                if configured_hour != current_hour:
+                    continue
+                try:
+                    await _whoop.sync_whoop_data(integration.user_id)
+                    synced += 1
+                except Exception:
+                    logger.exception("Whoop sync failed for user %s", integration.user_id)
+            if synced:
+                logger.info("🏋️ Whoop sync: %d users synced at hour %d", synced, current_hour)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Whoop scheduler sync failed: %s", exc)
+
+        # --- 3. Oura + Garmin sync (via wearable_connections table) ---
+        try:
+            from services.oura_service import oura_service as _oura
+            from services.garmin_service import garmin_service as _garmin
+            from database.models import WearableConnectionDB
+            from database.connection import get_db_session
+            from sqlalchemy import select as _sel
+            import json as _json
+
+            for provider, svc in [("oura", _oura), ("garmin", _garmin)]:
+                async with get_db_session() as session:
+                    rows = await session.execute(
+                        _sel(WearableConnectionDB).where(
+                            WearableConnectionDB.provider == provider,
+                            WearableConnectionDB.status == "active",
+                        )
+                    )
+                    connections = rows.scalars().all()
+
+                synced = 0
+                for conn in connections:
+                    settings = {}
+                    if conn.settings_json:
+                        try:
+                            settings = _json.loads(conn.settings_json)
+                        except Exception:
+                            pass
+                    if not settings.get("auto_sync_enabled", True):
+                        continue
+                    configured_hour = int(settings.get("sync_hour", 9))
+                    if configured_hour != current_hour:
+                        continue
+                    try:
+                        if provider == "oura":
+                            await svc.sync_oura_data(conn.user_id)
+                        else:
+                            await svc.sync_garmin_account(conn.user_id)
+                        synced += 1
+                    except Exception:
+                        logger.exception("%s sync failed for user %s", provider.title(), conn.user_id)
+                if synced:
+                    logger.info("⌚ %s sync: %d users synced at hour %d", provider.title(), synced, current_hour)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Oura/Garmin scheduler sync failed: %s", exc)
+
+        # --- 4. Tesla sync ---
+        try:
+            from database.models import WearableConnectionDB
+            from database.connection import get_db_session
+            from sqlalchemy import select as _sel
+
+            async with get_db_session() as session:
+                rows = await session.execute(
+                    _sel(WearableConnectionDB).where(
+                        WearableConnectionDB.provider == "tesla",
+                        WearableConnectionDB.status == "active",
+                    )
+                )
+                connections = rows.scalars().all()
+
+            synced = 0
+            for conn in connections:
+                settings = {}
+                if conn.settings_json:
+                    try:
+                        import json as _json
+                        settings = _json.loads(conn.settings_json)
+                    except Exception:
+                        pass
+                if not settings.get("auto_sync_enabled", True):
+                    continue
+                configured_hour = int(settings.get("sync_hour", 9))
+                if configured_hour != current_hour:
+                    continue
+                try:
+                    await tesla_service.sync_odometer(conn.user_id)
+                    synced += 1
+                except Exception:
+                    logger.exception("Tesla sync failed for user %s", conn.user_id)
+            if synced:
+                logger.info("🚗 Tesla sync: %d users synced at hour %d", synced, current_hour)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Tesla scheduler sync failed: %s", exc)
+
+        # --- 5. Financial (Plaid) sync ---
+        try:
+            from services.financial_sync_service import financial_sync_service as _fin
+
+            result = await _fin.sync_all_active(hour=current_hour)
+            synced = result.get("successful_syncs", 0)
+            if synced:
+                logger.info("💰 Financial sync: %d connections synced at hour %d", synced, current_hour)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Financial scheduler sync failed: %s", exc)
+
+        logger.info("⏰ Scheduler tick complete — sleeping 1 hour")
+        await asyncio.sleep(3600)
+
+
 async def _post_startup_initialization() -> None:
     """Run nonessential startup work after readiness is available."""
     logger = logging.getLogger("uvicorn")
@@ -573,6 +767,13 @@ async def _post_startup_initialization() -> None:
         except Exception as exc:
             logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
 
+    # Start internal hourly scheduler (proactive SMS + wearable syncs)
+    if ENABLE_INTERNAL_SCHEDULER:
+        app.state.scheduler_task = asyncio.create_task(_internal_scheduler_loop())
+        logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
+    else:
+        logger.info("⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)")
+
 
 async def _delayed_post_startup_initialization() -> None:
     """Wait briefly so platform readiness checks can succeed before heavy startup work."""
@@ -591,12 +792,12 @@ async def startup_event():
     from database.connection import init_database
     await init_database(fast_startup=True)
     logger.info("🚀 Ritual Backend API started successfully!")
-    logger.info("📅 Automated Whoop sync is handled by Trigger.dev (runs daily at 9 AM)")
     logger.info("🖥️ Watcher API ready for computer activity tracking")
     app.state.memory_worker_task = None
     app.state.memory_retention_task = None
     app.state.semantic_summary_task = None
     app.state.startup_maintenance_task = None
+    app.state.scheduler_task = None
     if ENABLE_STARTUP_MAINTENANCE_TASK:
         app.state.startup_maintenance_task = asyncio.create_task(
             _delayed_post_startup_initialization()
@@ -622,7 +823,8 @@ async def shutdown_event():
     retention_task = getattr(app.state, "memory_retention_task", None)
     semantic_task = getattr(app.state, "semantic_summary_task", None)
     startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
-    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task] if t is not None]
+    scheduler_task = getattr(app.state, "scheduler_task", None)
+    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task, scheduler_task] if t is not None]
     for task in tasks:
         task.cancel()
     if tasks:
