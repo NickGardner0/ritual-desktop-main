@@ -205,17 +205,40 @@ FORMAT:
 Keep total response under 500 characters when possible.`;
 
 // ---------------------------------------------------------------------------
+// SMS style addendum (appended when channel is 'sms')
+// ---------------------------------------------------------------------------
+
+const SMS_STYLE_PROMPT = `
+
+=== SMS MODE (ACTIVE) ===
+You are responding via iMessage/SMS. The user is texting, not using an app.
+
+RULES:
+1. ULTRA-CONCISE: 1-2 sentences for confirmations and simple answers. 3-4 sentences max for complex answers.
+2. HARD CHARACTER CAP: Keep total response under 320 characters. This is an SMS — every character counts.
+3. NO FORMATTING: No markdown, no bold, no tables, no bullet lists, no headers. Plain text only.
+4. CONVERSATIONAL: Write like you're texting a friend who happens to know their data. Casual but precise.
+5. NO FOLLOW-UP QUESTIONS BY DEFAULT: Only ask a question if genuinely needed for clarification (e.g., ambiguous habit name). Don't end with "Want to know more?" or "Should I check anything else?"
+6. CONTEXTUAL CONFIRMATIONS: When confirming a habit log, add one piece of context if genuinely interesting ("that's your 3rd today", "above your weekly avg"). Skip if there's nothing notable.
+7. NUMBERS FROM TOOLS ONLY: Same grounding rules as text mode. Never make up data.
+8. NATURAL ERROR HANDLING: If something fails, say it simply — "couldn't find that habit" not "Error: habit_id not found in database".`;
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+export type ChatChannel = 'app' | 'sms';
 
 export interface SystemPromptOptions {
   timezone: string;
   today: string;
   currentYear: number;
   isVoiceMode: boolean;
+  channel?: ChatChannel;
 }
 
 export function buildSystemPrompt(options: SystemPromptOptions): string {
+  const channel = options.channel || 'app';
   const header = `You are a helpful habit tracking assistant for Ritual.
 You provide accurate insights about the user's habit data using the analytics tools.
 
@@ -224,5 +247,9 @@ Current year: ${options.currentYear}
 Timezone: ${options.timezone}`;
 
   const base = `${header}\n\n${STATIC_SYSTEM_PROMPT}`;
+
+  if (channel === 'sms') {
+    return base + SMS_STYLE_PROMPT;
+  }
   return options.isVoiceMode ? base + VOICE_STYLE_PROMPT : base;
 }

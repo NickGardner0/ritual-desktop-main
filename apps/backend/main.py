@@ -3,7 +3,7 @@ Ritual FastAPI Backend
 Primary API entrypoint for dashboard, desktop, and mobile clients.
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
@@ -133,11 +133,50 @@ def require_tinybird() -> TinybirdService:
         )
     return tinybird_service
 
+# Internal service-to-service auth token (used by SMS orchestrator loop)
+_INTERNAL_BACKEND_TOKEN = os.getenv("INTERNAL_BACKEND_TOKEN", "")
+
 # Dependency to get current user from JWT token
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Extract user from JWT token - mirrors Supabase auth"""
+async def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """
+    Extract user from JWT token — or from internal service auth.
+
+    Internal service auth (SMS orchestrator → Python API): if the Bearer
+    token matches INTERNAL_BACKEND_TOKEN *and* x-internal-user-id is set,
+    resolve the user by ID directly without Clerk JWT validation.
+    """
+    token = credentials.credentials
+
+    # ── Internal service auth fast-path ──────────────────────────────
+    if (
+        _INTERNAL_BACKEND_TOKEN
+        and token == _INTERNAL_BACKEND_TOKEN
+    ):
+        internal_user_id = request.headers.get("x-internal-user-id")
+        if not internal_user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Internal service auth requires x-internal-user-id header",
+            )
+        logger.info("🔑 Internal service auth for user %s", internal_user_id)
+        # Return the same dict shape as Clerk JWT auth
+        user_profile = await user_service.get_user_profile(internal_user_id)
+        if not user_profile:
+            raise HTTPException(status_code=401, detail="User not found")
+        return {
+            "id": internal_user_id,
+            "email": getattr(user_profile, "email", None),
+            "phone": getattr(user_profile, "phone_number", None),
+            "name": getattr(user_profile, "full_name", None),
+            "metadata": {},
+        }
+
+    # ── Standard Clerk JWT auth ──────────────────────────────────────
     try:
-        user = await auth_service.get_user_from_token(credentials.credentials)
+        user = await auth_service.get_user_from_token(token)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid authentication token")
         return user
@@ -383,6 +422,12 @@ app.include_router(watcher_router)
 
 from api.sendblue import router as sendblue_router
 app.include_router(sendblue_router)
+
+from api.proactive_sms import router as proactive_sms_router
+app.include_router(proactive_sms_router)
+
+from api.sms_preferences import create_sms_preferences_router
+app.include_router(create_sms_preferences_router(get_current_user=get_current_user))
 
 from api.vcard import router as vcard_router
 app.include_router(vcard_router)

@@ -5,7 +5,7 @@
  * These are pure functions: (token, params) → JSON string.
  */
 
-import { fetchPythonApi } from './shared-api';
+import { fetchPythonApi, fetchPythonApiPost } from './shared-api';
 
 // ---------------------------------------------------------------------------
 // executeGetHabitStats
@@ -188,6 +188,147 @@ export async function executeGetHabitAnomalies(token: string, params: {
     return JSON.stringify(result);
   } catch (error) {
     console.error('❌ getHabitAnomalies error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// executeGetStreaks
+// ---------------------------------------------------------------------------
+
+export async function executeGetStreaks(token: string, params: {
+  habitName?: string;
+}) {
+  console.log('🔥 getStreaks called:', params);
+
+  try {
+    const queryParams: Record<string, string | number> = {};
+    if (params.habitName) {
+      queryParams.habit_name = params.habitName;
+    }
+
+    const result = await fetchPythonApi('/api/analytics/streaks', token, queryParams);
+
+    if (!result.success) {
+      return JSON.stringify({
+        error: result.error,
+        available_habits: result.available_habits,
+      });
+    }
+
+    return JSON.stringify(result);
+  } catch (error) {
+    console.error('❌ getStreaks error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// executeLogHabit
+// ---------------------------------------------------------------------------
+
+export async function executeLogHabit(token: string, params: {
+  habitName: string;
+  amount?: number;
+  note?: string;
+}) {
+  console.log('📝 logHabit called:', params);
+
+  try {
+    // Step 1: List user's habits to find the matching habit ID
+    const habits = await fetchPythonApi('/api/habits', token);
+
+    if (!Array.isArray(habits) || habits.length === 0) {
+      return JSON.stringify({ error: 'No habits found for this user.' });
+    }
+
+    // Step 2: Fuzzy-match the requested habit name
+    const target = params.habitName.toLowerCase().trim();
+    let matched = habits.find(
+      (h: { name: string }) => h.name.toLowerCase() === target,
+    );
+
+    if (!matched) {
+      // Substring match fallback
+      matched = habits.find(
+        (h: { name: string }) => h.name.toLowerCase().includes(target) || target.includes(h.name.toLowerCase()),
+      );
+    }
+
+    if (!matched) {
+      return JSON.stringify({
+        error: `No habit matching "${params.habitName}" found.`,
+        available_habits: habits.map((h: { name: string }) => h.name),
+      });
+    }
+
+    // Step 3: Log the entry
+    const today = new Date().toISOString().split('T')[0];
+    const logBody: Record<string, unknown> = {
+      date: today,
+      status: 'completed',
+    };
+    if (params.amount !== undefined && params.amount !== null) {
+      logBody.amount = params.amount;
+    }
+    if (params.note) {
+      logBody.notes = params.note;
+    }
+
+    const result = await fetchPythonApiPost(
+      `/api/habits/${matched.id}/logs`,
+      token,
+      logBody,
+    );
+
+    return JSON.stringify({
+      success: true,
+      habit_name: matched.name,
+      habit_id: matched.id,
+      amount: params.amount ?? null,
+      date: today,
+      log: result,
+    });
+  } catch (error) {
+    console.error('❌ logHabit error:', error);
+    return JSON.stringify({ error: String(error) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// executeCreateHabit
+// ---------------------------------------------------------------------------
+
+export async function executeCreateHabit(token: string, params: {
+  name: string;
+  category: string;
+  unitType?: string;
+}) {
+  console.log('➕ createHabit called:', params);
+
+  try {
+    const body: Record<string, unknown> = {
+      name: params.name,
+      category: params.category,
+      is_custom: true,
+      sensor_type: 'Manual',
+    };
+    if (params.unitType) {
+      body.unit_type = params.unitType;
+    }
+
+    const result = await fetchPythonApiPost('/api/habits', token, body);
+
+    return JSON.stringify({
+      success: true,
+      habit_name: result.name,
+      habit_id: result.id,
+      category: result.category,
+      unit_type: result.unit_type || null,
+      message: `Created new habit "${result.name}"`,
+    });
+  } catch (error) {
+    console.error('❌ createHabit error:', error);
     return JSON.stringify({ error: String(error) });
   }
 }

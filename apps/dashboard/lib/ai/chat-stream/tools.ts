@@ -258,4 +258,77 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'getStreaks',
+      description: 'Get current and best-ever streaks for habits (consecutive days logged). Use for questions about streaks, consistency, "how many days in a row", "am I on a streak", "longest streak". Returns current_streak, best_streak, last_logged_date, and total_logged_days per habit.',
+      parameters: {
+        type: 'object',
+        properties: {
+          habitName: { type: 'string', description: 'Specific habit name. Leave empty to get streaks for ALL habits.' },
+        },
+        required: [],
+      },
+    },
+  },
+  // ── SMS-specific tools ──────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'logHabit',
+      description: 'Log a habit entry for the user. Use when the user wants to record/log a habit — e.g. "30mg caffeine", "ran 3 miles", "I read 30 pages", "meditated for 10 minutes". Match the habit name to one of the user\'s existing habits. Call listHabits first if unsure which habit to match.',
+      parameters: {
+        type: 'object',
+        properties: {
+          habitName: { type: 'string', description: 'Name of the habit to log, matching one of the user\'s existing habits (case-insensitive fuzzy match is OK)' },
+          amount: { type: 'number', description: 'Numeric value to log (e.g. 30 for "30mg", 3 for "3 miles"). Null for boolean/checkbox habits.' },
+          note: { type: 'string', description: 'Optional note to attach to the log entry (e.g. the original user message)' },
+        },
+        required: ['habitName'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'createHabit',
+      description: 'Create a new habit for the user to start tracking. Use when the user says things like "start tracking meditation", "add a water intake habit", "I want to track my pushups". Call listHabits first to avoid creating duplicates.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Name of the habit (e.g., "meditation", "water intake", "pushups")' },
+          category: { type: 'string', description: 'Category for the habit. Choose from: health, fitness, mindfulness, nutrition, productivity, learning, social, sleep, or other.' },
+          unitType: { type: 'string', description: 'Optional unit of measurement (e.g., "minutes", "oz", "reps", "pages", "mg"). Omit for simple checkbox/boolean habits.' },
+        },
+        required: ['name', 'category'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'getSmsPreferences',
+      description: 'Get the user\'s SMS chatbot preferences (proactive messaging settings, quiet hours, etc.). Use when the user asks about their SMS settings, notifications, or proactive message preferences.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'updateSmsPreferences',
+      description: 'Update the user\'s SMS chatbot preferences. Use when the user wants to change proactive messaging, quiet hours, or notification settings — e.g. "turn off proactive messages", "set quiet hours 10pm-8am", "send me morning briefings too", "stop sending me recaps".',
+      parameters: {
+        type: 'object',
+        properties: {
+          proactiveEnabled: { type: 'boolean', description: 'Enable/disable proactive messages (end-of-day recap, morning briefing, etc.)' },
+          quietHoursStart: { type: 'string', description: 'Start of quiet hours in HH:MM format (e.g. "22:00"). Set to null to remove.' },
+          quietHoursEnd: { type: 'string', description: 'End of quiet hours in HH:MM format (e.g. "08:00"). Set to null to remove.' },
+          allowedTriggers: { type: 'string', description: 'Comma-separated trigger types to allow. Options: "eod_recap" (end-of-day recap), "morning_briefing", "streak_alert" (celebrate milestones), "missed_habit_nudge" (gentle reminders), "weekly_milestone" (weekly highlights). Example: "eod_recap,streak_alert,missed_habit_nudge"' },
+          maxProactivePerDay: { type: 'number', description: 'Maximum proactive messages per day (default 1, max 3)' },
+        },
+        required: [],
+      },
+    },
+  },
 ];

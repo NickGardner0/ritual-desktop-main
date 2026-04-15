@@ -46,6 +46,9 @@ export {
   executeListHabits,
   executeGetHabitTrends,
   executeGetHabitAnomalies,
+  executeGetStreaks,
+  executeLogHabit,
+  executeCreateHabit,
 } from './habits';
 
 // Overview executors
@@ -81,3 +84,9 @@ export {
 export {
   executeGetCalendarEvents,
 } from './calendar';
+
+// SMS preferences executors
+export {
+  executeGetSmsPreferences,
+  executeUpdateSmsPreferences,
+} from './sms-preferences';

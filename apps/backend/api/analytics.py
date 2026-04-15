@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, and_
 
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB
@@ -281,6 +283,112 @@ def create_analytics_router(
                 z_threshold=z_threshold,
                 max_results=max_results,
             )
+        except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    # ------------------------------------------------------------------
+    # Streaks endpoint — computes current & best streaks per habit
+    # ------------------------------------------------------------------
+
+    @router.get("/streaks")
+    async def get_streaks(
+        request: Request,
+        habit_name: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        """
+        Compute current streak (consecutive days ending today/yesterday)
+        and best-ever streak for each habit (or a specific one).
+
+        Returns:
+          { success: true, habits: [ { name, current_streak, best_streak, last_logged_date, total_logged_days } ] }
+        """
+        try:
+            user_id = current_user["id"]
+            today = date.today()
+
+            async with get_db_session() as session:
+                # Get user's habits
+                habit_query = select(HabitDB).where(HabitDB.user_id == user_id)
+                if habit_name:
+                    habit_query = habit_query.where(
+                        HabitDB.name.ilike(f"%{habit_name}%")
+                    )
+                habit_result = await session.execute(habit_query)
+                habits = habit_result.scalars().all()
+
+                if not habits:
+                    return {
+                        "success": False,
+                        "error": f"No habits found{' matching ' + repr(habit_name) if habit_name else ''}.",
+                        "available_habits": [],
+                    }
+
+                results = []
+                for habit in habits:
+                    # Get all log dates for this habit, sorted ascending
+                    log_result = await session.execute(
+                        select(HabitLogDB.date)
+                        .where(
+                            and_(
+                                HabitLogDB.habit_id == habit.id,
+                                HabitLogDB.status == "completed",
+                            )
+                        )
+                        .order_by(HabitLogDB.date.asc())
+                    )
+                    log_dates_raw = [row[0] for row in log_result.all()]
+
+                    # Parse to date objects and deduplicate
+                    logged_dates: set[date] = set()
+                    for d in log_dates_raw:
+                        if isinstance(d, str):
+                            try:
+                                logged_dates.add(date.fromisoformat(d[:10]))
+                            except ValueError:
+                                pass
+                        elif isinstance(d, (date, datetime)):
+                            logged_dates.add(d if isinstance(d, date) else d.date())
+
+                    sorted_dates = sorted(logged_dates)
+                    total_logged_days = len(sorted_dates)
+                    last_logged = sorted_dates[-1] if sorted_dates else None
+
+                    # Compute current streak (consecutive days ending today or yesterday)
+                    current_streak = 0
+                    if sorted_dates:
+                        check_date = today
+                        # Allow streak to count if last log was today or yesterday
+                        if last_logged and (today - last_logged).days <= 1:
+                            check_date = last_logged
+                            current_streak = 1
+                            while (check_date - timedelta(days=1)) in logged_dates:
+                                check_date -= timedelta(days=1)
+                                current_streak += 1
+
+                    # Compute best-ever streak
+                    best_streak = 0
+                    if sorted_dates:
+                        run = 1
+                        for i in range(1, len(sorted_dates)):
+                            if (sorted_dates[i] - sorted_dates[i - 1]).days == 1:
+                                run += 1
+                            else:
+                                best_streak = max(best_streak, run)
+                                run = 1
+                        best_streak = max(best_streak, run)
+
+                    results.append({
+                        "name": habit.name,
+                        "habit_id": habit.id,
+                        "current_streak": current_streak,
+                        "best_streak": best_streak,
+                        "last_logged_date": last_logged.isoformat() if last_logged else None,
+                        "total_logged_days": total_logged_days,
+                    })
+
+                return {"success": True, "habits": results}
+
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 

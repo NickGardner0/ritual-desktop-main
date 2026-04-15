@@ -13,6 +13,9 @@ import {
   executeListHabits,
   executeGetHabitTrends,
   executeGetHabitAnomalies,
+  executeGetStreaks,
+  executeLogHabit,
+  executeCreateHabit,
   executeGetWeeklyOverview,
   executeGetDailyOverview,
   executeGetMonthlyOverview,
@@ -23,6 +26,8 @@ import {
   executeGetDailyBiometrics,
   executeGetScreenTimeSummary,
   executeGetCalendarEvents,
+  executeGetSmsPreferences,
+  executeUpdateSmsPreferences,
   inferScreenDaysBackFromQuery,
 } from './executors';
 
@@ -402,6 +407,8 @@ async function dispatchToolCall(
       return executeGetMonthlyOverview(token, a, ctx.timezone, ctx.localOverviewActivity);
     case 'getHabitAnomalies':
       return executeGetHabitAnomalies(token, a);
+    case 'getStreaks':
+      return executeGetStreaks(token, a);
     case 'searchScreenRecordings':
       return executeSearchContextMemory(token, {
         ...a,
@@ -482,6 +489,14 @@ async function dispatchToolCall(
       return executeGetScreenTimeSummary(token, a, ctx.timezone);
     case 'getCalendarEvents':
       return executeGetCalendarEvents(token, a, ctx.timezone);
+    case 'logHabit':
+      return executeLogHabit(token, a);
+    case 'createHabit':
+      return executeCreateHabit(token, a);
+    case 'getSmsPreferences':
+      return executeGetSmsPreferences(token);
+    case 'updateSmsPreferences':
+      return executeUpdateSmsPreferences(token, a);
     default:
       return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
@@ -544,6 +559,9 @@ function collectToolResult(toolResults: ChatToolResults, name: string, raw: stri
           if (parsed.suggested_followups) toolResults.suggested_followups = parsed.suggested_followups;
         }
         break;
+      case 'getStreaks':
+        // No canvas state — LLM relays streak info
+        break;
       case 'getHabitAnomalies':
         if (parsed.success) {
           toolResults.anomalies = parsed;
@@ -581,6 +599,14 @@ function collectToolResult(toolResults: ChatToolResults, name: string, raw: stri
         break;
       case 'getCalendarEvents':
         if (parsed.success) toolResults.calendarEvents = parsed;
+        break;
+      case 'logHabit':
+      case 'createHabit':
+        // No canvas/panel state to update — the LLM confirms in its reply
+        break;
+      case 'getSmsPreferences':
+      case 'updateSmsPreferences':
+        // No canvas state — the LLM relays preference info in its reply
         break;
       default:
         break;
@@ -1241,11 +1267,361 @@ export async function handleChatStreamPost(req: NextRequest) {
 
   } catch (error) {
     console.error('Chat API error:', error);
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       error: 'Error processing request',
       details: error instanceof Error ? error.message : 'Unknown error'
-    }), { 
+    }), {
       status: 500, headers: { 'Content-Type': 'application/json' }
     });
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// SMS chat handler — non-streaming, pre-authed, returns plain JSON
+// ---------------------------------------------------------------------------
+
+export interface SmsChatRequest {
+  user_id: string;
+  conversation_id: string;
+  user_message: string;
+  recent_messages: Array<{ role: string; content: string }>;
+  timezone?: string;
+  media_urls?: string[];
+}
+
+export interface SmsProactiveRequest {
+  user_id: string;
+  trigger_type: string;
+  trigger_prompt: string;
+  timezone?: string;
+}
+
+export interface SmsChatResponse {
+  text: string;
+  tool_calls_made: string[];
+}
+
+/**
+ * Handle an SMS chat message. Runs the same tool-calling loop as the
+ * in-app chat orchestrator but in non-streaming mode with the SMS
+ * system prompt variant. No Clerk auth — the caller (Python backend)
+ * has already verified identity via phone number.
+ *
+ * Returns a plain JSON response with the final text and list of tools used.
+ */
+export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
+  const t0 = performance.now();
+
+  try {
+    // Verify internal secret
+    const internalSecret = req.headers.get('x-internal-secret') || '';
+    const expectedSecret = process.env.INTERNAL_SMS_CHAT_SECRET || '';
+    if (!expectedSecret || internalSecret !== expectedSecret) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body: SmsChatRequest = await req.json();
+    const { user_id, user_message, recent_messages, timezone, media_urls } = body;
+
+    console.log(`📱 [${elapsed(t0)}] SMS chat request: "${user_message.slice(0, 80)}"${media_urls?.length ? ` (+${media_urls.length} media)` : ''}`);
+
+    // Build a composite token for internal service auth.
+    // Format: "INTERNAL_BACKEND_TOKEN::user_id" — fetchPythonApi splits
+    // this and attaches x-internal-user-id automatically so the Python
+    // backend can resolve the user without a Clerk JWT.
+    const rawToken = req.headers.get('x-backend-token') || process.env.INTERNAL_BACKEND_TOKEN || '';
+    const token = user_id ? `${rawToken}::${user_id}` : rawToken;
+
+    // Build conversation history for OpenAI
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+    const fullSystemPrompt = buildSystemPrompt({
+      timezone: timezone || 'UTC',
+      today,
+      currentYear: year,
+      isVoiceMode: false,
+      channel: 'sms',
+    });
+
+    const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: fullSystemPrompt },
+      // Include recent conversation history for multi-turn context
+      ...recent_messages.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
+    ];
+
+    // Ensure the latest user message is the last one (it might already be
+    // in recent_messages if the caller pre-appended it, but if the last
+    // message in recent_messages doesn't match, add it).
+    // When media_urls are present, build a multi-part content array with
+    // text + image_url parts so GPT-4o-mini can understand images
+    // (workout screenshots, food photos, sleep data, etc.)
+    const lastMsg = recent_messages[recent_messages.length - 1];
+    if (!lastMsg || lastMsg.content !== user_message || lastMsg.role !== 'user') {
+      if (media_urls && media_urls.length > 0) {
+        const contentParts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+        if (user_message) {
+          contentParts.push({ type: 'text', text: user_message });
+        } else {
+          contentParts.push({
+            type: 'text',
+            text: 'The user sent this image. Analyze it and determine if it contains habit/health/fitness data to log, or answer any questions about it.',
+          });
+        }
+        for (const url of media_urls) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url, detail: 'low' },
+          });
+        }
+        apiMessages.push({ role: 'user', content: contentParts });
+      } else {
+        apiMessages.push({ role: 'user', content: user_message });
+      }
+    }
+
+    const toolCallsMade: string[] = [];
+
+    // Tool execution context — SMS doesn't send screen search data
+    const toolCtx: ToolExecutionContext = {
+      timezone,
+      normalizedScreenSearchContext: null,
+      latestUserContent: user_message,
+      weeklyOverviewQueryParams: {},
+    };
+
+    // Non-streaming OpenAI call with tool loop (max 4 iterations for SMS)
+    console.log(`📱 [${elapsed(t0)}] OpenAI call #1 start`);
+    let response = await getOpenAIClient().chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: apiMessages,
+      tools,
+      tool_choice: 'auto',
+      temperature: 0.3,
+    });
+    console.log(`📱 [${elapsed(t0)}] OpenAI call #1 done`);
+
+    let assistantMessage = response.choices[0].message;
+    let iterations = 0;
+
+    while (assistantMessage.tool_calls && iterations < 4) {
+      iterations++;
+      console.log(
+        `📱 [${elapsed(t0)}] Tool loop #${iterations}:`,
+        assistantMessage.tool_calls.map((t) => t.function.name),
+      );
+
+      apiMessages.push(assistantMessage);
+
+      const toolCallResults = await Promise.all(
+        assistantMessage.tool_calls.map(async (toolCall) => {
+          const args = JSON.parse(toolCall.function.arguments || '{}');
+          toolCallsMade.push(toolCall.function.name);
+          const result = await withToolErrorHandling(toolCall.function.name, () =>
+            dispatchToolCall(toolCall.function.name, token, args, toolCtx),
+          );
+          return { toolCall, result };
+        }),
+      );
+
+      for (const { toolCall, result } of toolCallResults) {
+        apiMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: result,
+        });
+      }
+
+      // Follow-up call (always non-streaming for SMS)
+      console.log(`📱 [${elapsed(t0)}] OpenAI follow-up #${iterations} start`);
+      response = await getOpenAIClient().chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: apiMessages,
+        tools,
+        tool_choice: 'auto',
+        temperature: iterations < 3 ? 0.3 : 0.7,
+      });
+      assistantMessage = response.choices[0].message;
+      console.log(`📱 [${elapsed(t0)}] OpenAI follow-up #${iterations} done`);
+    }
+
+    const finalText = assistantMessage.content || 'Sorry, I couldn\'t process that. Try again?';
+
+    console.log(
+      `📱 [${elapsed(t0)}] SMS response ready (${finalText.length} chars, ${toolCallsMade.length} tools)`,
+    );
+
+    return new Response(
+      JSON.stringify({ text: finalText, tool_calls_made: toolCallsMade }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  } catch (error) {
+    console.error('📱 SMS chat error:', error);
+    return new Response(
+      JSON.stringify({
+        error: 'SMS chat processing failed',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+}
+
+// ====================
+// PROACTIVE SMS HANDLER
+// ====================
+
+/**
+ * Non-streaming handler for proactive SMS messages (end-of-day recap,
+ * morning briefing, etc.). Called by the Python proactive scheduler
+ * via /api/chat/sms/proactive.
+ *
+ * Unlike the reactive handler, this doesn't have a user message —
+ * the trigger_prompt tells the model what kind of proactive content
+ * to generate, and the model uses tools to gather data.
+ */
+export async function handleSmsProactivePost(req: NextRequest): Promise<Response> {
+  const t0 = performance.now();
+
+  try {
+    // Verify internal secret
+    const internalSecret = req.headers.get('x-internal-secret') || '';
+    const expectedSecret = process.env.INTERNAL_SMS_CHAT_SECRET || '';
+    if (!expectedSecret || internalSecret !== expectedSecret) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body: SmsProactiveRequest = await req.json();
+    const { user_id, trigger_type, trigger_prompt, timezone } = body;
+
+    console.log(`📬 [${elapsed(t0)}] Proactive SMS: trigger="${trigger_type}" user=${user_id}`);
+
+    // Build composite token for internal service auth
+    const rawToken = req.headers.get('x-backend-token') || process.env.INTERNAL_BACKEND_TOKEN || '';
+    const token = user_id ? `${rawToken}::${user_id}` : rawToken;
+
+    // Build system prompt
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+    const fullSystemPrompt = buildSystemPrompt({
+      timezone: timezone || 'UTC',
+      today,
+      currentYear: year,
+      isVoiceMode: false,
+      channel: 'sms',
+    });
+
+    const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: fullSystemPrompt },
+      // The trigger prompt acts as the "user" message that drives generation
+      { role: 'user', content: trigger_prompt },
+    ];
+
+    const toolCallsMade: string[] = [];
+
+    const toolCtx: ToolExecutionContext = {
+      timezone,
+      normalizedScreenSearchContext: null,
+      latestUserContent: trigger_prompt,
+      weeklyOverviewQueryParams: {},
+    };
+
+    // Non-streaming OpenAI call with tool loop (max 3 iterations for proactive)
+    console.log(`📬 [${elapsed(t0)}] OpenAI call #1 start`);
+    let response = await getOpenAIClient().chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: apiMessages,
+      tools,
+      tool_choice: 'auto',
+      temperature: 0.5,
+    });
+    console.log(`📬 [${elapsed(t0)}] OpenAI call #1 done`);
+
+    let assistantMessage = response.choices[0].message;
+    let iterations = 0;
+
+    while (assistantMessage.tool_calls && iterations < 3) {
+      iterations++;
+      console.log(
+        `📬 [${elapsed(t0)}] Tool loop #${iterations}:`,
+        assistantMessage.tool_calls.map((t) => t.function.name),
+      );
+
+      apiMessages.push(assistantMessage);
+
+      const toolCallResults = await Promise.all(
+        assistantMessage.tool_calls.map(async (toolCall) => {
+          const args = JSON.parse(toolCall.function.arguments || '{}');
+          toolCallsMade.push(toolCall.function.name);
+          const result = await withToolErrorHandling(toolCall.function.name, () =>
+            dispatchToolCall(toolCall.function.name, token, args, toolCtx),
+          );
+          return { toolCall, result };
+        }),
+      );
+
+      for (const { toolCall, result } of toolCallResults) {
+        apiMessages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: result,
+        });
+      }
+
+      console.log(`📬 [${elapsed(t0)}] OpenAI follow-up #${iterations} start`);
+      response = await getOpenAIClient().chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: apiMessages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.5,
+      });
+      assistantMessage = response.choices[0].message;
+      console.log(`📬 [${elapsed(t0)}] OpenAI follow-up #${iterations} done`);
+    }
+
+    const finalText = assistantMessage.content || '';
+
+    if (!finalText) {
+      return new Response(
+        JSON.stringify({ error: 'No proactive content generated' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    console.log(
+      `📬 [${elapsed(t0)}] Proactive response ready (${finalText.length} chars, ${toolCallsMade.length} tools)`,
+    );
+
+    return new Response(
+      JSON.stringify({ text: finalText, trigger_type, tool_calls_made: toolCallsMade }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  } catch (error) {
+    console.error('📬 Proactive SMS error:', error);
+    return new Response(
+      JSON.stringify({
+        error: 'Proactive SMS processing failed',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    );
   }
 }

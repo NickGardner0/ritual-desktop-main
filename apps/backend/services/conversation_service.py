@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, and_
 
 from database.connection import get_db_session
-from database.models import AIConversationDB, AIMessageDB
+from database.models import AIConversationDB, AIMessageDB, SmsPreferencesDB
 
 
 class ConversationService:
@@ -330,6 +330,127 @@ class ConversationService:
             
             return conversation_list
     
+    async def find_or_create_sms_conversation(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get the single SMS conversation for a user, creating it if it doesn't exist.
+        Enforced by a partial unique index on (user_id) WHERE channel = 'sms'.
+        """
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(AIConversationDB).where(
+                    and_(
+                        AIConversationDB.user_id == user_id,
+                        AIConversationDB.channel == "sms",
+                    )
+                )
+            )
+            conversation = result.scalars().first()
+
+            if conversation:
+                return {
+                    "id": conversation.id,
+                    "user_id": conversation.user_id,
+                    "channel": conversation.channel,
+                    "created_at": conversation.created_at.isoformat(),
+                }
+
+            conversation = AIConversationDB(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                title="SMS Chat",
+                response_mode="text",
+                channel="sms",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(conversation)
+            await session.commit()
+
+            return {
+                "id": conversation.id,
+                "user_id": conversation.user_id,
+                "channel": conversation.channel,
+                "created_at": conversation.created_at.isoformat(),
+            }
+
+    async def get_sms_message_history(
+        self, user_id: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent messages from a user's SMS conversation for context.
+        Returns messages in chronological order (oldest first).
+        """
+        async with get_db_session() as session:
+            # Find the SMS conversation
+            conv_result = await session.execute(
+                select(AIConversationDB).where(
+                    and_(
+                        AIConversationDB.user_id == user_id,
+                        AIConversationDB.channel == "sms",
+                    )
+                )
+            )
+            conversation = conv_result.scalars().first()
+
+            if not conversation:
+                return []
+
+            # Get the most recent N messages, then reverse to chronological order
+            messages_result = await session.execute(
+                select(AIMessageDB)
+                .where(AIMessageDB.conversation_id == conversation.id)
+                .order_by(desc(AIMessageDB.created_at))
+                .limit(limit)
+            )
+            messages = list(messages_result.scalars().all())
+            messages.reverse()
+
+            return [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in messages
+            ]
+
+    async def add_internal_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        tool_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Add a message without user_id ownership check.
+        Used by internal services (SMS webhook, proactive scheduler) where
+        the caller has already verified identity.
+        """
+        async with get_db_session() as session:
+            message = AIMessageDB(
+                id=str(uuid.uuid4()),
+                conversation_id=conversation_id,
+                role=role,
+                content=content,
+                tool_payload=json.dumps(tool_payload) if tool_payload else None,
+                created_at=datetime.utcnow(),
+            )
+            session.add(message)
+
+            # Update conversation timestamp
+            conv_result = await session.execute(
+                select(AIConversationDB).where(
+                    AIConversationDB.id == conversation_id
+                )
+            )
+            conversation = conv_result.scalars().first()
+            if conversation:
+                conversation.updated_at = datetime.utcnow()
+
+            await session.commit()
+
+            return self._serialize_message(message)
+
     def _serialize_conversation(
         self,
         conversation: AIConversationDB,

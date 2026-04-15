@@ -1,5 +1,11 @@
-"""Sendblue iMessage webhook endpoint for habit logging via text and image."""
+"""Sendblue iMessage webhook endpoint for habit logging via text and image.
 
+Messages are routed through the Vercel orchestrator for full AI chat
+capabilities. If the orchestrator is unreachable or errors, we fall
+back to the legacy fuzzy-matching parser so habit logging never regresses.
+"""
+
+import json
 import logging
 import os
 import re
@@ -15,12 +21,17 @@ from models.habit_models import HabitLogCreate
 from services.habits_service import HabitsService
 from services.sendblue_service import send_message
 from services.user_service import UserService
+from services.conversation_service import conversation_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sendblue"])
 
 SENDBLUE_WEBHOOK_SECRET = os.getenv("SENDBLUE_WEBHOOK_SECRET", "")
+DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "https://desktop.ritualdb.com")
+INTERNAL_SMS_CHAT_SECRET = os.getenv("INTERNAL_SMS_CHAT_SECRET", "")
+INTERNAL_BACKEND_TOKEN = os.getenv("INTERNAL_BACKEND_TOKEN", "")
+ORCHESTRATOR_TIMEOUT = 15.0  # seconds
 
 
 _UNIT_SUFFIXES = re.compile(
@@ -234,11 +245,134 @@ async def sendblue_webhook(request: Request):
         )
         return {"status": "ok", "error": "user_not_found"}
 
-    # Get user's habits
+    # Find or create the persistent SMS conversation for this user
+    conversation = await conversation_service.find_or_create_sms_conversation(user.id)
+    conversation_id = conversation["id"]
+
+    # Persist the user's inbound message
+    await conversation_service.add_internal_message(
+        conversation_id=conversation_id,
+        role="user",
+        content=message_text or f"[image: {media_url}]",
+    )
+
+    # Load recent conversation history for context
+    recent_messages = await conversation_service.get_sms_message_history(user.id, limit=20)
+
+    # --- Try the orchestrator path (full AI chat with tools) ---
+    media_urls = [media_url] if media_url else []
+
+    try:
+        result = await _call_orchestrator(
+            user_id=user.id,
+            conversation_id=conversation_id,
+            user_message=message_text or "",
+            recent_messages=recent_messages,
+            media_urls=media_urls,
+            timezone=user.timezone,
+        )
+
+        reply_text = result.get("text", "")
+        if not reply_text:
+            raise ValueError("Orchestrator returned empty text")
+
+        # Persist the assistant's reply
+        await conversation_service.add_internal_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=reply_text,
+            tool_payload={"tool_calls_made": result.get("tool_calls_made", [])},
+        )
+
+        # Send via SendBlue
+        await send_message(sender_phone, reply_text)
+
+        logger.info(
+            "SMS chat reply sent to %s (tools: %s)",
+            sender_phone,
+            result.get("tool_calls_made", []),
+        )
+        return {
+            "status": "ok",
+            "user_id": user.id,
+            "path": "orchestrator",
+            "tool_calls_made": result.get("tool_calls_made", []),
+        }
+
+    except Exception as exc:
+        logger.exception(
+            "Orchestrator path failed for user %s, falling back to legacy parser: %s",
+            user.id,
+            exc,
+        )
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
+
+        # SAFETY NET: fall back to the existing fuzzy parser
+        return await _legacy_fuzzy_logging_fallback(
+            user=user,
+            message_text=message_text,
+            media_url=media_url,
+            sender_phone=sender_phone,
+            conversation_id=conversation_id,
+        )
+
+
+async def _call_orchestrator(
+    user_id: str,
+    conversation_id: str,
+    user_message: str,
+    recent_messages: list,
+    media_urls: list,
+    timezone: Optional[str] = None,
+) -> dict:
+    """Call the Vercel SMS chat endpoint and return the response."""
+    url = f"{DASHBOARD_BASE_URL}/api/chat/sms"
+
+    payload = {
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "user_message": user_message,
+        "recent_messages": recent_messages,
+        "timezone": timezone or "UTC",
+        "media_urls": media_urls,
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-internal-secret": INTERNAL_SMS_CHAT_SECRET,
+        "x-backend-token": INTERNAL_BACKEND_TOKEN,
+    }
+
+    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT) as client:
+        response = await client.post(url, json=payload, headers=headers)
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Orchestrator returned {response.status_code}: {response.text[:200]}"
+        )
+
+    return response.json()
+
+
+async def _legacy_fuzzy_logging_fallback(
+    user,
+    message_text: str,
+    media_url: str,
+    sender_phone: str,
+    conversation_id: str,
+) -> dict:
+    """
+    Safety-net fallback: use the existing fuzzy text parser when the
+    orchestrator is unavailable. Keeps habit logging functional even
+    if the AI chat path is down.
+    """
     habits_service = HabitsService()
     habits = await habits_service.get_habits(user.id)
 
-    # --- Try image analysis first if media is attached ---
     match = None
     source_label = message_text or ""
 
@@ -247,7 +381,6 @@ async def sendblue_webhook(request: Request):
         if match:
             source_label = match.get("description", source_label or "image")
 
-    # --- Fall back to text parsing if no image match ---
     if not match and message_text:
         match = _parse_habit_log_from_text(message_text, habits)
         source_label = message_text
@@ -259,8 +392,7 @@ async def sendblue_webhook(request: Request):
             if media_url
             else "I couldn't match that to a habit."
         )
-        await send_message(
-            sender_phone,
+        reply = (
             f"{tip} Try something like:\n"
             f"- \"30mg caffeine\"\n"
             f"- \"5 miles daily walk\"\n"
@@ -268,16 +400,38 @@ async def sendblue_webhook(request: Request):
             f"- Or send a screenshot of your workout/health app\n\n"
             f"Your habits: {habit_names}"
         )
-        return {"status": "ok", "error": "no_habit_match", "user_id": user.id}
+        await send_message(sender_phone, reply)
 
-    # --- Log the matched habit ---
-    return await _log_and_confirm(
+        # Persist the fallback reply
+        await conversation_service.add_internal_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=reply,
+        )
+
+        return {"status": "ok", "error": "no_habit_match", "user_id": user.id, "path": "fallback"}
+
+    result = await _log_and_confirm(
         habits_service=habits_service,
         user=user,
         match=match,
         sender_phone=sender_phone,
         source_label=source_label,
     )
+    result["path"] = "fallback"
+
+    # Persist the fallback confirmation
+    amount_str = ""
+    if match.get("amount") is not None:
+        unit = match.get("unit_type") or ""
+        amount_str = f" ({match['amount']}{' ' + unit if unit else ''})"
+    await conversation_service.add_internal_message(
+        conversation_id=conversation_id,
+        role="assistant",
+        content=f"Logged {match['habit_name']}{amount_str}",
+    )
+
+    return result
 
 
 _IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/gif", "image/heic", "image/webp"}

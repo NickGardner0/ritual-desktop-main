@@ -390,6 +390,9 @@ async def _run_migrations(session):
         ("users", "turso_migrated_at", "ALTER TABLE users ADD COLUMN turso_migrated_at DATETIME"),
         # OAuth scope for Whoop token refresh
         ("whoop_integrations", "scope", "ALTER TABLE whoop_integrations ADD COLUMN scope TEXT"),
+        # SMS chatbot: channel column on conversations + user timezone
+        ("ai_conversations", "channel", "ALTER TABLE ai_conversations ADD COLUMN channel TEXT NOT NULL DEFAULT 'app'"),
+        ("users", "timezone", "ALTER TABLE users ADD COLUMN timezone TEXT"),
     ]
     
     for table, column, sql in migrations:
@@ -654,6 +657,24 @@ async def _run_migrations(session):
             )
             """,
         ),
+        (
+            "sms_preferences",
+            """
+            CREATE TABLE IF NOT EXISTS sms_preferences (
+                user_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                proactive_enabled INTEGER NOT NULL DEFAULT 1,
+                quiet_hours_start TEXT,
+                quiet_hours_end TEXT,
+                max_proactive_per_day INTEGER NOT NULL DEFAULT 1,
+                allowed_triggers TEXT NOT NULL DEFAULT 'eod_recap',
+                last_proactive_sent_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
     ]
 
     for table_name, sql in create_table_sql:
@@ -683,6 +704,8 @@ async def _run_migrations(session):
         ("idx_heart_rate_samples_user_source_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_user_source_received ON heart_rate_samples (user_id, source_type, received_at)"),
         ("idx_heart_rate_samples_session_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_session_received ON heart_rate_samples (session_id, received_at)"),
         ("idx_heart_rate_rollups_user_bucket_source", "CREATE UNIQUE INDEX IF NOT EXISTS idx_heart_rate_rollups_user_bucket_source ON heart_rate_1m_rollups (user_id, bucket_start, source_preference)"),
+        # SMS chatbot: unique SMS conversation per user
+        ("idx_ai_conversations_user_sms_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_conversations_user_sms_unique ON ai_conversations (user_id) WHERE channel = 'sms'"),
     ]
 
     for index_name, sql in index_sql:

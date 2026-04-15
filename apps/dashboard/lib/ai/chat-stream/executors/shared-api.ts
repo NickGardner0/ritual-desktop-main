@@ -10,6 +10,7 @@ export const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http:/
 
 interface PythonApiRequestOptions {
   timeoutMs?: number;
+  extraHeaders?: Record<string, string>;
 }
 
 async function fetchWithTimeout(
@@ -38,6 +39,21 @@ async function fetchWithTimeout(
 // Python API helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse a composite token of the form "actualToken::userId" into its parts.
+ * When the SMS orchestrator calls Python API tools, the token is
+ * INTERNAL_BACKEND_TOKEN::user_id so that fetchPythonApi can automatically
+ * attach the x-internal-user-id header for service-level auth.
+ */
+function parseCompositeToken(token: string): { bearerToken: string; internalUserId?: string } {
+  const sep = token.indexOf('::');
+  if (sep === -1) return { bearerToken: token };
+  return {
+    bearerToken: token.substring(0, sep),
+    internalUserId: token.substring(sep + 2),
+  };
+}
+
 export async function fetchPythonApi(
   endpoint: string,
   token: string,
@@ -55,11 +71,18 @@ export async function fetchPythonApi(
 
   console.log(`🐍 Calling Python API: ${url.toString()}`);
 
+  const { bearerToken, internalUserId } = parseCompositeToken(token);
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${bearerToken}`,
+    'Content-Type': 'application/json',
+    ...(options?.extraHeaders || {}),
+  };
+  if (internalUserId) {
+    headers['x-internal-user-id'] = internalUserId;
+  }
+
   const response = await fetchWithTimeout(url.toString(), {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
   }, options?.timeoutMs);
 
   if (!response.ok) {
@@ -80,12 +103,19 @@ export async function fetchPythonApiPost(
   const url = `${PYTHON_API_BASE}${endpoint}`;
   console.log(`🐍 Calling Python API (POST): ${url}`);
 
+  const { bearerToken, internalUserId } = parseCompositeToken(token);
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${bearerToken}`,
+    'Content-Type': 'application/json',
+    ...(options?.extraHeaders || {}),
+  };
+  if (internalUserId) {
+    headers['x-internal-user-id'] = internalUserId;
+  }
+
   const response = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(body),
   }, options?.timeoutMs);
 

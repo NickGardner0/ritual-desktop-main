@@ -19,6 +19,7 @@ class UserDB(Base):
     
     phone_number = Column(String, nullable=True)
     sms_welcome_sent_at = Column(DateTime, nullable=True)
+    timezone = Column(String, nullable=True)  # e.g., "America/New_York"
     turso_db_name = Column(String, nullable=True)
     turso_db_url = Column(String, nullable=True)
     turso_provisioned_at = Column(DateTime, nullable=True)
@@ -603,14 +604,15 @@ class IntegrationDB(Base):
 class AIConversationDB(Base):
     """AI Chat conversation model for database"""
     __tablename__ = "ai_conversations"
-    
+
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     title = Column(String, nullable=True)  # Optional title for the conversation
     response_mode = Column(String, default="text")  # 'text' or 'voice' - controls response style
+    channel = Column(String, nullable=False, default="app")  # 'app', 'sms', or 'voice'
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     # Relationships
     user = relationship("UserDB", backref="ai_conversations")
     messages = relationship("AIMessageDB", back_populates="conversation", cascade="all, delete-orphan", order_by="AIMessageDB.created_at")
@@ -629,6 +631,24 @@ class AIMessageDB(Base):
     
     # Relationships
     conversation = relationship("AIConversationDB", back_populates="messages")
+
+
+class SmsPreferencesDB(Base):
+    """Per-user SMS/iMessage chatbot preferences."""
+    __tablename__ = "sms_preferences"
+
+    user_id = Column(String, ForeignKey("users.id"), primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    proactive_enabled = Column(Boolean, nullable=False, default=True)
+    quiet_hours_start = Column(String, nullable=True)  # "22:00" local time
+    quiet_hours_end = Column(String, nullable=True)     # "08:00"
+    max_proactive_per_day = Column(Integer, nullable=False, default=1)
+    allowed_triggers = Column(String, nullable=False, default="eod_recap")  # comma-separated
+    last_proactive_sent_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
 
 
 # ================================
