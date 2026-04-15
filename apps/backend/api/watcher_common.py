@@ -250,7 +250,7 @@ async def get_current_user(
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]
             credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-            return await jwt_auth(credentials)
+            return await jwt_auth(request, credentials)
     except Exception:
         logger.exception("Watcher JWT auth fallback failed")
 

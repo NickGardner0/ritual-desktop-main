@@ -577,7 +577,7 @@ async def _internal_scheduler_loop() -> None:
         # --- 2. Whoop sync ---
         try:
             from services.whoop_service import whoop_service as _whoop
-            from services.wearable_connection_service import wearable_connection_service as _wc
+            from services.unified_wearables_service import wearable_connection_service as _wc
             from database.connection import get_db_session
             from database.models import WhoopIntegrationDB
             from sqlalchemy import select as _sel
