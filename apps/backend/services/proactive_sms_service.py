@@ -26,7 +26,7 @@ from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
-DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "http://localhost:3000")
+DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "https://desktop.ritualdb.com")
 INTERNAL_SMS_CHAT_SECRET = os.getenv("INTERNAL_SMS_CHAT_SECRET", "")
 INTERNAL_BACKEND_TOKEN = os.getenv("INTERNAL_BACKEND_TOKEN", "")
 ORCHESTRATOR_TIMEOUT = 25.0
