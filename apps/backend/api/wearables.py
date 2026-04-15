@@ -1019,14 +1019,27 @@ def create_wearables_router(
             settings = json.loads(conn.settings_json) if isinstance(conn.settings_json, str) else conn.settings_json
             return {"selected_metrics": settings.get("metric_preferences", [])}
 
+    # Build a fast lookup from metric type → catalog info
+    _METRIC_INFO: dict[str, dict[str, str]] = {}
+    for _cat in _METRIC_CATALOG:
+        for _m in _cat["metrics"]:
+            _METRIC_INFO[_m["type"]] = {"name": _m["name"], "unit": _m["unit"], "category": _cat["category"]}
+
     @router.put("/api/wearables/apple/metric_preferences")
     async def put_metric_preferences(
         body: dict,
         current_user=Depends(get_current_user),
     ):
-        """Update the user's selected metric types. Body: { selected_metrics: string[] }"""
+        """Update the user's selected metric types. Body: { selected_metrics: string[] }
+
+        Also auto-creates Apple Health habits for newly selected metrics so
+        that incoming data from the iOS companion app is projected into habit
+        logs (without this, data arrives but is silently dropped because no
+        matching habit exists).
+        """
+        import uuid
         from database.connection import get_db_session
-        from database.models import WearableConnectionDB
+        from database.models import HabitDB, WearableConnectionDB
         from sqlalchemy import select
 
         selected = body.get("selected_metrics", [])
@@ -1039,7 +1052,11 @@ def create_wearables_router(
         if invalid:
             raise HTTPException(status_code=400, detail=f"Unknown metric types: {invalid}")
 
+        selected_set = set(selected)
+        created_habits: list[str] = []
+
         async with get_db_session() as session:
+            # --- Update connection preferences ---
             stmt = select(WearableConnectionDB).where(
                 WearableConnectionDB.user_id == current_user["id"],
                 WearableConnectionDB.provider == "apple_health",
@@ -1050,7 +1067,6 @@ def create_wearables_router(
             if not conn:
                 raise HTTPException(status_code=404, detail="No Apple Health connection found")
 
-            # Merge into existing settings_json
             settings = {}
             if conn.settings_json:
                 try:
@@ -1060,9 +1076,50 @@ def create_wearables_router(
 
             settings["metric_preferences"] = selected
             conn.settings_json = json.dumps(settings)
+
+            # --- Auto-create habits for selected metrics ---
+            habits_result = await session.execute(
+                select(HabitDB).where(
+                    HabitDB.user_id == current_user["id"],
+                    HabitDB.integration_source == "apple_health",
+                    HabitDB.metric_type.isnot(None),
+                )
+            )
+            existing_metric_types = {
+                h.metric_type for h in habits_result.scalars().all()
+            }
+
+            for metric_type in selected_set:
+                if metric_type in existing_metric_types:
+                    continue  # habit already exists
+                info = _METRIC_INFO.get(metric_type)
+                if not info:
+                    continue
+                habit = HabitDB(
+                    id=str(uuid.uuid4()),
+                    user_id=current_user["id"],
+                    name=info["name"],
+                    category=info["category"],
+                    icon=None,
+                    is_custom=False,
+                    integration_source="apple_health",
+                    unit_type=info["unit"],
+                    sensor_type="Apple Watch",
+                    metric_type=metric_type,
+                )
+                session.add(habit)
+                created_habits.append(metric_type)
+                logger.info(
+                    "Auto-created Apple Health habit '%s' (%s) for user %s",
+                    info["name"], metric_type, current_user["id"],
+                )
+
             await session.commit()
 
-        return {"selected_metrics": selected}
+        return {
+            "selected_metrics": selected,
+            "created_habits": created_habits,
+        }
 
     # ── Export Schedule ──────────────────────────────────────────────────
     @router.get("/api/wearables/apple/export_schedule")

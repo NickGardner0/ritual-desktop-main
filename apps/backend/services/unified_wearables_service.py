@@ -448,6 +448,96 @@ class WearableProjectionService:
             return "sleep" in habit_name and metric_hint in habit_name
         return False
 
+    # Metric type → human-readable name/unit for auto-created habits
+    _METRIC_DISPLAY: Dict[str, Dict[str, str]] = {
+        "steps": {"name": "Steps", "unit": "count", "category": "Activity"},
+        "active_energy": {"name": "Active Energy", "unit": "kcal", "category": "Activity"},
+        "basal_energy": {"name": "Basal Energy", "unit": "kcal", "category": "Activity"},
+        "distance": {"name": "Distance", "unit": "meters", "category": "Activity"},
+        "flights_climbed": {"name": "Flights Climbed", "unit": "count", "category": "Activity"},
+        "exercise_time": {"name": "Exercise Time", "unit": "minutes", "category": "Activity"},
+        "stand_time": {"name": "Stand Time", "unit": "minutes", "category": "Activity"},
+        "hr": {"name": "Heart Rate", "unit": "bpm", "category": "Heart"},
+        "hrv": {"name": "HRV", "unit": "ms", "category": "Heart"},
+        "resting_hr": {"name": "Resting Heart Rate", "unit": "bpm", "category": "Heart"},
+        "walking_hr": {"name": "Walking Heart Rate", "unit": "bpm", "category": "Heart"},
+        "sleep_session": {"name": "Sleep Session", "unit": "hours", "category": "Sleep"},
+        "sleep_asleep": {"name": "Asleep", "unit": "hours", "category": "Sleep"},
+        "sleep_awake": {"name": "Awake", "unit": "hours", "category": "Sleep"},
+        "sleep_rem": {"name": "REM Sleep", "unit": "hours", "category": "Sleep"},
+        "sleep_deep": {"name": "Deep Sleep", "unit": "hours", "category": "Sleep"},
+        "sleep_core": {"name": "Core Sleep", "unit": "hours", "category": "Sleep"},
+        "respiratory_rate": {"name": "Respiratory Rate", "unit": "breaths/min", "category": "Respiratory"},
+        "oxygen_saturation": {"name": "Oxygen Saturation", "unit": "%", "category": "Respiratory"},
+        "body_mass": {"name": "Weight", "unit": "kg", "category": "Body Measurements"},
+        "workout": {"name": "Workouts", "unit": "minutes", "category": "Workouts"},
+        "mindful_minutes": {"name": "Mindful Minutes", "unit": "minutes", "category": "Mindfulness"},
+    }
+
+    async def _auto_create_habit_if_preferred(
+        self,
+        session: Any,
+        *,
+        user_id: str,
+        provider: str,
+        metric_type: str,
+    ) -> Optional[HabitDB]:
+        """Auto-create a habit when data arrives for a metric the user selected
+        but no corresponding habit exists yet. Returns the new habit or None."""
+        import json as _json
+        import uuid
+
+        if provider != "apple_health":
+            return None
+
+        # Check if this metric is in the user's preferences
+        from database.models import WearableConnectionDB
+
+        conn_result = await session.execute(
+            select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == user_id,
+                WearableConnectionDB.provider == "apple_health",
+            )
+        )
+        conn = conn_result.scalar_one_or_none()
+        if not conn or not conn.settings_json:
+            return None
+
+        try:
+            settings = _json.loads(conn.settings_json)
+        except Exception:
+            return None
+
+        prefs = set(settings.get("metric_preferences", []))
+        normalized = metric_type.strip().lower()
+        if normalized not in prefs:
+            return None
+
+        info = self._METRIC_DISPLAY.get(normalized)
+        if not info:
+            # Unknown metric type — can't auto-create
+            return None
+
+        habit = HabitDB(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            name=info["name"],
+            category=info["category"],
+            icon=None,
+            is_custom=False,
+            integration_source="apple_health",
+            unit_type=info["unit"],
+            sensor_type="Apple Watch",
+            metric_type=normalized,
+        )
+        session.add(habit)
+        await session.flush()  # get the ID assigned
+        logger.info(
+            "Auto-created Apple Health habit '%s' (%s) for user %s during ingest",
+            info["name"], normalized, user_id,
+        )
+        return habit
+
     async def project_sample(
         self,
         *,
@@ -611,7 +701,16 @@ class WearableProjectionService:
                 if self._habit_matches_metric_type(habit, metric_type)
             ]
             if not habits:
-                return
+                # Auto-create a habit if the user has this metric in their
+                # preferences but no habit exists yet (e.g., data arrived
+                # before the PUT /metric_preferences call propagated).
+                habit = await self._auto_create_habit_if_preferred(
+                    session, user_id=user_id, provider=provider, metric_type=metric_type,
+                )
+                if habit:
+                    habits = [habit]
+                else:
+                    return
 
             for habit in habits:
                 existing_result = await session.execute(
