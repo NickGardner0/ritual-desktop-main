@@ -133,7 +133,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
       <div
         className={cn(
           "flex items-center h-[32px] cursor-pointer",
-          isExpanded ? "gap-2 px-1" : "justify-center",
+          isExpanded ? "justify-start px-1" : "justify-center",
         )}
         onClick={() => setActive(!isActive)}
       >
@@ -142,11 +142,6 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
             <span className="text-xs font-medium">{getUserInitial()}</span>
           </AvatarFallback>
         </Avatar>
-        {isExpanded && (
-          <span className="text-sm text-primary truncate hover:opacity-80">
-            {getUserName()}
-          </span>
-        )}
       </div>
 
       {/* Dropdown menu — absolute, positioned above the avatar */}
