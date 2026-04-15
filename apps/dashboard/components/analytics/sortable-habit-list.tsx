@@ -248,7 +248,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-10 min-h-[38px] rounded-[6px] px-2 py-[3px] bg-[var(--content-bg)] hover:bg-[#f6f6f5] cursor-grab active:cursor-grabbing ${
+        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-6 min-h-[32px] rounded-[6px] px-1.5 py-[1px] bg-[var(--content-bg)] hover:bg-[#f6f6f5] cursor-grab active:cursor-grabbing ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}
