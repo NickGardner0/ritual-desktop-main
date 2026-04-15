@@ -26,6 +26,7 @@ import {
   ritualQueryKeys,
 } from '@/lib/query-invalidation';
 import {
+  clearReadConsistencyRequirement,
   getReadConsistencyHeaders,
   markReadConsistencyRequired,
   shouldForceFreshRead,
@@ -196,13 +197,13 @@ export function useHabitsQuery() {
     [user?.id],
   );
   const fallbackSnapshot = useMemo(() => {
-    if (!user?.id || bypassPersistedSnapshot) return null;
+    if (!user?.id) return null;
 
     return (
       getSuccessfulQuerySnapshot<Habit[]>(queryClient, habitKeys.list(user.id))
       || readPersistedSnapshot<Habit[]>(HABITS_SNAPSHOT_STORAGE_KEY, user.id)
     );
-  }, [bypassPersistedSnapshot, queryClient, user?.id]);
+  }, [queryClient, user?.id]);
 
   return useQuery({
     queryKey: habitKeys.list(user?.id || 'anonymous'),
@@ -211,25 +212,34 @@ export function useHabitsQuery() {
 
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress); }
 
-      const response = await fetch(LOCAL_HABITS_API, {
-        cache: 'no-store',
-        credentials: 'include',
-        headers: {
-          ...getReadConsistencyHeaders(user.id),
-        },
-      });
+      try {
+        const response = await fetch(LOCAL_HABITS_API, {
+          cache: 'no-store',
+          credentials: 'include',
+          headers: {
+            ...getReadConsistencyHeaders(user.id),
+          },
+        });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch habits: ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch habits: ${response.status}`);
+        }
+
+        const habits = await response.json();
+        persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, habits as Habit[], user.id);
+        clearReadConsistencyRequirement(user.id);
+        if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', habits.length); }
+        return habits as Habit[];
+      } catch (error) {
+        if (fallbackSnapshot?.data) {
+          console.warn('⚠️ [React Query] Falling back to persisted habits snapshot:', error);
+          return fallbackSnapshot.data;
+        }
+        throw error;
       }
-
-      const habits = await response.json();
-      persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, habits as Habit[], user.id);
-      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', habits.length); }
-      return habits as Habit[];
     },
-    initialData: fallbackSnapshot?.data,
-    initialDataUpdatedAt: fallbackSnapshot?.updatedAt,
+    initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
+    initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
     enabled: isLoaded && !!user?.id,
     staleTime: QUERY_POLICY.optimisticEntity.staleTime,
     gcTime: QUERY_POLICY.optimisticEntity.gcTime,
@@ -247,13 +257,13 @@ export function useHabitLogsQuery() {
     [user?.id],
   );
   const fallbackSnapshot = useMemo(() => {
-    if (!user?.id || bypassPersistedSnapshot) return null;
+    if (!user?.id) return null;
 
     return (
       getSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.list(user.id))
       || readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user.id)
     );
-  }, [bypassPersistedSnapshot, queryClient, user?.id]);
+  }, [queryClient, user?.id]);
 
   return useQuery({
     queryKey: habitLogKeys.list(user?.id || 'anonymous'),
@@ -262,30 +272,39 @@ export function useHabitLogsQuery() {
 
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habit logs...'); }
 
-      const response = await fetch(LOCAL_HABIT_LOGS_API, {
-        cache: 'no-store',
-        credentials: 'include',
-        headers: {
-          ...getReadConsistencyHeaders(user.id),
-        },
-      });
+      try {
+        const response = await fetch(LOCAL_HABIT_LOGS_API, {
+          cache: 'no-store',
+          credentials: 'include',
+          headers: {
+            ...getReadConsistencyHeaders(user.id),
+          },
+        });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch habit logs: ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch habit logs: ${response.status}`);
+        }
+
+        const logs = await response.json();
+        const processedLogs = logs.map((log: any) => ({
+          ...log,
+          duration: log.duration || 0,
+        }));
+
+        persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, processedLogs as HabitLog[], user.id);
+        clearReadConsistencyRequirement(user.id);
+        if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', processedLogs.length); }
+        return processedLogs as HabitLog[];
+      } catch (error) {
+        if (fallbackSnapshot?.data) {
+          console.warn('⚠️ [React Query] Falling back to persisted habit logs snapshot:', error);
+          return fallbackSnapshot.data;
+        }
+        throw error;
       }
-
-      const logs = await response.json();
-      const processedLogs = logs.map((log: any) => ({
-        ...log,
-        duration: log.duration || 0,
-      }));
-
-      persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, processedLogs as HabitLog[], user.id);
-      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', processedLogs.length); }
-      return processedLogs as HabitLog[];
     },
-    initialData: fallbackSnapshot?.data,
-    initialDataUpdatedAt: fallbackSnapshot?.updatedAt,
+    initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
+    initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
     enabled: isLoaded && !!user?.id,
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background
