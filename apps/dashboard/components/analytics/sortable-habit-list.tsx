@@ -25,9 +25,14 @@ import type { Habit } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { getHabitDisplayName } from '@/lib/computer-time-habit';
 
+interface HabitMetricParts {
+  value: string;
+  unit: string;
+}
+
 interface SortableHabitItemProps {
   habit: Habit;
-  getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
+  getHabitMetricParts: (habit: Habit, hoveredValue?: number) => HabitMetricParts;
   getHabitMetricClassName: (habit: Habit) => string;
   /** Pre-computed hovered value for THIS specific habit (undefined if not hovered) */
   hoveredValue: number | undefined;
@@ -148,7 +153,7 @@ function HabitEditDialog({
 
 const SortableHabitItem = React.memo(function SortableHabitItem({
   habit,
-  getHabitMetricDisplay,
+  getHabitMetricParts,
   getHabitMetricClassName,
   hoveredValue,
   isTooltipOpen,
@@ -160,6 +165,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   isDeleting,
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
+  const metricParts = getHabitMetricParts(habit, hoveredValue);
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
   const metricClickTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
@@ -263,11 +269,14 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
         >
-          <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums leading-[1.04]">
-            <span className={getHabitMetricClassName(habit)}>
-              {getHabitMetricDisplay(habit, hoveredValue)}
+          <div className="grid grid-cols-[max-content_78px] items-baseline gap-x-2 text-[17.5px] font-normal leading-[1.04] select-none">
+            <span className={`tabular-nums text-right ${getHabitMetricClassName(habit)}`}>
+              {metricParts.value}
             </span>
-          </span>
+            <span className="text-left text-gray-900">
+              {metricParts.unit}
+            </span>
+          </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -341,7 +350,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
 export interface SortableHabitListProps {
   habits: Habit[];
   onReorder: (habits: Habit[]) => void;
-  getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
+  getHabitMetricParts: (habit: Habit, hoveredValue?: number) => HabitMetricParts;
   getHabitMetricClassName: (habit: Habit) => string;
   scrubberHoveredDate: string | null;
   scrubberHoveredValues: Record<string, number> | null;
@@ -367,7 +376,7 @@ export interface SortableHabitListProps {
 function SortableHabitListInner({
   habits,
   onReorder,
-  getHabitMetricDisplay,
+  getHabitMetricParts,
   getHabitMetricClassName,
   scrubberHoveredDate,
   scrubberHoveredValues,
@@ -414,7 +423,7 @@ function SortableHabitListInner({
               <SortableHabitItem
                 key={habitId}
                 habit={habit}
-                getHabitMetricDisplay={getHabitMetricDisplay}
+                getHabitMetricParts={getHabitMetricParts}
                 getHabitMetricClassName={getHabitMetricClassName}
                 hoveredValue={
                   scrubberHoveredDate && scrubberHoveredValues

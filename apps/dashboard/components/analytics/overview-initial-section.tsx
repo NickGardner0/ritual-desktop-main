@@ -81,7 +81,7 @@ function OverviewInitialSectionInner({
   scrubberHoveredValues,
   activeTooltip,
   setActiveTooltip,
-  getHabitMetricDisplay,
+  getHabitMetricParts,
   getHabitMetricClassName,
   getHabitMetricStats,
   onUpdateHabitDetails,
@@ -160,7 +160,7 @@ function OverviewInitialSectionInner({
           <SortableHabitList
             habits={orderedHabits}
             onReorder={onReorder}
-            getHabitMetricDisplay={getHabitMetricDisplay}
+            getHabitMetricParts={getHabitMetricParts}
             getHabitMetricClassName={getHabitMetricClassName}
             scrubberHoveredDate={scrubberHoveredDate}
             scrubberHoveredValues={scrubberHoveredValues}

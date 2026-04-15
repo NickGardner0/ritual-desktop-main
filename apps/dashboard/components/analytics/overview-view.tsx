@@ -58,8 +58,14 @@ interface HabitMetricStatsData {
   daysWithData: number;
 }
 
+interface HabitMetricParts {
+  value: string;
+  unit: string;
+}
+
 interface HabitMetricData {
   display: string;
+  parts: HabitMetricParts;
   stats: HabitMetricStatsData;
 }
 
@@ -70,7 +76,7 @@ function formatMetricAmount(value: number, unitType: string): string {
   const unitLower = unitType.toLowerCase();
 
   if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
-    return Math.round(rounded).toString();
+    return Math.round(rounded).toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
 
   if (['miles', 'km', 'kilometers'].includes(unitLower)) {
@@ -82,8 +88,22 @@ function formatMetricAmount(value: number, unitType: string): string {
   }
 
   return Number.isInteger(rounded)
-    ? rounded.toString()
+    ? rounded.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function formatMetricParts(value: number, unitType: string): HabitMetricParts {
+  if (isPercentLikeUnit(unitType)) {
+    return {
+      value: formatMetricAmount(value, unitType),
+      unit: '%',
+    };
+  }
+
+  return {
+    value: formatMetricAmount(value, unitType),
+    unit: unitType,
+  };
 }
 
 function isPercentLikeUnit(unitType: string): boolean {
@@ -108,10 +128,8 @@ function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummary
 }
 
 function formatMetricDisplay(value: number, unitType: string): string {
-  if (isPercentLikeUnit(unitType)) {
-    return `${formatMetricAmount(value, unitType)}%`;
-  }
-  return `${formatMetricAmount(value, unitType)} ${unitType}`;
+  const parts = formatMetricParts(value, unitType);
+  return `${parts.value} ${parts.unit}`;
 }
 
 interface OverviewViewProps {
@@ -516,6 +534,7 @@ export function OverviewView({
             const zeroDisplay = formatMetricDisplay(0, unitLabel);
             return {
               display: zeroDisplay,
+              parts: formatMetricParts(0, unitLabel),
               stats: {
                 unitLabel,
                 sumFormatted: zeroDisplay,
@@ -578,6 +597,7 @@ export function OverviewView({
 
       return {
         display: formatMetricDisplay(displayValue, unitLabel),
+        parts: formatMetricParts(displayValue, unitLabel),
         stats: {
           unitLabel,
           sumFormatted: formatMetricDisplay(total, unitLabel),
@@ -599,11 +619,16 @@ export function OverviewView({
         const shouldUseCachedComputerFallback = Boolean(cachedStats) && computerSnapshotQuery.isPlaceholderData;
 
         if (shouldUseCachedComputerFallback && cachedStats) {
+          const totalValue = formatHabitStatNumber(Number(cachedStats.total || 0));
           next.set(habitId, {
-            display: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
+            display: `${totalValue} Hours`,
+            parts: {
+              value: totalValue,
+              unit: 'Hours',
+            },
             stats: {
               unitLabel: 'Hours',
-              sumFormatted: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
+              sumFormatted: `${totalValue} Hours`,
               avgFormatted: `${formatHabitStatNumber(Number(cachedStats.average || 0))} Hours`,
               minFormatted: `${formatHabitStatNumber(Number(cachedStats.min || 0))} Hours`,
               maxFormatted: `${formatHabitStatNumber(Number(cachedStats.max || 0))} Hours`,
@@ -624,8 +649,13 @@ export function OverviewView({
           : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
 
         if (rows.length === 0 && effectiveComputerActivitySummary) {
+          const totalValue = formatHabitStatNumber(totalHours);
           next.set(habitId, {
-            display: `${formatHabitStatNumber(totalHours)} Hours`,
+            display: `${totalValue} Hours`,
+            parts: {
+              value: totalValue,
+              unit: 'Hours',
+            },
             stats: {
               unitLabel: 'Hours',
               sumFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.total_hours || 0))} Hours`,
@@ -649,11 +679,16 @@ export function OverviewView({
           ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
           : 0;
 
+        const totalValue = formatHabitStatNumber(totalHours);
         next.set(habitId, {
-          display: `${formatHabitStatNumber(totalHours)} Hours`,
+          display: `${totalValue} Hours`,
+          parts: {
+            value: totalValue,
+            unit: 'Hours',
+          },
           stats: {
             unitLabel: 'Hours',
-            sumFormatted: `${formatHabitStatNumber(totalHours)} Hours`,
+            sumFormatted: `${totalValue} Hours`,
             avgFormatted: `${formatHabitStatNumber(average)} Hours`,
             minFormatted: `${formatHabitStatNumber(min)} Hours`,
             maxFormatted: `${formatHabitStatNumber(max)} Hours`,
@@ -679,6 +714,7 @@ export function OverviewView({
         const cachedDisplayValue = isAverageDisplayMetric(habit) ? Number(stats.average || 0) : Number(stats.total || 0);
         next.set(habitId, {
           display: formatMetricDisplay(cachedDisplayValue, unitLabel),
+          parts: formatMetricParts(cachedDisplayValue, unitLabel),
           stats: {
             unitLabel,
             sumFormatted: formatMetricDisplay(Number(stats.total || 0), unitLabel),
@@ -713,27 +749,30 @@ export function OverviewView({
     traceSyncComputation,
   ]);
 
-  const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
+  const getHabitMetricParts = useCallback((habit: Habit, previewValue?: number | null): HabitMetricParts => {
     const unitType = habit.unit_type || 'sessions';
 
     if (isComputerHabitName(habit.name) && scrubberHoveredDate) {
       const hoveredRow = computerActivityByDay.get(scrubberHoveredDate);
       if (hoveredRow) {
-        return `${formatHabitStatNumber(Number(hoveredRow.active_hours || 0))} Hours`;
+        return {
+          value: formatHabitStatNumber(Number(hoveredRow.active_hours || 0)),
+          unit: 'Hours',
+        };
       }
     }
 
     if (previewValue !== undefined && previewValue !== null) {
       if (unitType.toLowerCase().includes('hour')) {
-        return `${formatHabitStatNumber(previewValue / 60)} Hours`;
+        return formatMetricParts(previewValue / 60, 'Hours');
       }
       if (unitType.toLowerCase().includes('minute')) {
-        return `${Math.round(previewValue)} Minutes`;
+        return formatMetricParts(Math.round(previewValue), 'Minutes');
       }
-      return formatMetricDisplay(previewValue, unitType);
+      return formatMetricParts(previewValue, unitType);
     }
 
-    return habitMetricDataById.get(habit.id || '')?.display || `0 ${unitType}`;
+    return habitMetricDataById.get(habit.id || '')?.parts || formatMetricParts(0, unitType);
   }, [computerActivityByDay, formatHabitStatNumber, habitMetricDataById, scrubberHoveredDate]);
 
   const getHabitMetricClassName = useCallback(() => 'text-gray-900', []);
@@ -849,7 +888,7 @@ export function OverviewView({
         onShowSelectionModal={handleOpenSelectionModal}
         onShowImportModal={handleOpenImportModal}
         onReorder={handleReorder}
-        getHabitMetricDisplay={getHabitMetricDisplay}
+        getHabitMetricParts={getHabitMetricParts}
         getHabitMetricClassName={getHabitMetricClassName}
         scrubberHoveredDate={scrubberHoveredDate}
         scrubberHoveredValues={scrubberHoveredValues}
