@@ -70,11 +70,14 @@ function formatMetricAmount(value: number, unitType: string): string {
   const unitLower = unitType.toLowerCase();
 
   if (['bpm', 'steps', 'count', 'pages', 'reps', 'sets', 'sessions'].includes(unitLower)) {
-    return Math.round(rounded).toString();
+    return Math.round(rounded).toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
 
   if (['miles', 'km', 'kilometers'].includes(unitLower)) {
-    return rounded.toFixed(1);
+    return rounded.toLocaleString(undefined, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
   }
 
   if (['hours', 'minutes'].includes(unitLower)) {
@@ -82,7 +85,7 @@ function formatMetricAmount(value: number, unitType: string): string {
   }
 
   return Number.isInteger(rounded)
-    ? rounded.toString()
+    ? rounded.toLocaleString(undefined, { maximumFractionDigits: 0 })
     : rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 

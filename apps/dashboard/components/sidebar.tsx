@@ -11,8 +11,26 @@ import { useSidebarMode } from "@/contexts/SidebarModeContext";
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
+function SidebarChromeToggleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="2.75" y="4" width="18.5" height="16" rx="3.25" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M9.6 5.5V18.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <rect x="5.1" y="7.05" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+      <rect x="5.1" y="11.1" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+      <rect x="5.1" y="15.15" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function Sidebar() {
-  const { mode } = useSidebarMode();
+  const { mode, setMode } = useSidebarMode();
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -37,6 +55,12 @@ export function Sidebar() {
       : {};
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+  const showChromeToggle = mode === "expanded";
+
+  const handleChromeToggle = useCallback(() => {
+    setIsHovered(false);
+    setMode(mode === "expanded" ? "compact" : "expanded");
+  }, [mode, setMode]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -65,6 +89,17 @@ export function Sidebar() {
         className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] h-[80px] flex items-center justify-center"
         style={{ width: COLLAPSED_WIDTH }}
       >
+        {showChromeToggle ? (
+          <button
+            type="button"
+            onClick={handleChromeToggle}
+            className="no-drag absolute left-[58px] top-[11px] flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(97,98,100)] transition-colors hover:text-[#2f2c25]"
+            aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
+            title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
+          >
+            <SidebarChromeToggleIcon className="h-[17px] w-[17px]" />
+          </button>
+        ) : null}
         <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[31px] transition-none">
           <img
             src="/images/eclipse.svg"
