@@ -8,12 +8,8 @@ import {
   Monitor,
   Watch,
   X,
-  Type,
-  ChevronRight,
   ChevronDown,
   AlertTriangle,
-  Database,
-  Trash2,
   LogOut,
 } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
@@ -29,7 +25,6 @@ import { AppleWatchSettings } from './apple-watch-settings';
 
 export type SettingsTabId = 'account' | 'computer-tracking' | 'apple-health';
 
-// Keep external interface compatible
 type SettingsView = SettingsTabId;
 
 interface SettingsModalProps {
@@ -83,20 +78,17 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const [showRetrievalHealth, setShowRetrievalHealth] = useState(false);
   const wasOpenRef = useRef(false);
 
-  // Sync tab when opening with initialView
   useEffect(() => {
     if (isOpen && initialView) {
       startTransition(() => setActiveTab(initialView));
     }
   }, [isOpen, initialView]);
 
-  // Call onOpen when modal first opens (closes sidebar)
   useEffect(() => {
     if (isOpen && !wasOpenRef.current && onOpen) onOpen();
     wasOpenRef.current = isOpen;
   }, [isOpen, onOpen]);
 
-  // Dev-only retrieval health flag
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const email = user?.primaryEmailAddress?.emailAddress || '';
@@ -106,7 +98,6 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
     setShowRetrievalHealth(enabled);
   }, [user]);
 
-  // Close dropdowns when switching tabs
   useEffect(() => {
     setShowFontDropdown(false);
     setShowSidebarDropdown(false);
@@ -120,7 +111,6 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
 
   if (!isOpen) return null;
 
-  // ---------- derived user info ----------
   const userEmail = user?.primaryEmailAddress?.emailAddress || '';
   const userName = user?.username || user?.firstName || userEmail.split('@')[0];
   const userInitial = (userName || userEmail).charAt(0).toUpperCase();
@@ -145,26 +135,25 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
     console.log('Clear history clicked');
   };
 
-  // ---------- render ----------
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-[#e8e5df]/70" onClick={handleClose} />
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" onClick={handleClose} />
 
       {/* Dialog */}
-      <div className="relative bg-[#FCFCFB] w-full max-w-[720px] border border-gray-200/90 shadow-[0_16px_48px_rgba(15,23,42,0.08)] rounded-xl z-10 overflow-hidden h-[min(520px,calc(100vh-3rem))] flex flex-col">
+      <div className="relative flex h-[min(540px,calc(100vh-3rem))] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl border border-gray-200/80 bg-[#FCFCFB] shadow-[0_24px_64px_rgba(0,0,0,0.08)] z-10">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200/70 bg-[#FCFCFB] flex-shrink-0">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200/60 px-5 py-3">
           <h2 className="text-[15px] font-semibold text-gray-900">Settings</h2>
-          <button onClick={handleClose} className="p-1 rounded-sm transition-colors hover:bg-gray-100">
-            <X className="w-4 h-4 text-gray-500" />
+          <button onClick={handleClose} className="rounded-lg p-1.5 transition-colors hover:bg-gray-100">
+            <X className="h-4 w-4 text-gray-400" />
           </button>
         </div>
 
         {/* Body: sidebar + content */}
         <div className="flex flex-1 min-h-0">
           {/* Left sidebar nav */}
-          <nav className="w-44 flex-shrink-0 border-r border-gray-200/70 bg-[#F8F8F7] py-2 px-2 overflow-y-auto">
+          <nav className="w-44 flex-shrink-0 border-r border-gray-200/60 bg-[#F8F8F7] px-2.5 py-3 overflow-y-auto">
             <div className="flex flex-col gap-0.5">
               {TAB_ORDER.map((id) => {
                 const { label, icon: Icon } = TABS[id];
@@ -173,14 +162,14 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     key={id}
                     onClick={() => setActiveTab(id)}
                     className={cn(
-                      'w-full flex items-center gap-2.5 px-2.5 py-[7px] text-[13px] text-left rounded-md transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-left transition-colors',
                       'hover:bg-gray-200/50',
                       activeTab === id
                         ? 'bg-gray-200/60 text-gray-900 font-medium'
                         : 'text-gray-500',
                     )}
                   >
-                    <Icon className="w-[15px] h-[15px] flex-shrink-0" />
+                    <Icon className="h-[15px] w-[15px] flex-shrink-0" />
                     {label}
                   </button>
                 );
@@ -190,154 +179,143 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
 
           {/* Right content */}
           <div className="flex-1 overflow-y-auto">
-            {/* General tab */}
+            {/* ============================================================ */}
+            {/* General tab                                                   */}
+            {/* ============================================================ */}
             {activeTab === 'account' && (
-              <div className="p-4 space-y-0">
+              <div className="p-5 space-y-5">
                 {/* Profile */}
-                <div className="pb-3 mb-0 flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-full bg-[#6366F1] flex items-center justify-center text-white text-[13px] font-medium flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#6366F1] text-[13px] font-medium text-white flex-shrink-0">
                     {userInitial}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-gray-900 truncate">{userName}</div>
+                    <p className="text-sm font-medium text-gray-900 truncate">{userName}</p>
                     <button
                       onClick={handleManageAccount}
-                      className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                      className="text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
                     >
-                      Manage Account
+                      Manage account
                     </button>
                   </div>
                 </div>
 
-                {/* AI Data Retention */}
-                <SettingsRow label="AI Data Retention" icon={<Database className="w-4 h-4 text-gray-500" />}>
-                  <button
-                    onClick={() => setAiDataRetention(!aiDataRetention)}
-                    className={cn(
-                      'relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors',
-                      aiDataRetention ? 'bg-black' : 'bg-gray-300',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform',
-                        aiDataRetention ? 'translate-x-[18px]' : 'translate-x-1',
+                <div className="border-t border-gray-100" />
+
+                {/* Preferences */}
+                <div className="space-y-1">
+                  {/* AI Data Retention */}
+                  <div className="flex items-center justify-between py-2.5">
+                    <div>
+                      <p className="text-[13px] font-medium text-gray-900">AI data retention</p>
+                      <p className="text-[13px] text-gray-500">Let Ritual save and use memories when answering.</p>
+                    </div>
+                    <Toggle checked={aiDataRetention} onChange={() => setAiDataRetention(!aiDataRetention)} />
+                  </div>
+
+                  {/* App Font */}
+                  <div className="flex items-center justify-between py-2.5">
+                    <p className="text-[13px] font-medium text-gray-900">App font</p>
+                    <div className="relative">
+                      <button
+                        onClick={() => { setShowFontDropdown(!showFontDropdown); setShowSidebarDropdown(false); }}
+                        className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
+                          {fontOptions.find((f) => f.value === font)?.label}
+                        </span>
+                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                      </button>
+                      {showFontDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setShowFontDropdown(false)} />
+                          <div className="absolute right-0 top-full z-20 mt-1.5 min-w-[180px] overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                            {fontOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                onClick={() => { setFont(option.value); setShowFontDropdown(false); }}
+                                className={cn(
+                                  'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left transition-colors hover:bg-gray-50',
+                                  font === option.value ? 'text-gray-900 font-medium' : 'text-gray-600',
+                                  option.value === 'system-ui' && 'font-system-ui',
+                                )}
+                              >
+                                {option.label}
+                                {font === option.value && <span className="text-[13px] text-gray-900">✓</span>}
+                              </button>
+                            ))}
+                          </div>
+                        </>
                       )}
-                    />
+                    </div>
+                  </div>
+
+                  {/* Sidebar Mode */}
+                  <div className="flex items-center justify-between py-2.5">
+                    <p className="text-[13px] font-medium text-gray-900">Sidebar</p>
+                    <div className="relative">
+                      <button
+                        onClick={() => { setShowSidebarDropdown(!showSidebarDropdown); setShowFontDropdown(false); }}
+                        className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        <span>{sidebarModeOptions.find((o) => o.value === sidebarMode)?.label}</span>
+                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                      </button>
+                      {showSidebarDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setShowSidebarDropdown(false)} />
+                          <div className="absolute right-0 top-full z-20 mt-1.5 min-w-[180px] overflow-hidden rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                            {sidebarModeOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                onClick={() => { setSidebarMode(option.value); setShowSidebarDropdown(false); }}
+                                className={cn(
+                                  'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left transition-colors hover:bg-gray-50',
+                                  sidebarMode === option.value ? 'text-gray-900 font-medium' : 'text-gray-600',
+                                )}
+                              >
+                                {option.label}
+                                {sidebarMode === option.value && <span className="text-[13px] text-gray-900">✓</span>}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100" />
+
+                {/* Account actions */}
+                <div className="space-y-1">
+                  <button
+                    onClick={handleClearHistory}
+                    className="flex w-full items-center py-2.5 text-[13px] text-gray-700 transition-colors hover:text-gray-900"
+                  >
+                    Clear history
                   </button>
-                </SettingsRow>
 
-                {/* App Font */}
-                <SettingsRow label="App Font" icon={<Type className="w-4 h-4 text-gray-500" />}>
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowFontDropdown(!showFontDropdown)}
-                      className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                    >
-                      <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
-                        {fontOptions.find((f) => f.value === font)?.label}
-                      </span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                    {showFontDropdown && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setShowFontDropdown(false)} />
-                        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg rounded-lg z-20 min-w-[170px] py-1">
-                          {fontOptions.map((option) => (
-                            <button
-                              key={option.value}
-                              onClick={() => {
-                                setFont(option.value);
-                                setShowFontDropdown(false);
-                              }}
-                              className={cn(
-                                'w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center justify-between',
-                                font === option.value ? 'text-gray-900' : 'text-gray-600',
-                                option.value === 'system-ui' && 'font-system-ui',
-                              )}
-                            >
-                              {option.label}
-                              {font === option.value && <span className="text-black text-xs">✓</span>}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </SettingsRow>
+                  <button
+                    onClick={handleSignOut}
+                    className="flex w-full items-center py-2.5 text-[13px] text-gray-700 transition-colors hover:text-gray-900"
+                  >
+                    Sign out
+                  </button>
 
-                {/* Sidebar */}
-                <SettingsRow
-                  label="Sidebar"
-                  icon={
-                    <svg className="w-4 h-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="18" height="18" rx="2" />
-                      <line x1="9" y1="3" x2="9" y2="21" />
-                    </svg>
-                  }
-                >
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowSidebarDropdown(!showSidebarDropdown)}
-                      className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                    >
-                      <span>{sidebarModeOptions.find((o) => o.value === sidebarMode)?.label}</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                    {showSidebarDropdown && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setShowSidebarDropdown(false)} />
-                        <div className="absolute right-0 top-full mt-1 bg-white border border-gray-300 shadow-lg rounded-lg z-20 min-w-[170px] py-1">
-                          {sidebarModeOptions.map((option) => (
-                            <button
-                              key={option.value}
-                              onClick={() => {
-                                setSidebarMode(option.value);
-                                setShowSidebarDropdown(false);
-                              }}
-                              className={cn(
-                                'w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 flex items-center justify-between',
-                                sidebarMode === option.value ? 'text-gray-900' : 'text-gray-600',
-                              )}
-                            >
-                              {option.label}
-                              {sidebarMode === option.value && <span className="text-black text-xs">✓</span>}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </SettingsRow>
-
-                {/* Clear History */}
-                <SettingsActionRow
-                  label="Clear History"
-                  icon={<Trash2 className="w-4 h-4 text-gray-500" />}
-                  onClick={handleClearHistory}
-                />
-
-                {/* Delete Account */}
-                <SettingsActionRow
-                  label="Delete Account"
-                  icon={<AlertTriangle className="w-4 h-4 text-red-500" />}
-                  onClick={handleDeleteAccount}
-                  destructive
-                />
-
-                {/* Sign Out */}
-                <SettingsActionRow
-                  label="Sign Out"
-                  icon={<LogOut className="w-4 h-4 text-gray-500" />}
-                  onClick={handleSignOut}
-                  last
-                />
+                  <button
+                    onClick={handleDeleteAccount}
+                    className="flex w-full items-center py-2.5 text-[13px] text-red-500 transition-colors hover:text-red-600"
+                  >
+                    Delete account
+                  </button>
+                </div>
               </div>
             )}
 
             {/* Computer Use tab */}
             {activeTab === 'computer-tracking' && (
-              <div className="p-4">
+              <div className="p-5">
                 <ComputerTrackingSettings
                   userId={user?.id || ''}
                   showRetrievalHealth={showRetrievalHealth}
@@ -348,7 +326,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
 
             {/* Apple Watch tab */}
             {activeTab === 'apple-health' && (
-              <div className="p-4">
+              <div className="p-5">
                 <AppleWatchSettings />
               </div>
             )}
@@ -358,23 +336,23 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="absolute inset-0 bg-[#f6f6f3]/80" onClick={() => setShowDeleteConfirm(false)} />
-          <div className="relative bg-white border border-gray-300 p-5 max-w-xs mx-4 rounded-lg">
-            <h3 className="text-base font-medium text-gray-900 mb-2">Delete Account?</h3>
-            <p className="text-sm text-gray-500 mb-4">
+        <div className="absolute inset-0 z-20 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/10 backdrop-blur-[1px]" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative mx-4 max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-lg">
+            <h3 className="text-base font-semibold text-gray-900">Delete account?</h3>
+            <p className="mt-2 text-[13px] leading-relaxed text-gray-500">
               This action cannot be undone. All your data will be permanently deleted.
             </p>
-            <div className="flex gap-2">
+            <div className="mt-5 flex gap-2.5">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+                className="flex-1 rounded-lg border border-gray-200 py-2.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDeleteAccount}
-                className="flex-1 py-2 text-sm text-white bg-red-500 hover:bg-red-600 rounded-md transition-colors"
+                className="flex-1 rounded-lg bg-red-500 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-red-600"
               >
                 Delete
               </button>
@@ -389,54 +367,24 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
 }
 
 // ---------------------------------------------------------------------------
-// Helpers – small row components to reduce JSX repetition
+// Shared toggle component
 // ---------------------------------------------------------------------------
 
-function SettingsRow({
-  label,
-  icon,
-  children,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="py-3 flex items-center justify-between">
-      <div className="flex items-center gap-2.5">
-        {icon}
-        <span className="text-sm font-normal text-gray-900">{label}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function SettingsActionRow({
-  label,
-  icon,
-  onClick,
-  destructive,
-  last,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-  destructive?: boolean;
-  last?: boolean;
-}) {
+function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button
-      onClick={onClick}
+      onClick={onChange}
       className={cn(
-        'w-full py-3 flex items-center gap-2.5 hover:bg-gray-50/40 transition-colors',
-        '',
+        'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
+        checked ? 'bg-gray-900' : 'bg-gray-200',
       )}
     >
-      {icon}
-      <span className={cn('text-sm font-normal', destructive ? 'text-red-500' : 'text-gray-900')}>
-        {label}
-      </span>
+      <span
+        className={cn(
+          'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200',
+          checked ? 'translate-x-[20px]' : 'translate-x-[2px]',
+        )}
+      />
     </button>
   );
 }

@@ -38,8 +38,6 @@ import {
 } from '@/components/ui/select';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-const APPLE_WATCH_SWITCH_CLASS =
-  'data-[state=checked]:bg-lime-500 data-[state=unchecked]:bg-[#E5E7EB]';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -286,7 +284,6 @@ export function AppleWatchSettings() {
   }
 
   async function handleMetricToggle(metricType: string, enabled: boolean) {
-    // Optimistically update the local set
     const next = new Set(selectedMetrics);
     if (enabled) {
       next.add(metricType);
@@ -295,17 +292,14 @@ export function AppleWatchSettings() {
     }
     setSelectedMetrics(next);
 
-    // Auto-save
     try {
       await saveMetricPreferences(Array.from(next));
       setMetricSaveStatus({ type: 'success', message: `${next.size} metrics selected` });
     } catch {
-      // Revert on failure
       setSelectedMetrics(selectedMetrics);
       setMetricSaveStatus({ type: 'error', message: 'Failed to save' });
     }
 
-    // Clear status after a short delay
     if (metricSaveTimerRef.current) clearTimeout(metricSaveTimerRef.current);
     metricSaveTimerRef.current = setTimeout(() => setMetricSaveStatus(null), 2000);
   }
@@ -517,7 +511,6 @@ export function AppleWatchSettings() {
       });
       if (!response.ok) throw new Error('Failed to update sync settings');
 
-      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['wearable-connections'] });
       queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
     } catch (error) {
@@ -575,33 +568,33 @@ export function AppleWatchSettings() {
   const syncHour = connection?.sync_hour ?? 9;
 
   return (
-    <div className="space-y-4">
-      {/* Connection status badge */}
+    <div className="space-y-5">
+      {/* Header: title + connection badge */}
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-900">Apple Watch</span>
+        <h3 className="text-[15px] font-semibold text-gray-900">Apple Watch</h3>
         <span
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-medium',
+            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
             connected
-              ? 'border-gray-200 bg-white text-gray-900'
-              : 'border-gray-200 bg-white text-gray-500',
+              ? 'text-gray-700'
+              : 'text-gray-400',
           )}
         >
-          <span className={cn('h-1.5 w-1.5 rounded-full', connected ? 'bg-gray-900' : 'bg-gray-400')} />
+          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-gray-900' : 'bg-gray-300')} />
           {connected ? 'Connected' : 'Not connected'}
         </span>
       </div>
 
       {/* Tab bar */}
-      <div className="inline-flex items-center rounded-sm border border-gray-200 bg-[#F8F8F7] p-0.5">
+      <div className="flex gap-0.5 rounded-lg border border-gray-200 bg-[#F5F5F4] p-1">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              'rounded-sm px-2.5 py-1 text-xs font-medium transition-colors',
+              'flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-all',
               tab === t.key
-                ? 'border border-gray-200 bg-white text-gray-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]'
+                ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700',
             )}
           >
@@ -610,167 +603,179 @@ export function AppleWatchSettings() {
         ))}
       </div>
 
-      {/* Tab content */}
+      {/* ================================================================ */}
+      {/* OVERVIEW TAB                                                     */}
+      {/* ================================================================ */}
       {tab === 'overview' && (
-        <div className="space-y-3">
-          <section className="rounded-sm border border-gray-200 bg-white p-3">
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">How it works</p>
-            <div className="mt-3 space-y-3 text-sm text-gray-500">
-              <div>
-                <p className="font-medium text-gray-900">Companion sync</p>
-                <p className="mt-0.5 text-xs leading-relaxed">
-                  Sync health data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
-                </p>
-              </div>
-              <div>
-                <p className="font-medium text-gray-900">Selected metrics only</p>
-                <p className="mt-0.5 text-xs leading-relaxed">
-                  Choose exactly which Apple Health metrics should create or update habits inside Ritual.
-                </p>
-              </div>
+        <div className="space-y-5">
+          {/* How it works */}
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Companion sync</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
+                Sync health data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
+              </p>
             </div>
-          </section>
+            <div>
+              <p className="text-sm font-medium text-gray-900">Selected metrics only</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
+                Choose exactly which Apple Health metrics should create or update habits inside Ritual.
+              </p>
+            </div>
+          </div>
 
           {connected && (
             <>
-              <section className="rounded-sm border border-gray-200 bg-white">
-                <div className="border-b border-gray-200 px-3 py-2">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Sync status</p>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  <Row label="Last sync" value={formatRelativeTime(lastSync)} />
-                  <Row label="Tracked metrics" value={`${selectedMetrics.size} selected`} />
-                  <Row label="Device" value={statusData?.deviceName || 'iPhone'} />
-                </div>
-              </section>
+              {/* Sync status rows */}
+              <div className="divide-y divide-gray-100">
+                <InfoRow label="Last sync" value={formatRelativeTime(lastSync)} />
+                <InfoRow label="Tracked metrics" value={`${selectedMetrics.size} selected`} />
+                <InfoRow label="Device" value={statusData?.deviceName || 'iPhone'} />
+              </div>
 
-              <section className="rounded-sm border border-gray-200 bg-white">
-                <NavRow label="Metrics" description="Choose what to track" onClick={() => setTab('metrics')} />
-                <NavRow label="Export" description="Download your data" onClick={() => setTab('export')} border />
-                <NavRow label="Settings" description="Control sync behavior" onClick={() => setTab('settings')} last />
-              </section>
+              {/* Quick nav */}
+              <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
+                <NavRow label="Metrics" onClick={() => setTab('metrics')} />
+                <NavRow label="Export" onClick={() => setTab('export')} />
+                <NavRow label="Settings" onClick={() => setTab('settings')} />
+              </div>
             </>
           )}
 
           {!connected && (
-            <div className="rounded-sm border border-gray-200 bg-[#F8F8F7] p-4 text-center">
+            <div className="rounded-xl bg-[#F5F5F4] px-5 py-6 text-center">
               <p className="text-sm font-medium text-gray-900">Not connected</p>
-              <p className="mt-1 text-xs text-gray-500">Open the Ritual Companion app on your iPhone to connect.</p>
+              <p className="mt-1.5 text-[13px] text-gray-500">
+                Open the Ritual Companion app on your iPhone to connect.
+              </p>
             </div>
           )}
         </div>
       )}
 
+      {/* ================================================================ */}
+      {/* METRICS TAB                                                      */}
+      {/* ================================================================ */}
       {tab === 'metrics' && connected && (
         <div className="space-y-4">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Metrics</p>
-            <p className="mt-1.5 text-xs leading-relaxed text-gray-500">
-              Toggle which health metrics to sync from your Apple Watch and iPhone.
-            </p>
-          </div>
+          <p className="text-[13px] leading-relaxed text-gray-500">
+            Toggle which health metrics to sync from your Apple Watch and iPhone.
+          </p>
 
           {metricCatalog.length > 0 ? (
-            metricCatalog.map((category: any) => (
-              <MetricCategoryCard
-                key={category.category}
-                category={category}
-                selected={selectedMetrics}
-                onToggle={handleMetricToggle}
-              />
-            ))
+            <div className="space-y-3">
+              {metricCatalog.map((category: any) => (
+                <MetricCategoryCard
+                  key={category.category}
+                  category={category}
+                  selected={selectedMetrics}
+                  onToggle={handleMetricToggle}
+                />
+              ))}
+            </div>
           ) : (
-            <div className="flex items-center gap-2 py-6 text-sm text-gray-500">
-              <BrailleSpinner /> Loading metrics…
+            <div className="flex items-center gap-2 py-8 justify-center text-[13px] text-gray-400">
+              <BrailleSpinner /> Loading metrics...
             </div>
           )}
 
           {metricSaveStatus && (
-            <p className={cn('text-[11px] text-center', metricSaveStatus.type === 'success' ? 'text-green-600' : 'text-red-500')}>
+            <p className={cn('text-xs text-center', metricSaveStatus.type === 'success' ? 'text-green-600' : 'text-red-500')}>
               {metricSaveStatus.message}
             </p>
           )}
         </div>
       )}
 
+      {/* ================================================================ */}
+      {/* EXPORT TAB                                                       */}
+      {/* ================================================================ */}
       {tab === 'export' && connected && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {/* Manual export */}
-          <div className="rounded-sm border border-gray-200 bg-white p-3">
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Export data</p>
-            <div className="mt-3 space-y-3">
-              {/* Date range */}
-              <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-gray-500">Date range</label>
-                <div className="mb-1.5 flex flex-wrap gap-1.5">
-                  {([['yesterday', 'Yesterday'], ['7d', '7 Days'], ['30d', '30 Days'], ['custom', 'Custom']] as const).map(([key, label]) => (
-                    <PillButton key={key} active={exportDatePreset === key} onClick={() => applyExportDatePreset(key)}>
-                      {label}
-                    </PillButton>
-                  ))}
-                </div>
-                {exportDatePreset === 'custom' ? (
-                  <div className="flex items-center gap-2">
-                    <Input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="h-7 w-32 text-xs" />
-                    <span className="text-xs text-gray-400">to</span>
-                    <Input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="h-7 w-32 text-xs" />
-                  </div>
-                ) : (
-                  <p className="text-xs text-gray-400">{exportStartDate} &mdash; {exportEndDate}</p>
-                )}
+          <div className="space-y-4">
+            {/* Date range */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-900">Date range</label>
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {([['yesterday', 'Yesterday'], ['7d', '7 Days'], ['30d', '30 Days'], ['custom', 'Custom']] as const).map(([key, label]) => (
+                  <SegmentButton key={key} active={exportDatePreset === key} onClick={() => applyExportDatePreset(key)}>
+                    {label}
+                  </SegmentButton>
+                ))}
               </div>
-
-              {/* Format */}
-              <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-gray-500">Format</label>
-                <div className="flex gap-1.5">
-                  {([['markdown', 'Markdown'], ['json', 'JSON'], ['csv', 'CSV']] as const).map(([key, label]) => (
-                    <PillButton key={key} active={exportFormat === key} onClick={() => setExportFormat(key)}>
-                      {label}
-                    </PillButton>
-                  ))}
+              {exportDatePreset === 'custom' ? (
+                <div className="flex items-center gap-2">
+                  <Input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-lg" />
+                  <span className="text-[13px] text-gray-400">to</span>
+                  <Input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-lg" />
                 </div>
-              </div>
-
-              {/* Write mode (Tauri) */}
-              {isTauri() && (
-                <div>
-                  <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-gray-500">Write mode</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {([['overwrite', 'Overwrite'], ['append', 'Append'], ['skip', 'Skip existing']] as const).map(([key, label]) => (
-                      <PillButton key={key} active={exportWriteMode === key} onClick={() => setExportWriteMode(key)}>
-                        {label}
-                      </PillButton>
-                    ))}
-                  </div>
-                  <p className="mt-1 text-[10px] text-gray-400">
-                    {exportWriteMode === 'overwrite' && 'Replace existing file'}
-                    {exportWriteMode === 'append' && 'Add to end of existing file'}
-                    {exportWriteMode === 'skip' && 'Skip if file already exists'}
-                  </p>
-                </div>
-              )}
-
-              <Button onClick={handleExportNow} disabled={exportLoading} className="w-full text-xs h-8">
-                {exportLoading ? (
-                  <span className="flex items-center gap-2"><BrailleSpinner /> Exporting…</span>
-                ) : 'Export Now'}
-              </Button>
-
-              {exportResult && (
-                <p className={cn('text-xs', exportResult.type === 'success' ? 'text-green-600' : 'text-red-500')}>
-                  {exportResult.message}
-                </p>
+              ) : (
+                <p className="text-[13px] text-gray-400">{exportStartDate} — {exportEndDate}</p>
               )}
             </div>
+
+            {/* Format */}
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-900">Format</label>
+              <div className="flex gap-1.5">
+                {([['markdown', 'Markdown'], ['json', 'JSON'], ['csv', 'CSV']] as const).map(([key, label]) => (
+                  <SegmentButton key={key} active={exportFormat === key} onClick={() => setExportFormat(key)}>
+                    {label}
+                  </SegmentButton>
+                ))}
+              </div>
+            </div>
+
+            {/* Write mode (Tauri) */}
+            {isTauri() && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-900">Write mode</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {([['overwrite', 'Overwrite'], ['append', 'Append'], ['skip', 'Skip existing']] as const).map(([key, label]) => (
+                    <SegmentButton key={key} active={exportWriteMode === key} onClick={() => setExportWriteMode(key)}>
+                      {label}
+                    </SegmentButton>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[13px] text-gray-400">
+                  {exportWriteMode === 'overwrite' && 'Replace existing file'}
+                  {exportWriteMode === 'append' && 'Add to end of existing file'}
+                  {exportWriteMode === 'skip' && 'Skip if file already exists'}
+                </p>
+              </div>
+            )}
+
+            <Button onClick={handleExportNow} disabled={exportLoading} className="w-full h-9 text-[13px] rounded-lg font-medium">
+              {exportLoading ? (
+                <span className="flex items-center gap-2"><BrailleSpinner /> Exporting...</span>
+              ) : 'Export Now'}
+            </Button>
+
+            {exportResult && (
+              <p className={cn('text-[13px]', exportResult.type === 'success' ? 'text-green-600' : 'text-red-500')}>
+                {exportResult.message}
+              </p>
+            )}
           </div>
 
+          {/* Divider */}
+          <div className="border-t border-gray-100" />
+
           {/* Scheduled export */}
-          <div className="rounded-sm border border-gray-200 bg-white p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Scheduled export</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Scheduled export</p>
+                <p className="mt-0.5 text-[13px] text-gray-500">
+                  {exportSchedule?.enabled
+                    ? exportSchedule.frequency === 'daily'
+                      ? `Exports daily at ${exportSchedule.time || '08:00'}`
+                      : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`
+                    : 'Turn this on to automatically export Apple Watch data on a schedule.'}
+                </p>
+              </div>
               <Switch
-                className={APPLE_WATCH_SWITCH_CLASS}
                 checked={Boolean(exportSchedule?.enabled)}
                 onCheckedChange={(checked) => {
                   if (!scheduleLoaded) loadExportSchedule();
@@ -784,146 +789,141 @@ export function AppleWatchSettings() {
               />
             </div>
 
-            {exportSchedule?.enabled ? (
-              <div className="space-y-2.5">
+            {exportSchedule?.enabled && (
+              <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
                 <div>
-                  <label className="mb-0.5 block text-[10px] text-gray-500">Frequency</label>
+                  <label className="mb-1.5 block text-[13px] text-gray-500">Frequency</label>
                   <div className="flex gap-1.5">
                     {(['daily', 'weekly'] as const).map((freq) => (
-                      <PillButton key={freq} active={exportSchedule.frequency === freq} onClick={() => updateScheduleField('frequency', freq)}>
+                      <SegmentButton key={freq} active={exportSchedule.frequency === freq} onClick={() => updateScheduleField('frequency', freq)}>
                         {freq.charAt(0).toUpperCase() + freq.slice(1)}
-                      </PillButton>
+                      </SegmentButton>
                     ))}
                   </div>
                 </div>
 
                 {exportSchedule.frequency === 'weekly' && (
                   <div>
-                    <label className="mb-0.5 block text-[10px] text-gray-500">Day</label>
+                    <label className="mb-1.5 block text-[13px] text-gray-500">Day</label>
                     <div className="flex flex-wrap gap-1">
                       {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                        <PillButton key={day} active={exportSchedule.day_of_week === i} onClick={() => updateScheduleField('day_of_week', i)} small>
+                        <SegmentButton key={day} active={exportSchedule.day_of_week === i} onClick={() => updateScheduleField('day_of_week', i)} small>
                           {day}
-                        </PillButton>
+                        </SegmentButton>
                       ))}
                     </div>
                   </div>
                 )}
 
                 <div>
-                  <label className="mb-0.5 block text-[10px] text-gray-500">Time</label>
-                  <Input type="time" value={exportSchedule.time || '08:00'} onChange={(e) => updateScheduleField('time', e.target.value)} className="h-7 w-28 text-xs" />
+                  <label className="mb-1.5 block text-[13px] text-gray-500">Time</label>
+                  <Input type="time" value={exportSchedule.time || '08:00'} onChange={(e) => updateScheduleField('time', e.target.value)} className="h-8 w-28 text-[13px] rounded-lg" />
                 </div>
 
                 <div>
-                  <label className="mb-0.5 block text-[10px] text-gray-500">Format</label>
+                  <label className="mb-1.5 block text-[13px] text-gray-500">Format</label>
                   <div className="flex gap-1.5">
                     {(['markdown', 'json', 'csv'] as const).map((fmt) => (
-                      <PillButton key={fmt} active={exportSchedule.format === fmt} onClick={() => updateScheduleField('format', fmt)}>
+                      <SegmentButton key={fmt} active={exportSchedule.format === fmt} onClick={() => updateScheduleField('format', fmt)}>
                         {fmt === 'markdown' ? 'Markdown' : fmt.toUpperCase()}
-                      </PillButton>
+                      </SegmentButton>
                     ))}
                   </div>
                 </div>
 
-                <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full text-xs h-8">
-                  {scheduleSaving ? (<span className="flex items-center gap-2"><BrailleSpinner /> Saving…</span>) : 'Save schedule'}
+                <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full text-[13px] h-9 rounded-lg">
+                  {scheduleSaving ? (<span className="flex items-center gap-2"><BrailleSpinner /> Saving...</span>) : 'Save schedule'}
                 </Button>
-
-                <p className="text-[10px] text-gray-400">
-                  {exportSchedule.frequency === 'daily'
-                    ? `Exports daily at ${exportSchedule.time || '08:00'}`
-                    : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`}
-                </p>
               </div>
-            ) : (
-              <p className="text-xs text-gray-500">Turn this on to automatically export Apple Watch data on a schedule.</p>
             )}
           </div>
 
-          {/* History */}
-          <div className="rounded-sm border border-gray-200 bg-white p-3">
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">History</p>
-            <div className="space-y-1.5">
-              {exportHistory.length === 0 ? (
-                <p className="py-2 text-center text-xs text-gray-500">No exports yet</p>
-              ) : (
-                exportHistory.slice(0, 20).map((entry) => (
-                  <div key={entry.id} className="flex items-center justify-between rounded-sm border border-gray-100 px-2.5 py-1.5">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-green-500' : 'bg-red-400')} />
-                        <span className="text-xs font-medium text-gray-900">
-                          {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
-                        </span>
-                        <span className="rounded-sm bg-gray-100 px-1 py-0.5 text-[9px] font-medium uppercase text-gray-500">{entry.format}</span>
+          {/* Export history */}
+          {exportHistory.length > 0 && (
+            <>
+              <div className="border-t border-gray-100" />
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-900">History</p>
+                  <button
+                    onClick={() => setExportHistory([])}
+                    className="text-[13px] text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {exportHistory.slice(0, 20).map((entry) => (
+                    <div key={entry.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-green-500' : 'bg-red-400')} />
+                          <span className="text-[13px] font-medium text-gray-900">
+                            {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
+                          </span>
+                          <span className="rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{entry.format}</span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[12px] text-gray-400">
+                          <span>{new Date(entry.timestamp).toLocaleString()}</span>
+                          {entry.file_size_bytes != null && <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>}
+                          <span className="capitalize">{entry.triggered_by}</span>
+                        </div>
+                        {entry.error && <p className="mt-1 text-[12px] text-red-500">{entry.error}</p>}
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-gray-400">
-                        <span>{new Date(entry.timestamp).toLocaleString()}</span>
-                        {entry.file_size_bytes != null && <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>}
-                        <span className="capitalize">{entry.triggered_by}</span>
-                      </div>
-                      {entry.error && <p className="mt-0.5 text-[10px] text-red-500">{entry.error}</p>}
+                      {entry.status === 'failed' && (
+                        <button
+                          onClick={() => {
+                            setExportStartDate(entry.start_date);
+                            setExportEndDate(entry.end_date);
+                            setExportFormat(entry.format as 'markdown' | 'json' | 'csv');
+                            setExportDatePreset('custom');
+                          }}
+                          className="ml-3 shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-[12px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                        >
+                          Retry
+                        </button>
+                      )}
                     </div>
-                    {entry.status === 'failed' && (
-                      <button
-                        onClick={() => {
-                          setExportStartDate(entry.start_date);
-                          setExportEndDate(entry.end_date);
-                          setExportFormat(entry.format as 'markdown' | 'json' | 'csv');
-                          setExportDatePreset('custom');
-                        }}
-                        className="ml-2 shrink-0 rounded-sm border border-gray-200 px-1.5 py-0.5 text-[10px] text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-              {exportHistory.length > 0 && (
-                <button
-                  onClick={() => setExportHistory([])}
-                  className="mt-1 text-[10px] text-gray-400 underline hover:text-gray-600"
-                >
-                  Clear history
-                </button>
-              )}
-            </div>
-          </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
+      {/* ================================================================ */}
+      {/* SETTINGS TAB                                                     */}
+      {/* ================================================================ */}
       {tab === 'settings' && connected && (
-        <div className="space-y-3">
+        <div className="space-y-5">
           {/* Auto sync */}
-          <div className="rounded-sm border border-gray-200 bg-white">
-            <div className="flex items-start justify-between gap-3 px-3 py-3">
+          <div>
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Auto sync</p>
-                <p className="mt-0.5 text-xs text-gray-900">Keep Apple Watch updated automatically.</p>
+                <p className="text-sm font-medium text-gray-900">Auto sync</p>
+                <p className="mt-0.5 text-[13px] text-gray-500">Keep Apple Watch updated automatically.</p>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <Switch
-                  className={APPLE_WATCH_SWITCH_CLASS}
                   checked={autoSyncEnabled}
                   onCheckedChange={(checked) => handleSyncSettingsUpdate({ auto_sync_enabled: checked, sync_hour: syncHour })}
                 />
-                <span className="text-xs text-gray-700">{autoSyncEnabled ? 'On' : 'Off'}</span>
+                <span className="text-[13px] text-gray-500 w-6">{autoSyncEnabled ? 'On' : 'Off'}</span>
               </div>
             </div>
 
-            <div className="flex items-start justify-between gap-3 px-3 py-3">
+            <div className="mt-4 flex items-center justify-between">
               <div>
-                <p className="text-xs text-gray-900">Preferred sync time</p>
-                <p className="mt-0.5 text-[10px] text-gray-500">Choose the hour for background refreshes.</p>
+                <p className="text-sm text-gray-900">Preferred sync time</p>
+                <p className="mt-0.5 text-[13px] text-gray-500">Choose the hour for background refreshes.</p>
               </div>
               <Select
                 value={String(syncHour)}
                 onValueChange={(value) => handleSyncSettingsUpdate({ auto_sync_enabled: autoSyncEnabled, sync_hour: Number(value) })}
                 disabled={!autoSyncEnabled}
               >
-                <SelectTrigger className="h-7 w-[120px] text-xs">
+                <SelectTrigger className="h-8 w-[120px] text-[13px] rounded-lg">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -936,19 +936,24 @@ export function AppleWatchSettings() {
               </Select>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-3 py-2.5">
-              <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-gray-500">Last sync</span>
-              <span className="text-xs text-gray-900">{formatRelativeTime(lastSync)}</span>
+            <div className="mt-4 flex items-center justify-between py-1">
+              <span className="text-[13px] text-gray-500">Last sync</span>
+              <span className="text-[13px] text-gray-900">{formatRelativeTime(lastSync)}</span>
             </div>
           </div>
 
+          {/* Divider */}
+          <div className="border-t border-gray-100" />
+
           {/* Danger zone */}
-          <div className="rounded-sm border border-gray-200 bg-white p-3">
-            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-gray-500">Danger zone</p>
-            <p className="mb-2 text-xs text-gray-500">Disconnect this integration. Your synced data will remain in Ritual.</p>
+          <div>
+            <p className="text-sm font-medium text-gray-900">Disconnect</p>
+            <p className="mt-1 text-[13px] text-gray-500">
+              Disconnect this integration. Your synced data will remain in Ritual.
+            </p>
             <button
               onClick={handleDisconnect}
-              className="rounded-sm border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50/60"
+              className="mt-3 rounded-lg border border-red-200 px-3 py-1.5 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
             >
               Disconnect Apple Watch
             </button>
@@ -963,43 +968,40 @@ export function AppleWatchSettings() {
 // Small reusable pieces
 // ---------------------------------------------------------------------------
 
-function Row({ label, value }: { label: string; value: string }) {
+/** Simple key-value info row with generous padding */
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between px-3 py-2">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span className="text-xs text-gray-900">{value}</span>
+    <div className="flex items-center justify-between py-3">
+      <span className="text-[13px] text-gray-500">{label}</span>
+      <span className="text-[13px] text-gray-900">{value}</span>
     </div>
   );
 }
 
-function NavRow({ label, description, onClick, border, last }: { label: string; description: string; onClick: () => void; border?: boolean; last?: boolean }) {
+/** Navigation row — clean, with right chevron */
+function NavRow({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className={cn(
-        'flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors hover:bg-[#F8F8F7]',
-        '',
-      )}
+      className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-gray-50"
     >
-      <div>
-        <p className="text-xs font-medium text-gray-900">{label}</p>
-        <p className="mt-0.5 text-[10px] text-gray-500">{description}</p>
-      </div>
-      <ChevronRight className="h-3.5 w-3.5 text-gray-400" />
+      <span className="text-[13px] font-medium text-gray-900">{label}</span>
+      <ChevronRight className="h-4 w-4 text-gray-400" />
     </button>
   );
 }
 
-function PillButton({ children, active, onClick, small }: { children: React.ReactNode; active: boolean; onClick: () => void; small?: boolean }) {
+/** Segmented button for option groups (date range, format, etc.) */
+function SegmentButton({ children, active, onClick, small }: { children: React.ReactNode; active: boolean; onClick: () => void; small?: boolean }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'rounded-sm border text-xs font-medium transition-colors',
-        small ? 'px-1.5 py-0.5' : 'px-2.5 py-1',
+        'rounded-lg border text-[13px] font-medium transition-all',
+        small ? 'px-2 py-1' : 'px-3 py-1.5',
         active
           ? 'border-gray-900 bg-gray-900 text-white'
-          : 'border-gray-200 bg-white text-gray-500 hover:bg-[#F8F8F7]',
+          : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
       )}
     >
       {children}
@@ -1008,10 +1010,9 @@ function PillButton({ children, active, onClick, small }: { children: React.Reac
 }
 
 // ---------------------------------------------------------------------------
-// Granola-style metric toggle cards
+// Metric toggle cards
 // ---------------------------------------------------------------------------
 
-/** Icons for metric categories — maps category name to a neutral Lucide icon */
 const CATEGORY_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
   'Body Measurements': Ruler,
@@ -1028,7 +1029,6 @@ const CATEGORY_ICONS: Record<string, ComponentType<{ className?: string }>> = {
 };
 
 function getCategoryIcon(category: string): ComponentType<{ className?: string }> {
-  // Exact match first, then partial match
   if (CATEGORY_ICONS[category]) return CATEGORY_ICONS[category];
   const lower = category.toLowerCase();
   for (const [key, icon] of Object.entries(CATEGORY_ICONS)) {
@@ -1052,21 +1052,21 @@ function MetricCategoryCard({
   const CategoryIcon = getCategoryIcon(category.category);
 
   return (
-    <div className="overflow-hidden rounded-sm border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
       {/* Category header */}
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-[#F8F8F7]"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
       >
-        <CategoryIcon className="h-4 w-4 flex-shrink-0 text-[#222222]" />
+        <CategoryIcon className="h-4 w-4 flex-shrink-0 text-gray-700" />
         <div className="flex-1 min-w-0">
           <span className="text-[13px] font-medium text-gray-900">{category.category}</span>
-          <span className="ml-1.5 text-[11px] text-gray-500">{enabledCount}/{metrics.length}</span>
+          <span className="ml-2 text-[13px] text-gray-400">{enabledCount}/{metrics.length}</span>
         </div>
         <ChevronDown
           className={cn(
-            'h-3.5 w-3.5 text-gray-400 transition-transform duration-200',
+            'h-4 w-4 text-gray-400 transition-transform duration-200',
             !expanded && '-rotate-90',
           )}
         />
@@ -1074,17 +1074,17 @@ function MetricCategoryCard({
 
       {/* Metric rows */}
       {expanded && (
-        <div>
-          {metrics.map((metric, i) => {
+        <div className="divide-y divide-gray-50">
+          {metrics.map((metric) => {
             const isEnabled = selected.has(metric.type);
             return (
               <div
                 key={metric.type}
-                className="flex items-center gap-3 px-3.5 py-2.5"
+                className="flex items-center gap-3 px-4 py-3"
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-medium text-gray-900 leading-tight">{metric.name}</p>
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">{metric.unit}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{metric.unit}</p>
                 </div>
                 <button
                   type="button"
@@ -1093,7 +1093,7 @@ function MetricCategoryCard({
                   onClick={() => onToggle(metric.type, !isEnabled)}
                   className={cn(
                     'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-                    isEnabled ? 'bg-lime-500' : 'bg-gray-200',
+                    isEnabled ? 'bg-gray-900' : 'bg-gray-200',
                   )}
                 >
                   <span
