@@ -123,8 +123,8 @@ const DEVICES: DeviceEntry[] = [
   },
 ];
 
-// Icons shown in the trigger bar — Apple + Plaid for a clean look
-const BAR_ICON_IDS = ['apple-watch', 'plaid'];
+// Icons shown in the trigger bar
+const BAR_ICON_IDS = ['oura', 'plaid', 'apple-watch'];
 const BAR_ICONS = DEVICES.filter((d) => BAR_ICON_IDS.includes(d.id));
 
 // ── Trigger bar (shown below chat) ────────────────────────
@@ -134,25 +134,41 @@ export function ConnectedDevicesBar() {
 
   return (
     <>
-      <div className="fixed bottom-[14px] left-[76px] right-0 flex justify-end pr-[calc((100%-76px-640px)/2-12px)] pointer-events-none">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="pointer-events-auto inline-flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-600 transition-colors"
-        >
-          <span>Connect devices</span>
-          <ChevronRight className="h-3 w-3" />
-          <span className="inline-flex -space-x-1">
-            {BAR_ICONS.map((d) => (
-              <img
-                key={d.id}
-                src={d.logo}
-                alt={d.name}
-                className="h-4 w-4 border border-white bg-white object-contain"
-              />
-            ))}
-          </span>
-        </button>
+      <div
+        className="fixed bottom-[14px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pointer-events-none"
+        style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
+      >
+        <div className="flex w-full max-w-2xl justify-end pr-[6px] pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-600 transition-colors"
+          >
+            <span>Connect devices</span>
+            <ChevronRight className="h-3 w-3" />
+            <span className="inline-flex items-center gap-1.5 overflow-visible">
+              {BAR_ICONS.map((d) => (
+                <span
+                  key={d.id}
+                  className="flex h-[18px] items-center justify-center overflow-visible"
+                >
+                  <img
+                    src={d.logo}
+                    alt={d.name}
+                    className={cn(
+                      'object-contain',
+                      d.id === 'oura'
+                        ? 'h-[15px] w-[15px]'
+                        : d.id === 'plaid'
+                          ? 'h-[17px] w-[17px]'
+                          : 'h-[16px] w-[16px]'
+                    )}
+                  />
+                </span>
+              ))}
+            </span>
+          </button>
+        </div>
       </div>
 
       <ConnectedDevicesModal open={open} onOpenChange={setOpen} />
