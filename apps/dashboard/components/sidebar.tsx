@@ -58,8 +58,8 @@ export function Sidebar() {
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const showChromeToggle = isFixedExpanded;
   const headerWidth = isFixedExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = isFixedExpanded ? 72 : 80;
-  const navTopPadding = isFixedExpanded ? 72 : 84;
+  const headerHeight = isFixedExpanded ? 70 : 80;
+  const navTopPadding = isFixedExpanded ? 70 : 84;
 
   const handleChromeToggle = useCallback(() => {
     setIsHovered(false);
@@ -101,7 +101,7 @@ export function Sidebar() {
               event.stopPropagation();
               handleChromeToggle();
             }}
-            className="no-drag absolute left-[90px] top-[0px] z-10 flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(103,106,112)] transition-colors hover:text-[#2f3135]"
+            className="no-drag absolute left-[90px] top-[3px] z-10 flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(118,121,126)] transition-colors hover:text-[#3a3d42]"
             aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
           >
@@ -114,7 +114,7 @@ export function Sidebar() {
               <img
                 src="/images/eclipse.svg"
                 alt="Ritual Logo"
-                className="absolute left-[15px] top-1/2 h-[23px] w-[23px] -translate-y-1/2 flex-shrink-0"
+                className="absolute left-[24px] top-1/2 h-[23px] w-[23px] -translate-y-1/2 flex-shrink-0 opacity-[0.72]"
               />
             </div>
           </div>

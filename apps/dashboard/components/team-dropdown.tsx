@@ -10,8 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState, useRef } from "react";
-import { useOnClickOutside } from "usehooks-ts";
+import { createPortal } from "react-dom";
+import { useState, useRef, useEffect } from "react";
 import { BrailleSpinner } from "@/components/ui/braille-spinner";
 
 interface TeamDropdownProps {
@@ -24,10 +24,45 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
   const { signOut, openUserProfile } = useClerk();
   const [isActive, setActive] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [sidebarMenuPosition, setSidebarMenuPosition] = useState<{ left: number; bottom: number; width: number } | null>(null);
 
-  // Close dropdown when clicking outside
-  useOnClickOutside(ref as React.RefObject<HTMLElement>, () => setActive(false));
+  useEffect(() => {
+    if (placement !== 'sidebar' || !isActive) return;
+
+    const updateSidebarMenuPosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger || typeof window === 'undefined') return;
+      const rect = trigger.getBoundingClientRect();
+      const width = isExpanded ? Math.max(180, rect.width) : 224;
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const bottom = Math.max(12, window.innerHeight - rect.top + 8);
+      setSidebarMenuPosition({ left, bottom, width });
+    };
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (
+        target &&
+        (triggerRef.current?.contains(target) || menuRef.current?.contains(target))
+      ) {
+        return;
+      }
+      setActive(false);
+    };
+
+    updateSidebarMenuPosition();
+    window.addEventListener('resize', updateSidebarMenuPosition);
+    window.addEventListener('scroll', updateSidebarMenuPosition, true);
+    document.addEventListener('mousedown', handlePointerDown);
+
+    return () => {
+      window.removeEventListener('resize', updateSidebarMenuPosition);
+      window.removeEventListener('scroll', updateSidebarMenuPosition, true);
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [isActive, isExpanded, placement]);
 
   const handleSignOut = async () => {
     console.log('🔐 User initiated sign out...');
@@ -128,7 +163,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
 
   // Sidebar placement — inline in sidebar flex layout (no position:fixed)
   return (
-    <div className="relative w-full" ref={ref}>
+    <div className="relative w-full" ref={triggerRef}>
       {/* Avatar row */}
       <div
         className={cn(
@@ -145,45 +180,51 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
       </div>
 
       {/* Dropdown menu — absolute, positioned above the avatar */}
-      {isActive && (
-        <div
-          className={cn(
-            "team-dropdown-menu absolute bottom-[40px] z-50 border border-[#DCDAD2] bg-[#FFFFFF] rounded-none shadow-none",
-            isExpanded ? "left-0 right-0 w-auto" : "left-0 w-56",
-          )}
-        >
-          <div className="p-2 border-b border-[#DCDAD2] team-dropdown-divider">
-            <p className="text-sm font-medium text-black">{getUserName()}</p>
-            <p className="text-xs text-black">{user?.primaryEmailAddress?.emailAddress}</p>
-          </div>
-
-          <div className="p-1">
-            <button
-              onClick={handleAccount}
-              className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
+      {isActive && sidebarMenuPosition && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="team-dropdown-menu fixed z-[1200] border border-[#DCDAD2] bg-[#FFFFFF] rounded-none shadow-none"
+              style={{
+                left: sidebarMenuPosition.left,
+                bottom: sidebarMenuPosition.bottom,
+                width: sidebarMenuPosition.width,
+              }}
             >
-              Profile
-            </button>
+              <div className="p-2 border-b border-[#DCDAD2] team-dropdown-divider">
+                <p className="text-sm font-medium text-black">{getUserName()}</p>
+                <p className="text-xs text-black">{user?.primaryEmailAddress?.emailAddress}</p>
+              </div>
 
-            <button
-              onClick={handleSupport}
-              className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
-            >
-              Support
-            </button>
-          </div>
+              <div className="p-1">
+                <button
+                  onClick={handleAccount}
+                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
+                >
+                  Profile
+                </button>
 
-          <div className="border-t border-[#DCDAD2] p-1 team-dropdown-divider">
-            <button
-              onClick={handleSignOut}
-              disabled={isSigningOut}
-              className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigningOut ? "Signing out..." : "Sign out"}
-            </button>
-          </div>
-        </div>
-      )}
+                <button
+                  onClick={handleSupport}
+                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
+                >
+                  Support
+                </button>
+              </div>
+
+              <div className="border-t border-[#DCDAD2] p-1 team-dropdown-divider">
+                <button
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSigningOut ? "Signing out..." : "Sign out"}
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

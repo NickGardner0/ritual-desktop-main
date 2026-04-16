@@ -56,6 +56,7 @@ interface HabitMetricStatsData {
   maxFormatted: string;
   stdDevFormatted: string;
   daysWithData: number;
+  trackedDays: number;
 }
 
 interface HabitMetricData {
@@ -108,6 +109,24 @@ function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummary
     days_tracked: daysTracked,
     avg_daily_hours: daysTracked > 0 ? totalHours / daysTracked : 0,
   };
+}
+
+function calculateTrackedSpanDays(dateKeys: string[]): number {
+  const validDates = dateKeys
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .sort();
+
+  if (validDates.length === 0) return 0;
+  if (validDates.length === 1) return 1;
+
+  const first = new Date(`${validDates[0]}T00:00:00`);
+  const last = new Date(`${validDates[validDates.length - 1]}T00:00:00`);
+  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) {
+    return validDates.length;
+  }
+
+  return Math.max(1, Math.floor((last.getTime() - first.getTime()) / 86_400_000) + 1);
 }
 
 function formatMetricDisplay(value: number, unitType: string): string {
@@ -527,6 +546,7 @@ export function OverviewView({
                 maxFormatted: zeroDisplay,
                 stdDevFormatted: zeroDisplay,
                 daysWithData: 0,
+                trackedDays: 0,
               },
             };
           }
@@ -568,6 +588,7 @@ export function OverviewView({
       }
 
       const values = Array.from(dailyValues.values()).filter((value) => Number.isFinite(value));
+      const trackedDays = calculateTrackedSpanDays(Array.from(dailyValues.keys()));
       const total = values.reduce((sum, value) => sum + value, 0);
       const average = values.length ? total / values.length : 0;
       const min = values.length ? Math.min(...values) : 0;
@@ -589,6 +610,7 @@ export function OverviewView({
           maxFormatted: formatMetricDisplay(max, unitLabel),
           stdDevFormatted: formatMetricDisplay(Math.sqrt(variance), unitLabel),
           daysWithData: values.filter((value) => value > 0).length,
+          trackedDays,
         },
       };
     };
@@ -612,6 +634,7 @@ export function OverviewView({
               maxFormatted: `${formatHabitStatNumber(Number(cachedStats.max || 0))} Hours`,
               stdDevFormatted: `${formatHabitStatNumber(Number(cachedStats.std_dev || Math.sqrt(cachedStats.variance || 0)))} Hours`,
               daysWithData: Number(cachedStats.days_with_data || 0),
+              trackedDays: Number(cachedStats.days_with_data || 0),
             },
           });
           continue;
@@ -637,6 +660,7 @@ export function OverviewView({
               maxFormatted: '—',
               stdDevFormatted: '—',
               daysWithData: Number(effectiveComputerActivitySummary.days_tracked || 0),
+              trackedDays: Number(effectiveComputerActivitySummary.days_tracked || 0),
             },
           });
           continue;
@@ -645,6 +669,9 @@ export function OverviewView({
         const values = rows
           .map((row) => Number(row.active_hours || 0))
           .filter((value) => Number.isFinite(value) && value >= 0);
+        const trackedDays = calculateTrackedSpanDays(
+          rows.map((row) => row.day || '').filter((value): value is string => Boolean(value)),
+        );
         const average = values.length ? totalHours / values.length : 0;
         const min = values.length ? Math.min(...values) : 0;
         const max = values.length ? Math.max(...values) : 0;
@@ -662,6 +689,7 @@ export function OverviewView({
             maxFormatted: `${formatHabitStatNumber(max)} Hours`,
             stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} Hours`,
             daysWithData: values.filter((value) => value > 0).length,
+            trackedDays,
           },
         });
         continue;
@@ -690,6 +718,7 @@ export function OverviewView({
             maxFormatted: formatMetricDisplay(Number(stats.max || 0), unitLabel),
             stdDevFormatted: formatMetricDisplay(Number(stats.std_dev || Math.sqrt(stats.variance || 0)), unitLabel),
             daysWithData: stats.days_with_data,
+            trackedDays: Number(stats.days_with_data || 0),
           },
         });
         continue;
@@ -751,6 +780,7 @@ export function OverviewView({
       maxFormatted: formatMetricDisplay(0, unitLabel),
       stdDevFormatted: formatMetricDisplay(0, unitLabel),
       daysWithData: 0,
+      trackedDays: 0,
     };
   }, [habitMetricDataById]);
 

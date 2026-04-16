@@ -40,6 +40,7 @@ interface SortableHabitItemProps {
     minFormatted: string;
     maxFormatted: string;
     stdDevFormatted: string;
+    trackedDays: number;
   };
   onUpdateHabitDetails: (
     habitId: string | undefined,
@@ -307,8 +308,10 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
                     <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.maxFormatted}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-900">Std Dev</span>
-                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">{s.stdDevFormatted}</span>
+                    <span className="text-gray-900">Days</span>
+                    <span className="text-gray-600 hover:text-black transition-colors cursor-default tabular-nums text-right whitespace-nowrap pl-4">
+                      {s.trackedDays.toLocaleString()}
+                    </span>
                   </div>
                 </div>
               );
@@ -354,6 +357,7 @@ export interface SortableHabitListProps {
     minFormatted: string;
     maxFormatted: string;
     stdDevFormatted: string;
+    trackedDays: number;
   };
   onUpdateHabitDetails: (
     habitId: string | undefined,
