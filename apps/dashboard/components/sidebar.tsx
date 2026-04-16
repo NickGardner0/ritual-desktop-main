@@ -58,8 +58,8 @@ export function Sidebar() {
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const showChromeToggle = isFixedExpanded;
   const headerWidth = isFixedExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = isFixedExpanded ? 90 : 80;
-  const navTopPadding = isFixedExpanded ? 92 : 84;
+  const headerHeight = isFixedExpanded ? 72 : 80;
+  const navTopPadding = isFixedExpanded ? 72 : 84;
 
   const handleChromeToggle = useCallback(() => {
     setIsHovered(false);
@@ -96,8 +96,12 @@ export function Sidebar() {
         {showChromeToggle ? (
           <button
             type="button"
-            onClick={handleChromeToggle}
-            className="no-drag absolute left-[84px] top-[2px] flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(66,68,72)] transition-colors hover:text-[#111111]"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleChromeToggle();
+            }}
+            className="no-drag absolute left-[90px] top-[0px] z-10 flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(103,106,112)] transition-colors hover:text-[#2f3135]"
             aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
           >
@@ -106,19 +110,13 @@ export function Sidebar() {
         ) : null}
         {isFixedExpanded ? (
           <div className="no-drag relative h-full w-full">
-            <Link
-              href="/dashboard"
-              className="group absolute left-0 right-0 top-[34px] block h-[40px] text-[#201f1b] transition-opacity hover:opacity-85"
-            >
+            <div className="absolute left-0 right-0 top-[16px] h-[40px]">
               <img
                 src="/images/eclipse.svg"
                 alt="Ritual Logo"
-                className="absolute left-[15px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 flex-shrink-0"
+                className="absolute left-[15px] top-1/2 h-[23px] w-[23px] -translate-y-1/2 flex-shrink-0"
               />
-              <span className="absolute left-[55px] top-1/2 -translate-y-1/2 text-[14px] font-[600] tracking-[-0.01em]">
-                Ritual
-              </span>
-            </Link>
+            </div>
           </div>
         ) : (
           <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[31px] transition-none">

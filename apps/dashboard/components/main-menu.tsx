@@ -244,7 +244,7 @@ const Item = ({
                   "text-sm font-[450] leading-none transition-colors duration-200 text-[#262626] group-hover:text-[#111111]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-[#111111] font-[600]",
+                  isActive && "text-[#151515]",
                 )}
               >
                 {item.name}
