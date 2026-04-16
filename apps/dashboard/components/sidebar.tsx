@@ -105,13 +105,13 @@ export function Sidebar() {
                 event.stopPropagation();
                 handleChromeToggle();
               }}
-              className="mr-[14px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(128,131,136)] transition-colors hover:text-[#51545a]"
+              className="mr-[22px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(128,131,136)] transition-colors hover:text-[#51545a]"
               aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
               title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             >
               <SidebarChromeToggleIcon className="h-[18px] w-[18px]" />
             </button>
-            <div className="flex items-center gap-[2px]">
+            <div className="flex items-center gap-[7px]">
               <button
                 type="button"
                 onMouseDown={(event) => event.stopPropagation()}
