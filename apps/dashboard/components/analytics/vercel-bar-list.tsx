@@ -14,15 +14,16 @@ export interface BarListItem {
   icon?: string;
 }
 
-export type BarListRange = '1W' | '1M' | '3M' | '6M' | '1Y' | 'ALL';
+export type BarListRange = '12H' | '1D' | '1W' | '1M' | '3M' | '6M' | '1Y';
 
 const RANGE_OPTIONS: { value: BarListRange; label: string }[] = [
+  { value: '12H', label: '12H' },
+  { value: '1D', label: '1D' },
   { value: '1W', label: '1W' },
   { value: '1M', label: '1M' },
   { value: '3M', label: '3M' },
   { value: '6M', label: '6M' },
   { value: '1Y', label: '1Y' },
-  { value: 'ALL', label: 'All' },
 ];
 
 interface VercelBarListCardProps {

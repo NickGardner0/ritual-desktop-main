@@ -134,6 +134,10 @@ const METRIC_CATEGORY_TABS = [
 
 function barListRangeToTimePreset(range: BarListRange): TimeRangePreset {
   switch (range) {
+    case '12H':
+      return '12H';
+    case '1D':
+      return '1D';
     case '1W':
       return '7D';
     case '1M':
@@ -142,7 +146,6 @@ function barListRangeToTimePreset(range: BarListRange): TimeRangePreset {
       return '90D';
     case '6M':
     case '1Y':
-    case 'ALL':
       return 'ALL';
     default:
       return '30D';
@@ -354,15 +357,15 @@ function hasUsableMetricSummary(summary?: Record<string, any> | null): boolean {
 }
 
 function dateRangeToBarListRange(range?: DateRange): BarListRange {
-  if (!range?.from || !range?.to) return 'ALL';
+  if (!range?.from || !range?.to) return '1M';
 
   const totalDays = differenceInDays(range.to, range.from) + 1;
+  if (totalDays <= 1) return '1D';
   if (totalDays <= 7) return '1W';
   if (totalDays <= 31) return '1M';
   if (totalDays <= 92) return '3M';
   if (totalDays <= 183) return '6M';
-  if (totalDays <= 366) return '1Y';
-  return 'ALL';
+  return '1Y';
 }
 
 interface MetricsViewProps {
@@ -511,6 +514,36 @@ export function MetricsView({
 
   const [expandedTimeRange, setExpandedTimeRange] = useState<RangeKey>('1M');
   const [barListRange, setBarListRange] = useState<BarListRange>(() => dateRangeToBarListRange(dateRange));
+  const [miniChartRange, setMiniChartRange] = useState<RangeKey>('1M');
+  const [pinnedHabitIds, setPinnedHabitIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('ritual:metricsPinnedHabits');
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('ritual:metricsPinnedHabits', JSON.stringify(pinnedHabitIds));
+    } catch {
+      // ignore storage failures — pin state is non-critical
+    }
+  }, [pinnedHabitIds]);
+
+  const togglePinnedHabit = React.useCallback((habitId: string) => {
+    setPinnedHabitIds((prev) => {
+      if (prev.includes(habitId)) return prev.filter((id) => id !== habitId);
+      // Soft cap at 4 — oldest pin rolls off so the focused set stays tight.
+      const next = [...prev, habitId];
+      return next.length > 4 ? next.slice(next.length - 4) : next;
+    });
+  }, []);
   const [compareHabitId, setCompareHabitId] = useState<string | null>(null);
   const [comparisonLogs, setComparisonLogs] = useState<any[]>([]);
   const [loadingComparison, setLoadingComparison] = useState(false);
@@ -2260,16 +2293,40 @@ export function MetricsView({
       }));
   }, [barListDerivedData]);
 
+  const miniChartBarData = useMemo(() => {
+    const { from, to } = getRangeDates(miniChartRange);
+    return buildMetricsBarData({
+      habits: filteredHabits,
+      analyticsDataByHabit: mergedBarListAnalyticsData,
+      summaryByHabit: mergedBarListSummaryMetrics,
+      rangeFrom: from,
+      rangeTo: to,
+      computerActivityDaily,
+    });
+  }, [
+    computerActivityDaily,
+    filteredHabits,
+    mergedBarListAnalyticsData,
+    mergedBarListSummaryMetrics,
+    miniChartRange,
+  ]);
+
   const habitSparkSeries = useMemo<HabitSparkSeries[]>(() => {
-    const { habitBarData } = barListDerivedData;
-    if (!habitBarData.length) return [];
-    const { from: rangeFrom, to: rangeTo } = getRangeDates(barListRange as RangeKey);
+    if (!miniChartBarData.length) return [];
+    if (pinnedHabitIds.length === 0) return [];
+    const { from: rangeFrom, to: rangeTo } = getRangeDates(miniChartRange);
     const days = eachDayOfInterval({ start: rangeFrom, end: rangeTo });
     const toKey = (d: Date) => format(d, 'yyyy-MM-dd');
     const showShortLabel = days.length > 14;
 
-    return [...habitBarData]
-      .sort((left, right) => right.avg - left.avg)
+    const pinnedSet = new Set(pinnedHabitIds);
+    return miniChartBarData
+      .filter((habit) => pinnedSet.has(habit.habitId))
+      // Render in the user's pin order so the featured set feels stable.
+      .sort(
+        (left, right) =>
+          pinnedHabitIds.indexOf(left.habitId) - pinnedHabitIds.indexOf(right.habitId),
+      )
       .map((habit) => {
         const dailyMap = new Map<string, number>();
         if (habit.habitId === '__computer_activity__') {
@@ -2293,6 +2350,7 @@ export function MetricsView({
           const key = toKey(day);
           return {
             date: key,
+            t: day.getTime(),
             label: showShortLabel ? format(day, 'M/d') : format(day, 'MMM d'),
             value: dailyMap.get(key) ?? 0,
           };
@@ -2312,10 +2370,16 @@ export function MetricsView({
           data,
         };
       });
-  }, [barListDerivedData, barListRange, computerActivityDaily, mergedBarListAnalyticsData]);
+  }, [
+    computerActivityDaily,
+    mergedBarListAnalyticsData,
+    miniChartBarData,
+    miniChartRange,
+    pinnedHabitIds,
+  ]);
 
   const habitSparkRangeLabel = useMemo(() => {
-    switch (barListRange as RangeKey) {
+    switch (miniChartRange) {
       case '1D':
         return 'Today';
       case '5D':
@@ -2340,7 +2404,11 @@ export function MetricsView({
       default:
         return '';
     }
-  }, [barListRange]);
+  }, [miniChartRange]);
+
+  const handleMiniChartRangeChange = React.useCallback((value: string) => {
+    setMiniChartRange(value as RangeKey);
+  }, []);
 
   const streakBarItems = useMemo<BarListItem[]>(() => {
     const { streakData } = barListDerivedData;
@@ -2445,6 +2513,9 @@ export function MetricsView({
                   return null;
                 }
 
+                // Pin key matches how `buildMetricsBarData` keys the series
+                // (computer activity uses the sentinel, not the detected habit id).
+                const pinHabitId = habitId;
                 return (
                   <SortableMetricCard key={habitId} id={habitId}>
                     <HabitTickerCard
@@ -2455,6 +2526,8 @@ export function MetricsView({
                       absoluteChange={tickerAbsoluteChange}
                       chartData={tickerChartData}
                       higherIsBetter={tickerHigherIsBetter}
+                      isPinned={pinnedHabitIds.includes(pinHabitId)}
+                      onTogglePin={() => togglePinnedHabit(pinHabitId)}
                       onClick={() => {
                         if (habitId === COMPUTER_ACTIVITY_CARD_ID) return;
                         setExpandedHabit(expandedHabit === habitId ? null : habitId);
@@ -2495,7 +2568,9 @@ export function MetricsView({
     filteredHabits,
     getHabitCardData,
     handleDragEnd,
+    pinnedHabitIds,
     selectedHabits,
+    togglePinnedHabit,
   ]);
   const hasRenderableMetricCards = filteredHabits.length > 0 || Boolean(computerActivityCard);
   const hasValidHabitData = (availableHabits.length > 0 && availableHabits[0]?.habit_id) || Boolean(computerActivityCard);
@@ -2597,9 +2672,15 @@ export function MetricsView({
             streakBarItems={streakBarItems}
             barListRange={barListRange}
             onBarListRangeChange={setBarListRange}
-            computerTimeRangePreset={barListRangeToTimePreset(barListRange)}
             habitSparkSeries={habitSparkSeries}
             habitSparkRangeLabel={habitSparkRangeLabel}
+            miniChartRange={miniChartRange}
+            onMiniChartRangeChange={handleMiniChartRangeChange}
+            miniChartEmptyHint={
+              pinnedHabitIds.length === 0
+                ? 'Pin a habit card above to feature it here.'
+                : undefined
+            }
           />
 
           {/* Expanded View */}

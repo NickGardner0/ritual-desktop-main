@@ -1,20 +1,13 @@
 'use client';
 
 import React from 'react';
-import dynamic from 'next/dynamic';
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
-import type { TimeRangePreset } from '@/lib/computerActivity/contracts';
 import {
   HabitMiniChartsSection,
   type HabitSparkSeries,
 } from '@/components/analytics/habit-mini-charts-section';
-
-const ComputerTimeDetailSection = dynamic(
-  () => import('@/components/analytics/computer-time-detail-section').then((m) => ({ default: m.ComputerTimeDetailSection })),
-  { ssr: false },
-);
 
 interface MetricsInitialSectionProps {
   cardGrid: React.ReactNode;
@@ -24,9 +17,11 @@ interface MetricsInitialSectionProps {
   streakBarItems: BarListItem[];
   barListRange: BarListRange;
   onBarListRangeChange: (range: BarListRange) => void;
-  computerTimeRangePreset: TimeRangePreset;
   habitSparkSeries?: HabitSparkSeries[];
   habitSparkRangeLabel?: string;
+  miniChartRange?: string;
+  onMiniChartRangeChange?: (value: string) => void;
+  miniChartEmptyHint?: string;
 }
 
 export function MetricsInitialSection({
@@ -37,9 +32,11 @@ export function MetricsInitialSection({
   streakBarItems,
   barListRange,
   onBarListRangeChange,
-  computerTimeRangePreset,
   habitSparkSeries = [],
   habitSparkRangeLabel = '',
+  miniChartRange = '1M',
+  onMiniChartRangeChange,
+  miniChartEmptyHint,
 }: MetricsInitialSectionProps) {
   return (
     <>
@@ -67,15 +64,15 @@ export function MetricsInitialSection({
         </div>
       ) : null}
 
-      {showBarLists ? (
+      {showBarLists && onMiniChartRangeChange ? (
         <div className="mx-auto mt-5 w-full max-w-[920px]">
-          <ComputerTimeDetailSection externalRange={computerTimeRangePreset} />
-        </div>
-      ) : null}
-
-      {showBarLists && habitSparkSeries.length > 0 ? (
-        <div className="mx-auto mt-5 w-full max-w-[920px]">
-          <HabitMiniChartsSection series={habitSparkSeries} rangeLabel={habitSparkRangeLabel} />
+          <HabitMiniChartsSection
+            series={habitSparkSeries}
+            rangeLabel={habitSparkRangeLabel}
+            range={miniChartRange}
+            onRangeChange={onMiniChartRangeChange}
+            emptyHint={miniChartEmptyHint}
+          />
         </div>
       ) : null}
     </>

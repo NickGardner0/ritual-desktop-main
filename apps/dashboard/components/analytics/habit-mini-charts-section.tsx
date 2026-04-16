@@ -4,9 +4,18 @@ import React, { useMemo } from 'react'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { format } from 'date-fns'
 import { formatMetricBarValue } from '@/components/analytics/metrics-derived'
+import { ExpandedChartTooltip } from '@/components/charts/ChartTooltip'
+import {
+  RangeSegmentedControl,
+  type RangeOption,
+} from '@/components/metrics/RangeSegmentedControl'
 
 export interface HabitSparkPoint {
+  /** ISO date string (yyyy-MM-dd) for the day this bar represents. */
   date: string
+  /** Epoch millis for the start of the local day — used by the tooltip. */
+  t: number
+  /** Short label shown under the bar (e.g. "Mar 20"). */
   label: string
   value: number
 }
@@ -23,13 +32,26 @@ export interface HabitSparkSeries {
   data: HabitSparkPoint[]
 }
 
+export const DEFAULT_MINI_CHART_RANGE_OPTIONS: RangeOption[] = [
+  { value: '1D', label: '1D' },
+  { value: '5D', label: '5D' },
+  { value: '1W', label: '1W' },
+  { value: '1M', label: '1M' },
+  { value: '6M', label: '6M' },
+  { value: 'YTD', label: 'YTD' },
+  { value: '1Y', label: '1Y' },
+  { value: '5Y', label: '5Y' },
+  { value: 'MAX', label: 'MAX' },
+]
+
 interface HabitMiniChartsSectionProps {
   series: HabitSparkSeries[]
   rangeLabel: string
-}
-
-function formatTooltipValue(value: number, unit: string): string {
-  return formatMetricBarValue(Math.max(0, Number(value) || 0), unit)
+  range: string
+  onRangeChange: (value: string) => void
+  rangeOptions?: RangeOption[]
+  /** Shown centered in the empty state row when `series` is empty. */
+  emptyHint?: string
 }
 
 function MiniBarChartCard({
@@ -95,20 +117,21 @@ function MiniBarChartCard({
             <YAxis hide domain={[0, maxValue]} />
             <Tooltip
               cursor={{ fill: 'rgba(39,37,30,0.04)' }}
-              contentStyle={{
-                border: '1px solid rgba(39,37,30,0.08)',
-                borderRadius: '4px',
-                fontSize: '11px',
-                padding: '4px 8px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
-                background: 'white',
-              }}
-              labelStyle={{ color: 'rgba(39,37,30,0.40)', fontSize: '10px' }}
-              itemStyle={{ color: '#27251E', fontSize: '11px', padding: 0 }}
-              formatter={(value: number) => [formatTooltipValue(value, habit.unit), habit.name]}
-              separator=": "
+              content={(
+                <ExpandedChartTooltip
+                  unit={habit.unit}
+                  valueKey="value"
+                  dateKey="t"
+                />
+              )}
             />
-            <Bar dataKey="value" fill="#2f7d4f" radius={[2, 2, 0, 0]} maxBarSize={12} />
+            <Bar
+              dataKey="value"
+              fill="#27251E"
+              fillOpacity={0.85}
+              radius={[2, 2, 0, 0]}
+              maxBarSize={12}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -116,13 +139,38 @@ function MiniBarChartCard({
   )
 }
 
-export function HabitMiniChartsSection({ series, rangeLabel }: HabitMiniChartsSectionProps) {
-  if (series.length === 0) return null
+export function HabitMiniChartsSection({
+  series,
+  rangeLabel,
+  range,
+  onRangeChange,
+  rangeOptions = DEFAULT_MINI_CHART_RANGE_OPTIONS,
+  emptyHint,
+}: HabitMiniChartsSectionProps) {
+  // Cap the grid so a single pinned habit takes the full card width (same
+  // dimensions as the Habits/Apps cards above), while 2–4 pins tile in a
+  // 2-column grid — matching the Top Apps layout.
+  const gridColsClass = series.length <= 1 ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'
   return (
-    <div className="mt-[5px] grid grid-cols-1 lg:grid-cols-2 gap-[5px]">
-      {series.map((habit) => (
-        <MiniBarChartCard key={habit.habitId} habit={habit} rangeLabel={rangeLabel} />
-      ))}
+    <div>
+      <div className="mb-[10px] flex items-center justify-end">
+        <RangeSegmentedControl
+          value={range}
+          onValueChange={onRangeChange}
+          options={rangeOptions}
+        />
+      </div>
+      {series.length > 0 ? (
+        <div className={`grid ${gridColsClass} gap-[5px]`}>
+          {series.map((habit) => (
+            <MiniBarChartCard key={habit.habitId} habit={habit} rangeLabel={rangeLabel} />
+          ))}
+        </div>
+      ) : emptyHint ? (
+        <div className="flex min-h-[90px] items-center justify-center rounded-sm border border-dashed border-[rgba(39,37,30,0.12)] bg-white/60 text-[12px] text-[rgba(39,37,30,0.45)]">
+          {emptyHint}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -46,12 +46,13 @@ function getRangeDatesLocal(range: BarListRange) {
   const now = new Date();
   const today = startOfDay(now);
   switch (range) {
+    case '12H': return { from: new Date(now.getTime() - 12 * 60 * 60 * 1000), to: now };
+    case '1D': return { from: today, to: now };
     case '1W': return { from: subDays(today, 6), to: now };
     case '1M': return { from: subDays(today, 29), to: now };
     case '3M': return { from: subDays(today, 89), to: now };
     case '6M': return { from: subDays(today, 179), to: now };
     case '1Y': return { from: subDays(today, 364), to: now };
-    case 'ALL': return { from: subDays(today, 1824), to: now };
     default: return { from: subDays(today, 29), to: now };
   }
 }
@@ -142,9 +143,6 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
       } else {
         setDomainsData([]);
       }
-
-      // Skip comparison entirely for ALL — there is no meaningful prior window.
-      if (activeRange === 'ALL') return;
 
       try {
         // Phase 2: Fetch prior equivalent window. If this slower compare phase

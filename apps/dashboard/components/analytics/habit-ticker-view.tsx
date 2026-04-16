@@ -19,6 +19,8 @@ interface HabitTickerCardProps {
   higherIsBetter?: boolean | null;
   onClick?: () => void;
   onRemove?: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
   darkMode?: boolean;
 }
 
@@ -32,6 +34,8 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
   higherIsBetter,
   onClick,
   onRemove,
+  isPinned,
+  onTogglePin,
 }) => {
   return (
     <HabitMetricCard
@@ -45,6 +49,8 @@ export const HabitTickerCard: React.FC<HabitTickerCardProps> = ({
       higherIsBetter={higherIsBetter}
       onClick={onClick}
       onRemove={onRemove}
+      isPinned={isPinned}
+      onTogglePin={onTogglePin}
     />
   );
 };

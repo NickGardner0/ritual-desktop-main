@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { X } from 'lucide-react';
+import { Pin, X } from 'lucide-react';
 import { BarChart, Bar, ResponsiveContainer } from 'recharts';
 import { PerplexityMiniSparkChart } from '@/components/charts/PerplexityMiniSparkChart';
 
@@ -17,6 +17,10 @@ export interface HabitMetricCardProps {
   chartType?: 'spark' | 'bar';
   onClick?: () => void;
   onRemove?: () => void;
+  /** When true, a filled pin icon is shown and the card is "featured". */
+  isPinned?: boolean;
+  /** If provided, a pin toggle appears in the card corner. */
+  onTogglePin?: () => void;
 }
 
 function formatWithMaxDecimals(value: number, maxFractionDigits: number): string {
@@ -106,6 +110,8 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
   chartType = 'spark',
   onClick,
   onRemove,
+  isPinned = false,
+  onTogglePin,
 }) => {
   const numericChange = Number(change ?? 0);
   const isNeutral = change === undefined || !Number.isFinite(numericChange);
@@ -141,8 +147,30 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
         fontFamily: 'var(--ritual-selected-font-family)',
       }}
     >
+      {onTogglePin ? (
+        <button
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onTogglePin();
+          }}
+          className={`absolute top-1.5 z-20 rounded-full bg-white p-0.5 shadow-sm transition-opacity duration-200 hover:shadow-md ${
+            onRemove ? 'right-6' : 'right-1.5'
+          } ${isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          aria-label={isPinned ? 'Unpin habit' : 'Pin habit'}
+          aria-pressed={isPinned}
+        >
+          <Pin
+            className={`h-2.5 w-2.5 ${
+              isPinned ? 'fill-[#27251E] text-[#27251E]' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          />
+        </button>
+      ) : null}
+
       {onRemove ? (
         <button
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
             onRemove();
