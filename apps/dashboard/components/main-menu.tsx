@@ -234,7 +234,7 @@ const Item = ({
             "text-[#0f0f0f]",
             isCollapsedActive && "scale-[1.04]"
           )}>
-            <Icon className="relative -translate-y-px h-5 w-5" strokeWidth={isActive ? 2.7 : 2.3} />
+            <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.6 : 2.2} />
           </div>
 
           {isExpanded && (
@@ -260,7 +260,7 @@ const Item = ({
                     shouldShowChildren && "rotate-180",
                   )}
                 >
-                  <ChevronDown className="w-4 h-4" strokeWidth={2.1} />
+                  <ChevronDown className="h-[14px] w-[14px]" strokeWidth={2} />
                 </button>
               )}
             </div>
