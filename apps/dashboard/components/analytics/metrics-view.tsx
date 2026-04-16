@@ -64,6 +64,7 @@ import {
   type MetricCardData,
   type MetricDailyRow,
 } from '@/components/analytics/metrics-derived';
+import type { HabitSparkSeries } from '@/components/analytics/habit-mini-charts-section';
 import {
   auditLocalStorage,
   perfError,
@@ -2259,6 +2260,88 @@ export function MetricsView({
       }));
   }, [barListDerivedData]);
 
+  const habitSparkSeries = useMemo<HabitSparkSeries[]>(() => {
+    const { habitBarData } = barListDerivedData;
+    if (!habitBarData.length) return [];
+    const { from: rangeFrom, to: rangeTo } = getRangeDates(barListRange as RangeKey);
+    const days = eachDayOfInterval({ start: rangeFrom, end: rangeTo });
+    const toKey = (d: Date) => format(d, 'yyyy-MM-dd');
+    const showShortLabel = days.length > 14;
+
+    return [...habitBarData]
+      .sort((left, right) => right.avg - left.avg)
+      .map((habit) => {
+        const dailyMap = new Map<string, number>();
+        if (habit.habitId === '__computer_activity__') {
+          for (const row of computerActivityDaily) {
+            if (!row.day) continue;
+            dailyMap.set(
+              String(row.day),
+              (dailyMap.get(String(row.day)) ?? 0) + Number(row.active_hours || 0),
+            );
+          }
+        } else {
+          const logs = mergedBarListAnalyticsData[habit.habitId] || [];
+          for (const log of logs) {
+            if (!log.date) continue;
+            const v = Number(log.daily_value ?? log.value ?? log.total_amount ?? 0);
+            dailyMap.set(log.date, (dailyMap.get(log.date) ?? 0) + v);
+          }
+        }
+
+        const data = days.map((day) => {
+          const key = toKey(day);
+          return {
+            date: key,
+            label: showShortLabel ? format(day, 'M/d') : format(day, 'MMM d'),
+            value: dailyMap.get(key) ?? 0,
+          };
+        });
+
+        const total = data.reduce((sum, point) => sum + point.value, 0);
+
+        return {
+          habitId: habit.habitId,
+          name: habit.name,
+          unit: habit.unit,
+          avg: habit.avg,
+          total,
+          change: habit.change,
+          higherIsBetter: habit.higherIsBetter,
+          daysWithData: habit.daysWithData,
+          data,
+        };
+      });
+  }, [barListDerivedData, barListRange, computerActivityDaily, mergedBarListAnalyticsData]);
+
+  const habitSparkRangeLabel = useMemo(() => {
+    switch (barListRange as RangeKey) {
+      case '1D':
+        return 'Today';
+      case '5D':
+        return 'Last 5 days';
+      case '1W':
+        return 'Last 7 days';
+      case '1M':
+        return 'Last 30 days';
+      case '3M':
+        return 'Last 90 days';
+      case '6M':
+        return 'Last 6 months';
+      case 'YTD':
+        return 'Year to date';
+      case '1Y':
+        return 'Last 12 months';
+      case '5Y':
+        return 'Last 5 years';
+      case 'MAX':
+      case 'ALL':
+        return 'All time';
+      default:
+        return '';
+    }
+  }, [barListRange]);
+
   const streakBarItems = useMemo<BarListItem[]>(() => {
     const { streakData } = barListDerivedData;
     if (!streakData.length) return [];
@@ -2515,6 +2598,8 @@ export function MetricsView({
             barListRange={barListRange}
             onBarListRangeChange={setBarListRange}
             computerTimeRangePreset={barListRangeToTimePreset(barListRange)}
+            habitSparkSeries={habitSparkSeries}
+            habitSparkRangeLabel={habitSparkRangeLabel}
           />
 
           {/* Expanded View */}

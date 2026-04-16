@@ -6,6 +6,10 @@ import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import type { TimeRangePreset } from '@/lib/computerActivity/contracts';
+import {
+  HabitMiniChartsSection,
+  type HabitSparkSeries,
+} from '@/components/analytics/habit-mini-charts-section';
 
 const ComputerTimeDetailSection = dynamic(
   () => import('@/components/analytics/computer-time-detail-section').then((m) => ({ default: m.ComputerTimeDetailSection })),
@@ -21,6 +25,8 @@ interface MetricsInitialSectionProps {
   barListRange: BarListRange;
   onBarListRangeChange: (range: BarListRange) => void;
   computerTimeRangePreset: TimeRangePreset;
+  habitSparkSeries?: HabitSparkSeries[];
+  habitSparkRangeLabel?: string;
 }
 
 export function MetricsInitialSection({
@@ -32,6 +38,8 @@ export function MetricsInitialSection({
   barListRange,
   onBarListRangeChange,
   computerTimeRangePreset,
+  habitSparkSeries = [],
+  habitSparkRangeLabel = '',
 }: MetricsInitialSectionProps) {
   return (
     <>
@@ -62,6 +70,12 @@ export function MetricsInitialSection({
       {showBarLists ? (
         <div className="mx-auto mt-5 w-full max-w-[920px]">
           <ComputerTimeDetailSection externalRange={computerTimeRangePreset} />
+        </div>
+      ) : null}
+
+      {showBarLists && habitSparkSeries.length > 0 ? (
+        <div className="mx-auto mt-5 w-full max-w-[920px]">
+          <HabitMiniChartsSection series={habitSparkSeries} rangeLabel={habitSparkRangeLabel} />
         </div>
       ) : null}
     </>
