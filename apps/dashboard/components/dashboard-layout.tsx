@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
+import { useSidebarMode } from '@/contexts/SidebarModeContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -48,6 +49,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
+  const { mode: sidebarMode } = useSidebarMode();
   const shouldMountSearchHandler = pathname === '/dashboard';
 
   useEffect(() => {
@@ -155,12 +157,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               className="no-drag flex items-center space-x-2.5 min-w-0"
             >
               {!isChatRoute && (
-                <div>
-                  <CommandPalette
-                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
-                    initialOpen={shouldOpenWhoopModal}
-                  />
-                </div>
+                sidebarMode !== 'expanded' || detachedSidebarMode ? (
+                  <div>
+                    <CommandPalette
+                      className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
+                      initialOpen={shouldOpenWhoopModal}
+                    />
+                  </div>
+                ) : null
               )}
               <div id="header-left-slot" className="flex items-center space-x-2.5" />
             </div>
