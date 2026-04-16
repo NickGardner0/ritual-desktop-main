@@ -62,7 +62,7 @@ export function Sidebar() {
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const headerWidth = showExpandedChrome ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const headerHeight = showExpandedChrome ? 52 : 80;
-  const navTopPadding = showExpandedChrome ? 52 : 84;
+  const navTopPadding = showExpandedChrome ? 78 : 84;
 
   const handleChromeToggle = useCallback(() => {
     setIsHovered(false);
