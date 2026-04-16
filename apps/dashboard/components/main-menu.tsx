@@ -335,7 +335,7 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
   return (
     <div className="mt-3 w-full">
       <nav className="w-full">
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           {items.map((item) => {
             const isActive = pathname === item.path || 
               pathname === item.path + "/" ||

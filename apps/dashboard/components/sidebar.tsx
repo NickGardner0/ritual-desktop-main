@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
-import CommandPalette from "./habit-selector";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 
 const COLLAPSED_WIDTH = 76;
@@ -59,8 +58,8 @@ export function Sidebar() {
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const showChromeToggle = isFixedExpanded;
   const headerWidth = isFixedExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = isFixedExpanded ? 126 : 80;
-  const navTopPadding = isFixedExpanded ? 130 : 84;
+  const headerHeight = isFixedExpanded ? 90 : 80;
+  const navTopPadding = isFixedExpanded ? 92 : 84;
 
   const handleChromeToggle = useCallback(() => {
     setIsHovered(false);
@@ -98,28 +97,27 @@ export function Sidebar() {
           <button
             type="button"
             onClick={handleChromeToggle}
-            className="no-drag absolute left-[68px] top-[8px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(78,79,82)] transition-colors hover:text-[#1f1d19]"
+            className="no-drag absolute left-[84px] top-[2px] flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(66,68,72)] transition-colors hover:text-[#111111]"
             aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
           >
-            <SidebarChromeToggleIcon className="h-[19px] w-[19px]" />
+            <SidebarChromeToggleIcon className="h-[20px] w-[20px]" />
           </button>
         ) : null}
         {isFixedExpanded ? (
-          <div className="no-drag flex w-full flex-col px-3 pt-[34px]">
-            <CommandPalette
-              className="h-9 w-full justify-between rounded-[12px] border border-gray-200/90 bg-white/90 px-3 py-1.5 text-[13px] text-gray-600 shadow-none hover:bg-white"
-            />
+          <div className="no-drag relative h-full w-full">
             <Link
-              href="/"
-              className="mt-3 flex items-center gap-2.5 px-1 text-[#201f1b] transition-opacity hover:opacity-85"
+              href="/dashboard"
+              className="group absolute left-0 right-0 top-[34px] block h-[40px] text-[#201f1b] transition-opacity hover:opacity-85"
             >
               <img
                 src="/images/eclipse.svg"
                 alt="Ritual Logo"
-                className="h-[18px] w-[18px] flex-shrink-0"
+                className="absolute left-[15px] top-1/2 h-[18px] w-[18px] -translate-y-1/2 flex-shrink-0"
               />
-              <span className="text-[14px] font-[600] tracking-[-0.01em]">Ritual</span>
+              <span className="absolute left-[55px] top-1/2 -translate-y-1/2 text-[14px] font-[600] tracking-[-0.01em]">
+                Ritual
+              </span>
             </Link>
           </div>
         ) : (

@@ -158,10 +158,10 @@ export function ConnectedDevicesBar() {
                     className={cn(
                       'object-contain',
                       d.id === 'oura'
-                        ? 'h-[15px] w-[15px]'
+                        ? 'h-[18px] w-[18px]'
                         : d.id === 'plaid'
-                          ? 'h-[17px] w-[17px]'
-                          : 'h-[16px] w-[16px]'
+                          ? 'h-[15px] w-[15px]'
+                          : 'h-[14px] w-[14px]'
                     )}
                   />
                 </span>
