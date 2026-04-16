@@ -605,8 +605,8 @@ fn reposition_traffic_lights(window: &tauri::Window) {
 
         // Traffic-light geometry: slightly enlarge and lower the buttons so
         // they align more cleanly with the custom sidebar chrome controls.
-        let x_start: f64 = 11.5;
-        let x_spacing: f64 = 21.0;
+        let x_start: f64 = 11.8;
+        let x_spacing: f64 = 21.6;
 
         // We need to position relative to the title-bar container.
         // In overlay mode the buttons live in the title-bar accessory view.
@@ -614,12 +614,12 @@ fn reposition_traffic_lights(window: &tauri::Window) {
         let close_super: id = msg_send![close, superview];
         let super_frame: cocoa::foundation::NSRect = msg_send![close_super, frame];
         let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let size_delta: f64 = 0.8;
+        let size_delta: f64 = 1.4;
         let btn_width = btn_frame.size.width + size_delta;
         let btn_height = btn_frame.size.height + size_delta;
 
         // The y-axis is flipped (0 = bottom of superview).
-        let top_inset: f64 = 5.5;
+        let top_inset: f64 = 6.8;
         let y = super_frame.size.height - top_inset - btn_height;
 
         let close_frame = cocoa::foundation::NSRect::new(
