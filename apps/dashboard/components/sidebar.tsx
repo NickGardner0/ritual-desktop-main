@@ -50,7 +50,8 @@ export function Sidebar() {
   // Determine visual expansion state based on mode
   const isExpanded =
     mode === "expanded" ? true : mode === "hover" ? isHovered : false;
-  const isFixedExpanded = mode === "expanded";
+  const showExpandedChrome = mode === "expanded";
+  const showSidebarLogo = mode !== "expanded";
 
   // Only attach hover handlers in hover mode
   const hoverProps =
@@ -59,10 +60,9 @@ export function Sidebar() {
       : {};
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const showChromeToggle = isFixedExpanded;
-  const headerWidth = isFixedExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = isFixedExpanded ? 52 : 80;
-  const navTopPadding = isFixedExpanded ? 52 : 84;
+  const headerWidth = showExpandedChrome ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+  const headerHeight = showExpandedChrome ? 52 : 80;
+  const navTopPadding = showExpandedChrome ? 52 : 84;
 
   const handleChromeToggle = useCallback(() => {
     setIsHovered(false);
@@ -96,8 +96,8 @@ export function Sidebar() {
         className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] flex items-start"
         style={{ width: headerWidth, height: headerHeight }}
       >
-        {showChromeToggle ? (
-          <div className="no-drag absolute left-[74px] top-[6px] z-10 flex items-center gap-[6px]">
+        {showExpandedChrome ? (
+          <div className="no-drag absolute left-[82px] top-[7px] z-10 flex items-center">
             <button
               type="button"
               onMouseDown={(event) => event.stopPropagation()}
@@ -105,43 +105,45 @@ export function Sidebar() {
                 event.stopPropagation();
                 handleChromeToggle();
               }}
-              className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(126,129,134)] transition-colors hover:text-[#46494e]"
+              className="mr-[14px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(128,131,136)] transition-colors hover:text-[#51545a]"
               aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
               title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <SidebarChromeToggleIcon className="h-[20px] w-[20px]" />
+              <SidebarChromeToggleIcon className="h-[18px] w-[18px]" />
             </button>
-            <button
-              type="button"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                router.back();
-              }}
-              className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(140,143,148)] transition-colors hover:text-[#4a4d52]"
-              aria-label="Go back"
-              title="Go back"
-            >
-              <ChevronLeft className="h-[15px] w-[15px] stroke-[2.15]" />
-            </button>
-            <button
-              type="button"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                router.forward();
-              }}
-              className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(140,143,148)] transition-colors hover:text-[#4a4d52]"
-              aria-label="Go forward"
-              title="Go forward"
-            >
-              <ChevronRight className="h-[15px] w-[15px] stroke-[2.15]" />
-            </button>
+            <div className="flex items-center gap-[2px]">
+              <button
+                type="button"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (window.history.length > 1) {
+                    router.back();
+                  }
+                }}
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
+                aria-label="Go back"
+                title="Go back"
+              >
+                <ChevronLeft className="h-[14px] w-[14px] stroke-[2.15]" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  router.forward();
+                }}
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
+                aria-label="Go forward"
+                title="Go forward"
+              >
+                <ChevronRight className="h-[14px] w-[14px] stroke-[2.15]" />
+              </button>
+            </div>
           </div>
         ) : null}
-        {isFixedExpanded ? (
-          <div className="no-drag relative h-full w-full" />
-        ) : (
+        {showSidebarLogo ? (
           <Link href="/" className="no-drag flex h-full w-full items-start justify-start pl-[24px] pt-[22px] transition-none">
             <img
               src="/images/eclipse.svg"
@@ -149,6 +151,8 @@ export function Sidebar() {
               className="h-[24px] w-[24px] flex-shrink-0 opacity-[0.74]"
             />
           </Link>
+        ) : (
+          <div className="no-drag relative h-full w-full" />
         )}
       </div>
 
