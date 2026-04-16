@@ -4,7 +4,7 @@ import RitualScreenTimeShared
 final class ScreenTimeSyncManager {
     static let shared = ScreenTimeSyncManager()
 
-    private let apiClient = RitualAPIClient()
+    private let apiClient = RitualAPIClient.shared
     private let store = ScreenTimeSharedStore.shared
 
     private init() {}
@@ -12,7 +12,8 @@ final class ScreenTimeSyncManager {
     func syncLatestSnapshot(authToken: String) async throws {
         guard let snapshot = store.loadSnapshot() else { return }
 
-        if !apiClient.hasStoredScreenTimeCredentials {
+        let hasCreds = await apiClient.hasStoredScreenTimeCredentials
+        if !hasCreds {
             try await apiClient.registerScreenTimeDevice(authToken: authToken)
         }
 

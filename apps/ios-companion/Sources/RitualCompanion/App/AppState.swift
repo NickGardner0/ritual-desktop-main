@@ -92,7 +92,7 @@ final class AppState: ObservableObject {
     // MARK: - Services
 
     let healthKitManager = HealthKitManagerV2()
-    let apiClient = RitualAPIClient()
+    let apiClient = RitualAPIClient.shared
     private let syncManager = BackgroundSyncManagerV2.shared
     private let notificationManager = NotificationManager.shared
     private let exportDestinationStore = ExportDestinationStore.shared
@@ -211,7 +211,8 @@ final class AppState: ObservableObject {
     func checkClerkSession() {
         if Clerk.shared.session == nil {
             connectionStatus = .disconnected
-            apiClient.clearCredentials()
+            // `apiClient` is now actor-isolated; hop off @MainActor to clear.
+            Task { await apiClient.clearCredentials() }
         }
     }
     
@@ -219,7 +220,7 @@ final class AppState: ObservableObject {
     
     func checkInitialState() async {
         // Check if we have stored credentials
-        if apiClient.hasStoredCredentials {
+        if await apiClient.hasStoredCredentials {
             // Verify credentials are still valid by trying to fetch tracked metrics
             connectionStatus = .connected
             let isValid = await verifyConnectionIsValid()
@@ -423,7 +424,7 @@ final class AppState: ObservableObject {
     
     func disconnect() async {
         // Clear API credentials
-        apiClient.clearCredentials()
+        await apiClient.clearCredentials()
         connectionStatus = .disconnected
         lastSyncTime = nil
         

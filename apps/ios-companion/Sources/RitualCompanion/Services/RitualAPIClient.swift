@@ -4,14 +4,29 @@ import Security
 import UIKit
 import Clerk
 
-/// API client for communicating with Ritual backend
-final class RitualAPIClient {
-    
+/// API client for communicating with Ritual backend.
+///
+/// This is an `actor` so all mutable state (auth token, refresh task,
+/// consecutive failure counter) is serialized automatically. Concurrent
+/// callers that arrive while a token refresh is in flight will share the
+/// same refresh result instead of each spawning their own, and 401 retries
+/// route through the same dedup so a burst of in-flight batches can't
+/// trigger N parallel refresh attempts.
+///
+/// Consumers should always use `RitualAPIClient.shared` — constructing a
+/// fresh instance would split the refresh-dedup state and race the
+/// keychain with the singleton.
+actor RitualAPIClient {
+
+    // MARK: - Singleton
+
+    static let shared = RitualAPIClient()
+
     // MARK: - Configuration
-    
+
     /// Base URL for the API
     private let baseURL = AppConfig.apiBaseURL
-    
+
     // Keychain keys
     private let deviceIdKey = "com.ritual.companion.deviceId"
     private let deviceSecretKey = "com.ritual.companion.deviceSecret"
@@ -19,18 +34,18 @@ final class RitualAPIClient {
     private let screenTimeDeviceSecretKey = "com.ritual.companion.screenTimeDeviceSecret"
     private let authTokenKey = "com.ritual.companion.authToken"
     private let tokenExpiryKey = "com.ritual.companion.tokenExpiry"
-    
+
     // MARK: - Properties
-    
+
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    
+
     /// Track consecutive refresh failures
     private var consecutiveRefreshFailures = 0
     private let maxRefreshFailures = 3
     private var refreshTask: Task<Void, Error>?
-    
+
     var hasStoredCredentials: Bool {
         deviceId != nil && deviceSecret != nil && authToken != nil
     }
@@ -38,7 +53,7 @@ final class RitualAPIClient {
     var hasStoredScreenTimeCredentials: Bool {
         screenTimeDeviceId != nil && screenTimeDeviceSecret != nil && authToken != nil
     }
-    
+
     /// Check if token is expired or about to expire (within 5 minutes)
     var isTokenExpiredOrExpiring: Bool {
         guard let expiry = tokenExpiry else { return true }
@@ -122,20 +137,20 @@ final class RitualAPIClient {
     }
     
     // MARK: - Initialization
-    
+
     private let pinningDelegate = CertificatePinningDelegate()
 
-    init() {
+    private init() {
         let config = URLSessionConfiguration.default
         // Increased timeouts for large batch syncs (125+ batches can take several minutes)
         config.timeoutIntervalForRequest = 120  // 2 minutes per request
         config.timeoutIntervalForResource = 600 // 10 minutes total
         self.session = URLSession(configuration: config, delegate: pinningDelegate, delegateQueue: nil)
-        
+
         self.encoder = JSONEncoder()
         // Configure encoder to match Python's json.dumps with sort_keys=True
         self.encoder.outputFormatting = [.sortedKeys]
-        
+
         self.decoder = JSONDecoder()
     }
     
@@ -248,71 +263,104 @@ final class RitualAPIClient {
     }
     
     // MARK: - Silent Token Refresh
-    
-    /// Ensure we have a valid token, refreshing silently if needed
-    func ensureValidToken() async throws {
-        // If token is not expired, we're good
-        guard isTokenExpiredOrExpiring else { return }
 
-        if let refreshTask {
-            try await refreshTask.value
+    /// Ensure we have a valid token, refreshing silently if needed.
+    ///
+    /// Safe to call concurrently — actor isolation serializes the check
+    /// against `refreshTask`, and at most one refresh is ever in flight.
+    /// Additional concurrent callers share that in-flight task's result.
+    func ensureValidToken() async throws {
+        // If token is not expiring soon and no refresh is in flight, we're good.
+        guard isTokenExpiredOrExpiring else { return }
+        try await refreshTokenIfNeeded(force: false)
+    }
+
+    /// Force a refresh (used by the 401 retry path). Dedup'd with
+    /// `ensureValidToken` so a burst of in-flight batches doesn't launch
+    /// N parallel refresh attempts.
+    fileprivate func forceRefreshToken() async throws {
+        try await refreshTokenIfNeeded(force: true)
+    }
+
+    /// Dedup'd refresh. All callers (proactive + 401 retry) go through here.
+    ///
+    /// If `force` is false, callers can exit early when the token is fresh
+    /// AND no refresh is already in flight. When `force` is true (401 path),
+    /// an in-flight refresh is awaited; if none is running, a new one starts.
+    private func refreshTokenIfNeeded(force: Bool) async throws {
+        if !force, !isTokenExpiredOrExpiring {
             return
         }
-        
+
+        // Piggyback on any in-flight refresh — actor isolation guarantees this
+        // read sees the latest write from the previous caller's entry.
+        if let existing = refreshTask {
+            try await existing.value
+            return
+        }
+
         #if DEBUG
-        print("🔄 Token expired or expiring, attempting silent refresh...")
+        print("🔄 Starting silent token refresh (force: \(force))...")
         #endif
 
         let task = Task { [weak self] in
             guard let self else { return }
-            do {
-                try await self.refreshToken()
-                self.consecutiveRefreshFailures = 0
-                #if DEBUG
-                print("✅ Token refreshed successfully")
-                #endif
-            } catch {
-                self.consecutiveRefreshFailures += 1
-                #if DEBUG
-                print("❌ Token refresh failed (attempt \(self.consecutiveRefreshFailures)): \(error)")
-                #endif
-
-                if self.consecutiveRefreshFailures >= self.maxRefreshFailures {
-                    throw APIError.tokenRefreshFailed
-                }
-
-                throw error
-            }
+            try await self.performRefresh()
         }
-
         refreshTask = task
 
+        defer {
+            // Always clear the in-flight task so subsequent callers can start
+            // fresh attempts if this one failed. Because we're an actor,
+            // this write is serialized with the next caller's read.
+            refreshTask = nil
+        }
+
+        try await task.value
+    }
+
+    /// Actually refresh the token — called only from inside `refreshTokenIfNeeded`.
+    /// Updates failure counter and throws `tokenRefreshFailed` once we've blown
+    /// through `maxRefreshFailures` consecutive failures (signals the UI to
+    /// force re-auth).
+    private func performRefresh() async throws {
         do {
-            try await task.value
-            refreshTask = nil
+            try await fetchAndStoreToken()
+            consecutiveRefreshFailures = 0
+            #if DEBUG
+            print("✅ Token refreshed successfully")
+            #endif
         } catch {
-            refreshTask = nil
+            consecutiveRefreshFailures += 1
+            #if DEBUG
+            print("❌ Token refresh failed (attempt \(consecutiveRefreshFailures)): \(error)")
+            #endif
+
+            if consecutiveRefreshFailures >= maxRefreshFailures {
+                throw APIError.tokenRefreshFailed
+            }
             throw error
         }
     }
-    
-    /// Refresh the auth token using Clerk session
-    private func refreshToken() async throws {
+
+    /// Fetch a fresh token from Clerk and persist it to the keychain.
+    private func fetchAndStoreToken() async throws {
         // Access MainActor-isolated session property
         let session = await MainActor.run { Clerk.shared.session }
-        
+
         guard let session = session else {
             throw APIError.noSession
         }
-        
+
         // Get a fresh token from Clerk using the "backend" JWT template
         // so the token is signed with the JWKS-published key.
         let tokenResult = try await session.getToken(.init(template: "backend"))
         guard let jwt = tokenResult?.jwt, !jwt.isEmpty else {
             throw APIError.tokenRefreshFailed
         }
-        
+
         // Debug: log JWT header to verify kid matches JWKS
+        #if DEBUG
         if let headerData = Data(base64Encoded: String(jwt.split(separator: ".")[0]
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
@@ -320,10 +368,11 @@ final class RitualAPIClient {
            let header = try? JSONSerialization.jsonObject(with: headerData) as? [String: Any] {
             print("🔑 JWT header: \(header)")
         }
+        #endif
 
         // Update stored token
         authToken = jwt
-        
+
         // Derive token expiry from JWT exp claim when available.
         if let jwtExpiry = decodeJWTExpiry(jwt) {
             tokenExpiry = jwtExpiry
@@ -332,8 +381,10 @@ final class RitualAPIClient {
             tokenExpiry = Date().addingTimeInterval(3300)
         }
     }
-    
-    /// Check if Clerk session is valid and token can be refreshed
+
+    /// Check if Clerk session is valid and token can be refreshed.
+    /// Marked `@MainActor` because Clerk's session is MainActor-isolated;
+    /// callers must hop to MainActor to invoke this synchronously.
     @MainActor
     func canRefreshToken() -> Bool {
         return Clerk.shared.session != nil
@@ -635,7 +686,9 @@ final class RitualAPIClient {
         }
 
         if httpResponse.statusCode == 401 && retryOnUnauthorized && authToken != nil {
-            try await refreshToken()
+            // Route through the same dedup path as proactive refresh so a
+            // burst of concurrent 401s doesn't trigger N parallel refreshes.
+            try await forceRefreshToken()
             var retryRequest = request
             if let refreshedToken = authToken {
                 retryRequest.setValue("Bearer \(refreshedToken)", forHTTPHeaderField: "Authorization")

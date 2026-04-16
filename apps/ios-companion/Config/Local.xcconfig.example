@@ -1,0 +1,10 @@
+// Copy this file to Local.xcconfig and fill in your own values.
+// Local.xcconfig is gitignored so secrets never land in the repo.
+//
+// Note: xcconfig treats `//` as the start of a comment, so URLs must break
+// the `//` with `$()` — e.g. `https:/$()/example.com`.
+
+CLERK_PUBLISHABLE_KEY = pk_test_your_key_here
+CLERK_FRONTEND_API = your-instance.clerk.accounts.dev
+API_BASE_URL_DEBUG = http:/$()/YOUR_MAC_LAN_IP:8000
+API_BASE_URL = https:/$()/backend-api-production-a37e.up.railway.app

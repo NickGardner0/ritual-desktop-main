@@ -49,6 +49,7 @@ apps/desktop/src-tauri/crates/*/target/
 # Root target directory (rust-analyzer, etc)
 target/
 apps/ios-companion/Derived/
+apps/ios-companion/Config/Local.xcconfig
 
 # TypeScript
 *.tsbuildinfo

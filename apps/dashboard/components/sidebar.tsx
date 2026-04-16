@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 
 import Link from "next/link";
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { MainMenu } from "./main-menu";
 import { TeamDropdown } from "./team-dropdown";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
@@ -30,6 +32,7 @@ function SidebarChromeToggleIcon({ className }: { className?: string }) {
 }
 
 export function Sidebar() {
+  const router = useRouter();
   const { mode, setMode } = useSidebarMode();
   const [isHovered, setIsHovered] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -58,8 +61,8 @@ export function Sidebar() {
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const showChromeToggle = isFixedExpanded;
   const headerWidth = isFixedExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = isFixedExpanded ? 70 : 80;
-  const navTopPadding = isFixedExpanded ? 70 : 84;
+  const headerHeight = isFixedExpanded ? 52 : 80;
+  const navTopPadding = isFixedExpanded ? 52 : 84;
 
   const handleChromeToggle = useCallback(() => {
     setIsHovered(false);
@@ -94,36 +97,56 @@ export function Sidebar() {
         style={{ width: headerWidth, height: headerHeight }}
       >
         {showChromeToggle ? (
-          <button
-            type="button"
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleChromeToggle();
-            }}
-            className="no-drag absolute left-[90px] top-[3px] z-10 flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(118,121,126)] transition-colors hover:text-[#3a3d42]"
-            aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-            title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            <SidebarChromeToggleIcon className="h-[20px] w-[20px]" />
-          </button>
+          <div className="no-drag absolute left-[74px] top-[6px] z-10 flex items-center gap-[6px]">
+            <button
+              type="button"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleChromeToggle();
+              }}
+              className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(126,129,134)] transition-colors hover:text-[#46494e]"
+              aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
+              title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              <SidebarChromeToggleIcon className="h-[20px] w-[20px]" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                router.back();
+              }}
+              className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(140,143,148)] transition-colors hover:text-[#4a4d52]"
+              aria-label="Go back"
+              title="Go back"
+            >
+              <ChevronLeft className="h-[15px] w-[15px] stroke-[2.15]" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                router.forward();
+              }}
+              className="flex h-[22px] w-[22px] items-center justify-center rounded-[4px] text-[rgb(140,143,148)] transition-colors hover:text-[#4a4d52]"
+              aria-label="Go forward"
+              title="Go forward"
+            >
+              <ChevronRight className="h-[15px] w-[15px] stroke-[2.15]" />
+            </button>
+          </div>
         ) : null}
         {isFixedExpanded ? (
-          <div className="no-drag relative h-full w-full">
-            <div className="absolute left-0 right-0 top-[16px] h-[40px]">
-              <img
-                src="/images/eclipse.svg"
-                alt="Ritual Logo"
-                className="absolute left-[24px] top-1/2 h-[23px] w-[23px] -translate-y-1/2 flex-shrink-0 opacity-[0.72]"
-              />
-            </div>
-          </div>
+          <div className="no-drag relative h-full w-full" />
         ) : (
-          <Link href="/" className="no-drag flex h-full w-full items-start justify-center pt-[31px] transition-none">
+          <Link href="/" className="no-drag flex h-full w-full items-start justify-start pl-[24px] pt-[22px] transition-none">
             <img
               src="/images/eclipse.svg"
               alt="Ritual Logo"
-              className="w-[22px] h-[22px] flex-shrink-0"
+              className="h-[24px] w-[24px] flex-shrink-0 opacity-[0.74]"
             />
           </Link>
         )}

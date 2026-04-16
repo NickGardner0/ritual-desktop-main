@@ -39,13 +39,46 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     
     private let healthStore = HKHealthStore()
     private let healthKitManager = HealthKitManagerV2()
-    private let apiClient = RitualAPIClient()
+    private let apiClient = RitualAPIClient.shared
     private let offlineQueue = OfflineSyncQueue.shared
     private let anchorStorage = AnchorStorage.shared
-    
+
     private var observerQueries: [HKObserverQuery] = []
     private var isSetup = false
-    private var isSyncing = false
+
+    // `isSyncing` was previously a plain `Bool` read/written from multiple
+    // executors (BGAppRefreshTask handler, MainActor UI, HealthKit observer
+    // debounce, network-availability notification). The "guard !isSyncing →
+    // set isSyncing = true" pattern had a TOCTOU race that let two sync runs
+    // start concurrently. We now gate it behind a lock and expose an atomic
+    // check-and-set so only one caller can ever enter the critical section.
+    private let syncingLock = NSLock()
+    private var _isSyncing = false
+
+    /// Thread-safe read of the syncing flag. Used by UI / debug surfaces.
+    private var isSyncing: Bool {
+        syncingLock.lock()
+        defer { syncingLock.unlock() }
+        return _isSyncing
+    }
+
+    /// Atomic "acquire the sync gate" — returns `true` iff this caller won
+    /// the race and is now responsible for calling `endSyncing()` exactly
+    /// once (use a `defer`). Returns `false` if another sync is in flight.
+    private func beginSyncingIfIdle() -> Bool {
+        syncingLock.lock()
+        defer { syncingLock.unlock() }
+        guard !_isSyncing else { return false }
+        _isSyncing = true
+        return true
+    }
+
+    /// Release the sync gate. Safe to call multiple times.
+    private func endSyncing() {
+        syncingLock.lock()
+        defer { syncingLock.unlock() }
+        _isSyncing = false
+    }
 
     /// Debounce timer for HealthKit observer callbacks
     private var observerDebounceTimer: Timer?
@@ -137,12 +170,16 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         isSetup = true
         
         registerBackgroundTask()
-        
-        // Re-enable background delivery if we have credentials and cached metrics
-        if apiClient.hasStoredCredentials && !cachedMetricTypes.isEmpty {
+
+        // Re-enable background delivery if we have credentials and cached metrics.
+        // `apiClient.hasStoredCredentials` is now actor-isolated, so we need a
+        // Task hop to read it. We still gate on the cheap local check first.
+        if !cachedMetricTypes.isEmpty {
             let metricTypes = cachedMetricTypes
             Task { [weak self] in
-                await self?.enableBackgroundDelivery(forMetricTypes: metricTypes)
+                guard let self else { return }
+                guard await self.apiClient.hasStoredCredentials else { return }
+                await self.enableBackgroundDelivery(forMetricTypes: metricTypes)
             }
         }
         
@@ -307,12 +344,16 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     /// Perform incremental sync using DAILY AGGREGATES
     /// This sends daily totals instead of raw samples for much better data quality
     func performIncrementalSync(isBackground: Bool, specificMetricType: String? = nil) async {
-        guard !isSyncing else {
+        // Atomic check-and-set. Without this, two concurrent callers can both
+        // pass the guard and each set `isSyncing = true`, running parallel
+        // syncs that duplicate work and clobber anchor state.
+        guard beginSyncingIfIdle() else {
             #if DEBUG
             print("⚠️ Sync already in progress")
             #endif
             return
         }
+        defer { endSyncing() }
 
         let syncStartTime = Date()
         var historyWindowDays = 0
@@ -344,13 +385,10 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             )
         }
         
-        isSyncing = true
-        defer { isSyncing = false }
-        
         lastSyncAttemptTime = Date()
-        
-        // Check credentials
-        guard apiClient.hasStoredCredentials else {
+
+        // Check credentials (actor-isolated; must `await`).
+        guard await apiClient.hasStoredCredentials else {
             #if DEBUG
             print("⚠️ No credentials - skipping sync")
             #endif
@@ -635,12 +673,13 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
 
         guard !normalizedDayKeys.isEmpty else { return 0 }
 
-        guard !isSyncing else {
+        guard beginSyncingIfIdle() else {
             #if DEBUG
             print("⚠️ Sync already in progress")
             #endif
             return 0
         }
+        defer { endSyncing() }
 
         let syncStartTime = Date()
         var historyMetricTypes: [String] = []
@@ -671,12 +710,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             )
         }
 
-        isSyncing = true
-        defer { isSyncing = false }
-
         lastSyncAttemptTime = Date()
 
-        guard apiClient.hasStoredCredentials else {
+        guard await apiClient.hasStoredCredentials else {
             recordHistory(succeeded: false, errorMessage: "No stored credentials")
             return 0
         }
@@ -870,7 +906,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             )
         }
 
-        guard !isSyncing else {
+        guard beginSyncingIfIdle() else {
             return RetryDateRangeResult(
                 attemptedDays: attemptedDayKeys.count,
                 syncedMetricCount: 0,
@@ -879,13 +915,11 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 errorMessage: "Sync already in progress."
             )
         }
-
-        isSyncing = true
-        defer { isSyncing = false }
+        defer { endSyncing() }
 
         lastSyncAttemptTime = Date()
 
-        guard apiClient.hasStoredCredentials else {
+        guard await apiClient.hasStoredCredentials else {
             return RetryDateRangeResult(
                 attemptedDays: attemptedDayKeys.count,
                 syncedMetricCount: 0,
@@ -1117,7 +1151,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     /// Perform a full backfill using DAILY AGGREGATES (recommended for initial setup)
     /// This sends daily totals instead of raw samples (e.g., 700 daily values vs 50,000 raw samples)
     func performFullBackfill(daysBack: Int = 730, progressHandler: ((Int, Int) -> Void)? = nil) async throws -> Int {
-        guard apiClient.hasStoredCredentials else {
+        guard await apiClient.hasStoredCredentials else {
             throw APIError.notRegistered
         }
         
