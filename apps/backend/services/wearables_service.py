@@ -703,9 +703,21 @@ class WearablesService:
             error_count=total_ops - total_success,
             status=status
         )
-        
+
+        # Mirror what the V1 path does: stamp the device's last_sync_at so
+        # the desktop UI's "Last sync" reflects this ingest. Without this
+        # the desktop reads a never-updated device row and shows "Never"
+        # forever even though every V2 ingest succeeds.
+        if total_success > 0:
+            async with get_db_session() as session:
+                stmt = select(WearableDeviceDB).where(WearableDeviceDB.id == request.device_id)
+                device = (await session.execute(stmt)).scalar_one_or_none()
+                if device:
+                    device.last_sync_at = datetime.now(timezone.utc)
+                    await session.commit()
+
         logger.info(f"✅ V2 Ingest: {added_success} added, {deleted_success} deleted, {modified_success} modified")
-        
+
         return total_success > 0, added_results, deleted_results, modified_results, None
     
     # ================================
