@@ -256,7 +256,7 @@ function MiniBarChartCard({
             data={series.data}
             margin={{ top: 8, right: 8, bottom: 2, left: 0 }}
             barGap={2}
-            barCategoryGap="20%"
+            barCategoryGap={series.data.length <= 30 ? '12%' : '20%'}
           >
             <CartesianGrid
               horizontal
@@ -310,11 +310,11 @@ function MiniBarChartCard({
               // so 6M/1Y pack tightly instead of rendering as hair lines.
               maxBarSize={
                 series.data.length <= 7
-                  ? 28
+                  ? 32
                   : series.data.length <= 14
-                    ? 22
+                    ? 26
                     : series.data.length <= 30
-                      ? 16
+                      ? 22
                       : undefined
               }
               isAnimationActive={false}

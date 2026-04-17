@@ -81,8 +81,19 @@ function ChangeBadge({
   // reflects valence relative to higherIsBetter. This avoids the confusing
   // "↘ 999%" for a habit whose value actually went UP (and is bad).
   const isUp = change > 0;
-  const isImprovement = higherIsBetter == null ? isUp : (higherIsBetter ? isUp : !isUp);
   const arrow = isUp ? '↗' : '↘';
+
+  // No semantic valence (apps, websites, heart-rate-ish metrics) → render
+  // neutrally so "+124% Chrome" doesn't read as a victory.
+  if (higherIsBetter == null) {
+    return (
+      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.58)] tabular-nums">
+        {arrow} {display}%
+      </span>
+    );
+  }
+
+  const isImprovement = higherIsBetter ? isUp : !isUp;
 
   if (isImprovement) {
     return (

@@ -2300,6 +2300,15 @@ export function MetricsView({
       habit_name: COMPUTER_HABIT_DISPLAY_NAME,
       unit_type: 'Hours',
     };
+    // Mini charts let the user scrub from 1D to MAX (5Y), but the bar-list
+    // analytics fetch only covers the current bar-list range + a prior
+    // window. To avoid truncating history on wider mini-chart ranges, build
+    // daily rows straight from the local log store (which holds the user's
+    // full history) for the wider window; fall back to the API data only if
+    // local logs are missing.
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const fiveYearsAgo = format(subDays(new Date(), 365 * 5), 'yyyy-MM-dd');
+
     const sources: HabitSparkSource[] = [];
     for (const habitId of pinnedHabitIds) {
       if (habitId === COMPUTER_ACTIVITY_CARD_ID) {
@@ -2316,18 +2325,24 @@ export function MetricsView({
       const habit = filteredHabits.find((candidate: HabitData) => candidate.habit_id === habitId);
       if (!habit) continue;
       const unit = habit.unit_type || mergedBarListSummaryMetrics[habitId]?.unit || 'count';
+      const localLogs = habitLogsByHabitId.get(habitId) || [];
+      const wideRangeDailyRows = buildLocalMetricDailyRows(habit, localLogs, fiveYearsAgo, today);
+      const logs = wideRangeDailyRows.length > 0
+        ? wideRangeDailyRows
+        : (mergedBarListAnalyticsData[habitId] || []);
       sources.push({
         habitId,
         name: habit.habit_name,
         unit,
         higherIsBetter: inferHigherIsBetter(habit.habit_name, unit),
-        logs: mergedBarListAnalyticsData[habitId] || [],
+        logs,
       });
     }
     return sources;
   }, [
     computerActivityDaily,
     filteredHabits,
+    habitLogsByHabitId,
     mergedBarListAnalyticsData,
     mergedBarListSummaryMetrics,
     pinnedHabitIds,
