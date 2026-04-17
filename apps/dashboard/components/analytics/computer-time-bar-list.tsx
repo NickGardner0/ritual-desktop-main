@@ -65,11 +65,18 @@ function formatHours(hours: number): string {
   return `${mins}m`;
 }
 
+// Apps with ≤5 min of prior usage behave like accidental opens/background
+// tabs, not a real baseline. Ratios against that are pure noise (37 seconds
+// → 19 minutes reads as "3.0k%"), so anything below this is treated as
+// effectively zero and falls through to the "New" label — which is the
+// honest signal: the app emerged in the current window.
+const MIN_PRIOR_BASELINE_HOURS = 5 / 60;
+
 function computeAppOrDomainChange(currentHours: number, previousHours: number): number | undefined {
   const current = Number(currentHours) || 0;
   const previous = Number(previousHours) || 0;
 
-  if (previous > 0) {
+  if (previous >= MIN_PRIOR_BASELINE_HOURS) {
     const rawChange = ((current - previous) / previous) * 100;
     if (!Number.isFinite(rawChange)) return undefined;
     // Keep in sync with MAX_MEANINGFUL_PERCENT_CHANGE; the display layer
@@ -191,7 +198,10 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
                 name: app.name,
                 value: formatHours(app.hours),
                 change,
-                changeLabel: change === undefined && app.hours > 0 && previousHours <= 0 ? 'New' : undefined,
+                // `computeAppOrDomainChange` returns undefined either when
+                // there's no prior usage at all or when prior is below the
+                // noise baseline (5 min). Both cases read honestly as "New".
+                changeLabel: change === undefined && app.hours > 0 ? 'New' : undefined,
                 barPercent: Math.round((app.hours / maxHours) * 100),
               };
             }),
@@ -208,7 +218,7 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
                 name: domain.name,
                 value: formatHours(domain.hours),
                 change,
-                changeLabel: change === undefined && domain.hours > 0 && previousHours <= 0 ? 'New' : undefined,
+                changeLabel: change === undefined && domain.hours > 0 ? 'New' : undefined,
                 barPercent: Math.round((domain.hours / maxHours) * 100),
               };
             }),
