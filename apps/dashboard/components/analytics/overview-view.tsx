@@ -222,6 +222,22 @@ export function OverviewView({
     () => computerSnapshotQuery.data?.summary ?? null,
     [computerSnapshotQuery.data?.summary],
   );
+  const computerSnapshotLooksEmpty = useMemo(() => {
+    const snapshot = computerSnapshotQuery.data;
+    if (!snapshot) return true;
+
+    const summary = snapshot.summary;
+    const hasSummaryData =
+      Number(summary?.total_active_ms || 0) > 0
+      || Number(summary?.total_hours || 0) > 0
+      || Number(summary?.days_tracked || 0) > 0
+      || Number(summary?.total_events || 0) > 0;
+
+    return !hasSummaryData
+      && snapshot.daily.length === 0
+      && snapshot.apps.length === 0
+      && snapshot.domains.length === 0;
+  }, [computerSnapshotQuery.data]);
   const computerActivityResolved = !user?.id || computerSnapshotQuery.isFetched || computerSnapshotQuery.isSuccess;
 
   const traceSyncComputation = useCallback(<T,>(
@@ -621,7 +637,12 @@ export function OverviewView({
 
       if (isComputerHabitName(habit.name)) {
         const cachedStats = effectiveCachedStats[habitId];
-        const shouldUseCachedComputerFallback = Boolean(cachedStats) && computerSnapshotQuery.isPlaceholderData;
+        const shouldUseCachedComputerFallback =
+          Boolean(cachedStats)
+          && (
+            computerSnapshotQuery.isPlaceholderData
+            || computerSnapshotLooksEmpty
+          );
 
         if (shouldUseCachedComputerFallback && cachedStats) {
           next.set(habitId, {
