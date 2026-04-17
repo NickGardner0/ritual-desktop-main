@@ -541,15 +541,20 @@ class WearablesService:
                 )
         return results
 
+    # Strong refs to in-flight backfill tasks so the event loop doesn't GC them
+    _backfill_tasks: set = set()
+
     async def _run_legacy_backfill_once(self, user_id: str) -> None:
-        """Run the legacy Apple Health metrics backfill exactly once per user.
+        """Spawn the legacy Apple Health metrics backfill exactly once per user.
 
         The backfill scans the entire legacy `wearable_metrics` table for the
         user and upserts each row into the new wearable_samples/wearable_events
         tables. For users with months of historical data this can take many
-        minutes and was previously running on every ingest, blocking the iOS
-        client past its request timeout. We now gate it behind a per-user
-        flag stored in the apple_health connection's settings_json.
+        minutes, so we (a) skip if already done for this user, (b) optimistically
+        write the completion flag immediately to avoid concurrent re-entry, and
+        (c) run the actual work in a fire-and-forget background task so the
+        ingest request returns immediately and the iOS client doesn't hit its
+        request timeout.
         """
         async with get_db_session() as session:
             stmt = select(WearableConnectionDB).where(
@@ -557,9 +562,11 @@ class WearablesService:
                 WearableConnectionDB.provider == "apple_health",
             )
             conn = (await session.execute(stmt)).scalar_one_or_none()
+            if not conn:
+                return
 
             settings: Dict[str, Any] = {}
-            if conn and conn.settings_json:
+            if conn.settings_json:
                 try:
                     raw = conn.settings_json
                     settings = json.loads(raw) if isinstance(raw, str) else raw
@@ -569,36 +576,31 @@ class WearablesService:
             if settings.get("legacy_backfill_completed_at"):
                 return
 
-        try:
-            result = await wearable_sync_service.backfill_legacy_apple_metrics(user_id)
-            logger.info(
-                "✅ Legacy Apple backfill completed for user %s: %s",
-                user_id, result,
-            )
-        except Exception as exc:
-            logger.warning("⚠️ Legacy Apple backfill failed for user %s: %s", user_id, exc)
-            return
-
-        async with get_db_session() as session:
-            stmt = select(WearableConnectionDB).where(
-                WearableConnectionDB.user_id == user_id,
-                WearableConnectionDB.provider == "apple_health",
-            )
-            conn = (await session.execute(stmt)).scalar_one_or_none()
-            if not conn:
-                return
-            settings = {}
-            if conn.settings_json:
-                try:
-                    raw = conn.settings_json
-                    settings = json.loads(raw) if isinstance(raw, str) else raw
-                except Exception:
-                    settings = {}
+            # Optimistically mark the backfill as scheduled so concurrent
+            # ingests don't all spawn duplicate workers. If the backfill
+            # fails we still won't retry — that's intentional, the
+            # alternative is paying the multi-minute cost on every ingest.
             settings["legacy_backfill_completed_at"] = (
                 datetime.now(timezone.utc).isoformat()
             )
             conn.settings_json = json.dumps(settings)
             await session.commit()
+
+        async def _worker() -> None:
+            try:
+                result = await wearable_sync_service.backfill_legacy_apple_metrics(user_id)
+                logger.info(
+                    "✅ Legacy Apple backfill completed for user %s: %s",
+                    user_id, result,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "⚠️ Legacy Apple backfill failed for user %s: %s", user_id, exc
+                )
+
+        task = asyncio.create_task(_worker())
+        self._backfill_tasks.add(task)
+        task.add_done_callback(self._backfill_tasks.discard)
 
     async def process_ingest_request_v2(
         self,
