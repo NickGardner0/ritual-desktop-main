@@ -40,13 +40,12 @@ export interface HabitSparkSource {
 
 export const DEFAULT_MINI_CHART_RANGE_OPTIONS: RangeOption[] = [
   { value: '1D', label: '1D' },
-  { value: '5D', label: '5D' },
   { value: '1W', label: '1W' },
   { value: '1M', label: '1M' },
+  { value: '3M', label: '3M' },
   { value: '6M', label: '6M' },
   { value: 'YTD', label: 'YTD' },
   { value: '1Y', label: '1Y' },
-  { value: '5Y', label: '5Y' },
   { value: 'MAX', label: 'MAX' },
 ]
 
@@ -253,7 +252,12 @@ function MiniBarChartCard({
 
       <div className="flex-1 min-h-0 px-2 pb-3 pt-1">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={series.data} margin={{ top: 8, right: 8, bottom: 2, left: 0 }}>
+          <BarChart
+            data={series.data}
+            margin={{ top: 8, right: 8, bottom: 2, left: 0 }}
+            barGap={2}
+            barCategoryGap="20%"
+          >
             <CartesianGrid
               horizontal
               vertical={false}
@@ -301,7 +305,18 @@ function MiniBarChartCard({
               fill="#27251E"
               fillOpacity={0.85}
               radius={[2, 2, 0, 0]}
-              maxBarSize={12}
+              // Mirror the expanded chart's tiers: thicker bars for short
+              // ranges, let long ranges (>30 days) fill the category width
+              // so 6M/1Y pack tightly instead of rendering as hair lines.
+              maxBarSize={
+                series.data.length <= 7
+                  ? 28
+                  : series.data.length <= 14
+                    ? 22
+                    : series.data.length <= 30
+                      ? 16
+                      : undefined
+              }
               isAnimationActive={false}
             />
           </BarChart>
