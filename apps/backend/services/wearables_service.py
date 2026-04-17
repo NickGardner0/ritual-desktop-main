@@ -540,7 +540,66 @@ class WearablesService:
                     )
                 )
         return results
-    
+
+    async def _run_legacy_backfill_once(self, user_id: str) -> None:
+        """Run the legacy Apple Health metrics backfill exactly once per user.
+
+        The backfill scans the entire legacy `wearable_metrics` table for the
+        user and upserts each row into the new wearable_samples/wearable_events
+        tables. For users with months of historical data this can take many
+        minutes and was previously running on every ingest, blocking the iOS
+        client past its request timeout. We now gate it behind a per-user
+        flag stored in the apple_health connection's settings_json.
+        """
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == user_id,
+                WearableConnectionDB.provider == "apple_health",
+            )
+            conn = (await session.execute(stmt)).scalar_one_or_none()
+
+            settings: Dict[str, Any] = {}
+            if conn and conn.settings_json:
+                try:
+                    raw = conn.settings_json
+                    settings = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    settings = {}
+
+            if settings.get("legacy_backfill_completed_at"):
+                return
+
+        try:
+            result = await wearable_sync_service.backfill_legacy_apple_metrics(user_id)
+            logger.info(
+                "✅ Legacy Apple backfill completed for user %s: %s",
+                user_id, result,
+            )
+        except Exception as exc:
+            logger.warning("⚠️ Legacy Apple backfill failed for user %s: %s", user_id, exc)
+            return
+
+        async with get_db_session() as session:
+            stmt = select(WearableConnectionDB).where(
+                WearableConnectionDB.user_id == user_id,
+                WearableConnectionDB.provider == "apple_health",
+            )
+            conn = (await session.execute(stmt)).scalar_one_or_none()
+            if not conn:
+                return
+            settings = {}
+            if conn.settings_json:
+                try:
+                    raw = conn.settings_json
+                    settings = json.loads(raw) if isinstance(raw, str) else raw
+                except Exception:
+                    settings = {}
+            settings["legacy_backfill_completed_at"] = (
+                datetime.now(timezone.utc).isoformat()
+            )
+            conn.settings_json = json.dumps(settings)
+            await session.commit()
+
     async def process_ingest_request_v2(
         self,
         user_id: str,
@@ -581,10 +640,7 @@ class WearablesService:
             logger.warning(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
             return True, [], [], [], "Already processed (idempotency)"
         
-        try:
-            await wearable_sync_service.backfill_legacy_apple_metrics(user_id)
-        except Exception as exc:
-            logger.warning("⚠️ Legacy Apple backfill skipped for V2 ingest: %s", exc)
+        await self._run_legacy_backfill_once(user_id)
 
         # 4. Process added metrics
         added_results: List[AppleIngestResult] = []
