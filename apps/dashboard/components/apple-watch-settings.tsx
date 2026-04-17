@@ -14,7 +14,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isTauri } from '@/lib/tauri-utils';
 import { cn } from '@/lib/utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -570,27 +569,32 @@ export function AppleWatchSettings() {
             connected ? 'text-gray-700' : 'text-gray-400',
           )}
         >
-          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-green-500' : 'bg-gray-300')} />
+          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-[#4a5e2b]' : 'bg-gray-300')} />
           {connected ? 'Connected' : 'Not connected'}
         </span>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-0.5 rounded-sm border border-gray-200 bg-[#F5F5F4] p-1">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'flex-1 rounded-sm px-3 py-1.5 text-[13px] font-medium transition-all',
-              tab === t.key
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Tab bar — underline style, no card container */}
+      <div className="border-b border-gray-200">
+        <div className="flex gap-6">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={cn(
+                'relative -mb-px pb-2.5 text-[13px] font-medium transition-colors',
+                tab === t.key
+                  ? 'text-gray-900'
+                  : 'text-gray-400 hover:text-gray-600',
+              )}
+            >
+              {t.label}
+              {tab === t.key && (
+                <span className="absolute bottom-0 left-0 right-0 h-px bg-gray-900" />
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ================================================================ */}
@@ -703,11 +707,15 @@ export function AppleWatchSettings() {
               </div>
             )}
 
-            <Button onClick={handleExportNow} disabled={exportLoading} className="w-full h-9 text-[13px] rounded-sm font-medium">
+            <button
+              onClick={handleExportNow}
+              disabled={exportLoading}
+              className="inline-flex items-center gap-1.5 rounded-sm bg-gray-900 px-3 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-gray-800 disabled:opacity-50"
+            >
               {exportLoading ? (
-                <span className="flex items-center gap-2"><BrailleSpinner /> Exporting...</span>
+                <><BrailleSpinner /> Exporting...</>
               ) : 'Export now'}
-            </Button>
+            </button>
 
             {exportResult && (
               <p className={cn('text-[13px]', exportResult.type === 'success' ? 'text-green-600' : 'text-red-500')}>
@@ -778,9 +786,13 @@ export function AppleWatchSettings() {
                   </div>
                 </div>
 
-                <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full text-[13px] h-9 rounded-sm">
-                  {scheduleSaving ? (<span className="flex items-center gap-2"><BrailleSpinner /> Saving...</span>) : 'Save schedule'}
-                </Button>
+                <button
+                  onClick={() => saveExportSchedule(exportSchedule)}
+                  disabled={scheduleSaving}
+                  className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {scheduleSaving ? (<><BrailleSpinner /> Saving...</>) : 'Save schedule'}
+                </button>
               </div>
             )}
           </div>
@@ -803,7 +815,7 @@ export function AppleWatchSettings() {
                     <div key={entry.id} className="flex items-center justify-between rounded-sm border border-gray-100 px-3 py-2.5">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-green-500' : 'bg-red-400')} />
+                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-[#4a5e2b]' : 'bg-red-400')} />
                           <span className="text-[13px] font-medium text-gray-900">
                             {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
                           </span>
@@ -945,7 +957,7 @@ function GreenToggle({
       onClick={() => onChange(!checked)}
       className={cn(
         'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-        checked ? 'bg-green-500' : 'bg-gray-200',
+        checked ? 'bg-[#4a5e2b]' : 'bg-gray-200',
       )}
     >
       <span
