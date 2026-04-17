@@ -635,7 +635,76 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const DEFAULT_CANVAS_WIDTH = 560;
 const MIN_CANVAS_WIDTH = 360;
 const MAX_CANVAS_WIDTH = 860;
-const CHAT_PAGE_CARD_BG = '#F5F5F4';
+const CHAT_PAGE_CARD_BG = '#F8F8F7';
+// Slightly darker than the input card so the Connect-apps bar reads as a
+// distinct strip attached to the bottom, matching Littlebird's treatment.
+const CHAT_PAGE_CONNECT_BAR_BG = '#EAE8E4';
+const CHAT_PAGE_CONNECT_BAR_DISMISS_KEY = 'ritual:chat:apps-bar-dismissed';
+
+// Curated from the Integrations page. Same SVG assets, sized for a compact
+// row so the bar stays visually quiet next to the chat input.
+// Rendered height in px; width auto-computes from each SVG's intrinsic
+// aspect ratio so wordmarks (Whoop, Fitbit) stay readable without being
+// squished into a square box.
+const CONNECT_APPS_BAR_ICONS: Array<{
+  id: string;
+  alt: string;
+  src: string;
+  height: number;
+}> = [
+  { id: 'oura', alt: 'Oura', src: '/images/oura.svg', height: 16 },
+  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 12 },
+  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg', height: 12 },
+  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg', height: 14 },
+  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg', height: 14 },
+  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg', height: 13 },
+];
+
+interface ConnectAppsBarProps {
+  onOpenIntegrations: () => void;
+  onDismiss: () => void;
+}
+
+function ConnectAppsBar({ onOpenIntegrations, onDismiss }: ConnectAppsBarProps) {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 border-t border-gray-200/70 px-4 py-2"
+      style={{ backgroundColor: CHAT_PAGE_CONNECT_BAR_BG }}
+    >
+      <button
+        type="button"
+        onClick={onOpenIntegrations}
+        className="text-[12px] font-normal text-gray-500 transition-colors hover:text-gray-700"
+      >
+        Connect your apps to get better answers
+      </button>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {CONNECT_APPS_BAR_ICONS.map((app) => (
+            <img
+              key={app.id}
+              src={app.src}
+              alt={app.alt}
+              className="object-contain opacity-85"
+              style={{ height: app.height, width: 'auto' }}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDismiss();
+          }}
+          className="flex h-4 w-4 items-center justify-center text-gray-400 transition-colors hover:text-gray-600"
+          aria-label="Dismiss connect apps bar"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // Persisted conversation types
 interface PersistedMessage {
@@ -682,6 +751,29 @@ export function ChatClient() {
     if (hour >= 12 && hour < 17) return 'Good afternoon';
     return 'Good evening';
   }, []);
+
+  // Connect-apps strip under the chat input. Dismissable; persists per user.
+  const [showConnectAppsBar, setShowConnectAppsBar] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem(CHAT_PAGE_CONNECT_BAR_DISMISS_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissConnectAppsBar = useCallback(() => {
+    setShowConnectAppsBar(false);
+    try {
+      window.localStorage.setItem(CHAT_PAGE_CONNECT_BAR_DISMISS_KEY, '1');
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  const openIntegrationsPage = useCallback(() => {
+    router.push('/integrations');
+  }, [router]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2331,6 +2423,12 @@ export function ChatClient() {
                       <ArrowUp className="w-4 h-4" />
                     </button>
                   </div>
+                  {showConnectAppsBar ? (
+                    <ConnectAppsBar
+                      onOpenIntegrations={openIntegrationsPage}
+                      onDismiss={dismissConnectAppsBar}
+                    />
+                  ) : null}
                 </div>
               </form>
 
