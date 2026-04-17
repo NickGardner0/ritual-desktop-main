@@ -242,8 +242,12 @@ export function buildDashboardSnapshot(
   const allTimeSparklineWindow: AggregateWindow = {
     startDate: subDays(new Date(), 180).toISOString().slice(0, 10),
   };
+  // Bar list needs enough history to compute prior-window deltas for the
+  // default 1M range (30 current + 30 prior = 60 days). 90 gives a small
+  // buffer and still covers most all-time users in one payload; wider
+  // ranges trigger a client-side refetch.
   const allTimeBarListWindow: AggregateWindow = {
-    startDate: subDays(new Date(), 30).toISOString().slice(0, 10),
+    startDate: subDays(new Date(), 90).toISOString().slice(0, 10),
   };
   const explicitWindow: AggregateWindow | undefined = rangeWindow.hasExplicitRange
     ? {

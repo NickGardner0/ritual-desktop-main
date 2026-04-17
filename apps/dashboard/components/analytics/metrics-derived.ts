@@ -518,7 +518,13 @@ export function buildMetricsBarData({
       // separate day-count gate just hides legitimate deltas for users whose
       // habit history only spans the current window.
       const change = computeMeaningfulPercentChange(currentPerDay, priorPerDay, unit);
-      const isNew = change === undefined && priorValues.length === 0 && values.length > 0;
+      // Only call it "New" when we have meaningful current data (≥3 days)
+      // AND no prior log rows at all — not just zero values. A zero-row
+      // prior could also mean the fetch window didn't cover that span, in
+      // which case "—" is more honest than a confident "New" label.
+      const isNew = change === undefined
+        && priorLogs.length === 0
+        && values.length >= 3;
 
       return {
         habitId: habit.habit_id,
@@ -553,7 +559,9 @@ export function buildMetricsBarData({
       const compPriorTotal = compPriorValues.reduce((sum, value) => sum + value, 0);
       const compPriorPerDay = compPriorValues.length > 0 ? compPriorTotal / compPriorValues.length : 0;
       const compChange = computeMeaningfulPercentChange(compCurrentPerDay, compPriorPerDay, 'hours');
-      const compIsNew = compChange === undefined && compPriorValues.length === 0 && compValues.length > 0;
+      const compIsNew = compChange === undefined
+        && compPriorValues.length === 0
+        && compValues.length >= 3;
       barData.push({
         habitId: '__computer_activity__',
         name: COMPUTER_HABIT_DISPLAY_NAME,
