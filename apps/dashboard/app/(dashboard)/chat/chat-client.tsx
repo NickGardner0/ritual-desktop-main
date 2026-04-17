@@ -638,7 +638,7 @@ const MAX_CANVAS_WIDTH = 860;
 const CHAT_PAGE_CARD_BG = '#F8F8F7';
 // Slightly darker than the input card so the Connect-apps bar reads as a
 // distinct strip attached to the bottom, matching Littlebird's treatment.
-const CHAT_PAGE_CONNECT_BAR_BG = '#EAE8E4';
+const CHAT_PAGE_CONNECT_BAR_BG = '#E8E8E8';
 const CHAT_PAGE_CONNECT_BAR_DISMISS_KEY = 'ritual:chat:apps-bar-dismissed';
 
 // Curated from the Integrations page. Same SVG assets, sized for a compact
@@ -652,8 +652,8 @@ const CONNECT_APPS_BAR_ICONS: Array<{
   src: string;
   height: number;
 }> = [
-  { id: 'oura', alt: 'Oura', src: '/images/oura.svg', height: 16 },
-  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 12 },
+  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg', height: 15 },
+  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 15 },
   { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg', height: 12 },
   { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg', height: 14 },
   { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg', height: 14 },
@@ -676,7 +676,7 @@ function ConnectAppsBar({ onOpenIntegrations, onDismiss }: ConnectAppsBarProps) 
         onClick={onOpenIntegrations}
         className="text-[12px] font-normal text-gray-500 transition-colors hover:text-gray-700"
       >
-        Connect your apps to get better answers
+        Connect your devices to get better answers
       </button>
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1.5">
@@ -2341,8 +2341,8 @@ export function ChatClient() {
         {/* Main Content */}
         <div className="flex-1 flex flex-col min-w-0">
 
-          <div className="flex-1 flex flex-col items-center justify-center p-6">
-            <div className="max-w-xl w-full space-y-4">
+          <div className="flex-1 flex flex-col items-center justify-center p-6 pb-24">
+            <div className="max-w-2xl w-full space-y-4">
               {/* Logo + Greeting */}
               <div className="flex flex-col items-center gap-2 mb-1">
                 <div className="relative flex h-12 w-12 items-center justify-center">
