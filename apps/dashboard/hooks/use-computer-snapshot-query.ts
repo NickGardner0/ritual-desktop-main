@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { useQuery } from '@tanstack/react-query';
 import { subDays } from 'date-fns';
@@ -14,6 +14,9 @@ import {
 } from '@/lib/computerActivity/client';
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
 import { QUERY_POLICY } from '@/lib/query-policies';
+
+const COMPUTER_SNAPSHOT_STORAGE_KEY = 'ritual:computer-snapshot:v1';
+const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 
 export type ComputerSnapshot = {
   summary: ComputerSummaryResponse;
@@ -62,6 +65,64 @@ const EMPTY_COMPUTER_SNAPSHOT: ComputerSnapshot = {
   syncPending: false,
 };
 
+type PersistedSnapshot<T> = {
+  updatedAt: number;
+  data: T;
+};
+
+type SnapshotEnvelope<T> = {
+  byUser?: Record<string, Record<string, PersistedSnapshot<T>>>;
+};
+
+function readPersistedSnapshot(
+  userId?: string | null,
+  rangeKey?: string,
+): PersistedSnapshot<ComputerSnapshot> | null {
+  if (typeof window === 'undefined' || !userId || !rangeKey) return null;
+
+  try {
+    const raw = window.localStorage.getItem(COMPUTER_SNAPSHOT_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as SnapshotEnvelope<ComputerSnapshot>;
+    const candidate = parsed.byUser?.[userId]?.[rangeKey];
+    if (!candidate?.data || !candidate.updatedAt) return null;
+    if (Date.now() - candidate.updatedAt > SNAPSHOT_MAX_AGE_MS) return null;
+    return candidate;
+  } catch (error) {
+    console.warn('Failed to restore persisted computer snapshot:', error);
+    return null;
+  }
+}
+
+function persistSnapshot(
+  userId: string,
+  rangeKey: string,
+  data: ComputerSnapshot,
+): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const raw = window.localStorage.getItem(COMPUTER_SNAPSHOT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) as SnapshotEnvelope<ComputerSnapshot> : {};
+    const next: SnapshotEnvelope<ComputerSnapshot> = {
+      byUser: {
+        ...(parsed.byUser || {}),
+        [userId]: {
+          ...(parsed.byUser?.[userId] || {}),
+          [rangeKey]: {
+            data,
+            updatedAt: Date.now(),
+          },
+        },
+      },
+    };
+    window.localStorage.setItem(COMPUTER_SNAPSHOT_STORAGE_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.warn('Failed to persist computer snapshot:', error);
+  }
+}
+
 export function useComputerSnapshotQuery({
   userId,
   dateRange,
@@ -76,8 +137,12 @@ export function useComputerSnapshotQuery({
   const rangeWindow = useMemo(() => getAnalyticsRangeWindow(dateRange), [dateRange]);
   const rangeKey = rangeWindow.rangeKey;
   const queryUserId = userId ?? 'anonymous';
+  const persistedSnapshot = useMemo(
+    () => readPersistedSnapshot(userId, rangeKey),
+    [userId, rangeKey],
+  );
 
-  return useQuery({
+  const query = useQuery({
     queryKey: computerSnapshotKeys.detail(queryUserId, rangeKey),
     queryFn: async (): Promise<ComputerSnapshot> => {
       const today = new Date().toISOString().slice(0, 10);
@@ -92,11 +157,20 @@ export function useComputerSnapshotQuery({
       return toComputerSnapshot(payload);
     },
     enabled: enabled && Boolean(userId),
-    placeholderData: (previous) => previous ?? EMPTY_COMPUTER_SNAPSHOT,
+    initialData: persistedSnapshot?.data,
+    initialDataUpdatedAt: persistedSnapshot?.updatedAt,
+    placeholderData: (previous) => previous ?? persistedSnapshot?.data ?? EMPTY_COMPUTER_SNAPSHOT,
     staleTime: QUERY_POLICY.computerSnapshot.staleTime,
     gcTime: QUERY_POLICY.computerSnapshot.gcTime,
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    if (!userId || !query.data) return;
+    persistSnapshot(userId, rangeKey, query.data);
+  }, [userId, rangeKey, query.data]);
+
+  return query;
 }
 
 export function getComputerSnapshotRangeKey(dateRange?: DateRange) {

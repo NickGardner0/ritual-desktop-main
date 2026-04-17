@@ -907,6 +907,11 @@ export function HabitLogsDataTable({
     return 'text-left';
   }, []);
 
+  const tableMinWidth = useMemo(() => {
+    const visibleLeafColumns = table.getVisibleLeafColumns();
+    return visibleLeafColumns.reduce((sum, column) => sum + getColumnWidth(column.id), 0);
+  }, [table, columnVisibility, getColumnWidth]);
+
   // Persist column widths & order to localStorage
   useEffect(() => {
     try { localStorage.setItem(COLUMN_RESIZE_STORAGE_KEY, JSON.stringify(columnWidths)); } catch { /* ignore */ }
@@ -1131,7 +1136,11 @@ export function HabitLogsDataTable({
             WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 12px), transparent 100%)',
           }}
         >
-          <div role="table" className="w-full text-sm">
+          <div
+            role="table"
+            className="min-w-full text-sm"
+            style={{ minWidth: `${tableMinWidth}px` }}
+          >
             {/* Header */}
             <DndContext
               sensors={dndSensors}
@@ -1139,7 +1148,11 @@ export function HabitLogsDataTable({
               onDragEnd={handleColumnDragEnd}
             >
               <div role="rowgroup" className="sticky top-0 z-20 bg-white">
-                <div role="row" className={cn('flex items-center min-w-full', tableHeaderHeight)}>
+                <div
+                  role="row"
+                  className={cn('flex items-center min-w-full', tableHeaderHeight)}
+                  style={{ minWidth: `${tableMinWidth}px` }}
+                >
                   <SortableContext
                     items={headerGroup.headers.map((h) => h.id)}
                     strategy={horizontalListSortingStrategy}
@@ -1219,6 +1232,7 @@ export function HabitLogsDataTable({
                       height: rowHeight,
                       top: 0,
                       transform: `translateY(${virtualRow.start}px)`,
+                      minWidth: `${tableMinWidth}px`,
                       contain: 'layout style paint',
                     } as CSSProperties}
                     onClick={(event) => {

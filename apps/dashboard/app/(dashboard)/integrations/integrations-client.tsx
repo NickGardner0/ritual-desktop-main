@@ -40,6 +40,8 @@ import { QUERY_POLICY } from '@/lib/query-policies';
 import { cn } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const INTEGRATIONS_GREEN_SWITCH_CLASS =
+  'data-[state=checked]:bg-[#4e632d] data-[state=unchecked]:bg-gray-200 focus-visible:ring-[#4e632d]';
 
 declare global {
   interface Window {
@@ -536,7 +538,7 @@ const IntegrationCard = memo(({
         <>
           <button
             onClick={onDisconnect}
-            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-lime-500 transition-colors focus:outline-none focus:ring-2 focus:ring-lime-500 focus:ring-offset-2"
+            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-[#4e632d] transition-colors focus:outline-none focus:ring-2 focus:ring-[#4e632d] focus:ring-offset-2"
             role="switch"
             aria-checked="true"
           >
@@ -2294,6 +2296,7 @@ export function IntegrationsClient() {
                         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Scheduled export</p>
                         <Switch
                           checked={Boolean(exportSchedule?.enabled)}
+                          className={INTEGRATIONS_GREEN_SWITCH_CLASS}
                           onCheckedChange={(checked) => {
                             if (!scheduleLoaded) loadExportSchedule();
                             const updated = {
@@ -2857,6 +2860,7 @@ export function IntegrationsClient() {
           <div className="flex items-center gap-2">
             <Switch
               checked={autoSyncEnabled}
+              className={INTEGRATIONS_GREEN_SWITCH_CLASS}
               onCheckedChange={(checked) =>
                 handleWearableSyncSettingsUpdate(provider, {
                   auto_sync_enabled: checked,
@@ -2945,7 +2949,7 @@ export function IntegrationsClient() {
                     sync_hour: syncHour,
                   })
                 }
-                className="data-[state=checked]:bg-[#1f1e1a] data-[state=unchecked]:bg-[#d8d5cb]"
+                className={INTEGRATIONS_GREEN_SWITCH_CLASS}
               />
             </div>
           </div>

@@ -146,11 +146,18 @@ export function ConnectedDevicesBar() {
           >
             <span>Connect devices</span>
             <ChevronRight className="h-3 w-3" />
-            <span className="inline-flex items-center gap-0 overflow-visible">
+            <span className="inline-flex items-center gap-[1px] overflow-visible">
               {BAR_ICONS.map((d) => (
                 <span
                   key={d.id}
-                  className="flex h-[20px] w-[20px] items-center justify-center overflow-visible"
+                  className={cn(
+                    'flex items-center justify-center overflow-visible',
+                    d.id === 'oura'
+                      ? 'h-[17px] w-[17px]'
+                      : d.id === 'plaid'
+                        ? 'h-[13px] w-[13px]'
+                        : 'h-[14px] w-[14px]'
+                  )}
                 >
                   <img
                     src={d.logo}
@@ -158,10 +165,10 @@ export function ConnectedDevicesBar() {
                     className={cn(
                       'object-contain',
                       d.id === 'oura'
-                        ? 'h-[20px] w-[20px]'
+                        ? 'h-[17px] w-[17px]'
                         : d.id === 'plaid'
-                          ? 'h-[14px] w-[14px]'
-                          : 'h-[13px] w-[13px]'
+                          ? 'h-[12px] w-[12px]'
+                          : 'h-[14px] w-[14px]'
                     )}
                   />
                 </span>

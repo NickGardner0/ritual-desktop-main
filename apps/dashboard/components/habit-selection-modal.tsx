@@ -38,7 +38,7 @@ const connectRowActionClass =
   'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm border border-gray-200 bg-white px-2 text-sm font-normal text-gray-600 transition-colors hover:bg-gray-50';
 
 const connectRowActionConnectedClass =
-  'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm bg-lime-500 px-2 text-sm font-normal text-white transition-colors hover:bg-lime-600';
+  'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm bg-[#4e632d] px-2 text-sm font-normal text-white transition-colors hover:bg-[#445726]';
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
