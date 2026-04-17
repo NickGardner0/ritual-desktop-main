@@ -154,10 +154,32 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
             event.stopPropagation();
             onRemove();
           }}
-          className="absolute right-1.5 top-1.5 z-20 rounded-full bg-white p-0.5 opacity-0 shadow-sm transition-opacity duration-200 group-hover:opacity-100 hover:shadow-md"
+          className="absolute right-[3px] top-[3px] z-20 p-[1px] opacity-0 transition-opacity duration-150 group-hover:opacity-100"
           aria-label="Remove habit"
         >
-          <X className="h-2.5 w-2.5 text-gray-400 hover:text-gray-600" />
+          <X className="h-3 w-3 text-[rgba(39,37,30,0.45)] hover:text-[rgba(39,37,30,0.85)]" />
+        </button>
+      ) : null}
+
+      {onTogglePin ? (
+        <button
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onTogglePin();
+          }}
+          className={`absolute bottom-1 right-1 z-20 rounded-full bg-white p-0.5 shadow-sm transition-opacity duration-200 hover:shadow-md ${
+            isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+          aria-label={isPinned ? 'Unpin habit' : 'Pin habit'}
+          aria-pressed={isPinned}
+          title={isPinned ? 'Unpin habit' : 'Pin habit'}
+        >
+          <Pin
+            className={`h-2.5 w-2.5 ${
+              isPinned ? 'fill-[#27251E] text-[#27251E]' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          />
         </button>
       ) : null}
 
@@ -165,31 +187,8 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
         {isSparkCard ? (
           <div className="grid grid-cols-[minmax(0,1fr)_78px] items-start gap-x-2">
             <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-1">
-                {onTogglePin ? (
-                  <button
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onTogglePin();
-                    }}
-                    className={`shrink-0 rounded-full p-[1px] transition-opacity duration-200 ${
-                      isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'
-                    }`}
-                    aria-label={isPinned ? 'Unpin habit' : 'Pin habit'}
-                    aria-pressed={isPinned}
-                    title={isPinned ? 'Unpin habit' : 'Pin habit'}
-                  >
-                    <Pin
-                      className={`h-2.5 w-2.5 ${
-                        isPinned ? 'fill-[#27251E] text-[#27251E]' : 'text-[rgba(39,37,30,0.55)]'
-                      }`}
-                    />
-                  </button>
-                ) : null}
-                <span className="truncate text-[12.75px] font-medium leading-[17px] tracking-[-0.24px] text-[#27251E]">
-                  {habitName}
-                </span>
+              <div className="truncate text-[12.75px] font-medium leading-[17px] tracking-[-0.24px] text-[#27251E]">
+                {habitName}
               </div>
               <div className="mt-[1px] flex min-w-0 items-baseline gap-1 text-[11px] font-medium leading-[14px] tracking-[-0.18px] text-[rgba(39,37,30,0.62)]">
                 <span className="tabular-nums">{formattedPrimaryValue}</span>
@@ -211,32 +210,9 @@ export const HabitMetricCard: React.FC<HabitMetricCardProps> = ({
         ) : (
           <>
             <div className="flex h-[23.76px] items-center justify-between">
-              <div className="flex min-w-0 items-center gap-1">
-                {onTogglePin ? (
-                  <button
-                    onPointerDown={(event) => event.stopPropagation()}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onTogglePin();
-                    }}
-                    className={`shrink-0 rounded-full p-[1px] transition-opacity duration-200 ${
-                      isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'
-                    }`}
-                    aria-label={isPinned ? 'Unpin habit' : 'Pin habit'}
-                    aria-pressed={isPinned}
-                    title={isPinned ? 'Unpin habit' : 'Pin habit'}
-                  >
-                    <Pin
-                      className={`h-3 w-3 ${
-                        isPinned ? 'fill-[#27251E] text-[#27251E]' : 'text-[rgba(39,37,30,0.55)]'
-                      }`}
-                    />
-                  </button>
-                ) : null}
-                <span className="truncate text-[14px] font-normal leading-[20px] tracking-[-0.2px] text-[#27251E]">
-                  {habitName}
-                </span>
-              </div>
+              <span className="truncate text-[14px] font-normal leading-[20px] tracking-[-0.2px] text-[#27251E]">
+                {habitName}
+              </span>
               <span className={`inline-flex items-center gap-[1px] text-[14px] font-medium leading-[20px] tracking-[-0.4px] ${changeColorClass}`}>
                 {trend === 'up' ? <UpArrowIcon /> : null}
                 {trend === 'down' ? <DownArrowIcon /> : null}
