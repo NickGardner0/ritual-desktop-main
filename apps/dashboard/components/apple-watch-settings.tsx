@@ -8,27 +8,14 @@
  * settings, and disconnect.
  */
 
-import { useState, useEffect, useCallback, useRef, type ComponentType } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Apple,
-  Activity,
-  ChevronRight,
-  ChevronDown,
-  Dumbbell,
-  HeartPulse,
-  MoonStar,
-  Ruler,
-  Sparkles,
-  Waves,
-} from 'lucide-react';
 import { isTauri } from '@/lib/tauri-utils';
 import { cn } from '@/lib/utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -95,6 +82,17 @@ interface ExportHistoryEntry {
   triggered_by: 'manual' | 'scheduled';
 }
 
+interface MetricEntry {
+  type: string;
+  name: string;
+  unit: string;
+}
+
+interface MetricCategory {
+  category: string;
+  metrics: MetricEntry[];
+}
+
 // ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
@@ -156,26 +154,21 @@ export function AppleWatchSettings() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
 
-  // Data queries
   const { data: statusData } = useAppleWatchStatus();
   const { data: connection } = useWearableConnection('apple_health');
 
   const connected = statusData?.connected || false;
   const lastSync = statusData?.lastSyncAt;
 
-  // Tab
   const [tab, setTab] = useState<AppleWatchTab>('overview');
 
-  // Metric selection
-  const [metricCatalog, setMetricCatalog] = useState<any[]>([]);
+  const [metricCatalog, setMetricCatalog] = useState<MetricCategory[]>([]);
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(new Set());
   const [metricsLoaded, setMetricsLoaded] = useState(false);
 
-  // Metric save feedback
   const [metricSaveStatus, setMetricSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const metricSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Export
   const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'csv'>('markdown');
   const [exportWriteMode, setExportWriteMode] = useState<'overwrite' | 'append' | 'skip'>('overwrite');
   const [exportDatePreset, setExportDatePreset] = useState<'yesterday' | '7d' | '30d' | 'custom'>('7d');
@@ -188,12 +181,10 @@ export function AppleWatchSettings() {
   const [exportLoading, setExportLoading] = useState(false);
   const [exportResult, setExportResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Schedule
   const [exportSchedule, setExportSchedule] = useState<ExportSchedule | null>(null);
   const [scheduleLoaded, setScheduleLoaded] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
 
-  // History
   const [exportHistory, setExportHistory] = useState<ExportHistoryEntry[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
@@ -261,7 +252,6 @@ export function AppleWatchSettings() {
     }
   }, [historyLoaded, getToken]);
 
-  // Auto-load data when connected
   useEffect(() => {
     if (!connected) return;
     if (!metricsLoaded) loadMetricCatalogAndPreferences();
@@ -294,7 +284,7 @@ export function AppleWatchSettings() {
 
     try {
       await saveMetricPreferences(Array.from(next));
-      setMetricSaveStatus({ type: 'success', message: `${next.size} metrics selected` });
+      setMetricSaveStatus({ type: 'success', message: `${next.size} selected` });
     } catch {
       setSelectedMetrics(selectedMetrics);
       setMetricSaveStatus({ type: 'error', message: 'Failed to save' });
@@ -524,7 +514,7 @@ export function AppleWatchSettings() {
       const token = await getToken();
       if (!token) return;
 
-      if (!confirm('Are you sure you want to disconnect Apple Watch? You can reconnect using the Ritual iOS companion app.')) {
+      if (!confirm('Disconnect Apple Watch? You can reconnect using the Ritual iOS companion app.')) {
         return;
       }
 
@@ -544,7 +534,6 @@ export function AppleWatchSettings() {
 
       queryClient.invalidateQueries({ queryKey: ['apple-watch-status'] });
       queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
-      alert('Apple Watch disconnected successfully. You can reconnect using the Ritual iOS companion app.');
     } catch (error) {
       console.error('Error disconnecting Apple Watch:', error);
       alert(`Failed to disconnect: ${error}`);
@@ -567,6 +556,9 @@ export function AppleWatchSettings() {
   const autoSyncEnabled = connection?.auto_sync_enabled ?? false;
   const syncHour = connection?.sync_hour ?? 9;
 
+  // Flatten all metrics into a single ordered list for the Metrics tab.
+  const flatMetrics: MetricEntry[] = metricCatalog.flatMap((cat) => cat.metrics || []);
+
   return (
     <div className="space-y-5">
       {/* Header: title + connection badge */}
@@ -574,25 +566,23 @@ export function AppleWatchSettings() {
         <h3 className="text-[15px] font-semibold text-gray-900">Apple Watch</h3>
         <span
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
-            connected
-              ? 'text-gray-700'
-              : 'text-gray-400',
+            'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium',
+            connected ? 'text-gray-700' : 'text-gray-400',
           )}
         >
-          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-gray-900' : 'bg-gray-300')} />
+          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-green-500' : 'bg-gray-300')} />
           {connected ? 'Connected' : 'Not connected'}
         </span>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-0.5 rounded-lg border border-gray-200 bg-[#F5F5F4] p-1">
+      <div className="flex gap-0.5 rounded-sm border border-gray-200 bg-[#F5F5F4] p-1">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              'flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition-all',
+              'flex-1 rounded-sm px-3 py-1.5 text-[13px] font-medium transition-all',
               tab === t.key
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700',
@@ -607,43 +597,15 @@ export function AppleWatchSettings() {
       {/* OVERVIEW TAB                                                     */}
       {/* ================================================================ */}
       {tab === 'overview' && (
-        <div className="space-y-5">
-          {/* How it works */}
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm font-medium text-gray-900">Companion sync</p>
-              <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
-                Sync health data from your iPhone companion app, including workouts, steps, heart rate, sleep, body measurements, nutrition, vitals, and mobility metrics.
-              </p>
+        <div className="space-y-4">
+          {connected ? (
+            <div className="divide-y divide-gray-100">
+              <InfoRow label="Last sync" value={formatRelativeTime(lastSync)} />
+              <InfoRow label="Tracked metrics" value={`${selectedMetrics.size} selected`} />
+              <InfoRow label="Device" value={statusData?.deviceName || 'iPhone'} />
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">Selected metrics only</p>
-              <p className="mt-1 text-[13px] leading-relaxed text-gray-500">
-                Choose exactly which Apple Health metrics should create or update habits inside Ritual.
-              </p>
-            </div>
-          </div>
-
-          {connected && (
-            <>
-              {/* Sync status rows */}
-              <div className="divide-y divide-gray-100">
-                <InfoRow label="Last sync" value={formatRelativeTime(lastSync)} />
-                <InfoRow label="Tracked metrics" value={`${selectedMetrics.size} selected`} />
-                <InfoRow label="Device" value={statusData?.deviceName || 'iPhone'} />
-              </div>
-
-              {/* Quick nav */}
-              <div className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
-                <NavRow label="Metrics" onClick={() => setTab('metrics')} />
-                <NavRow label="Export" onClick={() => setTab('export')} />
-                <NavRow label="Settings" onClick={() => setTab('settings')} />
-              </div>
-            </>
-          )}
-
-          {!connected && (
-            <div className="rounded-xl bg-[#F5F5F4] px-5 py-6 text-center">
+          ) : (
+            <div className="rounded-sm bg-[#F5F5F4] px-5 py-6 text-center">
               <p className="text-sm font-medium text-gray-900">Not connected</p>
               <p className="mt-1.5 text-[13px] text-gray-500">
                 Open the Ritual Companion app on your iPhone to connect.
@@ -657,21 +619,25 @@ export function AppleWatchSettings() {
       {/* METRICS TAB                                                      */}
       {/* ================================================================ */}
       {tab === 'metrics' && connected && (
-        <div className="space-y-4">
-          <p className="text-[13px] leading-relaxed text-gray-500">
-            Toggle which health metrics to sync from your Apple Watch and iPhone.
-          </p>
-
-          {metricCatalog.length > 0 ? (
-            <div className="space-y-3">
-              {metricCatalog.map((category: any) => (
-                <MetricCategoryCard
-                  key={category.category}
-                  category={category}
-                  selected={selectedMetrics}
-                  onToggle={handleMetricToggle}
-                />
-              ))}
+        <div className="space-y-3">
+          {flatMetrics.length > 0 ? (
+            <div className="divide-y divide-gray-100">
+              {flatMetrics.map((metric) => {
+                const isEnabled = selectedMetrics.has(metric.type);
+                return (
+                  <div key={metric.type} className="flex items-center justify-between py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] text-gray-900 leading-tight">{metric.name}</p>
+                      <p className="mt-0.5 text-[11px] text-gray-400">{metric.unit}</p>
+                    </div>
+                    <GreenToggle
+                      checked={isEnabled}
+                      onChange={(next) => handleMetricToggle(metric.type, next)}
+                      ariaLabel={metric.name}
+                    />
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="flex items-center gap-2 py-8 justify-center text-[13px] text-gray-400">
@@ -692,9 +658,7 @@ export function AppleWatchSettings() {
       {/* ================================================================ */}
       {tab === 'export' && connected && (
         <div className="space-y-5">
-          {/* Manual export */}
           <div className="space-y-4">
-            {/* Date range */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-900">Date range</label>
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -706,16 +670,15 @@ export function AppleWatchSettings() {
               </div>
               {exportDatePreset === 'custom' ? (
                 <div className="flex items-center gap-2">
-                  <Input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-lg" />
+                  <Input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-sm" />
                   <span className="text-[13px] text-gray-400">to</span>
-                  <Input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-lg" />
+                  <Input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-sm" />
                 </div>
               ) : (
                 <p className="text-[13px] text-gray-400">{exportStartDate} — {exportEndDate}</p>
               )}
             </div>
 
-            {/* Format */}
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-900">Format</label>
               <div className="flex gap-1.5">
@@ -727,7 +690,6 @@ export function AppleWatchSettings() {
               </div>
             </div>
 
-            {/* Write mode (Tauri) */}
             {isTauri() && (
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-900">Write mode</label>
@@ -738,18 +700,13 @@ export function AppleWatchSettings() {
                     </SegmentButton>
                   ))}
                 </div>
-                <p className="mt-1.5 text-[13px] text-gray-400">
-                  {exportWriteMode === 'overwrite' && 'Replace existing file'}
-                  {exportWriteMode === 'append' && 'Add to end of existing file'}
-                  {exportWriteMode === 'skip' && 'Skip if file already exists'}
-                </p>
               </div>
             )}
 
-            <Button onClick={handleExportNow} disabled={exportLoading} className="w-full h-9 text-[13px] rounded-lg font-medium">
+            <Button onClick={handleExportNow} disabled={exportLoading} className="w-full h-9 text-[13px] rounded-sm font-medium">
               {exportLoading ? (
                 <span className="flex items-center gap-2"><BrailleSpinner /> Exporting...</span>
-              ) : 'Export Now'}
+              ) : 'Export now'}
             </Button>
 
             {exportResult && (
@@ -759,25 +716,14 @@ export function AppleWatchSettings() {
             )}
           </div>
 
-          {/* Divider */}
           <div className="border-t border-gray-100" />
 
-          {/* Scheduled export */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Scheduled export</p>
-                <p className="mt-0.5 text-[13px] text-gray-500">
-                  {exportSchedule?.enabled
-                    ? exportSchedule.frequency === 'daily'
-                      ? `Exports daily at ${exportSchedule.time || '08:00'}`
-                      : `Exports every ${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][exportSchedule.day_of_week ?? 0]} at ${exportSchedule.time || '08:00'}`
-                    : 'Turn this on to automatically export Apple Watch data on a schedule.'}
-                </p>
-              </div>
-              <Switch
+              <p className="text-sm font-medium text-gray-900">Scheduled export</p>
+              <GreenToggle
                 checked={Boolean(exportSchedule?.enabled)}
-                onCheckedChange={(checked) => {
+                onChange={(checked) => {
                   if (!scheduleLoaded) loadExportSchedule();
                   const updated: ExportSchedule = {
                     ...(exportSchedule || { enabled: false, frequency: 'daily', format: 'markdown', time: '08:00', day_of_week: null, folder_path: null, include_all_metrics: true, metric_types: null }),
@@ -786,11 +732,12 @@ export function AppleWatchSettings() {
                   setExportSchedule(updated);
                   saveExportSchedule(updated);
                 }}
+                ariaLabel="Scheduled export"
               />
             </div>
 
             {exportSchedule?.enabled && (
-              <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
+              <div className="space-y-3 rounded-sm border border-gray-200 bg-white p-4">
                 <div>
                   <label className="mb-1.5 block text-[13px] text-gray-500">Frequency</label>
                   <div className="flex gap-1.5">
@@ -817,7 +764,7 @@ export function AppleWatchSettings() {
 
                 <div>
                   <label className="mb-1.5 block text-[13px] text-gray-500">Time</label>
-                  <Input type="time" value={exportSchedule.time || '08:00'} onChange={(e) => updateScheduleField('time', e.target.value)} className="h-8 w-28 text-[13px] rounded-lg" />
+                  <Input type="time" value={exportSchedule.time || '08:00'} onChange={(e) => updateScheduleField('time', e.target.value)} className="h-8 w-28 text-[13px] rounded-sm" />
                 </div>
 
                 <div>
@@ -831,14 +778,13 @@ export function AppleWatchSettings() {
                   </div>
                 </div>
 
-                <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full text-[13px] h-9 rounded-lg">
+                <Button onClick={() => saveExportSchedule(exportSchedule)} disabled={scheduleSaving} variant="outline" className="w-full text-[13px] h-9 rounded-sm">
                   {scheduleSaving ? (<span className="flex items-center gap-2"><BrailleSpinner /> Saving...</span>) : 'Save schedule'}
                 </Button>
               </div>
             )}
           </div>
 
-          {/* Export history */}
           {exportHistory.length > 0 && (
             <>
               <div className="border-t border-gray-100" />
@@ -854,14 +800,14 @@ export function AppleWatchSettings() {
                 </div>
                 <div className="space-y-2">
                   {exportHistory.slice(0, 20).map((entry) => (
-                    <div key={entry.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5">
+                    <div key={entry.id} className="flex items-center justify-between rounded-sm border border-gray-100 px-3 py-2.5">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-green-500' : 'bg-red-400')} />
                           <span className="text-[13px] font-medium text-gray-900">
                             {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
                           </span>
-                          <span className="rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{entry.format}</span>
+                          <span className="rounded-sm bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{entry.format}</span>
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-[12px] text-gray-400">
                           <span>{new Date(entry.timestamp).toLocaleString()}</span>
@@ -878,7 +824,7 @@ export function AppleWatchSettings() {
                             setExportFormat(entry.format as 'markdown' | 'json' | 'csv');
                             setExportDatePreset('custom');
                           }}
-                          className="ml-3 shrink-0 rounded-lg border border-gray-200 px-2.5 py-1 text-[12px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                          className="ml-3 shrink-0 rounded-sm border border-gray-200 px-2.5 py-1 text-[12px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
                         >
                           Retry
                         </button>
@@ -897,33 +843,24 @@ export function AppleWatchSettings() {
       {/* ================================================================ */}
       {tab === 'settings' && connected && (
         <div className="space-y-5">
-          {/* Auto sync */}
           <div>
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-900">Auto sync</p>
-                <p className="mt-0.5 text-[13px] text-gray-500">Keep Apple Watch updated automatically.</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={autoSyncEnabled}
-                  onCheckedChange={(checked) => handleSyncSettingsUpdate({ auto_sync_enabled: checked, sync_hour: syncHour })}
-                />
-                <span className="text-[13px] text-gray-500 w-6">{autoSyncEnabled ? 'On' : 'Off'}</span>
-              </div>
+              <p className="text-sm font-medium text-gray-900">Auto sync</p>
+              <GreenToggle
+                checked={autoSyncEnabled}
+                onChange={(checked) => handleSyncSettingsUpdate({ auto_sync_enabled: checked, sync_hour: syncHour })}
+                ariaLabel="Auto sync"
+              />
             </div>
 
             <div className="mt-4 flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-900">Preferred sync time</p>
-                <p className="mt-0.5 text-[13px] text-gray-500">Choose the hour for background refreshes.</p>
-              </div>
+              <p className="text-sm text-gray-900">Preferred sync time</p>
               <Select
                 value={String(syncHour)}
                 onValueChange={(value) => handleSyncSettingsUpdate({ auto_sync_enabled: autoSyncEnabled, sync_hour: Number(value) })}
                 disabled={!autoSyncEnabled}
               >
-                <SelectTrigger className="h-8 w-[120px] text-[13px] rounded-lg">
+                <SelectTrigger className="h-8 w-[120px] text-[13px] rounded-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -942,22 +879,14 @@ export function AppleWatchSettings() {
             </div>
           </div>
 
-          {/* Divider */}
           <div className="border-t border-gray-100" />
 
-          {/* Danger zone */}
-          <div>
-            <p className="text-sm font-medium text-gray-900">Disconnect</p>
-            <p className="mt-1 text-[13px] text-gray-500">
-              Disconnect this integration. Your synced data will remain in Ritual.
-            </p>
-            <button
-              onClick={handleDisconnect}
-              className="mt-3 rounded-lg border border-red-200 px-3 py-1.5 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
-            >
-              Disconnect Apple Watch
-            </button>
-          </div>
+          <button
+            onClick={handleDisconnect}
+            className="rounded-sm border border-red-200 px-3 py-1.5 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
+          >
+            Disconnect Apple Watch
+          </button>
         </div>
       )}
     </div>
@@ -968,7 +897,6 @@ export function AppleWatchSettings() {
 // Small reusable pieces
 // ---------------------------------------------------------------------------
 
-/** Simple key-value info row with generous padding */
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between py-3">
@@ -978,26 +906,12 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Navigation row — clean, with right chevron */
-function NavRow({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-gray-50"
-    >
-      <span className="text-[13px] font-medium text-gray-900">{label}</span>
-      <ChevronRight className="h-4 w-4 text-gray-400" />
-    </button>
-  );
-}
-
-/** Segmented button for option groups (date range, format, etc.) */
 function SegmentButton({ children, active, onClick, small }: { children: React.ReactNode; active: boolean; onClick: () => void; small?: boolean }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'rounded-lg border text-[13px] font-medium transition-all',
+        'rounded-sm border text-[13px] font-medium transition-all',
         small ? 'px-2 py-1' : 'px-3 py-1.5',
         active
           ? 'border-gray-900 bg-gray-900 text-white'
@@ -1009,105 +923,37 @@ function SegmentButton({ children, active, onClick, small }: { children: React.R
   );
 }
 
-// ---------------------------------------------------------------------------
-// Metric toggle cards
-// ---------------------------------------------------------------------------
-
-const CATEGORY_ICONS: Record<string, ComponentType<{ className?: string }>> = {
-  Activity,
-  'Body Measurements': Ruler,
-  'Heart & Vitals': HeartPulse,
-  Heart: HeartPulse,
-  Vitals: Waves,
-  Sleep: MoonStar,
-  Nutrition: Apple,
-  Mobility: Sparkles,
-  Mindfulness: Sparkles,
-  Reproductive: Sparkles,
-  Workouts: Dumbbell,
-  Other: Activity,
-};
-
-function getCategoryIcon(category: string): ComponentType<{ className?: string }> {
-  if (CATEGORY_ICONS[category]) return CATEGORY_ICONS[category];
-  const lower = category.toLowerCase();
-  for (const [key, icon] of Object.entries(CATEGORY_ICONS)) {
-    if (lower.includes(key.toLowerCase())) return icon;
-  }
-  return Activity;
-}
-
-function MetricCategoryCard({
-  category,
-  selected,
-  onToggle,
+/**
+ * Pill toggle that turns green when on. Used for every on/off switch in this
+ * panel so the visual language is consistent regardless of underlying primitive.
+ */
+function GreenToggle({
+  checked,
+  onChange,
+  ariaLabel,
 }: {
-  category: { category: string; metrics: { type: string; name: string; unit: string }[] };
-  selected: Set<string>;
-  onToggle: (metricType: string, enabled: boolean) => void;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  ariaLabel: string;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const metrics = category.metrics || [];
-  const enabledCount = metrics.filter((m) => selected.has(m.type)).length;
-  const CategoryIcon = getCategoryIcon(category.category);
-
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-      {/* Category header */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
-      >
-        <CategoryIcon className="h-4 w-4 flex-shrink-0 text-gray-700" />
-        <div className="flex-1 min-w-0">
-          <span className="text-[13px] font-medium text-gray-900">{category.category}</span>
-          <span className="ml-2 text-[13px] text-gray-400">{enabledCount}/{metrics.length}</span>
-        </div>
-        <ChevronDown
-          className={cn(
-            'h-4 w-4 text-gray-400 transition-transform duration-200',
-            !expanded && '-rotate-90',
-          )}
-        />
-      </button>
-
-      {/* Metric rows */}
-      {expanded && (
-        <div className="divide-y divide-gray-50">
-          {metrics.map((metric) => {
-            const isEnabled = selected.has(metric.type);
-            return (
-              <div
-                key={metric.type}
-                className="flex items-center gap-3 px-4 py-3"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-gray-900 leading-tight">{metric.name}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">{metric.unit}</p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isEnabled}
-                  onClick={() => onToggle(metric.type, !isEnabled)}
-                  className={cn(
-                    'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-                    isEnabled ? 'bg-gray-900' : 'bg-gray-200',
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200',
-                      isEnabled ? 'translate-x-[20px]' : 'translate-x-[2px]',
-                    )}
-                  />
-                </button>
-              </div>
-            );
-          })}
-        </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
+        checked ? 'bg-green-500' : 'bg-gray-200',
       )}
-    </div>
+    >
+      <span
+        className={cn(
+          'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200',
+          checked ? 'translate-x-[20px]' : 'translate-x-[2px]',
+        )}
+      />
+    </button>
   );
 }

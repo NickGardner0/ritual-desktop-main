@@ -141,11 +141,11 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
       <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" onClick={handleClose} />
 
       {/* Dialog */}
-      <div className="relative flex h-[min(540px,calc(100vh-3rem))] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl border border-gray-200/80 bg-[#FCFCFB] shadow-[0_24px_64px_rgba(0,0,0,0.08)] z-10">
+      <div className="relative flex h-[min(540px,calc(100vh-3rem))] w-full max-w-[720px] flex-col overflow-hidden rounded-sm border border-gray-200/80 bg-[#FCFCFB] shadow-[0_24px_64px_rgba(0,0,0,0.08)] z-10">
         {/* Header */}
         <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200/60 px-5 py-3">
           <h2 className="text-[15px] font-semibold text-gray-900">Settings</h2>
-          <button onClick={handleClose} className="rounded-lg p-1.5 transition-colors hover:bg-gray-100">
+          <button onClick={handleClose} className="rounded-sm p-1.5 transition-colors hover:bg-gray-100">
             <X className="h-4 w-4 text-gray-400" />
           </button>
         </div>
@@ -162,7 +162,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     key={id}
                     onClick={() => setActiveTab(id)}
                     className={cn(
-                      'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-left transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-[13px] text-left transition-colors',
                       'hover:bg-gray-200/50',
                       activeTab === id
                         ? 'bg-gray-200/60 text-gray-900 font-medium'
