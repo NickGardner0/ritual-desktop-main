@@ -139,15 +139,50 @@ class WearablesService:
         create_connection: bool = True,
     ) -> Tuple[str, str]:
         """
-        Register a new device for a user.
+        Register a new device for a user, or reactivate an existing soft-deleted
+        one with the same name + platform + provider.
+
         Returns (device_id, device_secret) - secret should be stored in iOS Keychain.
+
+        The reactivation path makes "tap Sync in iOS" sufficient to recover from
+        an accidental Disconnect on the desktop without proliferating duplicate
+        rows. We rotate the device_secret on reactivation so any stale secret on
+        an old device install can no longer be used.
         """
+        # Check for an existing soft-deleted device matching this user + name +
+        # platform + provider. If found, reactivate it in place rather than
+        # creating a new row.
+        async with get_db_session() as session:
+            existing_result = await session.execute(
+                select(WearableDeviceDB)
+                .where(WearableDeviceDB.user_id == user_id)
+                .where(WearableDeviceDB.provider == provider)
+                .where(WearableDeviceDB.platform == platform)
+                .where(WearableDeviceDB.device_name == device_name)
+                .where(WearableDeviceDB.is_active == False)
+                .order_by(WearableDeviceDB.registered_at.desc())
+                .limit(1)
+            )
+            existing = existing_result.scalar_one_or_none()
+
+            if existing:
+                device_secret_bytes = os.urandom(32)
+                device_secret = base64.b64encode(device_secret_bytes).decode('utf-8')
+                existing.device_secret_hash = token_crypto.encrypt(device_secret)
+                existing.is_active = True
+                existing.last_seen_at = datetime.now(timezone.utc)
+                await session.commit()
+                logger.info(
+                    f"✅ Reactivated device {existing.id} for user {user_id}"
+                )
+                return existing.id, device_secret
+
         device_id = str(uuid.uuid4())
-        
+
         # Generate a secure device secret (32 bytes, base64 encoded)
         device_secret_bytes = os.urandom(32)
         device_secret = base64.b64encode(device_secret_bytes).decode('utf-8')
-        
+
         # Encrypt secrets at rest before storing in the database.
         device_secret_hash = token_crypto.encrypt(device_secret)
         connection_id: Optional[str] = None
@@ -159,7 +194,7 @@ class WearablesService:
                 status="active",
             )
             connection_id = connection.id
-        
+
         async with get_db_session() as session:
             device = WearableDeviceDB(
                 id=device_id,
@@ -175,7 +210,7 @@ class WearablesService:
             )
             session.add(device)
             await session.commit()
-        
+
         logger.info(f"✅ Registered device {device_id} for user {user_id}")
         return device_id, device_secret
     

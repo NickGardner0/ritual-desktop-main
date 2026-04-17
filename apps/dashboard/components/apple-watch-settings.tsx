@@ -533,6 +533,7 @@ export function AppleWatchSettings() {
 
       queryClient.invalidateQueries({ queryKey: ['apple-watch-status'] });
       queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
+      alert('Apple Watch disconnected. Tap Sync in the iOS companion app to reconnect.');
     } catch (error) {
       console.error('Error disconnecting Apple Watch:', error);
       alert(`Failed to disconnect: ${error}`);
@@ -569,7 +570,7 @@ export function AppleWatchSettings() {
             connected ? 'text-gray-700' : 'text-gray-400',
           )}
         >
-          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-[#4a5e2b]' : 'bg-gray-300')} />
+          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-[#4e632d]' : 'bg-gray-300')} />
           {connected ? 'Connected' : 'Not connected'}
         </span>
       </div>
@@ -815,7 +816,7 @@ export function AppleWatchSettings() {
                     <div key={entry.id} className="flex items-center justify-between rounded-sm border border-gray-100 px-3 py-2.5">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-[#4a5e2b]' : 'bg-red-400')} />
+                          <span className={cn('inline-block h-1.5 w-1.5 rounded-full', entry.status === 'success' ? 'bg-[#4e632d]' : 'bg-red-400')} />
                           <span className="text-[13px] font-medium text-gray-900">
                             {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
                           </span>
@@ -957,7 +958,7 @@ function GreenToggle({
       onClick={() => onChange(!checked)}
       className={cn(
         'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-        checked ? 'bg-[#4a5e2b]' : 'bg-gray-200',
+        checked ? 'bg-[#4e632d]' : 'bg-gray-200',
       )}
     >
       <span
