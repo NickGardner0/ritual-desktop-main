@@ -33,6 +33,16 @@ pub struct ActiveWindowInfo {
     pub window_title: Option<String>,
     /// Process ID
     pub pid: Option<i32>,
+    /// Best-effort frontmost window bounds in global screen coordinates.
+    pub bounds: Option<ActiveWindowBounds>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ActiveWindowBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 /// Best-effort accessibility text for the focused UI element.
@@ -414,6 +424,21 @@ fn is_task_manager_context(bundle_id: Option<&str>, window_title: Option<&str>) 
             .unwrap_or("")
             .to_ascii_lowercase()
             .contains("things")
+}
+
+fn is_high_risk_desktop_shell(bundle_id: Option<&str>) -> bool {
+    let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
+    bundle == "com.ritual.desktop"
+        || bundle.contains("claude")
+        || bundle.contains("codex")
+        || bundle.contains("cursor")
+        || bundle.contains("discord")
+        || bundle.contains("figma")
+        || bundle.contains("linear")
+        || bundle.contains("notion")
+        || bundle.contains("obsidian")
+        || bundle.contains("slack")
+        || bundle.contains("todesktop")
 }
 
 fn looks_like_tiny_fragment(text: &str) -> bool {
@@ -1054,13 +1079,15 @@ fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
             msg_send![&app, processIdentifier]
         };
 
+        let (cg_window_title, window_bounds) = get_frontmost_window_metadata(pid);
+
         // Default to the safer no-title path for the beta watcher. AX window-title
         // capture can be re-enabled explicitly once the callback crash surface is
         // isolated.
         let window_title = if ax_window_title_capture_enabled_for_bundle(&bundle_id) {
-            get_window_title_ax(pid)
+            get_window_title_ax(pid).or(cg_window_title)
         } else {
-            None
+            cg_window_title
         };
 
         Ok(Some(ActiveWindowInfo {
@@ -1068,18 +1095,120 @@ fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
             app_name,
             window_title,
             pid: Some(pid),
+            bounds: window_bounds,
         }))
     }
 }
 
 #[cfg(target_os = "macos")]
+fn get_frontmost_window_metadata(pid: i32) -> (Option<String>, Option<ActiveWindowBounds>) {
+    use core_foundation::array::CFArray;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::number::CFNumber;
+    use core_graphics::display::CGWindowListCopyWindowInfo;
+    use core_graphics::display::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+    };
+
+    unsafe fn dict_number_i32(
+        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
+        key: &str,
+    ) -> Option<i32> {
+        let key = CFString::new(key);
+        let value_ref = dict.find(&key)?;
+        let number = CFNumber::wrap_under_get_rule(*value_ref as _);
+        number.to_i32()
+    }
+
+    unsafe fn dict_number_f64(
+        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
+        key: &str,
+    ) -> Option<f64> {
+        let key = CFString::new(key);
+        let value_ref = dict.find(&key)?;
+        let number = CFNumber::wrap_under_get_rule(*value_ref as _);
+        number.to_f64()
+    }
+
+    unsafe fn dict_string(
+        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
+        key: &str,
+    ) -> Option<String> {
+        let key = CFString::new(key);
+        let value_ref = dict.find(&key)?;
+        let value = CFString::wrap_under_get_rule(*value_ref as _).to_string();
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    unsafe fn dict_bounds(
+        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
+    ) -> Option<ActiveWindowBounds> {
+        let key = CFString::new("kCGWindowBounds");
+        let value_ref = dict.find(&key)?;
+        let bounds_dict: CFDictionary<CFString, *const std::ffi::c_void> =
+            CFDictionary::wrap_under_get_rule(*value_ref as _);
+        let x = dict_number_f64(&bounds_dict, "X")?;
+        let y = dict_number_f64(&bounds_dict, "Y")?;
+        let width = dict_number_f64(&bounds_dict, "Width")?;
+        let height = dict_number_f64(&bounds_dict, "Height")?;
+        Some(ActiveWindowBounds {
+            x,
+            y,
+            width,
+            height,
+        })
+    }
+
+    unsafe {
+        let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+        let window_list = CGWindowListCopyWindowInfo(options, kCGNullWindowID);
+        if window_list.is_null() {
+            return (None, None);
+        }
+
+        let windows: CFArray<CFDictionary<CFString, *const std::ffi::c_void>> =
+            CFArray::wrap_under_get_rule(window_list as _);
+        let mut fallback_title = None;
+        let mut fallback_bounds = None;
+
+        for window in windows.iter() {
+            if dict_number_i32(&window, "kCGWindowOwnerPID") != Some(pid) {
+                continue;
+            }
+
+            let title = dict_string(&window, "kCGWindowName");
+            let bounds = dict_bounds(&window);
+
+            if fallback_title.is_none() {
+                fallback_title = title.clone();
+            }
+            if fallback_bounds.is_none() {
+                fallback_bounds = bounds;
+            }
+
+            let layer = dict_number_i32(&window, "kCGWindowLayer").unwrap_or_default();
+            let alpha = dict_number_f64(&window, "kCGWindowAlpha").unwrap_or(1.0);
+            let Some(bounds) = bounds else {
+                continue;
+            };
+
+            if layer == 0 && alpha > 0.01 && bounds.width >= 40.0 && bounds.height >= 40.0 {
+                return (title, Some(bounds));
+            }
+        }
+
+        (fallback_title, fallback_bounds)
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn ax_window_title_high_risk_bundle(bundle_id: &str) -> bool {
-    let bundle = bundle_id.to_ascii_lowercase();
-    bundle == "com.ritual.desktop"
-        || bundle.contains("codex")
-        || bundle.contains("claude")
-        || bundle.contains("cursor")
-        || bundle.contains("todesktop")
+    is_high_risk_desktop_shell(Some(bundle_id))
 }
 
 #[cfg(target_os = "macos")]
@@ -1538,7 +1667,9 @@ pub fn get_focused_text_info(
         for ancestor in &ancestors {
             collect_candidates(*ancestor, "parent", nearby_ax_attributes(), &mut candidates);
         }
-        if focused.is_some() {
+        let high_risk_shell = is_high_risk_desktop_shell(bundle_id);
+
+        if focused.is_some() && !high_risk_shell {
             if let Some(first_parent) = ancestors.first().copied() {
                 for attr in structural_child_attributes() {
                     let siblings = copy_related_elements(first_parent, attr, 12);
@@ -1567,48 +1698,50 @@ pub fn get_focused_text_info(
                 nearby_ax_attributes(),
                 &mut candidates,
             );
-            let mut visited = HashSet::new();
-            let is_editor = is_editor_style_context(bundle_id, window_title);
-            let is_browser = is_browser_context(bundle_id, window_title);
-            let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
-            let is_electron_editor = is_editor
-                && (bundle.contains("cursor")
-                    || bundle.contains("code")
-                    || bundle.contains("codex"));
-            // Browsers have deeply nested DOMs — need higher budgets to reach page content
-            let mut node_budget = if is_electron_editor {
-                60
-            } else if is_browser {
-                50
-            } else if is_editor {
-                40
-            } else {
-                24
-            };
-            collect_visible_descendants(
-                window_element,
-                &mut candidates,
-                &mut visited,
-                &mut node_budget,
-                if is_electron_editor {
-                    5
+            if !high_risk_shell {
+                let mut visited = HashSet::new();
+                let is_editor = is_editor_style_context(bundle_id, window_title);
+                let is_browser = is_browser_context(bundle_id, window_title);
+                let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
+                let is_electron_editor = is_editor
+                    && (bundle.contains("cursor")
+                        || bundle.contains("code")
+                        || bundle.contains("codex"));
+                // Browsers have deeply nested DOMs — need higher budgets to reach page content
+                let mut node_budget = if is_electron_editor {
+                    60
                 } else if is_browser {
-                    4
+                    50
                 } else if is_editor {
-                    3
+                    40
                 } else {
-                    2
-                },
-                if is_electron_editor {
                     24
-                } else if is_browser {
-                    20
-                } else if is_editor {
-                    16
-                } else {
-                    14
-                },
-            );
+                };
+                collect_visible_descendants(
+                    window_element,
+                    &mut candidates,
+                    &mut visited,
+                    &mut node_budget,
+                    if is_electron_editor {
+                        5
+                    } else if is_browser {
+                        4
+                    } else if is_editor {
+                        3
+                    } else {
+                        2
+                    },
+                    if is_electron_editor {
+                        24
+                    } else if is_browser {
+                        20
+                    } else if is_editor {
+                        16
+                    } else {
+                        14
+                    },
+                );
+            }
             CFRelease(window_element as *const _);
         }
 
@@ -1621,7 +1754,7 @@ pub fn get_focused_text_info(
                         || text.len() >= 120
                         || matches!(*attr, "AXDocument" | "AXFilename"))
             });
-        if weak_editor_capture {
+        if weak_editor_capture && !high_risk_shell {
             // For Cursor/Code/Codex, use deeper traversal since Electron-based
             // editors have deeply nested AX trees where code content hides
             let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();

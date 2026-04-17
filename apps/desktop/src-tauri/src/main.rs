@@ -603,29 +603,36 @@ fn reposition_traffic_lights(window: &tauri::Window) {
             return;
         }
 
-        let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let minimize_frame: cocoa::foundation::NSRect = msg_send![minimize, frame];
-        let zoom_frame: cocoa::foundation::NSRect = msg_send![zoom, frame];
+        let close_container: id = msg_send![close, superview];
+        if close_container.is_null() {
+            return;
+        }
 
-        // Use macOS's current native placement as the baseline, then apply
-        // only very small tweaks. Absolute coordinates turned out to be
-        // brittle across window states and could drift away from the true
-        // top-left corner after layout changes.
-        let size_delta: f64 = 0.6;
+        let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
+        let container_frame: cocoa::foundation::NSRect = msg_send![close_container, frame];
+
+        // Position from the titlebar container itself so the math is stable
+        // across resizes and overlay-titlebar relayouts. Reading the current
+        // button origin and tweaking it caused drift after repeated resizes.
+        let size_delta: f64 = 0.9;
         let btn_width = btn_frame.size.width + size_delta;
         let btn_height = btn_frame.size.height + size_delta;
-        let vertical_nudge: f64 = -0.8;
+        let left_inset: f64 = 14.0;
+        let top_inset: f64 = 11.0;
+        let inter_button_gap: f64 = 6.0;
+        let step = btn_width + inter_button_gap;
+        let target_y = (container_frame.size.height - btn_height - top_inset).max(0.0);
 
         let close_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(btn_frame.origin.x, btn_frame.origin.y + vertical_nudge),
+            cocoa::foundation::NSPoint::new(left_inset, target_y),
             cocoa::foundation::NSSize::new(btn_width, btn_height),
         );
         let minimize_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(minimize_frame.origin.x, minimize_frame.origin.y + vertical_nudge),
+            cocoa::foundation::NSPoint::new(left_inset + step, target_y),
             cocoa::foundation::NSSize::new(btn_width, btn_height),
         );
         let zoom_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(zoom_frame.origin.x, zoom_frame.origin.y + vertical_nudge),
+            cocoa::foundation::NSPoint::new(left_inset + step * 2.0, target_y),
             cocoa::foundation::NSSize::new(btn_width, btn_height),
         );
 
@@ -633,6 +640,23 @@ fn reposition_traffic_lights(window: &tauri::Window) {
         let _: () = msg_send![minimize, setFrame: minimize_frame];
         let _: () = msg_send![zoom, setFrame: zoom_frame];
     }
+}
+
+#[cfg(target_os = "macos")]
+fn schedule_reposition_traffic_lights(window: tauri::Window) {
+    let immediate_window = window.clone();
+    let immediate_target = immediate_window.clone();
+    let _ = immediate_window.run_on_main_thread(move || {
+        reposition_traffic_lights(&immediate_target);
+    });
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(40));
+        let delayed_target = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            reposition_traffic_lights(&delayed_target);
+        });
+    });
 }
 
 /// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
@@ -1337,7 +1361,7 @@ fn main() {
           }
 
           // Position traffic lights into the sidebar region (macOS native feel).
-          reposition_traffic_lights(&window);
+          schedule_reposition_traffic_lights(window.clone());
 
           let detached_sidebar_enabled = !transparency_probe
             && env::var("RITUAL_DETACHED_SIDEBAR")
@@ -1362,8 +1386,8 @@ fn main() {
                 tauri::WindowEvent::Moved(_)
                 | tauri::WindowEvent::Resized(_)
                 | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                  // Re-position traffic lights on resize (macOS resets them)
-                  reposition_traffic_lights(&traffic_light_window);
+                  // Re-position traffic lights after native relayout settles.
+                  schedule_reposition_traffic_lights(traffic_light_window.clone());
                   let state = app_handle_for_sync.state::<SidebarWindowState>();
                   let width = state.get_width();
                   let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
@@ -1389,7 +1413,7 @@ fn main() {
             let traffic_light_window = window.clone();
             window.on_window_event(move |event| {
               if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }) {
-                reposition_traffic_lights(&traffic_light_window);
+                schedule_reposition_traffic_lights(traffic_light_window.clone());
               }
             });
           }

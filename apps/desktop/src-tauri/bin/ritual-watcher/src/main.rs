@@ -660,6 +660,7 @@ fn maybe_run_vision_ui_fallback(
     app_bundle_id: &str,
     app_name: &str,
     window_title: Option<&str>,
+    window_bounds: Option<&macos::ActiveWindowBounds>,
     focused_text_info: &macos::FocusedTextInfo,
 ) -> Option<VisionUiFallbackResult> {
     if focused_text_info.is_sensitive || !app_allows_vision_fallback(app_bundle_id, app_name) {
@@ -683,10 +684,13 @@ fn maybe_run_vision_ui_fallback(
         std::process::id(),
         now
     ));
-    let capture_output = std::process::Command::new("screencapture")
-        .args(["-x", screenshot_path.to_string_lossy().as_ref()])
-        .output()
-        .ok();
+    let mut capture_command = std::process::Command::new("screencapture");
+    capture_command.arg("-x");
+    if let Some((x, y, width, height)) = vision_capture_region(window_bounds) {
+        capture_command.arg(format!("-R{},{},{},{}", x, y, width, height));
+    }
+    capture_command.arg(screenshot_path.to_string_lossy().as_ref());
+    let capture_output = capture_command.output().ok();
     let capture_output = match capture_output {
         Some(output) => output,
         None => {
@@ -766,6 +770,34 @@ fn maybe_run_vision_ui_fallback(
     })
 }
 
+#[cfg(target_os = "macos")]
+fn vision_capture_region(
+    window_bounds: Option<&macos::ActiveWindowBounds>,
+) -> Option<(i32, i32, i32, i32)> {
+    let bounds = window_bounds?;
+    if bounds.width < 60.0 || bounds.height < 60.0 {
+        return None;
+    }
+
+    let padding = 20.0;
+    let x = (bounds.x - padding).floor().max(0.0) as i32;
+    let y = (bounds.y - padding).floor().max(0.0) as i32;
+    let right = (bounds.x + bounds.width + padding)
+        .ceil()
+        .max(x as f64 + 1.0);
+    let bottom = (bounds.y + bounds.height + padding)
+        .ceil()
+        .max(y as f64 + 1.0);
+    let width = (right - x as f64).round() as i32;
+    let height = (bottom - y as f64).round() as i32;
+
+    if width <= 1 || height <= 1 {
+        None
+    } else {
+        Some((x, y, width, height))
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 fn maybe_run_vision_ui_fallback(
     _app_bundle_id: &str,
@@ -822,6 +854,7 @@ fn record_native_context_snapshot(
     app_bundle_id: &str,
     app_name: &str,
     window_title: Option<String>,
+    #[cfg(target_os = "macos")] window_bounds: Option<macos::ActiveWindowBounds>,
     browser_url: Option<String>,
     browser_domain: Option<String>,
     document_title: Option<String>,
@@ -832,6 +865,7 @@ fn record_native_context_snapshot(
         app_bundle_id,
         app_name,
         window_title.as_deref(),
+        window_bounds.as_ref(),
         focused_text_info,
     );
     let vision_text = vision_fallback
@@ -1310,6 +1344,8 @@ fn deep_accessibility_high_risk_app_shell(bundle_id: &str, app_name: &str) -> bo
         || bundle.contains("codex")
         || bundle.contains("claude")
         || bundle.contains("cursor")
+        || bundle.contains("slack")
+        || bundle.contains("notion")
         || bundle.contains("todesktop")
 }
 
@@ -2334,6 +2370,8 @@ fn run_watcher_loop(
                         &capture_bundle_id,
                         &capture_app_name,
                         capture_window_title,
+                        #[cfg(target_os = "macos")]
+                        info.bounds,
                         tracked_url,
                         tracked_domain,
                         capture_document_title,
