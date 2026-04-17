@@ -556,11 +556,47 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     const findMatchingHabit = (text: string, detectedUnit?: string) => {
       const searchTerms = text.toLowerCase();
       const detectedUnitLower = detectedUnit?.toLowerCase();
+      const hasWalkIntent = /\b(walk|walked|walking|hiked|hike)\b/i.test(searchTerms);
+      const hasRunIntent = /\b(run|ran|running|jog|jogged|jogging)\b/i.test(searchTerms);
+      const hasDriveIntent = /\b(car|drive|drove|driving|tesla|odometer)\b/i.test(searchTerms);
       const candidateHabits = [...habits].sort((a, b) => {
         const aUnitMatch = (a.unit_type || '').toLowerCase() === detectedUnitLower;
         const bUnitMatch = (b.unit_type || '').toLowerCase() === detectedUnitLower;
         return Number(bUnitMatch) - Number(aUnitMatch);
       });
+
+      const explicitMovementMatch = (() => {
+        if (!['miles', 'mile', 'kilometers', 'kilometer'].includes(detectedUnitLower || '')) {
+          return null;
+        }
+
+        if (hasWalkIntent) {
+          return candidateHabits.find((habit) => {
+            const habitName = habit.name.toLowerCase();
+            return habitName.includes('walk') || habitName.includes('hike');
+          }) ?? null;
+        }
+
+        if (hasRunIntent) {
+          return candidateHabits.find((habit) => {
+            const habitName = habit.name.toLowerCase();
+            return habitName.includes('run') || habitName.includes('jog');
+          }) ?? null;
+        }
+
+        if (hasDriveIntent) {
+          return candidateHabits.find((habit) => {
+            const habitName = habit.name.toLowerCase();
+            return habitName.includes('car') || habitName.includes('drive') || habitName.includes('tesla');
+          }) ?? null;
+        }
+
+        return null;
+      })();
+
+      if (explicitMovementMatch) {
+        return explicitMovementMatch;
+      }
 
       const explicitConsumptionMatch = (() => {
         if (detectedUnitLower !== 'milligrams') return null;
@@ -584,7 +620,10 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         const habitName = habit.name.toLowerCase();
         const habitWords = habitName.split(' ');
         const significantWords = habitWords.filter(
-          (word) => word.length > 2 && !GENERIC_MATCH_WORDS.has(word)
+          (word) =>
+            word.length > 2 &&
+            !GENERIC_MATCH_WORDS.has(word) &&
+            !['mile', 'miles', 'kilometer', 'kilometers', 'km', 'steps', 'step', 'hours', 'hour', 'minutes', 'minute', 'pages', 'page'].includes(word)
         );
 
         // Activity-based matching

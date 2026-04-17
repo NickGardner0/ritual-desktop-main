@@ -11,6 +11,7 @@ import {
   ChevronDown,
   TableProperties,
   CalendarDays,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
@@ -48,6 +49,8 @@ const icons = {
   "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
+  "/reports": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
+  "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/timer": (props: React.SVGProps<SVGSVGElement>) => <Timer {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
   "/settings": (props: React.SVGProps<SVGSVGElement>) => <Settings {...props} />,
@@ -69,6 +72,10 @@ const items = [
   {
     path: "/calendar",
     name: "Calendar",
+  },
+  {
+    path: "/reports",
+    name: "Reports",
   },
   {
     path: "/timer",

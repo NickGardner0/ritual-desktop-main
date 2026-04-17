@@ -603,35 +603,29 @@ fn reposition_traffic_lights(window: &tauri::Window) {
             return;
         }
 
-        // Traffic-light geometry: slightly enlarge and lower the buttons so
-        // they align more cleanly with the custom sidebar chrome controls.
-        let x_start: f64 = 11.8;
-        let x_spacing: f64 = 21.6;
-
-        // We need to position relative to the title-bar container.
-        // In overlay mode the buttons live in the title-bar accessory view.
-        // Get the superview (titlebar container) height so we can set y correctly.
-        let close_super: id = msg_send![close, superview];
-        let super_frame: cocoa::foundation::NSRect = msg_send![close_super, frame];
         let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let size_delta: f64 = 1.4;
+        let minimize_frame: cocoa::foundation::NSRect = msg_send![minimize, frame];
+        let zoom_frame: cocoa::foundation::NSRect = msg_send![zoom, frame];
+
+        // Use macOS's current native placement as the baseline, then apply
+        // only very small tweaks. Absolute coordinates turned out to be
+        // brittle across window states and could drift away from the true
+        // top-left corner after layout changes.
+        let size_delta: f64 = 0.6;
         let btn_width = btn_frame.size.width + size_delta;
         let btn_height = btn_frame.size.height + size_delta;
-
-        // The y-axis is flipped (0 = bottom of superview).
-        let top_inset: f64 = 6.8;
-        let y = super_frame.size.height - top_inset - btn_height;
+        let vertical_nudge: f64 = -0.8;
 
         let close_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(x_start, y),
+            cocoa::foundation::NSPoint::new(btn_frame.origin.x, btn_frame.origin.y + vertical_nudge),
             cocoa::foundation::NSSize::new(btn_width, btn_height),
         );
         let minimize_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(x_start + x_spacing, y),
+            cocoa::foundation::NSPoint::new(minimize_frame.origin.x, minimize_frame.origin.y + vertical_nudge),
             cocoa::foundation::NSSize::new(btn_width, btn_height),
         );
         let zoom_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(x_start + x_spacing * 2.0, y),
+            cocoa::foundation::NSPoint::new(zoom_frame.origin.x, zoom_frame.origin.y + vertical_nudge),
             cocoa::foundation::NSSize::new(btn_width, btn_height),
         );
 

@@ -69,6 +69,7 @@ from api.conversations import create_conversations_router
 from api.financial import create_financial_router
 from api.integrations import create_whoop_router, create_tesla_router
 from api.imports import create_imports_router
+from api.reports import create_reports_router
 from api.search import create_search_router
 from api.screen_time import create_screen_time_router
 from api.screenshot import create_screenshot_router
@@ -231,6 +232,11 @@ app.include_router(
 )
 app.include_router(
     create_search_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_reports_router(
         get_current_user=get_current_user,
     )
 )
@@ -724,6 +730,34 @@ async def _internal_scheduler_loop() -> None:
         await asyncio.sleep(3600)
 
 
+async def _report_scheduler_loop() -> None:
+    """Dispatch and process scheduled habit reports on a shorter cadence."""
+    await asyncio.sleep(45)
+    logger.info("📨 Report scheduler loop started (runs every 15 minutes)")
+
+    while True:
+        try:
+            from services.reports_service import reports_service
+
+            result = await reports_service.scheduler_tick()
+            queued = int(result.get("queued", 0) or 0)
+            processed = int(result.get("processed", 0) or 0)
+            failed = int(result.get("failed", 0) or 0)
+            if queued or processed or failed:
+                logger.info(
+                    "📨 Report scheduler tick: queued=%d processed=%d failed=%d",
+                    queued,
+                    processed,
+                    failed,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Report scheduler tick failed: %s", exc)
+
+        await asyncio.sleep(900)
+
+
 async def _post_startup_initialization() -> None:
     """Run nonessential startup work after readiness is available."""
     logger = logging.getLogger("uvicorn")
@@ -770,7 +804,9 @@ async def _post_startup_initialization() -> None:
     # Start internal hourly scheduler (proactive SMS + wearable syncs)
     if ENABLE_INTERNAL_SCHEDULER:
         app.state.scheduler_task = asyncio.create_task(_internal_scheduler_loop())
+        app.state.report_scheduler_task = asyncio.create_task(_report_scheduler_loop())
         logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
+        logger.info("📨 Report scheduler started")
     else:
         logger.info("⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)")
 
@@ -798,6 +834,7 @@ async def startup_event():
     app.state.semantic_summary_task = None
     app.state.startup_maintenance_task = None
     app.state.scheduler_task = None
+    app.state.report_scheduler_task = None
     if ENABLE_STARTUP_MAINTENANCE_TASK:
         app.state.startup_maintenance_task = asyncio.create_task(
             _delayed_post_startup_initialization()
@@ -824,7 +861,8 @@ async def shutdown_event():
     semantic_task = getattr(app.state, "semantic_summary_task", None)
     startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
     scheduler_task = getattr(app.state, "scheduler_task", None)
-    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task, scheduler_task] if t is not None]
+    report_scheduler_task = getattr(app.state, "report_scheduler_task", None)
+    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task, scheduler_task, report_scheduler_task] if t is not None]
     for task in tasks:
         task.cancel()
     if tasks:

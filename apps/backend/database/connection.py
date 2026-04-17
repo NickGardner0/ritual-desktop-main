@@ -675,6 +675,77 @@ async def _run_migrations(session):
             )
             """,
         ),
+        (
+            "report_schedules",
+            """
+            CREATE TABLE IF NOT EXISTS report_schedules (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                cadence TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                timezone TEXT NOT NULL DEFAULT 'America/New_York',
+                delivery_channel TEXT NOT NULL DEFAULT 'email',
+                delivery_label TEXT NOT NULL,
+                send_hour_local INTEGER NOT NULL DEFAULT 8,
+                send_minute_local INTEGER NOT NULL DEFAULT 0,
+                send_weekday INTEGER,
+                send_day_of_month INTEGER,
+                recipients_json TEXT NOT NULL DEFAULT '[]',
+                sections_json TEXT NOT NULL DEFAULT '[]',
+                last_sent_at DATETIME,
+                next_run_at DATETIME,
+                last_error TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "report_runs",
+            """
+            CREATE TABLE IF NOT EXISTS report_runs (
+                id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                cadence TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                subject TEXT,
+                summary_json TEXT,
+                email_html TEXT,
+                generated_at DATETIME,
+                sent_at DATETIME,
+                error_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(schedule_id) REFERENCES report_schedules(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "report_notifications",
+            """
+            CREATE TABLE IF NOT EXISTS report_notifications (
+                id TEXT PRIMARY KEY,
+                report_run_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                channel TEXT NOT NULL DEFAULT 'email',
+                recipient_email TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                provider_message_id TEXT,
+                payload_json TEXT,
+                sent_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(report_run_id) REFERENCES report_runs(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
     ]
 
     for table_name, sql in create_table_sql:
@@ -706,6 +777,11 @@ async def _run_migrations(session):
         ("idx_heart_rate_rollups_user_bucket_source", "CREATE UNIQUE INDEX IF NOT EXISTS idx_heart_rate_rollups_user_bucket_source ON heart_rate_1m_rollups (user_id, bucket_start, source_preference)"),
         # SMS chatbot: unique SMS conversation per user
         ("idx_ai_conversations_user_sms_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_conversations_user_sms_unique ON ai_conversations (user_id) WHERE channel = 'sms'"),
+        ("idx_report_schedules_user_status", "CREATE INDEX IF NOT EXISTS idx_report_schedules_user_status ON report_schedules (user_id, status)"),
+        ("idx_report_schedules_next_run", "CREATE INDEX IF NOT EXISTS idx_report_schedules_next_run ON report_schedules (status, next_run_at)"),
+        ("idx_report_runs_schedule_created", "CREATE INDEX IF NOT EXISTS idx_report_runs_schedule_created ON report_runs (schedule_id, created_at)"),
+        ("idx_report_runs_user_status", "CREATE INDEX IF NOT EXISTS idx_report_runs_user_status ON report_runs (user_id, status, created_at)"),
+        ("idx_report_notifications_run_recipient", "CREATE INDEX IF NOT EXISTS idx_report_notifications_run_recipient ON report_notifications (report_run_id, recipient_email)"),
     ]
 
     for index_name, sql in index_sql:
