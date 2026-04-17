@@ -87,7 +87,7 @@ final class AppState: ObservableObject {
     // MARK: - Rate Limiting
 
     private var lastManualSyncTime: Date?
-    private let manualSyncCooldown: TimeInterval = 300 // 5 minutes
+    private let manualSyncCooldown: TimeInterval = 30
 
     // MARK: - Services
 
@@ -490,21 +490,27 @@ final class AppState: ObservableObject {
         guard !isSyncing else { return }
 
         isSyncing = true
-        lastManualSyncTime = Date()
 
         #if DEBUG
         print("📱 Starting manual sync via V2 incremental sync...")
         #endif
-        
+
         // Use V2 sync manager which handles incremental sync with batching
         await syncManager.performIncrementalSync(isBackground: false)
-        
+
         // Update UI state from V2 manager
         lastSyncTime = syncManager.lastSyncTime
         syncStatus = syncManager.syncStatus
         refreshSyncDiagnostics()
-        
+
         isSyncing = false
+
+        // Only arm the cooldown after a *successful* sync. Failed syncs
+        // shouldn't lock the user out — they need to be able to retry
+        // immediately, which is exactly when the cooldown was hurting them.
+        if syncManager.lastError == nil {
+            lastManualSyncTime = Date()
+        }
         
         // After a successful sync, translate any user-configured HealthKit →
         // habit mappings into habit log posts. This is deliberately run AFTER

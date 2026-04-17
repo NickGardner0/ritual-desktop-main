@@ -642,7 +642,14 @@ class WearablesService:
             logger.warning(f"⚠️ Duplicate client_event_id: {request.client_event_id}")
             return True, [], [], [], "Already processed (idempotency)"
         
-        await self._run_legacy_backfill_once(user_id)
+        # NOTE: legacy backfill is intentionally disabled here. It was being
+        # invoked on every ingest and contended with the actual ingest writes
+        # for the same Turso tables, blocking the iOS request well past its
+        # client timeout. A proper backfill belongs in an out-of-band worker
+        # job, not in the ingest hot path. Until that lands, new data flows
+        # through this endpoint and historical legacy rows stay in the
+        # legacy table; readers should fall back to it as needed.
+        # await self._run_legacy_backfill_once(user_id)
 
         # 4. Process added metrics
         added_results: List[AppleIngestResult] = []
