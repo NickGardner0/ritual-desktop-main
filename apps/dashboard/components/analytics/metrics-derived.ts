@@ -513,13 +513,12 @@ export function buildMetricsBarData({
       const currentPerDay = values.length > 0 ? total / values.length : 0;
       const priorTotal = priorValues.reduce((sum, value) => sum + value, 0);
       const priorPerDay = priorValues.length > 0 ? priorTotal / priorValues.length : 0;
-      // Require a comparable prior baseline: at least 3 non-zero days AND at
-      // least half the current window's coverage. Otherwise the % is noise.
-      const priorIsComparable =
-        priorValues.length >= 3 && priorValues.length >= Math.ceil(values.length / 2);
-      const change = priorIsComparable
-        ? computeMeaningfulPercentChange(currentPerDay, priorPerDay, unit)
-        : undefined;
+      // `computeMeaningfulPercentChange` already returns `undefined` when the
+      // prior per-day value is below the unit's meaningful baseline, so a
+      // separate day-count gate just hides legitimate deltas for users whose
+      // habit history only spans the current window.
+      const change = computeMeaningfulPercentChange(currentPerDay, priorPerDay, unit);
+      const isNew = change === undefined && priorValues.length === 0 && values.length > 0;
 
       return {
         habitId: habit.habit_id,
@@ -527,6 +526,7 @@ export function buildMetricsBarData({
         avg: displayVal,
         unit,
         change,
+        changeLabel: isNew ? 'New' : undefined,
         higherIsBetter,
         daysWithData: values.length,
         category: getMetricCategoryForHabit(habit.habit_name, habit.category),
@@ -552,17 +552,15 @@ export function buildMetricsBarData({
       const compCurrentPerDay = compValues.length > 0 ? compTotal / compValues.length : 0;
       const compPriorTotal = compPriorValues.reduce((sum, value) => sum + value, 0);
       const compPriorPerDay = compPriorValues.length > 0 ? compPriorTotal / compPriorValues.length : 0;
-      const compPriorIsComparable =
-        compPriorValues.length >= 3 && compPriorValues.length >= Math.ceil(compValues.length / 2);
-      const compChange = compPriorIsComparable
-        ? computeMeaningfulPercentChange(compCurrentPerDay, compPriorPerDay, 'hours')
-        : undefined;
+      const compChange = computeMeaningfulPercentChange(compCurrentPerDay, compPriorPerDay, 'hours');
+      const compIsNew = compChange === undefined && compPriorValues.length === 0 && compValues.length > 0;
       barData.push({
         habitId: '__computer_activity__',
         name: COMPUTER_HABIT_DISPLAY_NAME,
         avg: compTotal,
         unit: 'Hours',
         change: compChange,
+        changeLabel: compIsNew ? 'New' : undefined,
         higherIsBetter: null,
         daysWithData: compValues.length,
         category: 'digital',

@@ -1,7 +1,16 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { eachDayOfInterval, format, startOfDay, subDays } from 'date-fns'
 import {
   buildMetricsBarData,
@@ -154,6 +163,15 @@ function buildCardSeries(source: HabitSparkSource, range: RangeKey): CardSeries 
   }
 }
 
+function formatAxisValue(value: number): string {
+  if (!Number.isFinite(value)) return ''
+  const abs = Math.abs(value)
+  if (abs >= 1000) return Math.round(value).toLocaleString()
+  if (abs >= 10) return value.toFixed(0)
+  if (abs >= 1) return value.toFixed(1)
+  return value.toFixed(2)
+}
+
 function MiniBarChartCard({
   source,
   defaultRange,
@@ -170,6 +188,20 @@ function MiniBarChartCard({
     const max = Math.max(...series.data.map((d) => d.value), 0)
     return max > 0 ? max : 1
   }, [series.data])
+
+  // Simple non-zero day average for the reference line — mirrors the
+  // expanded chart's dashed baseline.
+  const referenceValue = useMemo(() => {
+    const nonZero = series.data.filter((d) => d.value > 0)
+    if (nonZero.length === 0) return 0
+    return nonZero.reduce((sum, d) => sum + d.value, 0) / nonZero.length
+  }, [series.data])
+
+  const yTicks = useMemo(() => {
+    if (!Number.isFinite(maxValue) || maxValue <= 0) return [0]
+    const step = maxValue / 3
+    return [0, step, step * 2, maxValue].map((value) => Number(value.toFixed(2)))
+  }, [maxValue])
 
   const displayValue = formatMetricBarValue(series.avg, source.unit)
 
@@ -211,27 +243,41 @@ function MiniBarChartCard({
         </div>
       </div>
 
-      <div className="px-3 pb-1">
+      <div className="flex justify-end px-3 pt-1 pb-1">
         <RangeSegmentedControl
           value={range}
           onValueChange={(next) => setRange(next as RangeKey)}
           options={rangeOptions}
-          className="w-full justify-start overflow-x-auto"
         />
       </div>
 
-      <div className="flex-1 min-h-0 px-2 pb-3">
+      <div className="flex-1 min-h-0 px-2 pb-3 pt-1">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={series.data} margin={{ top: 12, right: 8, bottom: 2, left: 8 }}>
+          <BarChart data={series.data} margin={{ top: 8, right: 8, bottom: 2, left: 0 }}>
+            <CartesianGrid
+              horizontal
+              vertical={false}
+              stroke="rgba(39,37,30,0.06)"
+              strokeWidth={1}
+            />
             <XAxis
               dataKey="label"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.40)' }}
+              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
+              tickMargin={6}
               interval={tickInterval}
               minTickGap={8}
             />
-            <YAxis hide domain={[0, maxValue]} />
+            <YAxis
+              domain={[0, maxValue]}
+              ticks={yTicks}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatAxisValue}
+              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
+              width={38}
+            />
             <Tooltip
               cursor={{ fill: 'rgba(39,37,30,0.04)' }}
               content={(
@@ -242,12 +288,21 @@ function MiniBarChartCard({
                 />
               )}
             />
+            {referenceValue > 0 ? (
+              <ReferenceLine
+                y={referenceValue}
+                stroke="rgba(39,37,30,0.28)"
+                strokeWidth={1}
+                strokeDasharray="6 4"
+              />
+            ) : null}
             <Bar
               dataKey="value"
               fill="#27251E"
               fillOpacity={0.85}
               radius={[2, 2, 0, 0]}
               maxBarSize={12}
+              isAnimationActive={false}
             />
           </BarChart>
         </ResponsiveContainer>
