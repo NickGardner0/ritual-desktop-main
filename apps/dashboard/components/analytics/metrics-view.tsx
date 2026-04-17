@@ -63,8 +63,9 @@ import {
   mapDailyBreakdownRows,
   type MetricCardData,
   type MetricDailyRow,
+  type MetricHabitLike,
 } from '@/components/analytics/metrics-derived';
-import type { HabitSparkSeries } from '@/components/analytics/habit-mini-charts-section';
+import type { HabitSparkSource } from '@/components/analytics/habit-mini-charts-section';
 import {
   auditLocalStorage,
   perfError,
@@ -514,7 +515,6 @@ export function MetricsView({
 
   const [expandedTimeRange, setExpandedTimeRange] = useState<RangeKey>('1M');
   const [barListRange, setBarListRange] = useState<BarListRange>(() => dateRangeToBarListRange(dateRange));
-  const [miniChartRange, setMiniChartRange] = useState<RangeKey>('1M');
   const [pinnedHabitIds, setPinnedHabitIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -2293,122 +2293,45 @@ export function MetricsView({
       }));
   }, [barListDerivedData]);
 
-  const miniChartBarData = useMemo(() => {
-    const { from, to } = getRangeDates(miniChartRange);
-    return buildMetricsBarData({
-      habits: filteredHabits,
-      analyticsDataByHabit: mergedBarListAnalyticsData,
-      summaryByHabit: mergedBarListSummaryMetrics,
-      rangeFrom: from,
-      rangeTo: to,
-      computerActivityDaily,
-    });
+  const habitSparkSources = useMemo<HabitSparkSource[]>(() => {
+    if (pinnedHabitIds.length === 0) return [];
+    const computerActivityHabit: MetricHabitLike = {
+      habit_id: COMPUTER_ACTIVITY_CARD_ID,
+      habit_name: COMPUTER_HABIT_DISPLAY_NAME,
+      unit_type: 'Hours',
+    };
+    const sources: HabitSparkSource[] = [];
+    for (const habitId of pinnedHabitIds) {
+      if (habitId === COMPUTER_ACTIVITY_CARD_ID) {
+        sources.push({
+          habitId,
+          name: COMPUTER_HABIT_DISPLAY_NAME,
+          unit: 'Hours',
+          higherIsBetter: inferHigherIsBetter(computerActivityHabit.habit_name, 'Hours'),
+          logs: [],
+          computerActivityDaily,
+        });
+        continue;
+      }
+      const habit = filteredHabits.find((candidate: HabitData) => candidate.habit_id === habitId);
+      if (!habit) continue;
+      const unit = habit.unit_type || mergedBarListSummaryMetrics[habitId]?.unit || 'count';
+      sources.push({
+        habitId,
+        name: habit.habit_name,
+        unit,
+        higherIsBetter: inferHigherIsBetter(habit.habit_name, unit),
+        logs: mergedBarListAnalyticsData[habitId] || [],
+      });
+    }
+    return sources;
   }, [
     computerActivityDaily,
     filteredHabits,
     mergedBarListAnalyticsData,
     mergedBarListSummaryMetrics,
-    miniChartRange,
-  ]);
-
-  const habitSparkSeries = useMemo<HabitSparkSeries[]>(() => {
-    if (!miniChartBarData.length) return [];
-    if (pinnedHabitIds.length === 0) return [];
-    const { from: rangeFrom, to: rangeTo } = getRangeDates(miniChartRange);
-    const days = eachDayOfInterval({ start: rangeFrom, end: rangeTo });
-    const toKey = (d: Date) => format(d, 'yyyy-MM-dd');
-    const showShortLabel = days.length > 14;
-
-    const pinnedSet = new Set(pinnedHabitIds);
-    return miniChartBarData
-      .filter((habit) => pinnedSet.has(habit.habitId))
-      // Render in the user's pin order so the featured set feels stable.
-      .sort(
-        (left, right) =>
-          pinnedHabitIds.indexOf(left.habitId) - pinnedHabitIds.indexOf(right.habitId),
-      )
-      .map((habit) => {
-        const dailyMap = new Map<string, number>();
-        if (habit.habitId === '__computer_activity__') {
-          for (const row of computerActivityDaily) {
-            if (!row.day) continue;
-            dailyMap.set(
-              String(row.day),
-              (dailyMap.get(String(row.day)) ?? 0) + Number(row.active_hours || 0),
-            );
-          }
-        } else {
-          const logs = mergedBarListAnalyticsData[habit.habitId] || [];
-          for (const log of logs) {
-            if (!log.date) continue;
-            const v = Number(log.daily_value ?? log.value ?? log.total_amount ?? 0);
-            dailyMap.set(log.date, (dailyMap.get(log.date) ?? 0) + v);
-          }
-        }
-
-        const data = days.map((day) => {
-          const key = toKey(day);
-          return {
-            date: key,
-            t: day.getTime(),
-            label: showShortLabel ? format(day, 'M/d') : format(day, 'MMM d'),
-            value: dailyMap.get(key) ?? 0,
-          };
-        });
-
-        const total = data.reduce((sum, point) => sum + point.value, 0);
-
-        return {
-          habitId: habit.habitId,
-          name: habit.name,
-          unit: habit.unit,
-          avg: habit.avg,
-          total,
-          change: habit.change,
-          higherIsBetter: habit.higherIsBetter,
-          daysWithData: habit.daysWithData,
-          data,
-        };
-      });
-  }, [
-    computerActivityDaily,
-    mergedBarListAnalyticsData,
-    miniChartBarData,
-    miniChartRange,
     pinnedHabitIds,
   ]);
-
-  const habitSparkRangeLabel = useMemo(() => {
-    switch (miniChartRange) {
-      case '1D':
-        return 'Today';
-      case '5D':
-        return 'Last 5 days';
-      case '1W':
-        return 'Last 7 days';
-      case '1M':
-        return 'Last 30 days';
-      case '3M':
-        return 'Last 90 days';
-      case '6M':
-        return 'Last 6 months';
-      case 'YTD':
-        return 'Year to date';
-      case '1Y':
-        return 'Last 12 months';
-      case '5Y':
-        return 'Last 5 years';
-      case 'MAX':
-      case 'ALL':
-        return 'All time';
-      default:
-        return '';
-    }
-  }, [miniChartRange]);
-
-  const handleMiniChartRangeChange = React.useCallback((value: string) => {
-    setMiniChartRange(value as RangeKey);
-  }, []);
 
   const streakBarItems = useMemo<BarListItem[]>(() => {
     const { streakData } = barListDerivedData;
@@ -2672,10 +2595,7 @@ export function MetricsView({
             streakBarItems={streakBarItems}
             barListRange={barListRange}
             onBarListRangeChange={setBarListRange}
-            habitSparkSeries={habitSparkSeries}
-            habitSparkRangeLabel={habitSparkRangeLabel}
-            miniChartRange={miniChartRange}
-            onMiniChartRangeChange={handleMiniChartRangeChange}
+            habitSparkSources={habitSparkSources}
             miniChartEmptyHint={
               pinnedHabitIds.length === 0
                 ? 'Pin a habit card above to feature it here.'

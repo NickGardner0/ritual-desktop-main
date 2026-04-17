@@ -77,10 +77,12 @@ function ChangeBadge({
     );
   }
 
+  // Arrow always reflects numeric direction (up = value increased), color
+  // reflects valence relative to higherIsBetter. This avoids the confusing
+  // "↘ 999%" for a habit whose value actually went UP (and is bad).
   const isUp = change > 0;
   const isImprovement = higherIsBetter == null ? isUp : (higherIsBetter ? isUp : !isUp);
-  const arrowPointsUp = higherIsBetter == null ? isUp : isImprovement;
-  const arrow = arrowPointsUp ? '↗' : '↘';
+  const arrow = isUp ? '↗' : '↘';
 
   if (isImprovement) {
     return (
@@ -179,15 +181,15 @@ export function VercelBarListCard({
             <span className="text-[12.5px] font-normal text-[#27251E] tabular-nums text-right min-w-[90px] shrink-0">
               {item.value}
             </span>
-            {(item.change !== undefined || item.changeLabel !== undefined) && (
-              <span className="ml-1.5 shrink-0 min-w-[56px] text-right">
-                <ChangeBadge
-                  change={item.change}
-                  label={item.changeLabel}
-                  higherIsBetter={item.higherIsBetter}
-                />
-              </span>
-            )}
+            {/* Always render the slot so rows stay aligned; ChangeBadge
+                renders a neutral "—" when there's no comparable change. */}
+            <span className="ml-1.5 shrink-0 min-w-[56px] text-right">
+              <ChangeBadge
+                change={item.change}
+                label={item.changeLabel}
+                higherIsBetter={item.higherIsBetter}
+              />
+            </span>
           </div>
         ))}
 

@@ -6,7 +6,7 @@ import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-li
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import {
   HabitMiniChartsSection,
-  type HabitSparkSeries,
+  type HabitSparkSource,
 } from '@/components/analytics/habit-mini-charts-section';
 
 interface MetricsInitialSectionProps {
@@ -17,10 +17,7 @@ interface MetricsInitialSectionProps {
   streakBarItems: BarListItem[];
   barListRange: BarListRange;
   onBarListRangeChange: (range: BarListRange) => void;
-  habitSparkSeries?: HabitSparkSeries[];
-  habitSparkRangeLabel?: string;
-  miniChartRange?: string;
-  onMiniChartRangeChange?: (value: string) => void;
+  habitSparkSources?: HabitSparkSource[];
   miniChartEmptyHint?: string;
 }
 
@@ -32,10 +29,7 @@ export function MetricsInitialSection({
   streakBarItems,
   barListRange,
   onBarListRangeChange,
-  habitSparkSeries = [],
-  habitSparkRangeLabel = '',
-  miniChartRange = '1M',
-  onMiniChartRangeChange,
+  habitSparkSources = [],
   miniChartEmptyHint,
 }: MetricsInitialSectionProps) {
   return (
@@ -64,13 +58,10 @@ export function MetricsInitialSection({
         </div>
       ) : null}
 
-      {showBarLists && onMiniChartRangeChange ? (
+      {showBarLists ? (
         <div className="mx-auto mt-5 w-full max-w-[920px]">
           <HabitMiniChartsSection
-            series={habitSparkSeries}
-            rangeLabel={habitSparkRangeLabel}
-            range={miniChartRange}
-            onRangeChange={onMiniChartRangeChange}
+            sources={habitSparkSources}
             emptyHint={miniChartEmptyHint}
           />
         </div>

@@ -149,9 +149,16 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
         // fails, preserve the already-loaded rows.
         if (id !== fetchIdRef.current) return; // stale
 
-        const windowMs = to.getTime() - from.getTime();
-        const priorTo = new Date(from.getTime() - 86400000); // day before current window
-        const priorFrom = new Date(priorTo.getTime() - windowMs);
+        // Keep the prior window the SAME calendar-day count as the current
+        // window so deltas compare like-for-like. `from` is midnight but `to`
+        // is partial-day, so raw ms round up by ~half a day — using the date
+        // strings rather than timestamps avoids that off-by-one.
+        const daysInWindow = Math.max(
+          1,
+          Math.round((to.getTime() - from.getTime()) / 86400000),
+        );
+        const priorTo = subDays(from, 1);
+        const priorFrom = subDays(priorTo, daysInWindow - 1);
         const priorStartDate = format(priorFrom, 'yyyy-MM-dd');
         const priorEndDate = format(priorTo, 'yyyy-MM-dd');
 
