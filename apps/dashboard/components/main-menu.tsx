@@ -157,9 +157,9 @@ const ChildItem = ({
           <span
             className={cn(
               "text-xs font-[450] transition-colors duration-200",
-              "text-gray-600 group-hover/child:text-gray-900",
+              "text-[#888] group-hover/child:text-[#111111]",
               "whitespace-nowrap overflow-hidden",
-              isActive && "text-gray-900",
+              isActive && "text-[#111111]",
             )}
           >
             {child.name}
@@ -248,10 +248,10 @@ const Item = ({
             <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[40px] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#262626] group-hover:text-[#111111]",
+                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#666] group-hover:text-[#111111]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-[#151515]",
+                  isActive && "text-[#111111]",
                 )}
               >
                 {item.name}
@@ -262,7 +262,7 @@ const Item = ({
                   onClick={handleChevronClick}
                   className={cn(
                     "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto mr-3",
-                    "text-[#3a3a3a] hover:text-[#111111] pointer-events-auto",
+                    "text-[#888] hover:text-[#111111] pointer-events-auto",
                     isActive && "text-[#111111]",
                     shouldShowChildren && "rotate-180",
                   )}

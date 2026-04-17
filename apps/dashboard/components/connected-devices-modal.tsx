@@ -135,7 +135,7 @@ export function ConnectedDevicesBar() {
   return (
     <>
       <div
-        className="fixed bottom-[20px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pointer-events-none"
+        className="fixed bottom-[18px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pointer-events-none"
         style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
       >
         <div className="flex w-full max-w-2xl justify-end pr-[6px] pointer-events-auto">
@@ -146,7 +146,7 @@ export function ConnectedDevicesBar() {
           >
             <span>Connect devices</span>
             <ChevronRight className="h-3 w-3" />
-            <span className="inline-flex items-center gap-[1px] overflow-visible">
+            <span className="inline-flex items-center gap-0 overflow-visible">
               {BAR_ICONS.map((d) => (
                 <span
                   key={d.id}
@@ -160,8 +160,8 @@ export function ConnectedDevicesBar() {
                       d.id === 'oura'
                         ? 'h-[20px] w-[20px]'
                         : d.id === 'plaid'
-                          ? 'h-[12px] w-[12px]'
-                          : 'h-[11px] w-[11px]'
+                          ? 'h-[14px] w-[14px]'
+                          : 'h-[13px] w-[13px]'
                     )}
                   />
                 </span>
