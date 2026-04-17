@@ -137,6 +137,14 @@ struct RitualCompanionApp: App {
             #if DEBUG
             print("📱 V2 Background sync: \(addedCount) added, \(deletedCount) deleted")
             #endif
+            // A successful background sync that returned data is concrete
+            // proof of HealthKit read access. Self-heal the UI in case the
+            // verifyReadAccess() heuristic returned a false negative earlier.
+            if addedCount > 0 {
+                Task { @MainActor in
+                    appState.healthAccessStatus = .authorized
+                }
+            }
         } else if let count = notification.userInfo?["count"] as? Int {
             #if DEBUG
             print("📱 Background sync notification received: \(count) metrics synced")

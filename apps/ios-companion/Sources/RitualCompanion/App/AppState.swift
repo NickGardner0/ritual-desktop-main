@@ -510,6 +510,11 @@ final class AppState: ObservableObject {
         // immediately, which is exactly when the cooldown was hurting them.
         if syncManager.lastError == nil {
             lastManualSyncTime = Date()
+            // A successful sync proves we have HealthKit read access. Self-
+            // heal in case verifyReadAccess() returned a false negative.
+            if healthAccessStatus != .authorized {
+                healthAccessStatus = .authorized
+            }
         }
         
         // After a successful sync, translate any user-configured HealthKit →

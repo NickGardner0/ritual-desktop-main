@@ -175,12 +175,17 @@ final class HealthKitManagerV2: @unchecked Sendable {
     
     private func verifyReadAccess() async -> Bool {
         guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else { return false }
-        
+
+        // Query a 7-day window rather than just today. HealthKit deliberately
+        // hides read-auth status, so we infer it from whether a query succeeds.
+        // A "today only" window produced false negatives whenever the device
+        // had no step samples yet for the current day (early morning, phone
+        // sitting still, or simply a slow HealthKit daemon response).
         do {
             let now = Date()
-            let startOfDay = Calendar.current.startOfDay(for: now)
-            let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: .strictStartDate)
-            
+            let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+            let predicate = HKQuery.predicateForSamples(withStart: weekAgo, end: now, options: .strictStartDate)
+
             _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Double, Error>) in
                 let query = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
                     if let error = error {
