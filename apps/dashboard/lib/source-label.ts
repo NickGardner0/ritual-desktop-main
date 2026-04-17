@@ -1,5 +1,6 @@
 const SOURCE_LABEL_MAP: Record<string, string> = {
-  ai_log_v2: 'Chat',
+  ai_log_v2: 'Chat Log',
+  ai_log_v2_fast: 'Chat Log',
   apple_health: 'Apple Health',
   csv_import: 'CSV Import',
   manual: 'Manual',
