@@ -242,11 +242,12 @@ function MiniBarChartCard({
         </div>
       </div>
 
-      <div className="flex justify-end px-3 pt-1 pb-1">
+      <div className="flex justify-start px-5 pt-1 pb-1">
         <RangeSegmentedControl
           value={range}
           onValueChange={(next) => setRange(next as RangeKey)}
           options={rangeOptions}
+          className="h-[24px] p-[2px] gap-[1px] [&_button]:h-[20px] [&_button]:min-w-[24px] [&_button]:px-[6px] [&_button]:text-[10.5px] [&_button]:leading-[14px]"
         />
       </div>
 

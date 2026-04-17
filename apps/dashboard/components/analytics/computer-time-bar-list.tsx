@@ -72,7 +72,10 @@ function computeAppOrDomainChange(currentHours: number, previousHours: number): 
   if (previous > 0) {
     const rawChange = ((current - previous) / previous) * 100;
     if (!Number.isFinite(rawChange)) return undefined;
-    return Math.max(-100, Math.min(999, rawChange));
+    // Keep in sync with MAX_MEANINGFUL_PERCENT_CHANGE; the display layer
+    // formats ≥1000% as "Nk%" so huge real changes aren't misread as a
+    // saturated 999%.
+    return Math.max(-100, Math.min(9999, rawChange));
   }
 
   if (current <= 0) {

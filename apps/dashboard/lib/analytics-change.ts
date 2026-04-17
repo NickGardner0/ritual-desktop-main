@@ -1,4 +1,8 @@
-export const MAX_MEANINGFUL_PERCENT_CHANGE = 999;
+// Upper clamp for percent deltas. Low enough to keep the DOM from rendering
+// absurd numbers when prior values are tiny, but high enough (well above
+// 999) that genuine large growth isn't misread as a saturated 999% — the
+// display layer formats ≥1000% as "Nk%" so these still read cleanly.
+export const MAX_MEANINGFUL_PERCENT_CHANGE = 9999;
 
 export function getMeaningfulChangeBaseline(unit?: string | null): number {
   const normalized = (unit || '').toLowerCase();

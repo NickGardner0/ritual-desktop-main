@@ -44,10 +44,10 @@ interface VercelBarListCardProps {
 function ChangeBadge({
   change,
   label,
-  higherIsBetter,
 }: {
   change?: number;
   label?: string;
+  /** Accepted for API stability; coloring is purely directional. */
   higherIsBetter?: boolean;
 }) {
   if (label) {
@@ -67,7 +67,6 @@ function ChangeBadge({
   }
 
   const abs = Math.abs(change);
-  const display = abs >= 100 ? Math.round(abs) : abs >= 10 ? Math.round(abs) : abs.toFixed(1);
 
   if (abs < 0.05) {
     return (
@@ -77,25 +76,23 @@ function ChangeBadge({
     );
   }
 
-  // Arrow always reflects numeric direction (up = value increased), color
-  // reflects valence relative to higherIsBetter. This avoids the confusing
-  // "↘ 999%" for a habit whose value actually went UP (and is bad).
+  // Format: ≥1000% becomes "1.2k%" so a saturated clamp reads clearly and
+  // doesn't get confused with a small number.
+  const display = abs >= 1000
+    ? `${(abs / 1000).toFixed(1)}k`
+    : abs >= 100
+      ? Math.round(abs)
+      : abs >= 10
+        ? Math.round(abs)
+        : abs.toFixed(1);
+
+  // Direction-only coloring: up = green, down = red. No valence flip —
+  // the arrow and color always agree, and consumers can interpret the
+  // direction in their own context.
   const isUp = change > 0;
   const arrow = isUp ? '↗' : '↘';
 
-  // No semantic valence (apps, websites, heart-rate-ish metrics) → render
-  // neutrally so "+124% Chrome" doesn't read as a victory.
-  if (higherIsBetter == null) {
-    return (
-      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.58)] tabular-nums">
-        {arrow} {display}%
-      </span>
-    );
-  }
-
-  const isImprovement = higherIsBetter ? isUp : !isUp;
-
-  if (isImprovement) {
+  if (isUp) {
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-[rgba(19,106,34,0.08)] text-[#136A22] tabular-nums">
         {arrow} {display}%
