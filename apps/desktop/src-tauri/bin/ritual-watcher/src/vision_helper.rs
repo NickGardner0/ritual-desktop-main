@@ -1,6 +1,7 @@
 #![cfg(target_os = "macos")]
 
 use std::env;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -40,6 +41,35 @@ pub struct VisionUiElementRecord {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct VisionHelperError {
+    message: String,
+}
+
+impl VisionHelperError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for VisionHelperError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+fn truncate_log_value(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut truncated = trimmed.chars().take(max_chars).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 fn runtime_target_triple() -> Option<String> {
@@ -99,8 +129,10 @@ pub fn run_vision_helper(
     app_bundle_id: &str,
     app_name: &str,
     window_title: Option<&str>,
-) -> Option<VisionCaptureResult> {
-    let helper_path = resolve_vision_helper_path()?;
+) -> Result<VisionCaptureResult, VisionHelperError> {
+    let helper_path = resolve_vision_helper_path().ok_or_else(|| {
+        VisionHelperError::new("could not resolve bundled ritual-vision-helper binary")
+    })?;
     let mut command = Command::new(helper_path);
     command
         .arg("--input")
@@ -114,16 +146,34 @@ pub fn run_vision_helper(
     if let Some(title) = window_title.filter(|value| !value.trim().is_empty()) {
         command.arg("--window-title").arg(title);
     }
-    let output = command.output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    let output = command.output().map_err(|err| {
+        VisionHelperError::new(format!("failed to launch ritual-vision-helper: {err}"))
+    })?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() {
+        return Err(VisionHelperError::new(format!(
+            "ritual-vision-helper exited with status {} (stderr: {}; stdout: {})",
+            output.status,
+            truncate_log_value(&stderr, 240),
+            truncate_log_value(&stdout, 240)
+        )));
+    }
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return None;
+        return Err(VisionHelperError::new(format!(
+            "ritual-vision-helper returned empty stdout (stderr: {})",
+            truncate_log_value(&stderr, 240)
+        )));
     }
-    serde_json::from_str::<VisionCaptureResult>(trimmed).ok()
+    serde_json::from_str::<VisionCaptureResult>(trimmed).map_err(|err| {
+        VisionHelperError::new(format!(
+            "ritual-vision-helper returned invalid JSON: {} (stdout: {}; stderr: {})",
+            err,
+            truncate_log_value(trimmed, 320),
+            truncate_log_value(&stderr, 240)
+        ))
+    })
 }
 
 pub fn elements_to_ui_elements_json(elements: &[VisionCaptureElement]) -> Option<String> {

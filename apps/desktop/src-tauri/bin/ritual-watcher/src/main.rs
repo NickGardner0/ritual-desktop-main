@@ -686,7 +686,8 @@ fn maybe_run_vision_ui_fallback(
     ));
     let mut capture_command = std::process::Command::new("screencapture");
     capture_command.arg("-x");
-    if let Some((x, y, width, height)) = vision_capture_region(window_bounds) {
+    let capture_region = vision_capture_region(window_bounds);
+    if let Some((x, y, width, height)) = capture_region {
         capture_command.arg(format!("-R{},{},{},{}", x, y, width, height));
     }
     capture_command.arg(screenshot_path.to_string_lossy().as_ref());
@@ -709,7 +710,7 @@ fn maybe_run_vision_ui_fallback(
             format!("screencapture denied access: {}", stderr.trim())
         };
         block_vision_capture(&reason, VISION_CAPTURE_DENIED_COOLDOWN_MS);
-        let _ = fs::remove_file(&screenshot_path);
+        cleanup_vision_debug_screenshot(&screenshot_path);
         return None;
     }
     if !capture_output.status.success() {
@@ -727,7 +728,7 @@ fn maybe_run_vision_ui_fallback(
             format!("screencapture failed: {}", stderr.trim())
         };
         block_vision_capture(&reason, cooldown_ms);
-        let _ = fs::remove_file(&screenshot_path);
+        cleanup_vision_debug_screenshot(&screenshot_path);
         return None;
     }
     let screenshot_size = fs::metadata(&screenshot_path)
@@ -739,22 +740,29 @@ fn maybe_run_vision_ui_fallback(
             "screencapture returned no image data for vision fallback",
             VISION_CAPTURE_FAILURE_COOLDOWN_MS,
         );
-        let _ = fs::remove_file(&screenshot_path);
+        cleanup_vision_debug_screenshot(&screenshot_path);
         return None;
     }
     let output =
         vision_helper::run_vision_helper(&screenshot_path, app_bundle_id, app_name, window_title);
-    let _ = fs::remove_file(&screenshot_path);
     let output = match output {
-        Some(output) => output,
-        None => {
-            block_vision_capture(
-                "vision helper could not parse OCR output from the screenshot",
-                VISION_CAPTURE_HELPER_FAILURE_COOLDOWN_MS,
+        Ok(output) => output,
+        Err(err) => {
+            let region_label = format_vision_capture_region(capture_region);
+            let reason = format!(
+                "vision helper failed for {} ({}) using {} capture {}: {}",
+                app_name,
+                app_bundle_id,
+                region_label,
+                screenshot_path.display(),
+                err
             );
+            block_vision_capture(&reason, VISION_CAPTURE_HELPER_FAILURE_COOLDOWN_MS);
+            cleanup_vision_debug_screenshot(&screenshot_path);
             return None;
         }
     };
+    cleanup_vision_debug_screenshot(&screenshot_path);
     unblock_vision_capture();
     let visible_text_raw = output.visible_text_raw.trim().to_string();
     let visible_text_norm = normalize_visible_text(&visible_text_raw);
@@ -768,6 +776,32 @@ fn maybe_run_vision_ui_fallback(
         ui_elements_json,
         confidence: output.overall_confidence,
     })
+}
+
+#[cfg(target_os = "macos")]
+fn keep_vision_debug_screenshot() -> bool {
+    env::var("RITUAL_VISION_DEBUG_KEEP_SCREENSHOT")
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn cleanup_vision_debug_screenshot(path: &Path) {
+    if keep_vision_debug_screenshot() {
+        debug!(
+            "Keeping vision fallback screenshot for debugging: {}",
+            path.display()
+        );
+        return;
+    }
+    let _ = fs::remove_file(path);
+}
+
+#[cfg(target_os = "macos")]
+fn format_vision_capture_region(region: Option<(i32, i32, i32, i32)>) -> String {
+    region
+        .map(|(x, y, width, height)| format!("window-region [{x},{y} {width}x{height}]"))
+        .unwrap_or_else(|| "full-screen".to_string())
 }
 
 #[cfg(target_os = "macos")]

@@ -16,8 +16,9 @@ mod watcher;
 #[cfg(not(feature = "native-recorder"))]
 use crate::recorder_disabled as recorder;
 
+use std::collections::HashMap;
 use std::env;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use tracing::{info, instrument, warn};
@@ -583,6 +584,55 @@ fn configure_macos_window_transparency(window: &tauri::Window) {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug)]
+struct TrafficLightBaseline {
+    close_y: f64,
+    step: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn traffic_light_baselines() -> &'static Mutex<HashMap<String, TrafficLightBaseline>> {
+    static TRAFFIC_LIGHT_BASELINES: OnceLock<Mutex<HashMap<String, TrafficLightBaseline>>> =
+        OnceLock::new();
+    TRAFFIC_LIGHT_BASELINES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(target_os = "macos")]
+fn traffic_light_baseline_key(window: &tauri::Window) -> String {
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    format!("{}@{scale_factor:.2}", window.label())
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_traffic_light_baseline(
+    window: &tauri::Window,
+    close_frame: cocoa::foundation::NSRect,
+    minimize_frame: cocoa::foundation::NSRect,
+    zoom_frame: cocoa::foundation::NSRect,
+) -> TrafficLightBaseline {
+    let native_step_a = minimize_frame.origin.x - close_frame.origin.x;
+    let native_step_b = zoom_frame.origin.x - minimize_frame.origin.x;
+    let native_step = if native_step_a > 0.0 && native_step_b > 0.0 {
+        (native_step_a + native_step_b) / 2.0
+    } else {
+        close_frame.size.width + 6.0
+    };
+
+    let key = traffic_light_baseline_key(window);
+    let default_baseline = TrafficLightBaseline {
+        close_y: close_frame.origin.y,
+        step: native_step,
+    };
+
+    let baselines = traffic_light_baselines();
+    let mut guard = match baselines.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard.entry(key).or_insert(default_baseline)
+}
+
 /// Reposition macOS traffic lights (close/minimize/zoom) into the sidebar region.
 /// Called after window creation and on every resize, since macOS resets button
 /// positions when the window frame changes.
@@ -603,42 +653,34 @@ fn reposition_traffic_lights(window: &tauri::Window) {
             return;
         }
 
-        let close_container: id = msg_send![close, superview];
-        if close_container.is_null() {
-            return;
-        }
+        let close_frame: cocoa::foundation::NSRect = msg_send![close, frame];
+        let minimize_frame: cocoa::foundation::NSRect = msg_send![minimize, frame];
+        let zoom_frame: cocoa::foundation::NSRect = msg_send![zoom, frame];
+        let baseline =
+            resolve_traffic_light_baseline(window, close_frame, minimize_frame, zoom_frame);
 
-        let btn_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let container_frame: cocoa::foundation::NSRect = msg_send![close_container, frame];
-
-        // Position from the titlebar container itself so the math is stable
-        // across resizes and overlay-titlebar relayouts. Reading the current
-        // button origin and tweaking it caused drift after repeated resizes.
-        let size_delta: f64 = 0.9;
-        let btn_width = btn_frame.size.width + size_delta;
-        let btn_height = btn_frame.size.height + size_delta;
+        // Reuse the first clean native AppKit layout as the stable baseline and
+        // only reapply frame origins from it. Re-deriving target geometry from
+        // mutable container frames caused vertical drift after repeated resizes.
         let left_inset: f64 = 14.0;
-        let top_inset: f64 = 11.0;
-        let inter_button_gap: f64 = 6.0;
-        let step = btn_width + inter_button_gap;
-        let target_y = (container_frame.size.height - btn_height - top_inset).max(0.0);
+        let vertical_nudge: f64 = 1.0;
+        let target_y = (baseline.close_y + vertical_nudge).max(0.0);
 
-        let close_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(left_inset, target_y),
-            cocoa::foundation::NSSize::new(btn_width, btn_height),
-        );
-        let minimize_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(left_inset + step, target_y),
-            cocoa::foundation::NSSize::new(btn_width, btn_height),
-        );
-        let zoom_frame = cocoa::foundation::NSRect::new(
-            cocoa::foundation::NSPoint::new(left_inset + step * 2.0, target_y),
-            cocoa::foundation::NSSize::new(btn_width, btn_height),
-        );
-
-        let _: () = msg_send![close, setFrame: close_frame];
-        let _: () = msg_send![minimize, setFrame: minimize_frame];
-        let _: () = msg_send![zoom, setFrame: zoom_frame];
+        let _: () = msg_send![
+            close,
+            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset, target_y)
+        ];
+        let _: () = msg_send![
+            minimize,
+            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset + baseline.step, target_y)
+        ];
+        let _: () = msg_send![
+            zoom,
+            setFrameOrigin: cocoa::foundation::NSPoint::new(
+                left_inset + baseline.step * 2.0,
+                target_y
+            )
+        ];
     }
 }
 
@@ -650,10 +692,20 @@ fn schedule_reposition_traffic_lights(window: tauri::Window) {
         reposition_traffic_lights(&immediate_target);
     });
 
+    let short_delay_window = window.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(40));
-        let delayed_target = window.clone();
-        let _ = window.run_on_main_thread(move || {
+        let delayed_target = short_delay_window.clone();
+        let _ = short_delay_window.run_on_main_thread(move || {
+            reposition_traffic_lights(&delayed_target);
+        });
+    });
+
+    let long_delay_window = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(140));
+        let delayed_target = long_delay_window.clone();
+        let _ = long_delay_window.run_on_main_thread(move || {
             reposition_traffic_lights(&delayed_target);
         });
     });
