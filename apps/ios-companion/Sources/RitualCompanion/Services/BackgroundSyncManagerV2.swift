@@ -1261,9 +1261,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         if validated.count < capped.count {
             #if DEBUG
             let rejected = Set(capped).subtracting(validated)
-            #if DEBUG
             print("⚠️ Rejected unknown metric types from server: \(rejected)")
-            #endif
             #endif
         }
 
@@ -1360,6 +1358,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
 
     private func healthKitType(for metricType: String) -> HKSampleType? {
         switch metricType {
+        // Activity
         case "steps": return HKQuantityType.quantityType(forIdentifier: .stepCount)
         case "active_energy": return HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)
         case "basal_energy": return HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned)
@@ -1367,15 +1366,45 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         case "flights_climbed": return HKQuantityType.quantityType(forIdentifier: .flightsClimbed)
         case "exercise_time": return HKQuantityType.quantityType(forIdentifier: .appleExerciseTime)
         case "stand_time": return HKQuantityType.quantityType(forIdentifier: .appleStandTime)
+        // Heart
         case "hr": return HKQuantityType.quantityType(forIdentifier: .heartRate)
         case "hrv": return HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)
         case "resting_hr": return HKQuantityType.quantityType(forIdentifier: .restingHeartRate)
         case "walking_hr": return HKQuantityType.quantityType(forIdentifier: .walkingHeartRateAverage)
+        // Respiratory
         case "respiratory_rate": return HKQuantityType.quantityType(forIdentifier: .respiratoryRate)
         case "oxygen_saturation": return HKQuantityType.quantityType(forIdentifier: .oxygenSaturation)
-        case "sleep_session": return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
+        // Sleep (all stages share the sleepAnalysis category type)
+        case "sleep_session", "sleep_asleep", "sleep_awake", "sleep_rem", "sleep_deep", "sleep_core":
+            return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
+        // Workouts & Mindfulness
         case "mindful_minutes": return HKCategoryType.categoryType(forIdentifier: .mindfulSession)
         case "workout": return HKObjectType.workoutType()
+        // Body Measurements
+        case "body_mass": return HKQuantityType.quantityType(forIdentifier: .bodyMass)
+        case "body_mass_index": return HKQuantityType.quantityType(forIdentifier: .bodyMassIndex)
+        case "body_fat_percentage": return HKQuantityType.quantityType(forIdentifier: .bodyFatPercentage)
+        case "lean_body_mass": return HKQuantityType.quantityType(forIdentifier: .leanBodyMass)
+        case "height": return HKQuantityType.quantityType(forIdentifier: .height)
+        case "waist_circumference": return HKQuantityType.quantityType(forIdentifier: .waistCircumference)
+        // Nutrition
+        case "dietary_energy": return HKQuantityType.quantityType(forIdentifier: .dietaryEnergyConsumed)
+        case "dietary_protein": return HKQuantityType.quantityType(forIdentifier: .dietaryProtein)
+        case "dietary_carbs": return HKQuantityType.quantityType(forIdentifier: .dietaryCarbohydrates)
+        case "dietary_fat": return HKQuantityType.quantityType(forIdentifier: .dietaryFatTotal)
+        case "dietary_fiber": return HKQuantityType.quantityType(forIdentifier: .dietaryFiber)
+        case "dietary_sugar": return HKQuantityType.quantityType(forIdentifier: .dietarySugar)
+        case "dietary_water": return HKQuantityType.quantityType(forIdentifier: .dietaryWater)
+        case "dietary_caffeine": return HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine)
+        // Vitals
+        case "blood_pressure_systolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic)
+        case "blood_pressure_diastolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic)
+        case "blood_glucose": return HKQuantityType.quantityType(forIdentifier: .bloodGlucose)
+        case "body_temperature": return HKQuantityType.quantityType(forIdentifier: .bodyTemperature)
+        // Mobility
+        case "walking_speed": return HKQuantityType.quantityType(forIdentifier: .walkingSpeed)
+        case "walking_step_length": return HKQuantityType.quantityType(forIdentifier: .walkingStepLength)
+        case "walking_asymmetry": return HKQuantityType.quantityType(forIdentifier: .walkingAsymmetryPercentage)
         default: return nil
         }
     }

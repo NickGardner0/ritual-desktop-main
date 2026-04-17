@@ -687,7 +687,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         case "walking_hr": return HKQuantityType.quantityType(forIdentifier: .walkingHeartRateAverage)
         case "respiratory_rate": return HKQuantityType.quantityType(forIdentifier: .respiratoryRate)
         case "oxygen_saturation": return HKQuantityType.quantityType(forIdentifier: .oxygenSaturation)
-        case "sleep_session", "sleep_rem", "sleep_deep", "sleep_core":
+        case "sleep_session", "sleep_asleep", "sleep_awake", "sleep_rem", "sleep_deep", "sleep_core":
             return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
         case "mindful_minutes": return HKCategoryType.categoryType(forIdentifier: .mindfulSession)
         case "workout": return HKObjectType.workoutType()
