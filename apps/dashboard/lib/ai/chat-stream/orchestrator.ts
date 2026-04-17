@@ -1401,9 +1401,11 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
     };
 
     // Non-streaming OpenAI call with tool loop (max 4 iterations for SMS)
+    // Use gpt-4o (not mini) for better tool discrimination — misrouted
+    // writes corrupt habit data, so accuracy matters more than cost here.
     console.log(`📱 [${elapsed(t0)}] OpenAI call #1 start`);
     let response = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: apiMessages,
       tools,
       tool_choice: 'auto',
@@ -1445,7 +1447,7 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
       // Follow-up call (always non-streaming for SMS)
       console.log(`📱 [${elapsed(t0)}] OpenAI follow-up #${iterations} start`);
       response = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: apiMessages,
         tools,
         tool_choice: 'auto',
@@ -1546,7 +1548,7 @@ export async function handleSmsProactivePost(req: NextRequest): Promise<Response
     // Non-streaming OpenAI call with tool loop (max 3 iterations for proactive)
     console.log(`📬 [${elapsed(t0)}] OpenAI call #1 start`);
     let response = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: apiMessages,
       tools,
       tool_choice: 'auto',
@@ -1587,7 +1589,7 @@ export async function handleSmsProactivePost(req: NextRequest): Promise<Response
 
       console.log(`📬 [${elapsed(t0)}] OpenAI follow-up #${iterations} start`);
       response = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: apiMessages,
         tools,
         tool_choice: 'auto',

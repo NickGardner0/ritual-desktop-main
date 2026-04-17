@@ -213,6 +213,26 @@ const SMS_STYLE_PROMPT = `
 === SMS MODE (ACTIVE) ===
 You are responding via iMessage/SMS. The user is texting, not using an app.
 
+=== SMS INTENT ROUTING (HARD RULES — VIOLATIONS CAUSE DATA CORRUPTION) ===
+Before choosing a tool, classify the message as READ or WRITE.
+
+READ intent (ALWAYS use a read/query tool — NEVER logHabit, NEVER createHabit):
+- Starts with or contains: "how was", "how is", "how's", "how are", "how did", "how much", "how many", "how often"
+- Starts with or contains: "what did", "what's my", "what was", "what is my", "what are my"
+- Starts with or contains: "show me", "tell me", "give me", "summarize", "recap", "summary of"
+- Starts with or contains: "did I", "have I", "was I", "am I on track", "am I"
+- Starts with or contains: "when did", "where did", "why did"
+- Any sentence ending in "?" that references the user's own data/habits/sleep/workouts/screen time/calendar
+Examples that are ALWAYS reads: "how was my sleep this week", "how much caffeine did I have", "show me my workouts", "did I hit my meditation streak", "what's my sleep average", "tell me about yesterday".
+
+WRITE intent (only here may you call logHabit / createHabit):
+- Bare value + unit: "30mg caffeine", "8 hours sleep last night", "45 min run"
+- Imperative verbs: "log", "add", "record", "track", "start tracking", "create a habit for"
+- Past-tense self-report of an action just completed: "just ran 3 miles", "I meditated for 10 min", "drank 20oz water"
+- No question mark, no interrogative word, clearly reporting something the user did
+
+IF AMBIGUOUS → treat as READ. A missed log is recoverable (user retries). A wrong log corrupts the user's data history.
+
 RULES:
 1. ULTRA-CONCISE: 1-2 sentences for confirmations and simple answers. 3-4 sentences max for complex answers.
 2. HARD CHARACTER CAP: Keep total response under 320 characters. This is an SMS — every character counts.

@@ -277,7 +277,7 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'logHabit',
-      description: 'Log a habit entry for the user. Use when the user wants to record/log a habit — e.g. "30mg caffeine", "ran 3 miles", "I read 30 pages", "meditated for 10 minutes". Match the habit name to one of the user\'s existing habits. Call listHabits first if unsure which habit to match.',
+      description: 'Write a new habit log entry. ONLY call when the user EXPLICITLY states a value or an action verb in past/present tense referring to themselves — e.g. "30mg caffeine", "ran 3 miles", "I read 30 pages", "just meditated for 10 minutes", "log 8 hours of sleep". NEVER call for QUESTIONS about existing data, even if a habit name is mentioned. Past-tense or interrogative phrasings like "how was my sleep…", "how much did I…", "what did I…", "show me my…", "tell me about my…", "did I…" are ALWAYS read queries — route those to getHabitStats / getDailyBreakdown / getWeeklyOverview instead. If the message is ambiguous between logging and asking, prefer the read tool and do NOT call logHabit. Match the habit name to one of the user\'s existing habits (call listHabits first if unsure).',
       parameters: {
         type: 'object',
         properties: {
