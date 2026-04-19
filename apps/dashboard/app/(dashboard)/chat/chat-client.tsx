@@ -635,10 +635,11 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const DEFAULT_CANVAS_WIDTH = 560;
 const MIN_CANVAS_WIDTH = 360;
 const MAX_CANVAS_WIDTH = 860;
-const CHAT_PAGE_CARD_BG = '#F8F8F7';
-// Slightly darker than the input card so the Connect-apps bar reads as a
-// distinct strip attached to the bottom, matching Littlebird's treatment.
-const CHAT_PAGE_CONNECT_BAR_BG = '#E8E8E8';
+const CHAT_PAGE_CARD_BG = '#FDFCFA';
+// Warm pale tint — slightly darker than the input card but in the same
+// warm-neutral family so the Connect-apps strip reads as a flush extension
+// of the card rather than a stark grey footer.
+const CHAT_PAGE_CONNECT_BAR_BG = '#F1EEE8';
 const CHAT_PAGE_CONNECT_BAR_DISMISS_KEY = 'ritual:chat:apps-bar-dismissed';
 
 // Curated from the Integrations page. Same SVG assets, sized for a compact
@@ -652,12 +653,12 @@ const CONNECT_APPS_BAR_ICONS: Array<{
   src: string;
   height: number;
 }> = [
-  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg', height: 15 },
-  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 15 },
-  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg', height: 12 },
-  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg', height: 14 },
-  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg', height: 14 },
-  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg', height: 13 },
+  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg', height: 16 },
+  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 16 },
+  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg', height: 16 },
+  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg', height: 16 },
+  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg', height: 16 },
+  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg', height: 16 },
 ];
 
 interface ConnectAppsBarProps {
@@ -668,7 +669,7 @@ interface ConnectAppsBarProps {
 function ConnectAppsBar({ onOpenIntegrations, onDismiss }: ConnectAppsBarProps) {
   return (
     <div
-      className="flex items-center justify-between gap-3 border-t border-gray-200/70 px-4 py-2"
+      className="flex items-center justify-between gap-3 border-t border-gray-200/30 px-4 py-2"
       style={{ backgroundColor: CHAT_PAGE_CONNECT_BAR_BG }}
     >
       <button
@@ -678,8 +679,8 @@ function ConnectAppsBar({ onOpenIntegrations, onDismiss }: ConnectAppsBarProps) 
       >
         Connect your devices to get better answers
       </button>
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5">
           {CONNECT_APPS_BAR_ICONS.map((app) => (
             <img
               key={app.id}
