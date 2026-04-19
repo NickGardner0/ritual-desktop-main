@@ -35,8 +35,7 @@ function normalizeIntegration(source?: string): IntegrationKey | null {
 
 type DayBadge =
   | { kind: 'logo'; integration: IntegrationKey }
-  | { kind: 'emoji'; char: string }
-  | { kind: 'initial'; letter: string };
+  | { kind: 'emoji'; char: string };
 
 function badgesForDay(logs: HabitLog[], maxBadges: number): DayBadge[] {
   const seen = new Set<string>();
@@ -61,17 +60,6 @@ function badgesForDay(logs: HabitLog[], maxBadges: number): DayBadge[] {
       if (!seen.has(key)) {
         seen.add(key);
         badges.push({ kind: 'emoji', char: icon });
-      }
-      continue;
-    }
-
-    const name = log.habit_name?.trim();
-    if (name) {
-      const letter = name.charAt(0).toUpperCase();
-      const key = `l:${letter}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        badges.push({ kind: 'initial', letter });
       }
     }
   }
@@ -101,17 +89,18 @@ export const CalendarDayStrip = memo(function CalendarDayStrip({
   const MAX_BADGES = 3;
 
   return (
-    <div className="grid grid-cols-7 gap-2">
+    <div className="grid grid-cols-7 gap-2.5">
       {weekDays.map((day) => {
         const dayKey = format(day, 'yyyy-MM-dd');
         const dayLogs = logsByDate.get(dayKey) || [];
         const dayBlocks = scheduledByDay.get(dayKey) || [];
         const totalCount = dayLogs.length + dayBlocks.length;
         const badges = badgesForDay(dayLogs, MAX_BADGES);
-        const extraSources = Math.max(0, dayLogs.length - badges.length);
         const isSelected = selectedDate === dayKey;
         const isCurrent = isSameDay(day, today);
         const isFuture = day > today;
+        const isEmpty = totalCount === 0;
+        const isFutureEmpty = isFuture && isEmpty;
 
         let countLabel: string;
         if (totalCount === 0) {
@@ -130,68 +119,73 @@ export const CalendarDayStrip = memo(function CalendarDayStrip({
             type="button"
             onClick={() => onDayClick(dayKey)}
             aria-pressed={isSelected}
+            aria-label={`${format(day, 'EEEE, MMMM d')} — ${countLabel}`}
             className={cn(
-              'group flex flex-col items-start gap-1.5 rounded-sm border px-3 py-2.5 text-left transition-colors',
+              'group relative flex h-[100px] flex-col justify-between rounded-md px-4 py-3.5 text-left transition-shadow duration-150',
               isSelected
-                ? 'border-gray-300 bg-[#EDEAE2] shadow-[inset_0_0_0_1px_rgba(39,37,30,0.04)]'
-                : 'border-gray-200 bg-white hover:bg-[#F5F3EE]',
+                ? 'bg-[#EDE7DA] shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_0_0_1px_rgba(39,37,30,0.07)]'
+                : 'bg-white shadow-[0_0_0_1px_rgba(39,37,30,0.06)] hover:shadow-[0_0_0_1px_rgba(39,37,30,0.12)]',
             )}
           >
             <span
               className={cn(
-                'text-[11px] font-semibold uppercase tracking-[0.04em]',
-                isSelected ? 'text-[#27251E]' : 'text-[#878787]',
+                'text-[13px] font-normal leading-none',
+                isFutureEmpty
+                  ? 'text-[#C4C0B8]'
+                  : isCurrent
+                    ? 'text-[#27251E]'
+                    : 'text-[#6B7280]',
               )}
             >
               {format(day, 'EEE')}
             </span>
-            <span
-              className={cn(
-                'text-[18px] font-semibold leading-none',
-                totalCount === 0 && !isCurrent ? 'text-[#9CA3AF]' : 'text-[#27251E]',
-              )}
-            >
-              {format(day, 'MMM d')}
-            </span>
-            <div className="mt-0.5 flex w-full min-w-0 items-center gap-1.5">
-              {badges.length > 0 && (
-                <div className="flex shrink-0 items-center -space-x-1.5">
-                  {badges.map((badge, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex h-[18px] w-[18px] items-center justify-center overflow-hidden rounded-full border border-white bg-[#F4F2ED] text-[10px] font-medium text-[#535353] shadow-[0_0_0_0.5px_rgba(0,0,0,0.04)]"
-                    >
-                      {badge.kind === 'logo' ? (
-                        <Image
-                          src={INTEGRATION_LOGOS[badge.integration].src}
-                          alt={INTEGRATION_LOGOS[badge.integration].alt}
-                          width={14}
-                          height={14}
-                          className="h-3.5 w-3.5 object-contain"
-                          unoptimized
-                        />
-                      ) : badge.kind === 'emoji' ? (
-                        <span className="text-[11px] leading-none">{badge.char}</span>
-                      ) : (
-                        badge.letter
-                      )}
-                    </span>
-                  ))}
-                  {extraSources > 0 && (
-                    <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white bg-[#F4F2ED] px-1 text-[9px] font-medium text-[#878787]">
-                      +{extraSources}
-                    </span>
-                  )}
-                </div>
-              )}
+
+            <div className="flex flex-col gap-2">
               <span
                 className={cn(
-                  'truncate text-xs',
-                  totalCount === 0 ? 'text-[#9CA3AF]' : 'text-[#535353]',
+                  'text-[22px] font-semibold leading-none tracking-tight',
+                  isFutureEmpty ? 'text-[#C4C0B8]' : 'text-[#1F1D17]',
                 )}
               >
-                {countLabel}
+                {format(day, 'MMM d')}
               </span>
+              <div className="flex min-h-[20px] items-center gap-2">
+                {badges.length > 0 && (
+                  <div className="flex shrink-0 items-center -space-x-1.5">
+                    {badges.map((badge, i) => (
+                      <span
+                        key={i}
+                        className={cn(
+                          'inline-flex h-[20px] w-[20px] items-center justify-center overflow-hidden rounded-full bg-white ring-2',
+                          isSelected ? 'ring-[#EDE7DA]' : 'ring-white',
+                          'shadow-[0_0_0_0.5px_rgba(39,37,30,0.10)]',
+                        )}
+                      >
+                        {badge.kind === 'logo' ? (
+                          <Image
+                            src={INTEGRATION_LOGOS[badge.integration].src}
+                            alt={INTEGRATION_LOGOS[badge.integration].alt}
+                            width={14}
+                            height={14}
+                            className="h-[14px] w-[14px] object-contain"
+                            unoptimized
+                          />
+                        ) : (
+                          <span className="text-[12px] leading-none">{badge.char}</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <span
+                  className={cn(
+                    'truncate text-[13px] font-normal',
+                    isEmpty ? 'text-[#C4C0B8]' : 'text-[#6B7280]',
+                  )}
+                >
+                  {countLabel}
+                </span>
+              </div>
             </div>
           </button>
         );
