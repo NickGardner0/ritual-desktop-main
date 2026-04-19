@@ -26,7 +26,6 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import { useHeartRateRange } from '@/hooks/useHeartRateRange';
 
 import { CalendarHeader } from './calendar-header';
-import { CalendarDayStrip } from './calendar-day-strip';
 import { CalendarMonthView } from './calendar-month-view';
 import { CalendarWeekView } from './calendar-week-view';
 import type {
@@ -827,18 +826,6 @@ export function CalendarClient() {
     setCurrentDate(new Date());
   }, []);
 
-  const handleDayStripClick = useCallback((dateKey: string) => {
-    const date = parseISO(dateKey);
-    setCurrentDate(date);
-    setSelectedDate(dateKey);
-    setRange(null);
-  }, []);
-
-  const dayStripSelectedKey = useMemo(() => {
-    if (selectedDate) return selectedDate;
-    return format(new Date(), 'yyyy-MM-dd');
-  }, [selectedDate]);
-
   // AI day summary: fetch when selectedDate changes
   useEffect(() => {
     // Abort any previous stream
@@ -1395,17 +1382,6 @@ export function CalendarClient() {
           onNavigatePrevious={navigatePrevious}
           onNavigateNext={navigateNext}
           onNavigateToToday={navigateToToday}
-        />
-      </div>
-
-      {/* Mini day-card strip — Perplexity Finance style */}
-      <div className="shrink-0 px-6 pb-3">
-        <CalendarDayStrip
-          weekDays={weekDays}
-          logsByDate={logsByDate}
-          scheduledItems={scheduledBlocks}
-          selectedDate={dayStripSelectedKey}
-          onDayClick={handleDayStripClick}
         />
       </div>
 
