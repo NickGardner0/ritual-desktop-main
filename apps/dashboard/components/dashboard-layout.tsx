@@ -147,7 +147,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           className="content-opaque titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
         >
           {isChatRoute && (
-            <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.045)] bg-[#f4f4f3]" />
+            <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.03)] bg-[#f4f4f3]" />
           )}
           <div className="relative flex items-center w-full translate-y-[4px]">
             {/* Left zone — Search + page-specific left actions */}

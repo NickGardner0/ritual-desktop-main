@@ -511,6 +511,35 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
+fn configure_macos_native_window_chrome(window: &tauri::Window) {
+    use cocoa::base::{id, YES};
+    use objc::runtime::BOOL;
+    use objc::{msg_send, sel, sel_impl};
+
+    match window.ns_window() {
+        Ok(raw_window) => unsafe {
+            let ns_win: id = raw_window as id;
+
+            let _: () = msg_send![ns_win, setHasShadow: YES];
+            let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
+            // NSWindowTitleVisibilityHidden = 1
+            let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
+
+            let supports_toolbar_style: BOOL =
+                msg_send![ns_win, respondsToSelector: sel!(setToolbarStyle:)];
+            if supports_toolbar_style != cocoa::base::NO {
+                // NSWindowToolbarStyleUnifiedCompact = 4
+                let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
+            }
+
+            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar)");
+        },
+        Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
 fn configure_macos_window_transparency(window: &tauri::Window) {
     use cocoa::appkit::{NSColor, NSWindow};
     use cocoa::base::{id, nil};
@@ -1404,6 +1433,8 @@ fn main() {
         let _ = window.center();
         #[cfg(target_os = "macos")]
         {
+          configure_macos_native_window_chrome(&window);
+
           if main_glass_enabled {
             info!("Main window glass enabled");
             configure_macos_window_transparency(&window);

@@ -336,7 +336,7 @@
     user-select: none;
     -webkit-user-select: none;
     overscroll-behavior: none !important;
-    border-radius: 10px;
+    border-radius: 12px;
     overflow: hidden;
     height: 100vh;
     width: 100vw;
@@ -369,6 +369,25 @@
     height: 100vh;
     width: 100%;
     overflow: auto;
+  }
+
+  html.desktop[data-platform="macos"] .app-container,
+  html.desktop:not([data-platform]) .app-container {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  html.desktop[data-platform="macos"] .app-container::after,
+  html.desktop:not([data-platform]) .app-container::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    border: 1px solid rgba(15, 23, 42, 0.055);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+    z-index: 40;
   }
 
   /* Non-macOS desktop gets opaque background */
@@ -444,7 +463,7 @@
         rgba(242, 241, 238, 0.93) 100%
       );
     background-color: rgba(244, 243, 240, 0.95);
-    border-right: 1px solid hsl(var(--border) / 0.72);
+    border-right: 1px solid rgba(15, 23, 42, 0.05);
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
@@ -505,7 +524,7 @@
       rgba(249, 249, 247, 0.22) 100%
     ) !important;
     background-color: rgba(252, 252, 250, 0.26) !important;
-    border-right: 1px solid hsl(var(--border) / 0.72) !important;
+    border-right: 1px solid rgba(15, 23, 42, 0.045) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
