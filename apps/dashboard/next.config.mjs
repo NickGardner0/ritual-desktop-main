@@ -48,7 +48,21 @@ const nextConfig = {
     ],
   },
 
+  transpilePackages: ['@ritual/chat-runtime'],
+
   serverExternalPackages: ['pino'],
+
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@ritual/chat-runtime': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/index.js',
+      ),
+    };
+
+    return config;
+  },
   
   // Add headers for Tauri webview compatibility
   async headers() {

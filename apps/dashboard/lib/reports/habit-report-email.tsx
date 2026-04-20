@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RitualHabitReportEmailPreview } from "@/lib/reports/types";
 
@@ -228,10 +227,4 @@ export function HabitReportEmailPreview({
       <HabitReportEmailCard preview={preview} />
     </div>
   );
-}
-
-export function renderHabitReportEmail(preview: RitualHabitReportEmailPreview) {
-  return `<!DOCTYPE html>${renderToStaticMarkup(
-    <HabitReportEmailTemplate preview={preview} />,
-  )}`;
 }

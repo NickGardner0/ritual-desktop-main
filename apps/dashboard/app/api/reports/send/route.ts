@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { renderHabitReportEmail } from "@/lib/reports/habit-report-email";
+import { renderHabitReportEmail } from "@/lib/reports/habit-report-email-render";
 import type { RitualHabitReportEmailPreview } from "@/lib/reports/types";
 
 export const maxDuration = 30;
