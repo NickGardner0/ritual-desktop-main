@@ -635,29 +635,31 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const DEFAULT_CANVAS_WIDTH = 560;
 const MIN_CANVAS_WIDTH = 360;
 const MAX_CANVAS_WIDTH = 860;
-// Matches the Overview page's AI chat input background so the empty state
-// feels continuous with the rest of the app.
-const CHAT_PAGE_CARD_BG = '#F9F9F9';
+// Pure white so the chat card pops cleanly against the page.
+const CHAT_PAGE_CARD_BG = '#ffffff';
 // Neutral strip just slightly darker than the card so the Connect-apps bar
 // reads as a flush extension rather than a stark grey footer.
 const CHAT_PAGE_CONNECT_BAR_BG = '#ebebea';
 const CHAT_PAGE_CONNECT_BAR_DISMISS_KEY = 'ritual:chat:apps-bar-dismissed';
 
-// Curated from the Integrations page. Each logo renders inside a fixed
-// square box so they all share the same visual footprint regardless of the
-// SVG's intrinsic aspect ratio.
-const CONNECT_APPS_BAR_ICON_SIZE = 13;
+// Curated from the Integrations page. Icons render inside a shared fixed
+// row-height cell for clean vertical alignment, but each logo gets its own
+// height tuned by visual weight — portrait silhouettes (Apple) and thin
+// marks (Whoop ring) need more height to read at the same optical size as
+// dense icons (Google Calendar block).
+const CONNECT_APPS_BAR_CELL_HEIGHT = 16;
 const CONNECT_APPS_BAR_ICONS: Array<{
   id: string;
   alt: string;
   src: string;
+  height: number;
 }> = [
-  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg' },
-  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg' },
-  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg' },
-  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg' },
-  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg' },
-  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg' },
+  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg', height: 15 },
+  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 15 },
+  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg', height: 13 },
+  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg', height: 12 },
+  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg', height: 13 },
+  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg', height: 13 },
 ];
 
 interface ConnectAppsBarProps {
@@ -679,17 +681,21 @@ function ConnectAppsBar({ onOpenIntegrations, onDismiss }: ConnectAppsBarProps) 
         Connect your devices to get better answers
       </button>
       <div className="flex items-center gap-2.5">
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2.5"
+          style={{ height: CONNECT_APPS_BAR_CELL_HEIGHT }}
+        >
           {CONNECT_APPS_BAR_ICONS.map((app) => (
             <span
               key={app.id}
               className="inline-flex shrink-0 items-center justify-center"
-              style={{ height: CONNECT_APPS_BAR_ICON_SIZE, width: CONNECT_APPS_BAR_ICON_SIZE }}
+              style={{ height: CONNECT_APPS_BAR_CELL_HEIGHT }}
             >
               <img
                 src={app.src}
                 alt={app.alt}
-                className="h-full w-full object-contain opacity-85"
+                className="object-contain opacity-85"
+                style={{ height: app.height, width: 'auto' }}
               />
             </span>
           ))}
