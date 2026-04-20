@@ -1843,7 +1843,16 @@ export function MetricsView({
             }).catch(() => null);
             setExpandedSyncContext(fallback?.sync_context || null);
             const rows = mapDailyBreakdownRows(expandedHabit, fallback?.data || fallback?.daily_data || []);
-            setExpandedLogs(rows);
+            // Run sleep-metadata enrichment on this path too so tooltips can
+            // show sleep/wake times even when the Python breakdown's entries
+            // don't include sleep_start/sleep_end directly.
+            const enrichedRows = await enrichRowsWithSleepMetadata(
+              rows,
+              expandedHabit,
+              startDate,
+              endDate,
+            );
+            setExpandedLogs(enrichedRows);
             return;
           }
         }
