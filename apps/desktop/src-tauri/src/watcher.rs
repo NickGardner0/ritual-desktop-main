@@ -580,6 +580,14 @@ fn external_watcher_install_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".ritual").join("bin").join("ritual-watcher"))
 }
 
+fn external_vision_helper_install_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join(".ritual")
+            .join("bin")
+            .join("ritual-vision-helper")
+    })
+}
+
 fn bundled_watcher_binary_path() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -592,6 +600,76 @@ fn bundled_watcher_binary_path() -> Option<PathBuf> {
     ];
 
     candidates.into_iter().find(|path| path.exists())
+}
+
+fn bundled_vision_helper_binary_path() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))?;
+
+    let candidates = [
+        exe_dir.join("ritual-vision-helper"),
+        exe_dir.join("../Resources/ritual-vision-helper"),
+        exe_dir.join("../Resources/binaries/ritual-vision-helper"),
+    ];
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn copy_external_support_binary(source: &Path, target: &Path, label: &str) {
+    let needs_copy = match (source.metadata(), target.metadata()) {
+        (Ok(source_meta), Ok(target_meta)) => {
+            let source_mtime = source_meta.modified().ok();
+            let target_mtime = target_meta.modified().ok();
+            source_meta.len() != target_meta.len()
+                || source_mtime
+                    .zip(target_mtime)
+                    .map(|(s, t)| s > t)
+                    .unwrap_or(false)
+        }
+        (Ok(_), Err(_)) => true,
+        _ => false,
+    };
+
+    if !needs_copy {
+        return;
+    }
+
+    if let Some(parent) = target.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            watcher_info!(
+                "⚠️ Failed to create external {label} directory {:?}: {}",
+                parent,
+                err
+            );
+            return;
+        }
+    }
+
+    if let Err(err) = std::fs::copy(source, target) {
+        watcher_info!(
+            "⚠️ Failed to copy {label} binary from {:?} to {:?}: {}",
+            source,
+            target,
+            err
+        );
+        return;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(err) = std::fs::set_permissions(target, std::fs::Permissions::from_mode(0o755))
+        {
+            watcher_info!(
+                "⚠️ Failed to mark external {label} binary executable {:?}: {}",
+                target,
+                err
+            );
+        }
+    }
+
+    watcher_info!("✅ Installed external {label} helper at {:?}", target);
 }
 
 fn ensure_external_watcher_binary() {
@@ -608,63 +686,16 @@ fn ensure_external_watcher_binary() {
             return;
         }
 
-        let needs_copy = match (source.metadata(), target.metadata()) {
-            (Ok(source_meta), Ok(target_meta)) => {
-                let source_mtime = source_meta.modified().ok();
-                let target_mtime = target_meta.modified().ok();
-                source_meta.len() != target_meta.len()
-                    || source_mtime
-                        .zip(target_mtime)
-                        .map(|(s, t)| s > t)
-                        .unwrap_or(false)
-            }
-            (Ok(_), Err(_)) => true,
-            _ => false,
-        };
+        copy_external_support_binary(&source, &target, "watcher");
 
-        if !needs_copy {
-            return;
-        }
-
-        if let Some(parent) = target.parent() {
-            if let Err(err) = std::fs::create_dir_all(parent) {
-                watcher_info!(
-                    "⚠️ Failed to create external watcher directory {:?}: {}",
-                    parent,
-                    err
-                );
-                return;
+        if let (Some(helper_source), Some(helper_target)) = (
+            bundled_vision_helper_binary_path(),
+            external_vision_helper_install_path(),
+        ) {
+            if helper_source != helper_target {
+                copy_external_support_binary(&helper_source, &helper_target, "vision helper");
             }
         }
-
-        if let Err(err) = std::fs::copy(&source, &target) {
-            watcher_info!(
-                "⚠️ Failed to copy watcher binary from {:?} to {:?}: {}",
-                source,
-                target,
-                err
-            );
-            return;
-        }
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(err) =
-                std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
-            {
-                watcher_info!(
-                    "⚠️ Failed to mark external watcher binary executable {:?}: {}",
-                    target,
-                    err
-                );
-            }
-        }
-
-        watcher_info!(
-            "✅ Installed background watcher helper outside app bundle at {:?}",
-            target
-        );
     }
 }
 
