@@ -28,6 +28,9 @@
       "@/*": [
         "./*"
       ],
+      "@ritual/chat-runtime": [
+        "../../packages/chat-runtime/src/index.ts"
+      ],
       "@ritual/ui/*": [
         "../../packages/ui/src/*"
       ],

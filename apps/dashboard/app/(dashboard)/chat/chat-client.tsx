@@ -21,7 +21,7 @@ import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import { useOverviewActivityQuery } from '@/hooks/use-overview-activity-query';
 import {
   getOverviewActivityBundle,
-  hasCompleteOverviewActivityDetail,
+  hasMeaningfulOverviewActivity,
   getOverviewActivityRangeKeysForText,
   overviewActivityKeys,
   type LocalOverviewActivityBundle,
@@ -1197,17 +1197,43 @@ export function ChatClient() {
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     
-    const overviewRangeKeys = getOverviewActivityRangeKeysForText(text);
-    const cachedOverviewBundles = overviewRangeKeys
-      .map((rangeKey) =>
-        queryClient.getQueryData<LocalOverviewActivityBundle | null>(
-          overviewActivityKeys.detail(user?.id ?? 'anonymous', timezone, rangeKey),
-        ),
-      )
-      .filter((bundle): bundle is LocalOverviewActivityBundle =>
-        hasCompleteOverviewActivityDetail(bundle),
+    const overviewRangeKeys = [...new Set(getOverviewActivityRangeKeysForText(text))];
+    let localOverviewActivity: LocalOverviewActivityBundle[] | null = null;
+
+    if (isTauri() && user?.id && overviewRangeKeys.length > 0) {
+      const resolvedOverviewBundles = await Promise.all(
+        overviewRangeKeys.map(async (rangeKey) => {
+          const queryKey = overviewActivityKeys.detail(user.id, timezone, rangeKey);
+          const cached = queryClient.getQueryData<LocalOverviewActivityBundle | null>(queryKey);
+
+          if (hasMeaningfulOverviewActivity(cached)) {
+            return cached;
+          }
+
+          try {
+            return await queryClient.fetchQuery({
+              queryKey,
+              queryFn: () => getOverviewActivityBundle(rangeKey, timezone),
+              staleTime: 1000 * 60 * 5,
+            });
+          } catch (error) {
+            console.warn('Failed to resolve overview activity bundle for chat request', {
+              rangeKey,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+          }
+        }),
       );
-    const localOverviewActivity = cachedOverviewBundles.length > 0 ? cachedOverviewBundles : null;
+
+      const meaningfulOverviewBundles = resolvedOverviewBundles.filter(
+        (bundle): bundle is LocalOverviewActivityBundle => hasMeaningfulOverviewActivity(bundle),
+      );
+
+      localOverviewActivity = meaningfulOverviewBundles.length > 0
+        ? meaningfulOverviewBundles
+        : null;
+    }
     
     try {
       const token = await getToken();
