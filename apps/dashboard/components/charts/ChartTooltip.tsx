@@ -150,18 +150,18 @@ export function ExpandedChartTooltip({
     ?? point?.wake_time
     ?? point?.time
   );
-  const tooltipWidthClass = hasSleepMetadata ? 'w-[168px]' : 'w-[138px]';
+  const tooltipWidthClass = hasSleepMetadata ? 'w-[150px]' : 'w-[122px]';
 
   return (
     <div
-      className={`${tooltipWidthClass} rounded-sm border border-white/45 bg-[rgba(248,249,251,0.94)] px-2.5 py-2 shadow-[0_8px_20px_rgba(15,23,42,0.16)]`}
+      className={`${tooltipWidthClass} rounded-sm border border-white/45 bg-[rgba(248,249,251,0.94)] px-2 py-1.5 shadow-[0_6px_16px_rgba(15,23,42,0.14)]`}
     >
-      <div className="mb-1 text-[11px] text-[rgba(39,37,30,0.62)]">{formatTooltipDate(rawDate)}</div>
+      <div className="mb-0.5 text-[10.5px] leading-[13px] text-[rgba(39,37,30,0.62)]">{formatTooltipDate(rawDate)}</div>
 
-      <div className="space-y-1 text-[11px] leading-4">
+      <div className="space-y-[2px] text-[10.5px] leading-[13px]">
         <div className="flex items-center justify-between">
           <span className="text-[rgba(39,37,30,0.88)]">Value</span>
-          <span className="pl-3 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">
+          <span className="pl-2 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">
             {formatValue(rawValue)}
             {primaryUnit ? <span className="ml-1">{primaryUnit}</span> : null}
           </span>
@@ -170,7 +170,7 @@ export function ExpandedChartTooltip({
         {hasCompareValue ? (
           <div className="flex items-center justify-between">
             <span className="text-[rgba(39,37,30,0.88)]">{compareDisplayLabel}</span>
-            <span className="pl-3 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">
+            <span className="pl-2 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">
               {formatValue(compareNumericValue)}
               {compareDisplayUnit ? <span className="ml-1">{compareDisplayUnit}</span> : null}
             </span>
@@ -181,11 +181,11 @@ export function ExpandedChartTooltip({
           <>
             <div className="flex items-center justify-between">
               <span className="text-[rgba(39,37,30,0.88)]">Sleep Time</span>
-              <span className="pl-3 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">{sleepTime || '--'}</span>
+              <span className="pl-2 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">{sleepTime || '--'}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[rgba(39,37,30,0.88)]">Wake Up</span>
-              <span className="pl-3 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">{wakeTime || '--'}</span>
+              <span className="pl-2 text-right tabular-nums whitespace-nowrap text-[rgba(39,37,30,0.72)]">{wakeTime || '--'}</span>
             </div>
           </>
         ) : null}
