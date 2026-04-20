@@ -3,11 +3,12 @@
   "private": true,
   "packageManager": "npm@11.0.0",
   "scripts": {
-    "dev": "next dev -p 3000 --turbo",
-    "build": "next build --webpack && node ./scripts/normalize-next-proxy-output.mjs",
+    "build:chat-runtime": "tsc -p ../../packages/chat-runtime/tsconfig.json",
+    "dev": "npm run build:chat-runtime && next dev -p 3000 --turbo",
+    "build": "npm run build:chat-runtime && next build --webpack && node ./scripts/normalize-next-proxy-output.mjs",
     "start": "next start -p 3000",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit --pretty false"
+    "typecheck": "npm run build:chat-runtime && tsc --noEmit --pretty false"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.31",
