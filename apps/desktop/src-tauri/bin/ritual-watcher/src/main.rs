@@ -1383,6 +1383,18 @@ fn deep_accessibility_high_risk_app_shell(bundle_id: &str, app_name: &str) -> bo
         || bundle.contains("todesktop")
 }
 
+fn window_title_observer_enabled_for_app(bundle_id: &str, app_name: &str) -> bool {
+    if !window_title_observer_enabled() {
+        return false;
+    }
+
+    // Keep the AX observer off the same desktop-shell apps we already treat as
+    // high-risk for deep AX. The observer registers for focus/value/selected-
+    // text AX notifications, and those callbacks can still surface Objective-C
+    // exceptions even when deep capture itself is disabled.
+    !deep_accessibility_high_risk_app_shell(bundle_id, app_name)
+}
+
 fn deep_accessibility_capture_enabled_for_app(bundle_id: &str, app_name: &str) -> bool {
     if deep_accessibility_capture_disabled() {
         return false;
@@ -1701,7 +1713,7 @@ fn run_watcher_loop(
         info!(
             "   Window title observer: {}",
             if window_title_observer_enabled() && WindowChangeListener::has_permission() {
-                "enabled"
+                "enabled (safe apps only)"
             } else if window_title_observer_enabled() {
                 "disabled (no AX permission)"
             } else {
@@ -2144,10 +2156,12 @@ fn run_watcher_loop(
                 // Set up AX observer for this app's window title changes
                 #[cfg(target_os = "macos")]
                 {
-                    if window_title_observer_enabled() {
+                    if window_title_observer_enabled_for_app(&info.bundle_id, &info.app_name) {
                         if let Some(pid) = info.pid {
                             observe_app(pid);
                         }
+                    } else if window_title_observer_enabled() {
+                        window_observer::stop_observing();
                     }
                 }
 
