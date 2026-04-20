@@ -635,30 +635,29 @@ const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.
 const DEFAULT_CANVAS_WIDTH = 560;
 const MIN_CANVAS_WIDTH = 360;
 const MAX_CANVAS_WIDTH = 860;
-const CHAT_PAGE_CARD_BG = '#FDFCFA';
-// Warm pale tint — slightly darker than the input card but in the same
-// warm-neutral family so the Connect-apps strip reads as a flush extension
-// of the card rather than a stark grey footer.
-const CHAT_PAGE_CONNECT_BAR_BG = '#F1EEE8';
+// Matches the Overview page's AI chat input background so the empty state
+// feels continuous with the rest of the app.
+const CHAT_PAGE_CARD_BG = '#F9F9F9';
+// Neutral strip just slightly darker than the card so the Connect-apps bar
+// reads as a flush extension rather than a stark grey footer.
+const CHAT_PAGE_CONNECT_BAR_BG = '#ebebea';
 const CHAT_PAGE_CONNECT_BAR_DISMISS_KEY = 'ritual:chat:apps-bar-dismissed';
 
-// Curated from the Integrations page. Same SVG assets, sized for a compact
-// row so the bar stays visually quiet next to the chat input.
-// Rendered height in px; width auto-computes from each SVG's intrinsic
-// aspect ratio so wordmarks (Whoop, Fitbit) stay readable without being
-// squished into a square box.
+// Curated from the Integrations page. Each logo renders inside a fixed
+// square box so they all share the same visual footprint regardless of the
+// SVG's intrinsic aspect ratio.
+const CONNECT_APPS_BAR_ICON_SIZE = 13;
 const CONNECT_APPS_BAR_ICONS: Array<{
   id: string;
   alt: string;
   src: string;
-  height: number;
 }> = [
-  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg', height: 16 },
-  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg', height: 16 },
-  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg', height: 16 },
-  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg', height: 16 },
-  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg', height: 16 },
-  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg', height: 16 },
+  { id: 'apple', alt: 'Apple', src: '/images/apple-logo.svg' },
+  { id: 'whoop', alt: 'Whoop', src: '/images/whoop.svg' },
+  { id: 'fitbit', alt: 'Fitbit', src: '/images/fitbit.svg' },
+  { id: 'google-calendar', alt: 'Google Calendar', src: '/images/Google_Calendar_Logo.svg' },
+  { id: 'plaid', alt: 'Plaid', src: '/images/plaid-mark.svg' },
+  { id: 'tesla', alt: 'Tesla', src: '/images/Tesla_T_symbol.svg' },
 ];
 
 interface ConnectAppsBarProps {
@@ -680,15 +679,19 @@ function ConnectAppsBar({ onOpenIntegrations, onDismiss }: ConnectAppsBarProps) 
         Connect your devices to get better answers
       </button>
       <div className="flex items-center gap-2.5">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           {CONNECT_APPS_BAR_ICONS.map((app) => (
-            <img
+            <span
               key={app.id}
-              src={app.src}
-              alt={app.alt}
-              className="object-contain opacity-85"
-              style={{ height: app.height, width: 'auto' }}
-            />
+              className="inline-flex shrink-0 items-center justify-center"
+              style={{ height: CONNECT_APPS_BAR_ICON_SIZE, width: CONNECT_APPS_BAR_ICON_SIZE }}
+            >
+              <img
+                src={app.src}
+                alt={app.alt}
+                className="h-full w-full object-contain opacity-85"
+              />
+            </span>
           ))}
         </div>
         <button
@@ -2354,7 +2357,7 @@ export function ChatClient() {
                     className="relative h-8 w-8 opacity-70 saturate-[0.8]"
                   />
                 </div>
-                <h1 className="text-[26px] font-medium text-gray-900 tracking-tight">
+                <h1 className="text-[26px] font-normal text-gray-900 tracking-tight">
                   Welcome to Ritual
                 </h1>
               </div>
