@@ -48,12 +48,16 @@ export type StreamSource = CompleteTextSource | RealTokenSource;
 export interface ChatStreamResponseOptions {
   /** Conversation ID to send to the client (null = omit). */
   conversationId: string | null;
+  /** Deferred conversation ID for paths that should not block response creation. */
+  conversationIdPromise?: Promise<string | null>;
   /** The text source — either complete text or a real-time token stream. */
   source: StreamSource;
   /** Canvas/visualization data sent after text (null = omit). */
   canvasToolPayload: Record<string, unknown> | null;
   /** Deferred canvas/visualization data for paths that hot-load text first. */
   canvasToolPayloadPromise?: Promise<Record<string, unknown> | null>;
+  /** Raw line emitted before text streaming starts to flush the response body immediately. */
+  prefaceLine?: string;
   /**
    * Called once the full text is available (after streaming completes).
    * Use for fire-and-forget persistence.
@@ -78,34 +82,48 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
 
   const stream = new ReadableStream({
     async start(controller) {
+      const enqueueLine = (line: string) => {
+        controller.enqueue(encoder.encode(`${line}\n`));
+      };
+
       // 1. Emit conversation ID
       if (options.conversationId) {
-        controller.enqueue(
-          encoder.encode(`__CONVERSATION_ID__${options.conversationId}__END_CONVERSATION_ID__\n`),
-        );
+        enqueueLine(`__CONVERSATION_ID__${options.conversationId}__END_CONVERSATION_ID__`);
       }
+
+      const deferredConversationIdPromise = !options.conversationId && options.conversationIdPromise
+        ? options.conversationIdPromise
+            .then((conversationId) => {
+              if (conversationId) {
+                enqueueLine(`__CONVERSATION_ID__${conversationId}__END_CONVERSATION_ID__`);
+              }
+              return conversationId;
+            })
+            .catch(() => null)
+        : Promise.resolve<string | null>(options.conversationId);
 
       // 2. Emit canvas tool data EARLY so the side panel appears immediately
       if (options.canvasToolPayload) {
-        controller.enqueue(
-          encoder.encode(`__TOOL_DATA__${JSON.stringify(options.canvasToolPayload)}__END_TOOL_DATA__\n`),
-        );
+        enqueueLine(`__TOOL_DATA__${JSON.stringify(options.canvasToolPayload)}__END_TOOL_DATA__`);
       }
 
       const deferredCanvasToolPayloadPromise = options.canvasToolPayloadPromise
         ? options.canvasToolPayloadPromise
             .then((payload) => {
               if (payload) {
-                controller.enqueue(
-                  encoder.encode(`__TOOL_DATA__${JSON.stringify(payload)}__END_TOOL_DATA__\n`),
-                );
+                enqueueLine(`__TOOL_DATA__${JSON.stringify(payload)}__END_TOOL_DATA__`);
               }
               return payload;
             })
             .catch(() => null)
         : Promise.resolve<Record<string, unknown> | null>(options.canvasToolPayload);
 
-      // 3. Stream text content
+      // 3. Optionally flush the response body before text is ready.
+      if (options.prefaceLine) {
+        enqueueLine(options.prefaceLine);
+      }
+
+      // 4. Stream text content
       let fullText: string;
 
       if (options.source.type === 'complete') {
@@ -123,13 +141,14 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
         fullText = '';
         for await (const token of options.source.tokens) {
           fullText += token;
-          controller.enqueue(encoder.encode(`0:${JSON.stringify(token)}\n`));
+          enqueueLine(`0:${JSON.stringify(token)}`);
         }
       }
 
       const finalCanvasToolPayload = await deferredCanvasToolPayloadPromise;
+      await deferredConversationIdPromise;
 
-      // 4. Notify caller with full text (for persistence)
+      // 5. Notify caller with full text (for persistence)
       if (options.onComplete) {
         options.onComplete(fullText, finalCanvasToolPayload);
       }

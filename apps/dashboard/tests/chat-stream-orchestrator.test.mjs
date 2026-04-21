@@ -517,8 +517,9 @@ describe("Query Classifiers", () => {
 // ---------------------------------------------------------------------------
 // 2. STREAM WIRE FORMAT TESTS
 //
-// The client (chat-client.tsx) parses exactly three prefixes.
-// If ANY of these formats change, the chat UI breaks silently.
+// The client (chat-client.tsx) parses the known prefixes below and must
+// ignore any unknown control lines used for transport-level flushing.
+// If the known formats change, the chat UI breaks silently.
 // ---------------------------------------------------------------------------
 
 describe("Stream Wire Format", () => {
@@ -598,6 +599,23 @@ describe("Stream Wire Format", () => {
     const match = line.match(/__TOOL_DATA__(.+?)__END_TOOL_DATA__/);
     assert.ok(match);
     assert.deepEqual(JSON.parse(match[1]), toolPayload);
+  });
+
+  test("unknown control lines can be ignored without affecting text reconstruction", () => {
+    const lines = [
+      "__STREAM_OPEN__\n",
+      `0:${JSON.stringify("Hello")}\n`,
+      `0:${JSON.stringify(" world")}\n`,
+    ];
+
+    let reconstructed = "";
+    for (const line of lines.join("").split("\n")) {
+      if (line.startsWith("0:")) {
+        reconstructed += JSON.parse(line.slice(2));
+      }
+    }
+
+    assert.equal(reconstructed, "Hello world");
   });
 
   test("full stream sequence: conversationId → text chunks → tool data", () => {
