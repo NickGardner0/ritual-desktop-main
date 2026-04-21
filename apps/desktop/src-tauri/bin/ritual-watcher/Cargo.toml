@@ -28,7 +28,7 @@ ritual-db = { path = "../../crates/ritual-db", default-features = false }
 
 # macOS specific
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.5"
+objc2 = { version = "0.5", features = ["exception"] }
 objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString", "NSRunLoop", "NSArray", "NSURL", "NSData", "NSNotification", "NSThread", "NSDictionary", "NSAppleEventDescriptor"] }
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace", "NSRunningApplication", "NSApplication", "NSImage", "NSBitmapImageRep", "NSGraphicsContext"] }
 core-foundation = "0.9"

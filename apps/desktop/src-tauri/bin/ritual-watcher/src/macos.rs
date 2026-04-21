@@ -1044,59 +1044,71 @@ pub fn get_active_window_info() -> Result<Option<ActiveWindowInfo>, String> {
 
 #[cfg(target_os = "macos")]
 fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
+    use objc2::exception;
     use objc2::rc::Retained;
     use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 
-    unsafe {
-        // Get the shared workspace
-        let workspace = NSWorkspace::sharedWorkspace();
+    let result = unsafe {
+        exception::catch(|| {
+            // Get the shared workspace
+            let workspace = NSWorkspace::sharedWorkspace();
 
-        // Get the frontmost application
-        let frontmost_app: Option<Retained<NSRunningApplication>> =
-            workspace.frontmostApplication();
+            // Get the frontmost application
+            let frontmost_app: Option<Retained<NSRunningApplication>> =
+                workspace.frontmostApplication();
 
-        let app = match frontmost_app {
-            Some(app) => app,
-            None => return Ok(None),
-        };
+            let app = match frontmost_app {
+                Some(app) => app,
+                None => return Ok(None),
+            };
 
-        // Get bundle identifier
-        let bundle_id: String = app
-            .bundleIdentifier()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+            // Get bundle identifier
+            let bundle_id: String = app
+                .bundleIdentifier()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
 
-        // Get application name
-        let app_name: String = app
-            .localizedName()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| "Unknown".to_string());
+            // Get application name
+            let app_name: String = app
+                .localizedName()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
 
-        // Get process ID using the raw method
-        // NSRunningApplication.processIdentifier returns pid_t (i32)
-        let pid: i32 = {
-            use objc2::msg_send;
-            msg_send![&app, processIdentifier]
-        };
+            // Get process ID using the raw method
+            // NSRunningApplication.processIdentifier returns pid_t (i32)
+            let pid: i32 = {
+                use objc2::msg_send;
+                msg_send![&app, processIdentifier]
+            };
 
-        let (cg_window_title, window_bounds) = get_frontmost_window_metadata(pid);
+            let (cg_window_title, window_bounds) = get_frontmost_window_metadata(pid);
 
-        // Default to the safer no-title path for the beta watcher. AX window-title
-        // capture can be re-enabled explicitly once the callback crash surface is
-        // isolated.
-        let window_title = if ax_window_title_capture_enabled_for_bundle(&bundle_id) {
-            get_window_title_ax(pid).or(cg_window_title)
-        } else {
-            cg_window_title
-        };
+            // Default to the safer no-title path for the beta watcher. AX window-title
+            // capture can be re-enabled explicitly once the callback crash surface is
+            // isolated.
+            let window_title = if ax_window_title_capture_enabled_for_bundle(&bundle_id) {
+                get_window_title_ax(pid).or(cg_window_title)
+            } else {
+                cg_window_title
+            };
 
-        Ok(Some(ActiveWindowInfo {
-            bundle_id,
-            app_name,
-            window_title,
-            pid: Some(pid),
-            bounds: window_bounds,
-        }))
+            Ok(Some(ActiveWindowInfo {
+                bundle_id,
+                app_name,
+                window_title,
+                pid: Some(pid),
+                bounds: window_bounds,
+            }))
+        })
+    };
+
+    match result {
+        Ok(value) => value,
+        Err(Some(exception)) => Err(format!(
+            "Objective-C exception during active window lookup: {:?}",
+            exception
+        )),
+        Err(None) => Err("Objective-C exception during active window lookup: <nil>".to_string()),
     }
 }
 
