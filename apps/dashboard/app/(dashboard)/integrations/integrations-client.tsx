@@ -1682,9 +1682,9 @@ export function IntegrationsClient() {
       case 'fitbit':
         return <Image src="/images/fitbit.svg" alt="Fitbit" width={60} height={24} className={imageClass} />;
       case 'imessage':
-        return <Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className={size === 'panel' ? 'h-8 w-8' : 'h-7 w-7'} />;
+        return <Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className={size === 'panel' ? 'h-9 w-9 rounded-[8px]' : 'h-9 w-9 rounded-[8px]'} />;
       case 'raycast':
-        return <Image src="/images/raycast.svg" alt="Raycast" width={95} height={25} className={size === 'panel' ? 'h-8 w-auto object-contain' : 'h-7 w-auto object-contain'} />;
+        return <Image src="/images/raycast.png" alt="Raycast" width={36} height={36} className={size === 'panel' ? 'h-9 w-9 rounded-lg object-contain' : 'h-9 w-9 rounded-lg object-contain'} />;
       case 'obsidian':
         return <Image src="/images/obsidian.svg" alt="Obsidian" width={24} height={24} className={size === 'panel' ? 'h-8 w-8' : 'h-7 w-7'} />;
       case 'calai':
@@ -3674,7 +3674,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className="h-7 w-7" />}
+          logo={<Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className="h-9 w-9 rounded-[8px]" />}
           title="iMessage"
           description="Capture conversations and message activity from iMessage on your Apple devices."
           comingSoon
@@ -3682,7 +3682,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/raycast.svg" alt="Raycast" width={95} height={25} className="h-7 w-auto object-contain" />}
+          logo={<Image src="/images/raycast.png" alt="Raycast" width={36} height={36} className="h-9 w-9 rounded-lg object-contain" />}
           title="Raycast"
           description="Track commands, quicklinks, and workflow activity launched from Raycast."
           comingSoon
