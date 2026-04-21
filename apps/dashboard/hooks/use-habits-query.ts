@@ -256,14 +256,18 @@ export function useHabitLogsQuery() {
     () => shouldForceFreshRead(user?.id),
     [user?.id],
   );
-  const fallbackSnapshot = useMemo(() => {
+  const inMemorySnapshot = useMemo(() => {
     if (!user?.id) return null;
 
-    return (
-      getSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.list(user.id))
-      || readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user.id)
-    );
+    return getSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.list(user.id));
   }, [queryClient, user?.id]);
+  const persistedSnapshot = useMemo(() => {
+    if (!user?.id || inMemorySnapshot) return null;
+
+    return readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user.id);
+  }, [inMemorySnapshot, user?.id]);
+  const fallbackSnapshot = inMemorySnapshot || persistedSnapshot;
+  const bootstrappedFromPersistedSnapshot = !inMemorySnapshot && Boolean(persistedSnapshot);
 
   return useQuery({
     queryKey: habitLogKeys.list(user?.id || 'anonymous'),
@@ -311,6 +315,7 @@ export function useHabitLogsQuery() {
     // polling/refetch-on-focus.
     staleTime: QUERY_POLICY.optimisticEntity.staleTime,
     gcTime: QUERY_POLICY.optimisticEntity.gcTime,
+    refetchOnMount: bootstrappedFromPersistedSnapshot ? 'always' : false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,

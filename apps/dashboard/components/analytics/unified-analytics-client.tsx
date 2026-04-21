@@ -38,6 +38,7 @@ const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
 const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
 const COMPUTER_SYNC_STARTUP_DELAY_MS = 4_000;
 const ENABLE_STARTUP_COMPUTER_SYNC = false;
+const DATE_FILTERED_LOG_REFRESH_THROTTLE_MS = 20_000;
 
 // Dynamic imports with ssr:false — Turbopack skips these modules during
 // server-side compilation, cutting the initial /dashboard compile from ~70s.
@@ -120,6 +121,8 @@ function UnifiedAnalyticsContent({
   const { snapshot: dashboardSnapshot } = useDashboardSnapshotQuery({ initialUserId, dateRange });
   const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const firstViewReadyLoggedRef = useRef(false);
+  const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
+  const lastDateFilteredLogRefreshAtRef = useRef(0);
 
   // Keep "Computer Use" habit in sync after initial paint so startup is not
   // blocked by a write + read-after-write cycle.
@@ -185,6 +188,63 @@ function UnifiedAnalyticsContent({
       }
     };
   }, [queryClient, user?.id, userLoaded, isSignedIn]);
+
+  useEffect(() => {
+    const rangeKey = dateRange?.from
+      ? `${dateRange.from.toISOString()}:${(dateRange.to ?? dateRange.from).toISOString()}`
+      : null;
+
+    if (!user?.id || !rangeKey) {
+      lastDateFilteredLogRefreshKeyRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshDateFilteredLogs = async (reason: 'range-change' | 'window-focus') => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+
+      const now = Date.now();
+      const sameRange = lastDateFilteredLogRefreshKeyRef.current === rangeKey;
+      const withinThrottle = now - lastDateFilteredLogRefreshAtRef.current < DATE_FILTERED_LOG_REFRESH_THROTTLE_MS;
+
+      if (reason !== 'range-change' && sameRange && withinThrottle) {
+        return;
+      }
+
+      lastDateFilteredLogRefreshKeyRef.current = rangeKey;
+      lastDateFilteredLogRefreshAtRef.current = now;
+      markReadConsistencyRequired(user.id);
+      await fetchHabitLogs();
+    };
+
+    void refreshDateFilteredLogs('range-change');
+
+    const handleVisibilityRefresh = () => {
+      void refreshDateFilteredLogs('window-focus');
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityRefresh);
+    }
+    window.addEventListener('focus', handleVisibilityRefresh);
+
+    return () => {
+      cancelled = true;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityRefresh);
+      }
+      window.removeEventListener('focus', handleVisibilityRefresh);
+    };
+  }, [
+    dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
+    fetchHabitLogs,
+    user?.id,
+  ]);
 
   // Auto-select all habits when habits load and none selected
   useEffect(() => {
