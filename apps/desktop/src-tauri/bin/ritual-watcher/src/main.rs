@@ -1575,7 +1575,7 @@ fn run_watcher_loop(
     let mut last_commit_time = now_ms();
     let mut last_poll_time = now_ms();
     let mut was_afk = false; // Track AFK state for boundary detection
-    let mut last_notified_bundle: Option<String> = None; // Track last notification to avoid duplicates
+    let mut last_notification_event_ms: Option<u64> = None; // Debounce noisy app-switch notifications
     let mut loop_iteration: u64 = 0; // Track loop iterations for diagnostics
     let mut last_status_log = now_ms(); // Periodic status logging
     let mut last_main_session_end_update_ms: u64 = 0;
@@ -1845,16 +1845,15 @@ fn run_watcher_loop(
                 // Drain all pending notifications
                 let events = listener.drain();
                 for event in events {
-                    // Only process if this is a different app than we last saw via notification
-                    // This prevents duplicate processing when both notification and poll fire
-                    if last_notified_bundle.as_ref() != Some(&event.bundle_id) {
-                        debug!(
-                            "🔔 Processing notification: {} at {}ms",
-                            event.app_name, event.timestamp_ms
-                        );
-                        last_notified_bundle = Some(event.bundle_id.clone());
-                        triggered = true;
+                    let should_process = last_notification_event_ms
+                        .map(|previous| event.timestamp_ms.saturating_sub(previous) >= 300)
+                        .unwrap_or(true);
+                    if !should_process {
+                        continue;
                     }
+                    debug!("🔔 Processing app-switch notification at {}ms", event.timestamp_ms);
+                    last_notification_event_ms = Some(event.timestamp_ms);
+                    triggered = true;
                 }
             }
             triggered
@@ -1915,7 +1914,7 @@ fn run_watcher_loop(
                             // Reset AFK state after wake
                             afk_watcher = AfkWatcher::new(config.afk_timeout_seconds);
                             was_afk = false;
-                            last_notified_bundle = None;
+                            last_notification_event_ms = None;
                         }
                     }
                 }
@@ -2013,7 +2012,7 @@ fn run_watcher_loop(
             // Reset AFK state after wake
             afk_watcher = AfkWatcher::new(config.afk_timeout_seconds);
             was_afk = false;
-            last_notified_bundle = None;
+            last_notification_event_ms = None;
         }
         last_poll_time = now;
 

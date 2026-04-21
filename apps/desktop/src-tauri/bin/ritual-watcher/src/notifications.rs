@@ -21,8 +21,6 @@ use tracing::{debug, info};
 /// Event sent when an app switch is detected
 #[derive(Debug, Clone)]
 pub struct AppSwitchEvent {
-    pub bundle_id: String,
-    pub app_name: String,
     pub timestamp_ms: u64,
 }
 
@@ -74,30 +72,14 @@ declare_class!(
 
     unsafe impl AppSwitchObserver {
         #[method(handleAppActivation:)]
-        fn handle_app_activation(&self, notification: &NSNotification) {
-            // Get the activated application from the notification
-            unsafe {
-                let workspace = NSWorkspace::sharedWorkspace();
-                if let Some(app) = workspace.frontmostApplication() {
-                    let bundle_id = app
-                        .bundleIdentifier()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
-
-                    let app_name = app
-                        .localizedName()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "Unknown".to_string());
-
-                    debug!("🔔 App switch detected: {} ({})", app_name, bundle_id);
-
-                    send_app_switch_event(AppSwitchEvent {
-                        bundle_id,
-                        app_name,
-                        timestamp_ms: now_ms(),
-                    });
-                }
-            }
+        fn handle_app_activation(&self, _notification: &NSNotification) {
+            // Keep the Objective-C callback as small as possible. We only emit a
+            // timestamped signal here and let the polling loop resolve the
+            // frontmost app on the next tick.
+            debug!("🔔 App switch notification received");
+            send_app_switch_event(AppSwitchEvent {
+                timestamp_ms: now_ms(),
+            });
         }
     }
 );
