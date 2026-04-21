@@ -12,14 +12,13 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-import hmac
 import httpx
 
 from fastapi import APIRouter, HTTPException, Request
 
 from models.habit_models import HabitLogCreate
 from services.habits_service import HabitsService
-from services.sendblue_service import send_message
+from services.sms_provider import SmsSendResult, get_sms_provider
 from services.user_service import UserService
 from services.conversation_service import conversation_service
 
@@ -32,6 +31,22 @@ DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "https://desktop.ritualdb.c
 INTERNAL_SMS_CHAT_SECRET = os.getenv("INTERNAL_SMS_CHAT_SECRET", "")
 INTERNAL_BACKEND_TOKEN = os.getenv("INTERNAL_BACKEND_TOKEN", "")
 ORCHESTRATOR_TIMEOUT = 15.0  # seconds
+
+
+async def _send_sms(
+    to: str,
+    text: str,
+    media_url: Optional[str] = None,
+) -> bool:
+    """Send an outbound SMS via the active provider. Returns True on success.
+
+    Thin wrapper so the rest of this module doesn't have to care whether
+    the active provider is Sendblue or Linq.
+    """
+    result: SmsSendResult = await get_sms_provider().send_message(
+        to, text, media_url=media_url,
+    )
+    return result.ok
 
 
 _UNIT_SUFFIXES = re.compile(
@@ -191,11 +206,15 @@ async def sendblue_webhook(request: Request):
         ...
     }
     """
-    # Verify webhook secret
+    # Verify webhook signature via the active SMS provider. Route through the
+    # provider so swapping Sendblue ↔ Linq flips both outbound send and
+    # inbound verification in one place.
     if SENDBLUE_WEBHOOK_SECRET:
-        incoming_secret = request.headers.get("x-webhook-secret", "")
-        if not hmac.compare_digest(incoming_secret, SENDBLUE_WEBHOOK_SECRET):
-            logger.warning("Sendblue webhook secret verification failed")
+        raw_body = await request.body()
+        if not get_sms_provider().verify_inbound_signature(
+            dict(request.headers), raw_body, SENDBLUE_WEBHOOK_SECRET,
+        ):
+            logger.warning("SMS webhook signature verification failed")
             raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
     payload = await request.json()
@@ -238,7 +257,7 @@ async def sendblue_webhook(request: Request):
 
     if not user:
         logger.warning("No Ritual user found for phone: %s", sender_phone)
-        await send_message(
+        await _send_sms(
             sender_phone,
             "This phone number isn't linked to a Ritual account. "
             "Add your phone number in Ritual to start logging habits via text."
@@ -284,8 +303,8 @@ async def sendblue_webhook(request: Request):
             tool_payload={"tool_calls_made": result.get("tool_calls_made", [])},
         )
 
-        # Send via SendBlue
-        await send_message(sender_phone, reply_text)
+        # Send via the active SMS provider (SendBlue today, see sms_provider.py)
+        await _send_sms(sender_phone, reply_text)
 
         logger.info(
             "SMS chat reply sent to %s (tools: %s)",
@@ -400,7 +419,7 @@ async def _legacy_fuzzy_logging_fallback(
             f"- Or send a screenshot of your workout/health app\n\n"
             f"Your habits: {habit_names}"
         )
-        await send_message(sender_phone, reply)
+        await _send_sms(sender_phone, reply)
 
         # Persist the fallback reply
         await conversation_service.add_internal_message(
@@ -544,7 +563,7 @@ async def _log_and_confirm(
             unit = match.get("unit_type") or ""
             amount_str = f" ({match['amount']}{' ' + unit if unit else ''})"
 
-        await send_message(
+        await _send_sms(
             sender_phone,
             f"Logged {match['habit_name']}{amount_str}"
         )
@@ -558,5 +577,5 @@ async def _log_and_confirm(
         }
     except Exception as e:
         logger.error("Failed to log habit via Sendblue: %s", e)
-        await send_message(sender_phone, "Something went wrong logging that. Try again?")
+        await _send_sms(sender_phone, "Something went wrong logging that. Try again?")
         return {"status": "ok", "error": str(e), "logged": False}
