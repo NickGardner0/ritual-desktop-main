@@ -118,39 +118,19 @@ async def _send_reply_segments(
 ) -> int:
     """Send each segment via the active provider with jittered delays.
 
-    Persists each segment as its own AIMessageDB row with delivery_status
-    set per send outcome. Halts the loop on the first failure (remaining
-    segments are persisted with status='failed' so future orchestrator
-    context can filter them out, but we do NOT attempt to send them).
+    Persists each successfully-sent segment as its own AIMessageDB row.
+    Halts on first send failure (remaining segments are NOT sent and NOT
+    persisted, because we never want the bot to reference a message the
+    user didn't see).
+
+    Persistence failures are caught and logged but do NOT abort the send
+    loop — the user's reply is the priority; the DB row is bookkeeping.
 
     Returns the number of segments successfully delivered.
     """
     sent_count = 0
-    halted = False
 
     for index, segment in enumerate(segments):
-        # Persist BEFORE send so a crash between send and persist doesn't
-        # lose the record. Start as 'pending' and update once the provider
-        # result is known.
-        message_row = await conversation_service.add_internal_message(
-            conversation_id=conversation_id,
-            role="assistant",
-            content=segment,
-            tool_payload={
-                **tool_payload_base,
-                "segment_index": index,
-                "segment_total": len(segments),
-            },
-            delivery_status="pending",
-        )
-
-        if halted:
-            # Mark remaining as failed without attempting to send.
-            await _mark_message_delivery_status(
-                message_row.get("id"), "failed",
-            )
-            continue
-
         # Jittered delay before every segment except the first.
         if index > 0:
             await asyncio.sleep(
@@ -158,51 +138,41 @@ async def _send_reply_segments(
             )
 
         ok = await _send_sms(to_number, segment)
-        await _mark_message_delivery_status(
-            message_row.get("id"),
-            "sent" if ok else "failed",
-        )
 
+        # Persist AFTER send so we never have DB rows for unsent segments.
+        # Catch persistence errors separately so a schema hiccup can't
+        # cause the webhook to fall through to the legacy fuzzy parser.
         if ok:
+            try:
+                await conversation_service.add_internal_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=segment,
+                    tool_payload={
+                        **tool_payload_base,
+                        "segment_index": index,
+                        "segment_total": len(segments),
+                    },
+                )
+            except Exception as persist_exc:
+                logger.error(
+                    "Failed to persist SMS segment %d/%d (reply already sent to user): %s",
+                    index + 1,
+                    len(segments),
+                    persist_exc,
+                )
             sent_count += 1
         else:
             logger.error(
-                "SMS segment %d/%d failed for %s — halting remaining segments",
+                "SMS segment %d/%d failed for %s — halting remaining %d segments",
                 index + 1,
                 len(segments),
                 to_number,
+                len(segments) - index - 1,
             )
-            halted = True
+            break
 
     return sent_count
-
-
-async def _mark_message_delivery_status(
-    message_id: Optional[str],
-    status: str,
-) -> None:
-    """Update a single AIMessageDB row's delivery_status field."""
-    if not message_id:
-        return
-    try:
-        from sqlalchemy import update
-        from database.connection import get_db_session
-        from database.models import AIMessageDB
-
-        async with get_db_session() as session:
-            await session.execute(
-                update(AIMessageDB)
-                .where(AIMessageDB.id == message_id)
-                .values(delivery_status=status),
-            )
-            await session.commit()
-    except Exception as exc:
-        logger.warning(
-            "Failed to update delivery_status=%s for message %s: %s",
-            status,
-            message_id,
-            exc,
-        )
 
 
 _UNIT_SUFFIXES = re.compile(
@@ -240,6 +210,64 @@ for _stem, _variants in _WORD_STEMS.items():
         _VARIANT_TO_STEMS.setdefault(_v, []).append(_stem)
     # Also map the stem to itself
     _VARIANT_TO_STEMS.setdefault(_stem, []).append(_stem)
+
+
+# Interrogative openers that reliably mark a READ-intent message. If any of
+# these leads the inbound text (or the text contains a "?"), the fuzzy
+# fallback refuses to log — the AI path handles questions; the fuzzy path
+# only handles confident writes. Defense in depth against silently logging
+# things like "how was my sleep last night?" as Sleep Duration habits.
+_READ_INTENT_LEADS: tuple[str, ...] = (
+    "how was",
+    "how is",
+    "how's",
+    "how are",
+    "how did",
+    "how much",
+    "how many",
+    "how often",
+    "how am",
+    "what did",
+    "what's",
+    "what was",
+    "what is",
+    "what are",
+    "what's my",
+    "show me",
+    "tell me",
+    "give me",
+    "summarize",
+    "summary",
+    "recap",
+    "did i",
+    "have i",
+    "was i",
+    "am i on track",
+    "am i",
+    "when did",
+    "when was",
+    "where did",
+    "why did",
+    "why was",
+    "why am",
+)
+
+
+def _looks_like_read_intent(text: str) -> bool:
+    """Heuristic: does this look like a question, not a habit report?
+
+    Returns True if the text contains a "?" or starts with any of the
+    interrogative leads in _READ_INTENT_LEADS. Kept deliberately
+    conservative — false positives here just mean we ask the user to
+    retry (not ideal but recoverable), while false negatives (letting
+    a read through) silently corrupt habit data.
+    """
+    if not text:
+        return False
+    if "?" in text:
+        return True
+    lowered = text.strip().lower()
+    return any(lowered.startswith(lead) for lead in _READ_INTENT_LEADS)
 
 
 def _normalize_words(text: str) -> list[str]:
@@ -558,7 +586,39 @@ async def _legacy_fuzzy_logging_fallback(
     Safety-net fallback: use the existing fuzzy text parser when the
     orchestrator is unavailable. Keeps habit logging functional even
     if the AI chat path is down.
+
+    SAFETY RULE (defense in depth — see commit f721c40 and the SMS
+    interactive transformation plan): This fallback only handles
+    confident WRITE-intent messages. If the text looks like a READ
+    (contains a question mark or leads with an interrogative), we
+    refuse to log and tell the user the AI path is unavailable. A
+    missed log is recoverable; a wrong log corrupts history.
     """
+    if message_text and not media_url and _looks_like_read_intent(message_text):
+        logger.warning(
+            "Fuzzy fallback refusing READ-intent query for user %s: %s",
+            user.id,
+            message_text[:80],
+        )
+        reply = (
+            "I can't answer that right now — the AI path is unavailable. "
+            "Try again in a minute, or text me a log like \"30mg caffeine\"."
+        )
+        await _send_sms(sender_phone, reply)
+        try:
+            await conversation_service.add_internal_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=reply,
+            )
+        except Exception:
+            logger.exception("Failed to persist fallback-refusal reply")
+        return {
+            "status": "ok",
+            "user_id": user.id,
+            "path": "fallback_refused_read",
+        }
+
     habits_service = HabitsService()
     habits = await habits_service.get_habits(user.id)
 

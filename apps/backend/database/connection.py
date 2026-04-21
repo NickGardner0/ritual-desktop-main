@@ -393,9 +393,6 @@ async def _run_migrations(session):
         # SMS chatbot: channel column on conversations + user timezone
         ("ai_conversations", "channel", "ALTER TABLE ai_conversations ADD COLUMN channel TEXT NOT NULL DEFAULT 'app'"),
         ("users", "timezone", "ALTER TABLE users ADD COLUMN timezone TEXT"),
-        # SMS multi-message delivery tracking (Phase 1 T1.3) — per-row status
-        # for multi-segment replies. NULL = pre-migration row, treat as 'sent'.
-        ("ai_messages", "delivery_status", "ALTER TABLE ai_messages ADD COLUMN delivery_status TEXT"),
     ]
     
     for table, column, sql in migrations:
