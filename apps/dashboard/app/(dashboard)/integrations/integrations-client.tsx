@@ -41,7 +41,7 @@ import { cn } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const INTEGRATIONS_GREEN_SWITCH_CLASS =
-  'data-[state=checked]:bg-[#4e632d] data-[state=unchecked]:bg-gray-200 focus-visible:ring-[#4e632d]';
+  'data-[state=checked]:bg-[#239e37] data-[state=unchecked]:bg-gray-200 focus-visible:ring-[#239e37]';
 
 declare global {
   interface Window {
@@ -538,7 +538,7 @@ const IntegrationCard = memo(({
         <>
           <button
             onClick={onDisconnect}
-            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-[#4e632d] transition-colors focus:outline-none focus:ring-2 focus:ring-[#4e632d] focus:ring-offset-2"
+            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-[#239e37] transition-colors focus:outline-none focus:ring-2 focus:ring-[#239e37] focus:ring-offset-2"
             role="switch"
             aria-checked="true"
           >
@@ -1682,7 +1682,7 @@ export function IntegrationsClient() {
       case 'fitbit':
         return <Image src="/images/fitbit.svg" alt="Fitbit" width={60} height={24} className={imageClass} />;
       case 'imessage':
-        return <Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className={size === 'panel' ? 'h-9 w-9 rounded-[8px]' : 'h-9 w-9 rounded-[8px]'} />;
+        return <Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className={size === 'panel' ? 'h-8 w-8 rounded-[8px]' : 'h-8 w-8 rounded-[8px]'} />;
       case 'raycast':
         return <Image src="/images/raycast.png" alt="Raycast" width={36} height={36} className={size === 'panel' ? 'h-9 w-9 rounded-lg object-contain' : 'h-9 w-9 rounded-lg object-contain'} />;
       case 'obsidian':
@@ -3674,9 +3674,10 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className="h-9 w-9 rounded-[8px]" />}
+          logo={<Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className="h-8 w-8 rounded-[8px]" />}
           title="iMessage"
-          description="Capture conversations and message activity from iMessage on your Apple devices."
+          description="Use Ritual’s SMS companion for ambient behavioral support, quick logging, and lightweight daily check-ins."
+          descriptionLineClamp={3}
           comingSoon
           onDetails={() => openIntegrationDetails('imessage')}
         />
@@ -3684,7 +3685,8 @@ export function IntegrationsClient() {
         <IntegrationCard
           logo={<Image src="/images/raycast.png" alt="Raycast" width={36} height={36} className="h-9 w-9 rounded-lg object-contain" />}
           title="Raycast"
-          description="Track commands, quicklinks, and workflow activity launched from Raycast."
+          description="Use the Ritual Raycast extension for quick time tracking, logging, and search."
+          descriptionLineClamp={3}
           comingSoon
           onDetails={() => openIntegrationDetails('raycast')}
         />
@@ -3692,7 +3694,8 @@ export function IntegrationsClient() {
         <IntegrationCard
           logo={<Image src="/images/obsidian.svg" alt="Obsidian" width={24} height={24} className="h-7 w-7" />}
           title="Obsidian"
-          description="Connect your Obsidian vault to capture notes, journals, and knowledge work."
+          description="Connect to your Obsidian vault to export your behavioral data into markdown files."
+          descriptionLineClamp={3}
           comingSoon
           onDetails={() => openIntegrationDetails('obsidian')}
         />
