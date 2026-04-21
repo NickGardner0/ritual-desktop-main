@@ -420,11 +420,16 @@ class ConversationService:
         role: str,
         content: str,
         tool_payload: Optional[Dict[str, Any]] = None,
+        delivery_status: Optional[str] = "sent",
     ) -> Dict[str, Any]:
         """
         Add a message without user_id ownership check.
         Used by internal services (SMS webhook, proactive scheduler) where
         the caller has already verified identity.
+
+        delivery_status: 'sent' (default) | 'failed' | 'pending'. Used for
+        multi-segment SMS replies so future orchestrator context can filter
+        out segments the user never saw.
         """
         async with get_db_session() as session:
             message = AIMessageDB(
@@ -433,6 +438,7 @@ class ConversationService:
                 role=role,
                 content=content,
                 tool_payload=json.dumps(tool_payload) if tool_payload else None,
+                delivery_status=delivery_status,
                 created_at=datetime.utcnow(),
             )
             session.add(message)

@@ -621,14 +621,20 @@ class AIConversationDB(Base):
 class AIMessageDB(Base):
     """AI Chat message model for database"""
     __tablename__ = "ai_messages"
-    
+
     id = Column(String, primary_key=True)
     conversation_id = Column(String, ForeignKey("ai_conversations.id"), nullable=False)
     role = Column(String, nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
     tool_payload = Column(Text, nullable=True)  # JSON string of tool results for canvas rehydration
+    # Per-segment delivery status for multi-message SMS replies. 'sent' for
+    # successful sends (and inbound user messages, which are trivially "sent"
+    # from the user), 'failed' for outbound that the provider rejected,
+    # 'pending' for in-flight. NULL for rows predating this column — treated
+    # as 'sent' on read to preserve backwards compatibility.
+    delivery_status = Column(String, nullable=True, default="sent")
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     conversation = relationship("AIConversationDB", back_populates="messages")
 

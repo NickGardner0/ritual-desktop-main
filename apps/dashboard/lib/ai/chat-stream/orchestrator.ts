@@ -45,7 +45,6 @@ import type { WeeklyOverviewPayload } from './narrative';
 import {
   classifyRetrievalRoute,
   isComprehensiveWeeklyRecapQuery,
-  isHotLoadWeeklyDemoQuery,
   isDailyOverviewQuery,
   isMonthlyOverviewQuery,
   isExplicitLastWeekQuery,
@@ -55,7 +54,7 @@ import {
   getOverviewTitleFromQuery,
   chooseScreenSearchQuery,
 } from './query-classifier';
-import { buildSystemPrompt } from './system-prompt';
+import { buildSystemPrompt, isSmsV2PromptActive } from './system-prompt';
 
 // Stream response & types
 import { createChatStreamResponse } from './stream-response';
@@ -65,6 +64,7 @@ import type {
   BiometricsResult,
   CalendarEventsResult,
   ChatToolResults,
+  OverviewResult,
   ScreenRecordingResult,
   ScreenSearchContext,
 } from './types';
@@ -187,17 +187,15 @@ function safeJsonParse<T>(raw: string): T | null {
   }
 }
 
-async function* streamHotLoadWeeklyOverviewNarrative(
+async function* streamDeferredOverviewNarrative(
   payloadPromise: Promise<{
     payload: WeeklyOverviewPayload | null;
     title: string;
   }>,
 ): AsyncGenerator<string> {
-  yield "Pulling the main patterns from your week together...\n\n";
-
   const { payload, title } = await payloadPromise;
   if (!payload?.success) {
-    yield 'I was unable to retrieve your weekly data. Please try again.';
+    yield 'I was unable to retrieve your data. Please try again.';
     return;
   }
 
@@ -674,6 +672,10 @@ export async function handleChatStreamPost(req: NextRequest) {
     const conversationIdPromise: Promise<string | null> = providedConversationId
       ? Promise.resolve(providedConversationId)
       : createConversation(token);
+    const immediateConversationId = providedConversationId || null;
+    const deferredConversationIdPromise = providedConversationId
+      ? undefined
+      : conversationIdPromise;
 
     // Determine if we're in voice mode
     const isVoiceMode = responseMode === 'voice';
@@ -740,85 +742,103 @@ export async function handleChatStreamPost(req: NextRequest) {
       !isVoiceMode &&
       forcedToolName &&
       ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview', 'getActivitySummary'].includes(forcedToolName);
-    const hotLoadWeeklyDemo =
+    const deferredOverviewFastPath =
       !isVoiceMode &&
-      forcedToolName === 'getWeeklyOverview' &&
-      isHotLoadWeeklyDemoQuery(latestUserContent);
+      forcedToolName &&
+      ['getWeeklyOverview', 'getDailyOverview', 'getMonthlyOverview'].includes(forcedToolName);
 
     if (deterministicFastPath) {
       console.log(`⚡ [${elapsed(t0)}] Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
 
       const toolResults: ChatToolResults = { allStats: [], allBreakdowns: [] };
 
-      if (hotLoadWeeklyDemo) {
-        console.log(`⚡ [${elapsed(t0)}] Hot-loading weekly demo query`);
+      if (deferredOverviewFastPath) {
+        console.log(`⚡ [${elapsed(t0)}] Deferred overview streaming for ${forcedToolName}`);
 
-        const weeklyOverviewResultPromise = (async () => {
+        const title = getOverviewTitleFromQuery(
+          forcedToolName,
+          latestUserContent,
+          undefined,
+          timezone,
+        );
+
+        const overviewResultPromise = (async () => {
           try {
-            const toolResultJson = await executeGetWeeklyOverview(
-              token,
-              {
-                daysBack: weeklyOverviewQueryParams.daysBack,
-                startDate: weeklyOverviewQueryParams.startDate,
-                endDate: weeklyOverviewQueryParams.endDate,
-              },
-              timezone,
-              strictThisWeekForWeeklyOverview,
-              localOverviewActivity,
-            );
+            let toolResultJson: string;
 
-            const parsed = JSON.parse(toolResultJson);
-            if (parsed.success) {
-              toolResults.weeklyOverview = parsed;
+            switch (forcedToolName) {
+              case 'getWeeklyOverview':
+                toolResultJson = await executeGetWeeklyOverview(
+                  token,
+                  {
+                    daysBack: weeklyOverviewQueryParams.daysBack,
+                    startDate: weeklyOverviewQueryParams.startDate,
+                    endDate: weeklyOverviewQueryParams.endDate,
+                  },
+                  timezone,
+                  strictThisWeekForWeeklyOverview,
+                  localOverviewActivity,
+                );
+                break;
+              case 'getDailyOverview':
+                toolResultJson = await executeGetDailyOverview(token, {}, timezone, localOverviewActivity);
+                break;
+              case 'getMonthlyOverview':
+                toolResultJson = await executeGetMonthlyOverview(token, {}, timezone, localOverviewActivity);
+                break;
+              default:
+                toolResultJson = JSON.stringify({ success: false, error: 'Unknown overview tool' });
+                break;
+            }
+
+            const parsed = safeJsonParse<OverviewResult>(toolResultJson);
+            if (parsed?.success) {
+              if (forcedToolName === 'getWeeklyOverview') toolResults.weeklyOverview = parsed;
+              else if (forcedToolName === 'getDailyOverview') toolResults.dailyOverview = parsed;
+              else toolResults.monthlyOverview = parsed;
               if (parsed.suggested_followups) {
                 toolResults.suggested_followups = parsed.suggested_followups;
               }
             }
 
-            const title = getOverviewTitleFromQuery(
-              forcedToolName,
-              latestUserContent,
-              toolResults.activitySummary || toolResults.contextMemoryRecap,
-              timezone,
-            );
-
             return {
-              payload: parsed.success ? (parsed as WeeklyOverviewPayload) : null,
+              payload: parsed?.success ? (parsed as WeeklyOverviewPayload) : null,
               title,
               canvasToolPayload: buildCanvasToolPayload(toolResults),
             };
           } catch (error) {
-            console.error('❌ Hot-load weekly overview failed:', error);
+            console.error('❌ Deferred overview tool failed:', error);
             return {
               payload: null,
-              title: 'Weekly Activity Overview',
+              title,
               canvasToolPayload: null,
             };
           }
         })();
 
-        const conversationId = await conversationIdPromise;
-        console.log(`⏱️ [${elapsed(t0)}] Conversation ID resolved: ${conversationId ? 'yes' : 'none'}`);
-        console.log(`⏱️ [${elapsed(t0)}] Hot-load weekly response created`);
+        console.log(`⏱️ [${elapsed(t0)}] Deferred overview response created`);
 
         return createChatStreamResponse({
-          conversationId,
+          conversationId: immediateConversationId,
+          conversationIdPromise: deferredConversationIdPromise,
           source: {
             type: 'stream',
-            tokens: streamHotLoadWeeklyOverviewNarrative(
-              weeklyOverviewResultPromise.then(({ payload, title }) => ({ payload, title })),
+            tokens: streamDeferredOverviewNarrative(
+              overviewResultPromise.then(({ payload, title }) => ({ payload, title })),
             ),
           },
           canvasToolPayload: null,
-          canvasToolPayloadPromise: weeklyOverviewResultPromise.then(({ canvasToolPayload }) => canvasToolPayload),
-          onComplete: conversationId
-            ? (fullText, finalCanvasToolPayload) => {
-                console.log(`⏱️ [${elapsed(t0)}] Hot-load weekly stream complete (${fullText.length} chars)`);
-                saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload).catch(err => {
-                  console.error('❌ Failed to save assistant message:', err);
-                });
-              }
-            : undefined,
+          canvasToolPayloadPromise: overviewResultPromise.then(({ canvasToolPayload }) => canvasToolPayload),
+          prefaceLine: '__STREAM_OPEN__',
+          onComplete: (fullText, finalCanvasToolPayload) => {
+            conversationIdPromise.then((conversationId) => {
+              if (!conversationId) return;
+              console.log(`⏱️ [${elapsed(t0)}] Deferred overview stream complete (${fullText.length} chars)`);
+              saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload).catch(err => {
+                console.error('❌ Failed to save assistant message:', err);
+              });
+            });
+          },
         });
       }
 
@@ -939,27 +959,31 @@ export async function handleChatStreamPost(req: NextRequest) {
         };
       }
 
-      // Resolve conversation ID (should be ready by now — was created in parallel with tool execution)
-      const conversationId = await conversationIdPromise;
-      console.log(`⏱️ [${elapsed(t0)}] Conversation ID resolved: ${conversationId ? 'yes' : 'none'}`);
-
       // For pre-built text, save immediately; for real streams, save after completion
-      if (streamSource.type === 'complete' && conversationId) {
-        saveMessage(token, conversationId, 'assistant', streamSource.text, canvasToolPayload).catch(err => {
-          console.error('❌ Failed to save assistant message:', err);
+      if (streamSource.type === 'complete') {
+        conversationIdPromise.then((conversationId) => {
+          if (!conversationId) return;
+          saveMessage(token, conversationId, 'assistant', streamSource.text, canvasToolPayload).catch(err => {
+            console.error('❌ Failed to save assistant message:', err);
+          });
         });
       }
 
       console.log(`⏱️ [${elapsed(t0)}] Fast-path streaming response created`);
       return createChatStreamResponse({
-        conversationId,
+        conversationId: immediateConversationId,
+        conversationIdPromise: deferredConversationIdPromise,
         source: streamSource,
         canvasToolPayload,
-        onComplete: streamSource.type === 'stream' && conversationId
+        prefaceLine: streamSource.type === 'stream' ? '__STREAM_OPEN__' : undefined,
+        onComplete: streamSource.type === 'stream'
           ? (fullText, finalCanvasToolPayload) => {
-              console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
-              saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload ?? canvasToolPayload).catch(err => {
-                console.error('❌ Failed to save assistant message:', err);
+              conversationIdPromise.then((conversationId) => {
+                if (!conversationId) return;
+                console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
+                saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload ?? canvasToolPayload).catch(err => {
+                  console.error('❌ Failed to save assistant message:', err);
+                });
               });
             }
           : undefined,
@@ -1239,27 +1263,31 @@ export async function handleChatStreamPost(req: NextRequest) {
     console.log(`⏱️ [${elapsed(t0)}] Canvas payload built | keys: ${Object.keys(canvasToolPayload || {}).join(', ') || 'none'}`);
     console.log('📦 Tool results collected:', Object.keys(toolResults));
 
-    // Resolve conversation ID (should be ready by now — was created in parallel with OpenAI + tools)
-    const conversationId = await conversationIdPromise;
-    console.log(`⏱️ [${elapsed(t0)}] Conversation ID resolved: ${conversationId ? 'yes' : 'none'}`);
-
     // For pre-built text, save immediately; for real streams, save after completion
-    if (streamSource.type === 'complete' && conversationId) {
-      saveMessage(token, conversationId, 'assistant', streamSource.text, canvasToolPayload).catch(err => {
-        console.error('❌ Failed to save assistant message:', err);
+    if (streamSource.type === 'complete') {
+      conversationIdPromise.then((conversationId) => {
+        if (!conversationId) return;
+        saveMessage(token, conversationId, 'assistant', streamSource.text, canvasToolPayload).catch(err => {
+          console.error('❌ Failed to save assistant message:', err);
+        });
       });
     }
 
     console.log(`⏱️ [${elapsed(t0)}] Response created (${streamSource.type}) — first byte leaving server`);
     return createChatStreamResponse({
-      conversationId,
+      conversationId: immediateConversationId,
+      conversationIdPromise: deferredConversationIdPromise,
       source: streamSource,
       canvasToolPayload,
-      onComplete: streamSource.type === 'stream' && conversationId
+      prefaceLine: streamSource.type === 'stream' ? '__STREAM_OPEN__' : undefined,
+      onComplete: streamSource.type === 'stream'
         ? (fullText) => {
-            console.log(`⏱️ [${elapsed(t0)}] Stream complete (${fullText.length} chars) — saving message`);
-            saveMessage(token, conversationId, 'assistant', fullText, canvasToolPayload).catch(err => {
-              console.error('❌ Failed to save assistant message:', err);
+            conversationIdPromise.then((conversationId) => {
+              if (!conversationId) return;
+              console.log(`⏱️ [${elapsed(t0)}] Stream complete (${fullText.length} chars) — saving message`);
+              saveMessage(token, conversationId, 'assistant', fullText, canvasToolPayload).catch(err => {
+                console.error('❌ Failed to save assistant message:', err);
+              });
             });
           }
         : undefined,
@@ -1458,13 +1486,27 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
     }
 
     const finalText = assistantMessage.content || 'Sorry, I couldn\'t process that. Try again?';
+    const abArm = isSmsV2PromptActive() ? 'v2' : 'v1';
+    const messages = splitSmsSegments(finalText);
 
     console.log(
-      `📱 [${elapsed(t0)}] SMS response ready (${finalText.length} chars, ${toolCallsMade.length} tools)`,
+      `📱 [${elapsed(t0)}] SMS response ready (${finalText.length} chars, ${messages.length} segment${messages.length === 1 ? '' : 's'}, ${toolCallsMade.length} tools, arm=${abArm})`,
     );
 
     return new Response(
-      JSON.stringify({ text: finalText, tool_calls_made: toolCallsMade }),
+      JSON.stringify({
+        // Legacy field: the single concatenated reply. Backend falls back to
+        // splitting on the delimiter if `messages` is missing, so this stays
+        // safe during rolling deploys where sender + orchestrator versions
+        // may briefly mismatch.
+        text: finalText,
+        // New field (Phase 1 T1.2): array of 1–4 segments to send as separate
+        // texts with a small delay between. Empty array would be treated as
+        // failure by the sender; splitSmsSegments guarantees >=1 segment.
+        messages,
+        tool_calls_made: toolCallsMade,
+        ab_arm: abArm,
+      }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (error) {
@@ -1477,6 +1519,56 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
       { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// SMS segment splitter (Phase 1 T1.2)
+// ---------------------------------------------------------------------------
+
+/** Max segments we'll send per turn. More than 4 feels spammy. */
+const SMS_MAX_SEGMENTS = 4;
+/** Each segment must fit in a natural-feeling single text. */
+const SMS_SEGMENT_MAX_CHARS = 220;
+/** Delimiter the v2 prompt asks the model to insert between beats. */
+const SMS_SEGMENT_DELIMITER = /\n-{3,}\n/;
+
+/**
+ * Split an orchestrator reply into 1–4 SMS segments.
+ *
+ * Safe-by-default: if the model's output is malformed (no delimiter, too
+ * many segments, or any segment over the char cap) we fall back to a
+ * single-segment reply with the full original text. The caller can then
+ * either send it as one message (v1 behavior) or rely on the carrier to
+ * chunk long SMS.
+ *
+ * Contract: always returns at least one non-empty segment. Callers can
+ * assume `messages[0]` is present.
+ */
+export function splitSmsSegments(raw: string): string[] {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) {
+    return ['Sorry, I couldn\'t process that. Try again?'];
+  }
+
+  const parts = trimmed.split(SMS_SEGMENT_DELIMITER).map((p) => p.trim()).filter(Boolean);
+
+  // No delimiter present, or only one chunk after splitting → single segment.
+  if (parts.length <= 1) {
+    return [trimmed];
+  }
+
+  // Too many segments → safest to collapse back to one reply.
+  if (parts.length > SMS_MAX_SEGMENTS) {
+    return [trimmed];
+  }
+
+  // Any over-length segment → collapse back. Don't truncate; losing content
+  // silently is worse than showing a longer single message.
+  if (parts.some((p) => p.length > SMS_SEGMENT_MAX_CHARS)) {
+    return [trimmed];
+  }
+
+  return parts;
 }
 
 // ====================

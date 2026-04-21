@@ -5,9 +5,11 @@ capabilities. If the orchestrator is unreachable or errors, we fall
 back to the legacy fuzzy-matching parser so habit logging never regresses.
 """
 
+import asyncio
 import json
 import logging
 import os
+import random
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -47,6 +49,160 @@ async def _send_sms(
         to, text, media_url=media_url,
     )
     return result.ok
+
+
+# ---------------------------------------------------------------------------
+# Multi-segment reply delivery (Phase 1 T1.3)
+# ---------------------------------------------------------------------------
+
+# Delimiter we expect between segments when falling back to splitting a
+# single "text" field. Matches the splitter in orchestrator.ts.
+_SEGMENT_DELIMITER = re.compile(r"\n-{3,}\n")
+_MAX_SEGMENTS = 4
+_SEGMENT_MAX_CHARS = 220
+# Delay bounds (seconds) between consecutive outbound segments so the
+# conversation reads like real texts from a person, not one burst.
+_SEGMENT_DELAY_MIN = 0.8
+_SEGMENT_DELAY_MAX = 1.4
+
+
+def _extract_reply_segments(
+    orchestrator_result: dict,
+    fallback_text: str,
+) -> list[str]:
+    """Pull the segment list from the orchestrator response.
+
+    Prefers the `messages` array if present (new v2 shape). Falls back to
+    splitting `text` on the segment delimiter (legacy compatibility during
+    rolling deploys). If every attempt yields nothing usable, returns a
+    single-element list with fallback_text. If even that's empty, returns
+    an empty list so the caller can decide whether to error out.
+    """
+    raw_messages = orchestrator_result.get("messages")
+    if isinstance(raw_messages, list) and raw_messages:
+        segments = [
+            str(m).strip()
+            for m in raw_messages
+            if isinstance(m, str) and str(m).strip()
+        ]
+        # Safety: enforce caps client-side too — the orchestrator already
+        # enforces them, but a defensive check here protects against a bad
+        # deploy sending 20 segments.
+        if segments and len(segments) <= _MAX_SEGMENTS and all(
+            len(s) <= _SEGMENT_MAX_CHARS for s in segments
+        ):
+            return segments
+        logger.warning(
+            "Orchestrator returned invalid messages array (len=%d, max_char=%d) — collapsing to single segment",
+            len(segments),
+            max((len(s) for s in segments), default=0),
+        )
+
+    # Fallback: split fallback_text on the delimiter ourselves.
+    trimmed = (fallback_text or "").strip()
+    if not trimmed:
+        return []
+    parts = [p.strip() for p in _SEGMENT_DELIMITER.split(trimmed) if p.strip()]
+    if len(parts) <= 1 or len(parts) > _MAX_SEGMENTS or any(
+        len(p) > _SEGMENT_MAX_CHARS for p in parts
+    ):
+        return [trimmed]
+    return parts
+
+
+async def _send_reply_segments(
+    conversation_id: str,
+    to_number: str,
+    segments: list[str],
+    tool_payload_base: dict,
+) -> int:
+    """Send each segment via the active provider with jittered delays.
+
+    Persists each segment as its own AIMessageDB row with delivery_status
+    set per send outcome. Halts the loop on the first failure (remaining
+    segments are persisted with status='failed' so future orchestrator
+    context can filter them out, but we do NOT attempt to send them).
+
+    Returns the number of segments successfully delivered.
+    """
+    sent_count = 0
+    halted = False
+
+    for index, segment in enumerate(segments):
+        # Persist BEFORE send so a crash between send and persist doesn't
+        # lose the record. Start as 'pending' and update once the provider
+        # result is known.
+        message_row = await conversation_service.add_internal_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=segment,
+            tool_payload={
+                **tool_payload_base,
+                "segment_index": index,
+                "segment_total": len(segments),
+            },
+            delivery_status="pending",
+        )
+
+        if halted:
+            # Mark remaining as failed without attempting to send.
+            await _mark_message_delivery_status(
+                message_row.get("id"), "failed",
+            )
+            continue
+
+        # Jittered delay before every segment except the first.
+        if index > 0:
+            await asyncio.sleep(
+                random.uniform(_SEGMENT_DELAY_MIN, _SEGMENT_DELAY_MAX),
+            )
+
+        ok = await _send_sms(to_number, segment)
+        await _mark_message_delivery_status(
+            message_row.get("id"),
+            "sent" if ok else "failed",
+        )
+
+        if ok:
+            sent_count += 1
+        else:
+            logger.error(
+                "SMS segment %d/%d failed for %s — halting remaining segments",
+                index + 1,
+                len(segments),
+                to_number,
+            )
+            halted = True
+
+    return sent_count
+
+
+async def _mark_message_delivery_status(
+    message_id: Optional[str],
+    status: str,
+) -> None:
+    """Update a single AIMessageDB row's delivery_status field."""
+    if not message_id:
+        return
+    try:
+        from sqlalchemy import update
+        from database.connection import get_db_session
+        from database.models import AIMessageDB
+
+        async with get_db_session() as session:
+            await session.execute(
+                update(AIMessageDB)
+                .where(AIMessageDB.id == message_id)
+                .values(delivery_status=status),
+            )
+            await session.commit()
+    except Exception as exc:
+        logger.warning(
+            "Failed to update delivery_status=%s for message %s: %s",
+            status,
+            message_id,
+            exc,
+        )
 
 
 _UNIT_SUFFIXES = re.compile(
@@ -292,30 +448,44 @@ async def sendblue_webhook(request: Request):
         )
 
         reply_text = result.get("text", "")
-        if not reply_text:
-            raise ValueError("Orchestrator returned empty text")
+        # Phase 1 T1.2/T1.3: orchestrator may return an array of segments to
+        # deliver as separate texts. Fall back to splitting the single text
+        # if the field is missing (rolling-deploy safety).
+        reply_segments = _extract_reply_segments(result, reply_text)
+        if not reply_segments:
+            raise ValueError("Orchestrator returned no usable reply content")
 
-        # Persist the assistant's reply
-        await conversation_service.add_internal_message(
+        ab_arm = result.get("ab_arm") or ("v2" if len(reply_segments) > 1 else "v1")
+        tool_calls_made = result.get("tool_calls_made", [])
+
+        # Fan out to Sendblue. Persist each segment individually so future
+        # orchestrator context can filter by delivery_status.
+        sent_count = await _send_reply_segments(
             conversation_id=conversation_id,
-            role="assistant",
-            content=reply_text,
-            tool_payload={"tool_calls_made": result.get("tool_calls_made", [])},
+            to_number=sender_phone,
+            segments=reply_segments,
+            tool_payload_base={
+                "tool_calls_made": tool_calls_made,
+                "ab_arm": ab_arm,
+            },
         )
 
-        # Send via the active SMS provider (SendBlue today, see sms_provider.py)
-        await _send_sms(sender_phone, reply_text)
-
         logger.info(
-            "SMS chat reply sent to %s (tools: %s)",
+            "SMS chat reply sent to %s (%d/%d segments, tools=%s, arm=%s)",
             sender_phone,
-            result.get("tool_calls_made", []),
+            sent_count,
+            len(reply_segments),
+            tool_calls_made,
+            ab_arm,
         )
         return {
             "status": "ok",
             "user_id": user.id,
             "path": "orchestrator",
-            "tool_calls_made": result.get("tool_calls_made", []),
+            "tool_calls_made": tool_calls_made,
+            "segments_sent": sent_count,
+            "segments_total": len(reply_segments),
+            "ab_arm": ab_arm,
         }
 
     except Exception as exc:
