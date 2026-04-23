@@ -14,8 +14,14 @@ import {
 } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
+import { HexColorPicker } from 'react-colorful';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
+import {
+  useUIPreferences,
+  DEFAULT_HABIT_TEXT_COLOR,
+  contrastRatioAgainstWhite,
+} from '@/hooks/use-ui-preferences';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
 
@@ -69,12 +75,14 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const router = useRouter();
   const { font, setFont } = useFont();
   const { mode: sidebarMode, setMode: setSidebarMode } = useSidebarMode();
+  const { habitTextColor, setHabitTextColor } = useUIPreferences();
 
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialView ?? 'account');
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const [showRetrievalHealth, setShowRetrievalHealth] = useState(false);
   const wasOpenRef = useRef(false);
 
@@ -101,7 +109,10 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   useEffect(() => {
     setShowFontDropdown(false);
     setShowSidebarDropdown(false);
+    setShowColorPicker(false);
   }, [activeTab]);
+
+  const habitTextLowContrast = contrastRatioAgainstWhite(habitTextColor) < 4.5;
 
   const handleClose = () => {
     setActiveTab('account');
@@ -278,6 +289,68 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                 {sidebarMode === option.value && <span className="text-[13px] text-gray-900">✓</span>}
                               </button>
                             ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Habit text color — Overview page only */}
+                  <div className="flex items-start justify-between py-2.5">
+                    <div className="pr-4">
+                      <p className="text-[13px] font-medium text-gray-900">Habit text color</p>
+                      <p className="text-[13px] text-gray-500">
+                        Applies to habit names and metric values on the Overview page.
+                      </p>
+                      {habitTextLowContrast && (
+                        <p className="mt-1 text-[12px] text-amber-600">
+                          Low contrast — this color may be hard to read on a light background.
+                        </p>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <button
+                        onClick={() => {
+                          setShowColorPicker((open) => !open);
+                          setShowFontDropdown(false);
+                          setShowSidebarDropdown(false);
+                        }}
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 px-2 py-1.5 text-[13px] text-gray-700 transition-colors hover:bg-gray-50"
+                      >
+                        <span
+                          className="h-4 w-4 rounded-sm border border-gray-200"
+                          style={{ backgroundColor: habitTextColor }}
+                        />
+                        <span className="tabular-nums">{habitTextColor.toUpperCase()}</span>
+                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                      </button>
+                      {showColorPicker && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-10"
+                            onClick={() => setShowColorPicker(false)}
+                          />
+                          <div className="absolute right-0 top-full z-20 mt-1.5 rounded-xl border border-gray-200 bg-white p-3 shadow-lg">
+                            <HexColorPicker
+                              color={habitTextColor}
+                              onChange={(next) => {
+                                void setHabitTextColor(next);
+                              }}
+                            />
+                            <div className="mt-3 flex items-center justify-between gap-2">
+                              <span className="text-[12px] text-gray-500 tabular-nums">
+                                {habitTextColor.toUpperCase()}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  void setHabitTextColor(null);
+                                  setShowColorPicker(false);
+                                }}
+                                className="text-[12px] text-gray-500 transition-colors hover:text-gray-900"
+                              >
+                                Reset to default
+                              </button>
+                            </div>
                           </div>
                         </>
                       )}

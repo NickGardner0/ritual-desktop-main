@@ -24,6 +24,7 @@ import { StatsTooltip } from '@/components/stats-tooltip';
 import type { Habit } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { getHabitDisplayName } from '@/lib/computer-time-habit';
+import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
 interface SortableHabitItemProps {
   habit: Habit;
@@ -161,6 +162,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   isDeleting,
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
+  const { habitTextColor } = useUIPreferences();
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
   const metricClickTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
@@ -256,7 +258,12 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
         {...listeners}
       >
         <div className="min-w-0 flex items-center">
-          <span className="text-[17.5px] font-normal text-gray-900 truncate leading-[1.04]">{displayName}</span>
+          <span
+            className="text-[17.5px] font-normal truncate leading-[1.04]"
+            style={{ color: habitTextColor }}
+          >
+            {displayName}
+          </span>
         </div>
         <div
           ref={metricTriggerRef}
@@ -264,8 +271,11 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
         >
-          <span className="text-[17.5px] font-normal text-gray-900 select-none tabular-nums leading-[1.04]">
-            <span className={getHabitMetricClassName(habit)}>
+          <span
+            className="text-[17.5px] font-normal select-none tabular-nums leading-[1.04]"
+            style={{ color: habitTextColor }}
+          >
+            <span className={getHabitMetricClassName(habit)} style={{ color: habitTextColor }}>
               {getHabitMetricDisplay(habit, hoveredValue)}
             </span>
           </span>

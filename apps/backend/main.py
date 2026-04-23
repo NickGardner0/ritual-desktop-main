@@ -438,6 +438,9 @@ app.include_router(proactive_sms_router)
 from api.sms_preferences import create_sms_preferences_router
 app.include_router(create_sms_preferences_router(get_current_user=get_current_user))
 
+from api.ui_preferences import create_ui_preferences_router
+app.include_router(create_ui_preferences_router(get_current_user=get_current_user))
+
 from api.sms_copilot import create_sms_copilot_router
 app.include_router(create_sms_copilot_router())
 

@@ -656,6 +656,18 @@ class SmsPreferencesDB(Base):
     user = relationship("UserDB")
 
 
+class UserUIPreferencesDB(Base):
+    """Per-user UI appearance preferences (overview text color, etc.)."""
+    __tablename__ = "user_ui_preferences"
+
+    user_id = Column(String, ForeignKey("users.id"), primary_key=True)
+    habit_text_color = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+
+
 class SmsCopilotEventDB(Base):
     """Persisted outbound copilot events and their delivery lifecycle."""
     __tablename__ = "sms_copilot_events"
