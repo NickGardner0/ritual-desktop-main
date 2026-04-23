@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timezone
 from time import monotonic
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -75,6 +76,15 @@ async def _send_sms(
     """Send an outbound SMS via the shared delivery layer."""
     result = await shared_send_message(to, text, media_url=media_url)
     return result.ok
+
+
+def _local_date_for_user(now_utc: datetime, timezone_name: Optional[str]) -> str:
+    if timezone_name:
+        try:
+            return now_utc.astimezone(ZoneInfo(timezone_name)).strftime("%Y-%m-%d")
+        except Exception:
+            logger.warning("Failed to resolve user timezone %r for Sendblue log date", timezone_name)
+    return now_utc.strftime("%Y-%m-%d")
 
 
 # ---------------------------------------------------------------------------
@@ -756,7 +766,7 @@ async def _log_and_confirm(
 ) -> dict:
     """Log a matched habit and send a confirmation reply."""
     now = datetime.now(timezone.utc)
-    today = now.strftime("%Y-%m-%d")
+    today = _local_date_for_user(now, getattr(user, "timezone", None))
     log_data = HabitLogCreate(
         amount=match["amount"],
         date=today,

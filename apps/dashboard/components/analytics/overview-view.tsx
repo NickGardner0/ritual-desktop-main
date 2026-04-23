@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from './analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
+import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 import { perfInfo } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
@@ -271,21 +272,33 @@ export function OverviewView({
     return [...habitLogs, ...optimisticLogs];
   }, [habitLogs, optimisticLogs]);
 
+  const habitsById = useMemo(() => {
+    const next = new Map<string, Habit>();
+    for (const habit of habits) {
+      if (habit.id) {
+        next.set(habit.id, habit);
+      }
+    }
+    return next;
+  }, [habits]);
+
   const scrubberDisplayLogs = useMemo(
     () => (isDesktopShell ? EMPTY_OVERVIEW_LOGS : displayLogs),
     [displayLogs, isDesktopShell],
   );
 
   const getLogLocalDate = useCallback((log: { date?: string; completed_at?: string }) => {
-    if (log.completed_at) {
-      const completedAt = parseISO(log.completed_at);
-      if (!Number.isNaN(completedAt.getTime())) {
-        return format(completedAt, 'yyyy-MM-dd');
-      }
-    }
-
-    return typeof log.date === 'string' ? log.date.split('T')[0] : '';
-  }, []);
+    const habitId = typeof (log as { habit_id?: string }).habit_id === 'string'
+      ? (log as { habit_id?: string }).habit_id || ''
+      : '';
+    const habit = habitId ? habitsById.get(habitId) : null;
+    return resolveHabitLogLocalDate({
+      date: log.date,
+      completed_at: log.completed_at,
+      integration_source: habit?.integration_source,
+      metric_type: habit?.metric_type,
+    });
+  }, [habitsById]);
 
   useEffect(() => {
     perfInfo('overview-view', 'mount', {

@@ -22,4 +22,7 @@ export interface HabitLog {
   completed_at?: string
   status: 'completed' | 'skipped' | 'missed'
   notes?: string
+  integration_source?: string
+  metric_type?: string
+  time_precision?: 'exact' | 'day'
 }

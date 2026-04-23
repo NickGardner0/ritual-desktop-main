@@ -1,7 +1,6 @@
 'use client';
 
 import React, { memo } from 'react';
-import { format, parseISO } from 'date-fns';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
@@ -24,6 +23,10 @@ import {
   normalizeCategoryLabel,
 } from '@/lib/category-token';
 import { formatSourceLabel } from '@/lib/source-label';
+import {
+  formatHabitLogDisplayDate,
+  formatHabitLogDisplayTime,
+} from '@/lib/habit-log-time';
 import type { HabitLog } from '@/app/(dashboard)/activity/logs-client';
 
 const STATUS_CONFIG = {
@@ -74,17 +77,9 @@ export const SelectCell = memo(({
 ));
 SelectCell.displayName = 'SelectCell';
 
-export const DateCell = memo(({ date }: { date: string }) => {
-  let displayDate = '—';
-  let isValidDate = false;
-
-  try {
-    const parsed = parseISO(date);
-    displayDate = format(parsed, 'MMM d');
-    isValidDate = true;
-  } catch {
-    // Ignore parse failures and render fallback text.
-  }
+export const DateCell = memo((log: Pick<HabitLog, 'date' | 'completed_at' | 'integration_source' | 'metric_type' | 'time_precision'>) => {
+  const displayDate = formatHabitLogDisplayDate(log, 'MMM d');
+  const isValidDate = displayDate !== '—';
 
   return (
     <span
@@ -100,34 +95,9 @@ export const DateCell = memo(({ date }: { date: string }) => {
 });
 DateCell.displayName = 'DateCell';
 
-export const TimeCell = memo(({ completedAt }: { completedAt?: string }) => {
-  let displayTime = '—';
-  let isFormattedTime = false;
-
-  try {
-    if (!completedAt) {
-      displayTime = '—';
-    } else if (completedAt.includes('T')) {
-      const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/.test(completedAt);
-      const normalized = hasTimezone ? completedAt : `${completedAt}Z`;
-      const date = parseISO(normalized);
-      if (Number.isFinite(date.getTime())) {
-        displayTime = format(date, 'h:mm a');
-        isFormattedTime = true;
-      }
-    } else if (completedAt.includes(' ')) {
-      const date = new Date(completedAt.replace(' ', 'T') + 'Z');
-      if (Number.isFinite(date.getTime())) {
-        displayTime = format(date, 'h:mm a');
-        isFormattedTime = true;
-      }
-    } else {
-      displayTime = completedAt;
-    }
-  } catch {
-    displayTime = '—';
-    isFormattedTime = false;
-  }
+export const TimeCell = memo((log: Pick<HabitLog, 'date' | 'completed_at' | 'integration_source' | 'metric_type' | 'time_precision'>) => {
+  const displayTime = formatHabitLogDisplayTime(log);
+  const isFormattedTime = displayTime !== '—';
 
   return (
     <span

@@ -217,6 +217,10 @@ const tableColumns: ColumnDef<HabitLog>[] = [
       return (
         <InlineDateEditor
           date={log.date}
+          completedAt={log.completed_at}
+          integrationSource={log.integration_source}
+          metricType={log.metric_type}
+          timePrecision={log.time_precision}
           density={meta.density}
           isUpdating={Boolean(meta.updatingLogIds[log.id])}
           onSave={(nextDate) => meta.onQuickEdit(log, { date: nextDate })}
@@ -243,7 +247,15 @@ const tableColumns: ColumnDef<HabitLog>[] = [
         </SortButton>
       );
     },
-    cell: ({ row }) => <TimeCell completedAt={row.original.completed_at} />,
+    cell: ({ row }) => (
+      <TimeCell
+        date={row.original.date}
+        completed_at={row.original.completed_at}
+        integration_source={row.original.integration_source}
+        metric_type={row.original.metric_type}
+        time_precision={row.original.time_precision}
+      />
+    ),
   },
   {
     id: 'habit',
@@ -503,11 +515,19 @@ function SortButton({
 
 function InlineDateEditor({
   date,
+  completedAt,
+  integrationSource,
+  metricType,
+  timePrecision,
   density,
   isUpdating,
   onSave,
 }: {
   date: string;
+  completedAt?: string;
+  integrationSource?: string;
+  metricType?: string;
+  timePrecision?: 'exact' | 'day';
   density: TableDensity;
   isUpdating: boolean;
   onSave: (nextDate: string) => void;
@@ -534,7 +554,13 @@ function InlineDateEditor({
           disabled={isUpdating}
         >
           <span className="min-w-0 truncate block">
-            <DateCell date={date} />
+            <DateCell
+              date={date}
+              completed_at={completedAt}
+              integration_source={integrationSource}
+              metric_type={metricType}
+              time_precision={timePrecision}
+            />
           </span>
           {isUpdating ? (
             <BrailleSpinner className="text-sm text-gray-500" />

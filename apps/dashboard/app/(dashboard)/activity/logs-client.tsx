@@ -37,6 +37,8 @@ export type HabitLog = {
   status: 'completed' | 'skipped' | 'missed';
   notes?: string;
   integration_source?: string;
+  metric_type?: string;
+  time_precision?: 'exact' | 'day';
   metadata?: Record<string, any>;
 };
 
@@ -283,6 +285,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   // Build base query params from filters (no offset — managed by infinite query)
   const filterParamsKey = useMemo(() => {
     const params = new URLSearchParams();
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     if (filters.q) params.set('q', filters.q);
     if (filters.start) params.set('start_date', filters.start);
@@ -294,6 +297,9 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     if (sortColumn) {
       params.set('sort', sortColumn);
       params.set('order', sortDirection);
+    }
+    if (timezone) {
+      params.set('timezone', timezone);
     }
 
     return params.toString();

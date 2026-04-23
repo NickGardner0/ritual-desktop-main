@@ -18,6 +18,7 @@ import { useUser } from '@clerk/nextjs';
 
 // Import types
 import type { Habit as ServiceHabit, HabitLog as ServiceHabitLog } from '@/lib/habit-types';
+import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 
 // Import React Query hooks
 import {
@@ -150,6 +151,15 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   const isLoading = habitsQuery.isLoading;
   const isLoadingLogs = logsQuery.isLoading;
   const error = habitsQuery.error as Error | null;
+  const habitsById = React.useMemo(() => {
+    const next = new Map<string, Habit>();
+    for (const habit of habits) {
+      if (habit.id) {
+        next.set(habit.id, habit);
+      }
+    }
+    return next;
+  }, [habits]);
   
   // Backward compatible functions that use React Query mutations
   const fetchHabits = React.useCallback(async () => {
@@ -208,14 +218,34 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   const totalMinutesToday = React.useMemo(() => {
     const today = new Date().toLocaleDateString('en-CA');
     return habitLogs
-      .filter(log => log.date === today && log.status === 'completed')
+      .filter(log => {
+        const habit = log.habit_id ? habitsById.get(log.habit_id) : null;
+        const localDate = resolveHabitLogLocalDate({
+          date: log.date,
+          completed_at: log.completed_at,
+          integration_source: habit?.integration_source,
+          metric_type: habit?.metric_type,
+          time_precision: log.time_precision,
+        });
+        return localDate === today && log.status === 'completed';
+      })
       .reduce((total, log) => total + (log.duration || 0), 0);
-  }, [habitLogs]);
+  }, [habitLogs, habitsById]);
   
   const completedHabitsToday = React.useMemo(() => {
     const today = new Date().toLocaleDateString('en-CA');
-    return habitLogs.filter(log => log.date === today && log.status === 'completed').length;
-  }, [habitLogs]);
+    return habitLogs.filter(log => {
+      const habit = log.habit_id ? habitsById.get(log.habit_id) : null;
+      const localDate = resolveHabitLogLocalDate({
+        date: log.date,
+        completed_at: log.completed_at,
+        integration_source: habit?.integration_source,
+        metric_type: habit?.metric_type,
+        time_precision: log.time_precision,
+      });
+      return localDate === today && log.status === 'completed';
+    }).length;
+  }, [habitLogs, habitsById]);
   
   const currentStreak = React.useMemo(() => {
     if (habits.length === 0) return 0;

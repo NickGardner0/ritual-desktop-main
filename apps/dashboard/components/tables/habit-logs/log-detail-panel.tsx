@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { format, parseISO } from 'date-fns';
 import { X, Copy, Check, ChevronDown } from 'lucide-react';
 import {
   Sheet,
@@ -21,6 +20,10 @@ import {
   normalizeCategoryLabel,
 } from '@/lib/category-token';
 import { formatSourceLabel } from '@/lib/source-label';
+import {
+  formatHabitLogDisplayDate,
+  formatHabitLogDisplayTime,
+} from '@/lib/habit-log-time';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { HabitLog } from '@/app/(dashboard)/activity/logs-client';
 
@@ -41,30 +44,6 @@ const STATUS_OPTIONS: Array<{ value: HabitLog['status']; label: string; dotClass
   { value: 'skipped', label: 'Skipped', dotClass: 'bg-amber-500' },
   { value: 'missed', label: 'Missed', dotClass: 'bg-rose-500' },
 ];
-
-function formatLogTime(completedAt?: string): string {
-  if (!completedAt) return '—';
-
-  try {
-    if (completedAt.includes('T')) {
-      const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/.test(completedAt);
-      const normalized = hasTimezone ? completedAt : `${completedAt}Z`;
-      const date = parseISO(normalized);
-      if (Number.isFinite(date.getTime())) {
-        return format(date, 'h:mm a');
-      }
-    } else if (completedAt.includes(' ')) {
-      const date = new Date(completedAt.replace(' ', 'T') + 'Z');
-      if (Number.isFinite(date.getTime())) {
-        return format(date, 'h:mm a');
-      }
-    }
-  } catch {
-    // fall through
-  }
-
-  return completedAt;
-}
 
 function formatLogValue(log: HabitLog): string {
   if (log.duration && log.duration > 0) {
@@ -118,14 +97,8 @@ export function LogDetailPanel({
 
   if (!log) return null;
 
-  let displayDate = '—';
-  try {
-    displayDate = format(parseISO(log.date), 'MMMM d, yyyy');
-  } catch {
-    displayDate = log.date;
-  }
-
-  const displayTime = formatLogTime(log.completed_at);
+  const displayDate = formatHabitLogDisplayDate(log, 'MMMM d, yyyy');
+  const displayTime = formatHabitLogDisplayTime(log);
   const displayValue = formatLogValue(log);
   const normalizedCategory = normalizeCategoryLabel(log.category);
 

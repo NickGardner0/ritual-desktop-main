@@ -1,9 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { subDays, format } from 'date-fns';
+import { addDays, subDays, format } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+
+type HabitMeta = {
+  name?: string;
+  category: string;
+  icon?: string;
+  unit_type?: string;
+  integration_source?: string;
+  metric_type?: string;
+};
+
+function parseCompletedAt(value?: string | null): Date | null {
+  if (!value || typeof value !== 'string') return null;
+
+  try {
+    if (value.includes('T')) {
+      const hasTimezone = /(?:Z|[+-]\d{2}:\d{2})$/.test(value);
+      const normalized = hasTimezone ? value : `${value}Z`;
+      const parsed = new Date(normalized);
+      return Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+
+    if (value.includes(' ')) {
+      const parsed = new Date(value.replace(' ', 'T') + 'Z');
+      return Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function formatDateInTimeZone(value: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(value);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (year && month && day) {
+      return `${year}-${month}-${day}`;
+    }
+  } catch {
+    // Fall through to UTC formatting.
+  }
+
+  return format(value, 'yyyy-MM-dd');
+}
+
+function shiftDateKey(dateValue: string, deltaDays: number): string {
+  const anchor = new Date(`${dateValue}T12:00:00Z`);
+  return format(addDays(anchor, deltaDays), 'yyyy-MM-dd');
+}
 
 /**
  * GET /api/analytics/habits/logs/all
@@ -48,10 +105,13 @@ export async function GET(request: NextRequest) {
     const sources = searchParams.get('sources')?.split(',').filter(Boolean) || [];
     const sort = searchParams.get('sort') || 'time';
     const order = searchParams.get('order') || 'desc';
+    const timezone = searchParams.get('timezone') || 'UTC';
     const requestedLimit = Number.parseInt(searchParams.get('limit') || '200', 10);
     const requestedOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 1000) : 200;
     const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
+    const queryStartDate = shiftDateKey(startDate, -1);
+    const queryEndDate = shiftDateKey(endDate, 1);
 
     const tinybirdToken = process.env.TINYBIRD_TOKEN;
     const tinybirdHost = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co';
@@ -62,12 +122,12 @@ export async function GET(request: NextRequest) {
     // Build Tinybird query params
     const tinybirdParams = new URLSearchParams();
     tinybirdParams.set('user_id', userId);
-    tinybirdParams.set('start_date', startDate);
-    tinybirdParams.set('end_date', endDate);
+    tinybirdParams.set('start_date', queryStartDate);
+    tinybirdParams.set('end_date', queryEndDate);
     tinybirdParams.set('limit', String(Math.min((offset + limit) * 2, 5000))); // Fetch extra for filtering + pagination
     
     const habitsMapPromise = (async () => {
-      const habitsMap: Record<string, { name?: string; category: string; icon?: string; unit_type?: string }> = {};
+      const habitsMap: Record<string, HabitMeta> = {};
       try {
         const habitsRes = await fetch(`${backendUrl}/api/habits`, {
           headers: { 'Authorization': `Bearer ${token}` },
@@ -81,6 +141,8 @@ export async function GET(request: NextRequest) {
               category: h.category || 'uncategorized',
               icon: h.icon,
               unit_type: h.unit_type,
+              integration_source: h.integration_source,
+              metric_type: h.metric_type,
             };
           });
         }
@@ -186,27 +248,49 @@ export async function GET(request: NextRequest) {
 
     const normalizeLog = (
       log: any,
-      habitsMap: Record<string, { name?: string; category: string; icon?: string; unit_type?: string }>,
+      habitsMap: Record<string, HabitMeta>,
     ) => {
       const habitName = normalizeWatcherHabitName(log, habitsMap);
-      const unitType = habitsMap[log.habit_id]?.unit_type || log.unit_type || log.unit;
+      const habitMeta = habitsMap[log.habit_id] || null;
+      const unitType = habitMeta?.unit_type || log.unit_type || log.unit;
       const metadata = parseMetadataObject(log.metadata ?? log.log_metadata);
       const derivedValue = deriveComputerTimeValue(log, metadata, unitType, habitName);
+      const metricType = habitMeta?.metric_type || log.metric_type || null;
+      const integrationSource = habitMeta?.integration_source || log.integration_source || log.source || 'manual';
+      const timePrecision = (
+        String(integrationSource).toLowerCase() === 'apple_health'
+        && typeof metricType === 'string'
+        && metricType.trim().length > 0
+        && metricType !== 'sleep_total'
+        && metricType !== 'workout'
+      )
+        ? 'day'
+        : 'exact';
+      const rawDate = typeof log.date === 'string' ? log.date.slice(0, 10) : '';
+      const parsedCompletedAt = parseCompletedAt(log.timestamp || log.completed_at);
+      const normalizedDate = timePrecision === 'day'
+        ? rawDate
+        : parsedCompletedAt
+          ? formatDateInTimeZone(parsedCompletedAt, timezone)
+          : rawDate;
 
       return {
         id: log.id,
         habit_id: log.habit_id,
         habit_name: habitName,
-        category: habitsMap[log.habit_id]?.category || log.category || 'uncategorized',
-        icon: habitsMap[log.habit_id]?.icon || log.icon,
-        date: log.date,
+        category: habitMeta?.category || log.category || 'uncategorized',
+        icon: habitMeta?.icon || log.icon,
+        date: normalizedDate,
+        raw_date: rawDate,
         completed_at: log.timestamp || log.completed_at,
         duration: derivedValue.duration,
         amount: derivedValue.amount,
         unit_type: unitType,
         status: log.status || 'completed',
         notes: log.notes,
-        integration_source: log.integration_source || log.source || 'manual',
+        integration_source: integrationSource,
+        metric_type: metricType,
+        time_precision: timePrecision,
         metadata,
       };
     };
@@ -376,6 +460,8 @@ export async function GET(request: NextRequest) {
       });
       logs = backendLogs.map((log: any) => normalizeLog(log, habitsMap));
     }
+
+    logs = logs.filter((log: any) => log.date >= startDate && log.date <= endDate);
 
     // Apply client-side filters
     if (q) {

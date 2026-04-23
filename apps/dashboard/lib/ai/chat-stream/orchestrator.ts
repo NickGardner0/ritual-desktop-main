@@ -488,7 +488,7 @@ async function dispatchToolCall(
     case 'getCalendarEvents':
       return executeGetCalendarEvents(token, a, ctx.timezone);
     case 'logHabit':
-      return executeLogHabit(token, a);
+      return executeLogHabit(token, a, ctx.timezone);
     case 'createHabit':
       return executeCreateHabit(token, a);
     case 'getSmsPreferences':
