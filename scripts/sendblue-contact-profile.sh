@@ -16,7 +16,7 @@
 #   SENDBLUE_API_SECRET     - SendBlue API secret   (sb-api-secret-key)
 #   SENDBLUE_FROM_NUMBER    - E.164 Ritual number   (e.g. +14155551234)
 #   RITUAL_CONTACT_PHOTO_URL - override photo URL for `set` (optional)
-#                              default: https://app.ritual.so/brand/contact-card.png
+#                              default: https://desktop.ritualdb.com/brand/contact-card.png
 
 set -euo pipefail
 
@@ -65,7 +65,7 @@ cmd_set() {
   local first="Ritual"
   local last=""
   local display="Ritual"
-  local photo_url="${RITUAL_CONTACT_PHOTO_URL:-https://app.ritual.so/brand/contact-card.png}"
+  local photo_url="${RITUAL_CONTACT_PHOTO_URL:-https://desktop.ritualdb.com/brand/contact-card.png}"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
