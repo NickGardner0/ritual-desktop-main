@@ -6,9 +6,15 @@ import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+type RouteContext = {
+  params: Promise<{
+    habitId: string;
+  }>;
+};
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { habitId: string } },
+  context: RouteContext,
 ) {
   try {
     const { userId, getToken } = await auth();
@@ -19,8 +25,9 @@ export async function GET(
     }
 
     const token = (await getToken()) || headerToken;
+    const { habitId } = await context.params;
     const response = await fetch(
-      `${API_CONFIG.PYTHON_API_URL}/api/habits/${params.habitId}/projection-policy`,
+      `${API_CONFIG.PYTHON_API_URL}/api/habits/${habitId}/projection-policy`,
       {
         method: 'GET',
         headers: buildBackendAuthHeaders({ userId, token }),
@@ -43,7 +50,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { habitId: string } },
+  context: RouteContext,
 ) {
   try {
     const { userId, getToken } = await auth();
@@ -54,9 +61,10 @@ export async function PUT(
     }
 
     const token = (await getToken()) || headerToken;
+    const { habitId } = await context.params;
     const body = await request.text();
     const response = await fetch(
-      `${API_CONFIG.PYTHON_API_URL}/api/habits/${params.habitId}/projection-policy`,
+      `${API_CONFIG.PYTHON_API_URL}/api/habits/${habitId}/projection-policy`,
       {
         method: 'PUT',
         headers: {
