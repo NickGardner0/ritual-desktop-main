@@ -958,7 +958,7 @@ function GreenToggle({
       onClick={() => onChange(!checked)}
       className={cn(
         'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-        checked ? 'bg-[#4e632d]' : 'bg-gray-200',
+        checked ? 'bg-[#73bf1d]' : 'bg-gray-200',
       )}
     >
       <span

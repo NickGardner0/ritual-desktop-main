@@ -38,7 +38,7 @@ const connectRowActionClass =
   'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm border border-gray-200 bg-white px-2 text-sm font-normal text-gray-600 transition-colors hover:bg-gray-50';
 
 const connectRowActionConnectedClass =
-  'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm bg-[#4e632d] px-2 text-sm font-normal text-white transition-colors hover:bg-[#445726]';
+  'inline-flex h-8 w-[8.5rem] shrink-0 items-center justify-center rounded-sm bg-[#73bf1d] px-2 text-sm font-normal text-white transition-colors hover:bg-[#5fa018]';
 
 interface HabitSelectionModalProps {
   isOpen: boolean;
@@ -527,8 +527,9 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setPlaidConnected(Boolean(plaidConnection && plaidConnection.status === 'active'));
     } finally {
       await checkComputerTrackingConnection();
+      queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
     }
-  }, [checkComputerTrackingConnection, getToken]);
+  }, [checkComputerTrackingConnection, getToken, queryClient]);
 
   // Check provider connection state when the modal opens so already-connected
   // integrations render as Connected immediately instead of defaulting to Connect.

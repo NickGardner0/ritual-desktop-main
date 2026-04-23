@@ -15,7 +15,7 @@
 import { useState, useEffect, memo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser, useClerk } from '@clerk/nextjs';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import { invoke } from '@tauri-apps/api/tauri';
 import { ChevronRight, Monitor } from 'lucide-react';
@@ -41,7 +41,7 @@ import { cn } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const INTEGRATIONS_GREEN_SWITCH_CLASS =
-  'data-[state=checked]:bg-[#239e37] data-[state=unchecked]:bg-gray-200 focus-visible:ring-[#239e37]';
+  'data-[state=checked]:bg-[#73bf1d] data-[state=unchecked]:bg-gray-200 focus-visible:ring-[#73bf1d]';
 
 declare global {
   interface Window {
@@ -538,7 +538,7 @@ const IntegrationCard = memo(({
         <>
           <button
             onClick={onDisconnect}
-            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-[#239e37] transition-colors focus:outline-none focus:ring-2 focus:ring-[#239e37] focus:ring-offset-2"
+            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-[#73bf1d] transition-colors focus:outline-none focus:ring-2 focus:ring-[#73bf1d] focus:ring-offset-2"
             role="switch"
             aria-checked="true"
           >
@@ -632,7 +632,12 @@ export function IntegrationsClient() {
   const { user } = useUser();
   const { openUserProfile } = useClerk();
   const { fetchHabits, fetchHabitLogs } = useHabits();
-  const { data: integrationsOverview, refetch: refetchOverview } = useIntegrationsOverview();
+  const queryClient = useQueryClient();
+  const { data: integrationsOverview, refetch: refetchOverviewQuery } = useIntegrationsOverview();
+  const refetchOverview = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
+    return refetchOverviewQuery();
+  }, [queryClient, refetchOverviewQuery]);
   const whoopStatusData = integrationsOverview?.whoopStatus;
   const appleWatchStatusData = integrationsOverview?.appleWatchStatus;
   const wearableConnectionsData = integrationsOverview?.wearableConnections;
