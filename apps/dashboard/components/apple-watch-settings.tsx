@@ -570,7 +570,7 @@ export function AppleWatchSettings() {
             connected ? 'text-gray-700' : 'text-gray-400',
           )}
         >
-          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-[#4e632d]' : 'bg-gray-300')} />
+          <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-[#73bf1d]' : 'bg-gray-300')} />
           {connected ? 'Connected' : 'Not connected'}
         </span>
       </div>

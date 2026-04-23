@@ -174,33 +174,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           { value: 'workouts', label: 'Workouts', metric_type: 'workout', unit: 'Count' },
           { value: 'mindful-minutes', label: 'Mindful Minutes', metric_type: 'mindful_minutes', unit: 'Minutes' },
         ];
-      case 'healthkit':
-        return [
-          // Body Measurements
-          { value: '_section_body', label: 'Body Measurements', section: true },
-          { value: 'body-mass', label: 'Weight', metric_type: 'body_mass', unit: 'kg' },
-          { value: 'bmi', label: 'BMI', metric_type: 'body_mass_index', unit: 'Count' },
-          { value: 'body-fat', label: 'Body Fat Percentage', metric_type: 'body_fat_percentage', unit: 'Percentage' },
-          { value: 'lean-body-mass', label: 'Lean Body Mass', metric_type: 'lean_body_mass', unit: 'kg' },
-          { value: 'height', label: 'Height', metric_type: 'height', unit: 'cm' },
-          { value: 'waist', label: 'Waist Circumference', metric_type: 'waist_circumference', unit: 'cm' },
-          // Nutrition
-          { value: '_section_nutrition', label: 'Nutrition', section: true },
-          { value: 'dietary-energy', label: 'Calories Consumed', metric_type: 'dietary_energy', unit: 'Calories' },
-          { value: 'dietary-protein', label: 'Protein', metric_type: 'dietary_protein', unit: 'Grams' },
-          { value: 'dietary-carbs', label: 'Carbohydrates', metric_type: 'dietary_carbs', unit: 'Grams' },
-          { value: 'dietary-fat', label: 'Fat', metric_type: 'dietary_fat', unit: 'Grams' },
-          { value: 'dietary-fiber', label: 'Fiber', metric_type: 'dietary_fiber', unit: 'Grams' },
-          { value: 'dietary-sugar', label: 'Sugar', metric_type: 'dietary_sugar', unit: 'Grams' },
-          { value: 'dietary-water', label: 'Water', metric_type: 'dietary_water', unit: 'ml' },
-          { value: 'dietary-caffeine', label: 'Caffeine', metric_type: 'dietary_caffeine', unit: 'Milligrams' },
-          // Vitals
-          { value: '_section_vitals', label: 'Vitals', section: true },
-          { value: 'bp-systolic', label: 'Blood Pressure (Systolic)', metric_type: 'blood_pressure_systolic', unit: 'mmHg' },
-          { value: 'bp-diastolic', label: 'Blood Pressure (Diastolic)', metric_type: 'blood_pressure_diastolic', unit: 'mmHg' },
-          { value: 'blood-glucose', label: 'Blood Glucose', metric_type: 'blood_glucose', unit: 'mmol/L' },
-          { value: 'body-temp', label: 'Body Temperature', metric_type: 'body_temperature', unit: 'Celsius' },
-        ];
       case 'oura':
         return [
           { value: 'sleep-score', label: 'Sleep Score' },
@@ -738,7 +711,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         category: categoryMap[selectedCategory || 'productivity'] || 'manual',
         is_custom: selectedCategory === 'custom',
         sensor_type: selectedCategory === 'applewatch' ? 'Apple Watch'
-                   : selectedCategory === 'healthkit' ? 'HealthKit'
                    : selectedCategory === 'whoop' ? 'Whoop'
                    : selectedCategory === 'oura' ? 'Oura'
                    : selectedCategory === 'fitbit' ? 'Fitbit'
@@ -749,7 +721,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         unit_type: habitUnit,
         integration_source: selectedCategory === 'whoop' ? 'whoop'
                           : selectedCategory === 'applewatch' ? 'apple_health'
-                          : selectedCategory === 'healthkit' ? 'apple_health'
                           : selectedCategory === 'oura' ? 'oura'
                           : selectedCategory === 'fitbit' ? 'fitbit'
                           : selectedCategory === 'garmin' ? 'garmin'
@@ -886,7 +857,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   : selectedCategory === 'education' ? 'Learning'
                   : selectedCategory === 'experiments' ? 'Experiments'
                   : selectedCategory === 'productivity' ? 'Productivity'
-                  : selectedCategory === 'healthkit' ? 'HealthKit'
                   : selectedCategory === 'applewatch' ? 'Apple Watch'
                   : selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)
                   : 'Connect devices'}
@@ -1145,45 +1115,6 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                           '3. Tap "Connect" to register your device\n' +
                           '4. Grant HealthKit permissions\n\n' +
                           'Your Apple Watch data syncs through your iPhone.'
-                        );
-                      }}
-                      className={connectRowActionClass}
-                    >
-                      Connect
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3 py-1.5">
-                  <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                    <div className="flex w-9 shrink-0 items-center justify-center">
-                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-normal text-gray-900">HealthKit</p>
-                      <p className="text-xs text-gray-400">Scales, CGMs, food logging apps</p>
-                    </div>
-                  </div>
-                  {appleWatchConnected ? (
-                    <button
-                      type="button"
-                      onClick={() => handleCategorySelect('healthkit')}
-                      className={connectRowActionConnectedClass}
-                    >
-                      Connected
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        alert(
-                          '📱 HealthKit metrics require:\n\n' +
-                          '1. The Ritual Companion app on your iPhone\n' +
-                          '2. A connected data source (smart scale, CGM, food logging app)\n' +
-                          '3. HealthKit permissions granted\n\n' +
-                          'Data from third-party apps that write to HealthKit will sync automatically.'
                         );
                       }}
                       className={connectRowActionClass}

@@ -3631,7 +3631,7 @@ export function IntegrationsClient() {
         {/* Coming soon cards */}
         <IntegrationCard
           logo={
-            <Image src="/images/plaid-mark.svg" alt="Plaid" width={48} height={52} className="h-7 w-auto object-contain" />
+            <Image src="/images/plaid-mark.svg" alt="Plaid" width={48} height={52} className="h-6 w-auto object-contain" />
           }
           title="Plaid"
           descriptionLineClamp={3}
@@ -3679,7 +3679,7 @@ export function IntegrationsClient() {
         />
 
         <IntegrationCard
-          logo={<Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className="h-8 w-8 rounded-[8px]" />}
+          logo={<Image src="/images/imessage.svg" alt="iMessage" width={36} height={36} className="h-7 w-7 rounded-[6px]" />}
           title="iMessage"
           description="Use Ritual’s SMS companion for ambient behavioral support, quick logging, and lightweight daily check-ins."
           descriptionLineClamp={3}
