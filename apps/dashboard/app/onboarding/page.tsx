@@ -5,7 +5,7 @@ import { useUser, useAuth } from "@clerk/nextjs"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { setOnboardingWindowSize } from "@/lib/tauri-utils"
+import { isTauri, setOnboardingWindowSize } from "@/lib/tauri-utils"
 import {
   cameFromWelcomeFlow,
   clearFromWelcomeFlow,
@@ -164,6 +164,7 @@ export default function OnboardingPage() {
         body: JSON.stringify({
           ...values,
           phone_number: user?.primaryPhoneNumber?.phoneNumber ?? undefined,
+          client_surface: isTauri() ? "desktop" : "web",
         })
       })
 

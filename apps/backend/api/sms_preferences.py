@@ -20,6 +20,11 @@ class SmsPreferencesUpdateRequest(BaseModel):
     quiet_hours_end: Optional[str] = None
     max_proactive_per_day: Optional[int] = None
     allowed_triggers: Optional[str] = None
+    daily_narrative_enabled: Optional[bool] = None
+    interrupts_enabled: Optional[bool] = None
+    allowed_interrupt_kinds: Optional[str] = None
+    max_interrupts_per_day: Optional[int] = None
+    min_hours_between_interrupts: Optional[int] = None
 
 
 def create_sms_preferences_router(get_current_user):
@@ -41,13 +46,13 @@ def create_sms_preferences_router(get_current_user):
     ):
         from services.sms_preferences_service import sms_preferences_service
 
-        # Build update fields from non-None values
+        fields_set = set(getattr(body, "model_fields_set", getattr(body, "__fields_set__", set())))
         fields = {}
         if body.proactive_enabled is not None:
             fields["proactive_enabled"] = body.proactive_enabled
-        if body.quiet_hours_start is not None:
+        if "quiet_hours_start" in fields_set:
             fields["quiet_hours_start"] = body.quiet_hours_start
-        if body.quiet_hours_end is not None:
+        if "quiet_hours_end" in fields_set:
             fields["quiet_hours_end"] = body.quiet_hours_end
         if body.max_proactive_per_day is not None:
             fields["max_proactive_per_day"] = min(max(body.max_proactive_per_day, 0), 3)
@@ -57,6 +62,19 @@ def create_sms_preferences_router(get_current_user):
             requested = {t.strip() for t in body.allowed_triggers.split(",") if t.strip()}
             sanitized = requested & valid_triggers
             fields["allowed_triggers"] = ",".join(sorted(sanitized)) if sanitized else ""
+        if body.daily_narrative_enabled is not None:
+            fields["daily_narrative_enabled"] = body.daily_narrative_enabled
+        if body.interrupts_enabled is not None:
+            fields["interrupts_enabled"] = body.interrupts_enabled
+        if body.allowed_interrupt_kinds is not None:
+            valid_interrupt_kinds = {"distraction_spiral"}
+            requested = {t.strip() for t in body.allowed_interrupt_kinds.split(",") if t.strip()}
+            sanitized = requested & valid_interrupt_kinds
+            fields["allowed_interrupt_kinds"] = ",".join(sorted(sanitized)) if sanitized else ""
+        if body.max_interrupts_per_day is not None:
+            fields["max_interrupts_per_day"] = min(max(body.max_interrupts_per_day, 0), 3)
+        if body.min_hours_between_interrupts is not None:
+            fields["min_hours_between_interrupts"] = min(max(body.min_hours_between_interrupts, 1), 24)
 
         if not fields:
             prefs = await sms_preferences_service.get_or_create(current_user["id"])

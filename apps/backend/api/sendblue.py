@@ -5,11 +5,9 @@ capabilities. If the orchestrator is unreachable or errors, we fall
 back to the legacy fuzzy-matching parser so habit logging never regresses.
 """
 
-import asyncio
 import json
 import logging
 import os
-import random
 import re
 from datetime import datetime, timezone
 from typing import Optional
@@ -19,10 +17,17 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from models.habit_models import HabitLogCreate
-from services.habits_service import HabitsService
-from services.sms_provider import SmsSendResult, get_sms_provider
-from services.user_service import UserService
 from services.conversation_service import conversation_service
+from services.habits_service import HabitsService
+from services.sms_copilot_dispatch_service import sms_copilot_dispatch_service
+from services.sms_delivery_service import (
+    extract_reply_segments as shared_extract_reply_segments,
+    send_message as shared_send_message,
+    send_segments_and_persist as shared_send_segments_and_persist,
+)
+from services.sms_log_enrichment_service import sms_log_enrichment_service
+from services.sms_provider import get_sms_provider
+from services.user_service import UserService
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +45,8 @@ async def _send_sms(
     text: str,
     media_url: Optional[str] = None,
 ) -> bool:
-    """Send an outbound SMS via the active provider. Returns True on success.
-
-    Thin wrapper so the rest of this module doesn't have to care whether
-    the active provider is Sendblue or Linq.
-    """
-    result: SmsSendResult = await get_sms_provider().send_message(
-        to, text, media_url=media_url,
-    )
+    """Send an outbound SMS via the shared delivery layer."""
+    result = await shared_send_message(to, text, media_url=media_url)
     return result.ok
 
 
@@ -70,44 +69,7 @@ def _extract_reply_segments(
     orchestrator_result: dict,
     fallback_text: str,
 ) -> list[str]:
-    """Pull the segment list from the orchestrator response.
-
-    Prefers the `messages` array if present (new v2 shape). Falls back to
-    splitting `text` on the segment delimiter (legacy compatibility during
-    rolling deploys). If every attempt yields nothing usable, returns a
-    single-element list with fallback_text. If even that's empty, returns
-    an empty list so the caller can decide whether to error out.
-    """
-    raw_messages = orchestrator_result.get("messages")
-    if isinstance(raw_messages, list) and raw_messages:
-        segments = [
-            str(m).strip()
-            for m in raw_messages
-            if isinstance(m, str) and str(m).strip()
-        ]
-        # Safety: enforce caps client-side too — the orchestrator already
-        # enforces them, but a defensive check here protects against a bad
-        # deploy sending 20 segments.
-        if segments and len(segments) <= _MAX_SEGMENTS and all(
-            len(s) <= _SEGMENT_MAX_CHARS for s in segments
-        ):
-            return segments
-        logger.warning(
-            "Orchestrator returned invalid messages array (len=%d, max_char=%d) — collapsing to single segment",
-            len(segments),
-            max((len(s) for s in segments), default=0),
-        )
-
-    # Fallback: split fallback_text on the delimiter ourselves.
-    trimmed = (fallback_text or "").strip()
-    if not trimmed:
-        return []
-    parts = [p.strip() for p in _SEGMENT_DELIMITER.split(trimmed) if p.strip()]
-    if len(parts) <= 1 or len(parts) > _MAX_SEGMENTS or any(
-        len(p) > _SEGMENT_MAX_CHARS for p in parts
-    ):
-        return [trimmed]
-    return parts
+    return shared_extract_reply_segments(orchestrator_result, fallback_text)
 
 
 async def _send_reply_segments(
@@ -116,63 +78,13 @@ async def _send_reply_segments(
     segments: list[str],
     tool_payload_base: dict,
 ) -> int:
-    """Send each segment via the active provider with jittered delays.
-
-    Persists each successfully-sent segment as its own AIMessageDB row.
-    Halts on first send failure (remaining segments are NOT sent and NOT
-    persisted, because we never want the bot to reference a message the
-    user didn't see).
-
-    Persistence failures are caught and logged but do NOT abort the send
-    loop — the user's reply is the priority; the DB row is bookkeeping.
-
-    Returns the number of segments successfully delivered.
-    """
-    sent_count = 0
-
-    for index, segment in enumerate(segments):
-        # Jittered delay before every segment except the first.
-        if index > 0:
-            await asyncio.sleep(
-                random.uniform(_SEGMENT_DELAY_MIN, _SEGMENT_DELAY_MAX),
-            )
-
-        ok = await _send_sms(to_number, segment)
-
-        # Persist AFTER send so we never have DB rows for unsent segments.
-        # Catch persistence errors separately so a schema hiccup can't
-        # cause the webhook to fall through to the legacy fuzzy parser.
-        if ok:
-            try:
-                await conversation_service.add_internal_message(
-                    conversation_id=conversation_id,
-                    role="assistant",
-                    content=segment,
-                    tool_payload={
-                        **tool_payload_base,
-                        "segment_index": index,
-                        "segment_total": len(segments),
-                    },
-                )
-            except Exception as persist_exc:
-                logger.error(
-                    "Failed to persist SMS segment %d/%d (reply already sent to user): %s",
-                    index + 1,
-                    len(segments),
-                    persist_exc,
-                )
-            sent_count += 1
-        else:
-            logger.error(
-                "SMS segment %d/%d failed for %s — halting remaining %d segments",
-                index + 1,
-                len(segments),
-                to_number,
-                len(segments) - index - 1,
-            )
-            break
-
-    return sent_count
+    sent_messages = await shared_send_segments_and_persist(
+        conversation_id=conversation_id,
+        to_number=to_number,
+        segments=segments,
+        tool_payload_base=tool_payload_base,
+    )
+    return len(sent_messages)
 
 
 _UNIT_SUFFIXES = re.compile(
@@ -453,11 +365,39 @@ async def sendblue_webhook(request: Request):
     conversation_id = conversation["id"]
 
     # Persist the user's inbound message
-    await conversation_service.add_internal_message(
+    inbound_message = await conversation_service.add_internal_message(
         conversation_id=conversation_id,
         role="user",
         content=message_text or f"[image: {media_url}]",
     )
+
+    normalized_reply = (message_text or "").strip().lower()
+    if not media_url and normalized_reply in {"focus", "reset", "ok", "yes"}:
+        pending_interrupt = await sms_copilot_dispatch_service.get_latest_unresolved_interrupt(
+            user_id=user.id,
+            kind="distraction_spiral",
+        )
+        if pending_interrupt is not None:
+            await sms_copilot_dispatch_service.mark_event_acted(
+                event_id=pending_interrupt.id,
+                user_reply_message_id=inbound_message["id"],
+            )
+            sent_messages = await shared_send_segments_and_persist(
+                conversation_id=conversation_id,
+                to_number=sender_phone,
+                segments=["Locked in. Protect the next 25 minutes and I’ll treat it as a focus block."],
+                tool_payload_base={
+                    "sms_copilot_kind": "distraction_spiral_ack",
+                    "copilot_event_id": pending_interrupt.id,
+                },
+            )
+            return {
+                "status": "ok",
+                "user_id": user.id,
+                "path": "interrupt_ack",
+                "event_id": pending_interrupt.id,
+                "segments_sent": len(sent_messages),
+            }
 
     # Load recent conversation history for context
     recent_messages = await conversation_service.get_sms_message_history(user.id, limit=20)
@@ -670,14 +610,10 @@ async def _legacy_fuzzy_logging_fallback(
     result["path"] = "fallback"
 
     # Persist the fallback confirmation
-    amount_str = ""
-    if match.get("amount") is not None:
-        unit = match.get("unit_type") or ""
-        amount_str = f" ({match['amount']}{' ' + unit if unit else ''})"
     await conversation_service.add_internal_message(
         conversation_id=conversation_id,
         role="assistant",
-        content=f"Logged {match['habit_name']}{amount_str}",
+        content=result.get("confirmation") or f"Logged {match['habit_name']}",
     )
 
     return result
@@ -787,16 +723,24 @@ async def _log_and_confirm(
         except Exception as ws_err:
             logger.debug("WebSocket notify failed (non-critical): %s", ws_err)
 
-        # Build confirmation message
-        amount_str = ""
-        if match["amount"] is not None:
-            unit = match.get("unit_type") or ""
-            amount_str = f" ({match['amount']}{' ' + unit if unit else ''})"
+        try:
+            confirmation = await sms_log_enrichment_service.build_confirmation(
+                user_id=user.id,
+                habit_id=match["habit_id"],
+                amount=match.get("amount"),
+                note=log_data.notes,
+                logged_at=now,
+            )
+            confirmation_text = confirmation["message"]
+        except Exception:
+            logger.exception("Failed to build enriched SMS confirmation")
+            amount_str = ""
+            if match["amount"] is not None:
+                unit = match.get("unit_type") or ""
+                amount_str = f" ({match['amount']}{' ' + unit if unit else ''})"
+            confirmation_text = f"Logged {match['habit_name']}{amount_str}"
 
-        await _send_sms(
-            sender_phone,
-            f"Logged {match['habit_name']}{amount_str}"
-        )
+        await _send_sms(sender_phone, confirmation_text)
 
         return {
             "status": "ok",
@@ -804,6 +748,7 @@ async def _log_and_confirm(
             "habit_name": match["habit_name"],
             "amount": match["amount"],
             "logged": True,
+            "confirmation": confirmation_text,
         }
     except Exception as e:
         logger.error("Failed to log habit via Sendblue: %s", e)

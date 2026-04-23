@@ -1,4 +1,4 @@
-"""Shared Sendblue outbound messaging helpers."""
+"""Sendblue-specific low-level outbound helpers."""
 
 import logging
 import os
@@ -84,30 +84,11 @@ async def send_message(
         return False
 
 
-def build_onboarding_welcome_text(first_name: Optional[str] = None) -> str:
-    greeting = f"Welcome to Ritual, {first_name}." if first_name else "Welcome to Ritual."
-    return (
-        f"{greeting} You can log habits by texting this number things like "
-        "\"30mg caffeine\", \"45 min workout\", or \"5 miles walk\". "
-        "In the app, use Chat to ask questions about your activity, Overview and Metrics to review trends, "
-        "and Integrations to connect sources like Whoop and Oura."
-    )
-
-
 BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "")
 
 
-async def send_onboarding_welcome(phone_number: str, full_name: Optional[str] = None) -> bool:
-    first_name = (full_name or "").strip().split(" ")[0] or None
-    sent = await send_message(
-        phone_number=phone_number,
-        text=build_onboarding_welcome_text(first_name),
-    )
-    if sent and BACKEND_PUBLIC_URL:
-        vcard_url = f"{BACKEND_PUBLIC_URL.rstrip('/')}/api/contact/ritual.vcf"
-        await send_message(
-            phone_number=phone_number,
-            text="Save this contact so you always know it's Ritual:",
-            media_url=vcard_url,
-        )
-    return sent
+def get_ritual_vcard_url() -> Optional[str]:
+    """Return the public vCard URL when the backend is publicly reachable."""
+    if not BACKEND_PUBLIC_URL:
+        return None
+    return f"{BACKEND_PUBLIC_URL.rstrip('/')}/api/contact/ritual.vcf"

@@ -35,7 +35,12 @@ class SmsPreferencesService:
                 enabled=True,
                 proactive_enabled=True,
                 max_proactive_per_day=3,
-                allowed_triggers="eod_recap,streak_alert,missed_habit_nudge,weekly_milestone",
+                allowed_triggers="",
+                daily_narrative_enabled=True,
+                interrupts_enabled=True,
+                allowed_interrupt_kinds="distraction_spiral",
+                max_interrupts_per_day=2,
+                min_hours_between_interrupts=4,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
@@ -64,6 +69,11 @@ class SmsPreferencesService:
                 "quiet_hours_end",
                 "max_proactive_per_day",
                 "allowed_triggers",
+                "daily_narrative_enabled",
+                "interrupts_enabled",
+                "allowed_interrupt_kinds",
+                "max_interrupts_per_day",
+                "min_hours_between_interrupts",
             }
 
             for key, value in fields.items():
@@ -117,6 +127,9 @@ class SmsPreferencesService:
             return False
 
         # Check trigger type is allowed
+        if trigger_type == "eod_recap" and prefs.get("daily_narrative_enabled"):
+            return False
+
         allowed = {
             t.strip()
             for t in (prefs.get("allowed_triggers") or "").split(",")
@@ -167,6 +180,11 @@ class SmsPreferencesService:
             "quiet_hours_end": prefs.quiet_hours_end,
             "max_proactive_per_day": prefs.max_proactive_per_day,
             "allowed_triggers": prefs.allowed_triggers,
+            "daily_narrative_enabled": prefs.daily_narrative_enabled,
+            "interrupts_enabled": prefs.interrupts_enabled,
+            "allowed_interrupt_kinds": prefs.allowed_interrupt_kinds,
+            "max_interrupts_per_day": prefs.max_interrupts_per_day,
+            "min_hours_between_interrupts": prefs.min_hours_between_interrupts,
             "last_proactive_sent_at": (
                 prefs.last_proactive_sent_at.isoformat()
                 if prefs.last_proactive_sent_at

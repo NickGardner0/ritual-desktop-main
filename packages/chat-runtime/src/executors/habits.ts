@@ -7,6 +7,11 @@
 
 import { fetchPythonApi, fetchPythonApiPost } from './shared-api.js';
 
+function getInternalUserId(token: string): string | null {
+  const sep = token.indexOf('::');
+  return sep === -1 ? null : token.slice(sep + 2) || null;
+}
+
 // ---------------------------------------------------------------------------
 // executeGetHabitStats
 // ---------------------------------------------------------------------------
@@ -281,6 +286,38 @@ export async function executeLogHabit(token: string, params: {
       logBody,
     );
 
+    let smsConfirmation = `Logged ${matched.name}${params.amount !== undefined && params.amount !== null ? `: ${params.amount}${matched.unit_type ? ` ${matched.unit_type}` : ''}` : ''}.`;
+    let smsConfirmationMeta: Record<string, unknown> | null = null;
+
+    const internalUserId = getInternalUserId(token);
+    const internalApiKey = process.env.INTERNAL_API_KEY || '';
+    if (internalUserId && internalApiKey) {
+      try {
+        const confirmation = await fetchPythonApiPost(
+          '/api/internal/sms-copilot/log-confirmation',
+          token,
+          {
+            user_id: internalUserId,
+            habit_id: matched.id,
+            amount: params.amount ?? null,
+            note: params.note,
+            logged_at: new Date().toISOString(),
+          },
+          {
+            extraHeaders: {
+              'X-Internal-Key': internalApiKey,
+            },
+          },
+        );
+        if (confirmation?.success && typeof confirmation.message === 'string' && confirmation.message.trim()) {
+          smsConfirmation = confirmation.message.trim();
+          smsConfirmationMeta = confirmation.metrics || null;
+        }
+      } catch (error) {
+        console.warn('⚠️ sms log confirmation enrichment failed:', error);
+      }
+    }
+
     return JSON.stringify({
       success: true,
       habit_name: matched.name,
@@ -288,6 +325,8 @@ export async function executeLogHabit(token: string, params: {
       amount: params.amount ?? null,
       date: today,
       log: result,
+      sms_confirmation: smsConfirmation,
+      sms_confirmation_meta: smsConfirmationMeta,
     });
   } catch (error) {
     console.error('❌ logHabit error:', error);

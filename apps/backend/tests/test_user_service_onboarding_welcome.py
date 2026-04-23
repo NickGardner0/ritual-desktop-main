@@ -11,15 +11,11 @@ from services.user_service import UserService
 
 
 class _Result:
-    def __init__(self, *, one=None, one_or_none=None):
-        self._one = one
-        self._one_or_none = one_or_none
+    def __init__(self, *, first=None):
+        self._first = first
 
-    def scalar_one(self):
-        return self._one
-
-    def scalar_one_or_none(self):
-        return self._one_or_none
+    def first(self):
+        return self._first
 
 
 class _SessionContext:
@@ -31,6 +27,39 @@ class _SessionContext:
 
     async def __aexit__(self, exc_type, exc, tb):
         return False
+
+
+def _user_row(
+    *,
+    user_id: str,
+    email: str = "nick@example.com",
+    full_name: str = "Nick Gardner",
+    phone_number: str | None = None,
+    age_bracket: str | None = None,
+    gender: str | None = None,
+    country: str | None = None,
+    tracking_interests: str | None = None,
+    wearable_devices: str | None = None,
+    onboarding_completed: bool = False,
+    created_at: datetime | None = None,
+    updated_at: datetime | None = None,
+    sms_welcome_sent_at: datetime | None = None,
+):
+    return (
+        user_id,
+        email,
+        full_name,
+        phone_number,
+        age_bracket,
+        gender,
+        country,
+        tracking_interests,
+        wearable_devices,
+        onboarding_completed,
+        created_at,
+        updated_at,
+        sms_welcome_sent_at,
+    )
 
 
 class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
@@ -52,16 +81,16 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
         session = AsyncMock()
         session.execute = AsyncMock(
             side_effect=[
-                _Result(one_or_none=existing_user),
+                _Result(first=_user_row(user_id="user-1")),
                 None,
-                _Result(one=updated_user),
+                _Result(first=_user_row(user_id="user-1", phone_number="+16317450064")),
                 None,
             ]
         )
 
         with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
-            "services.user_service.send_onboarding_welcome",
-            AsyncMock(return_value=True),
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
         ) as send_welcome:
             result = await service.update_onboarding(
                 user_id="user-1",
@@ -72,12 +101,17 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
                 tracking_interests=["Productivity"],
                 wearable_devices=["Whoop"],
                 phone_number="631-745-0064",
+                client_surface="desktop",
             )
 
-        self.assertEqual(result, updated_user)
-        send_welcome.assert_awaited_once_with("+16317450064", "Nick Gardner")
+        self.assertEqual(result.id, updated_user.id)
+        send_welcome.assert_awaited_once_with(
+            user_id="user-1",
+            phone_number="+16317450064",
+            full_name="Nick Gardner",
+        )
         self.assertEqual(session.commit.await_count, 2)
-        self.assertIsInstance(updated_user.sms_welcome_sent_at, datetime)
+        self.assertIsInstance(result.sms_welcome_sent_at, datetime)
 
     async def test_update_onboarding_skips_welcome_when_already_sent(self):
         service = UserService()
@@ -97,15 +131,29 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
         session = AsyncMock()
         session.execute = AsyncMock(
             side_effect=[
-                _Result(one_or_none=existing_user),
+                _Result(
+                    first=_user_row(
+                        user_id="user-1",
+                        phone_number="+16317450064",
+                        onboarding_completed=True,
+                        sms_welcome_sent_at=existing_user.sms_welcome_sent_at,
+                    )
+                ),
                 None,
-                _Result(one=updated_user),
+                _Result(
+                    first=_user_row(
+                        user_id="user-1",
+                        phone_number="+16317450064",
+                        onboarding_completed=True,
+                        sms_welcome_sent_at=existing_user.sms_welcome_sent_at,
+                    )
+                ),
             ]
         )
 
         with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
-            "services.user_service.send_onboarding_welcome",
-            AsyncMock(return_value=True),
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
         ) as send_welcome:
             result = await service.update_onboarding(
                 user_id="user-1",
@@ -116,8 +164,53 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
                 tracking_interests=["Productivity"],
                 wearable_devices=["Whoop"],
                 phone_number="631-745-0064",
+                client_surface="desktop",
             )
 
-        self.assertEqual(result, updated_user)
+        self.assertEqual(result.id, updated_user.id)
+        send_welcome.assert_not_awaited()
+        self.assertEqual(session.commit.await_count, 1)
+
+    async def test_update_onboarding_skips_desktop_welcome_for_web_surface(self):
+        service = UserService()
+        existing_user = SimpleNamespace(
+            id="user-1",
+            onboarding_completed=False,
+            sms_welcome_sent_at=None,
+            phone_number=None,
+        )
+        updated_user = SimpleNamespace(
+            id="user-1",
+            full_name="Nick Gardner",
+            phone_number="+16317450064",
+            sms_welcome_sent_at=None,
+        )
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _Result(first=_user_row(user_id="user-1")),
+                None,
+                _Result(first=_user_row(user_id="user-1", phone_number="+16317450064")),
+            ]
+        )
+
+        with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
+        ) as send_welcome:
+            result = await service.update_onboarding(
+                user_id="user-1",
+                name="Nick Gardner",
+                age_bracket="25-34",
+                gender="Male",
+                country="US",
+                tracking_interests=["Productivity"],
+                wearable_devices=["Whoop"],
+                phone_number="631-745-0064",
+                client_surface="web",
+            )
+
+        self.assertEqual(result.id, updated_user.id)
         send_welcome.assert_not_awaited()
         self.assertEqual(session.commit.await_count, 1)

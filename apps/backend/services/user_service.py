@@ -12,7 +12,6 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
 from database.models import UserDB
-from services.sendblue_service import send_onboarding_welcome
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +106,7 @@ class UserService:
         tracking_interests: List[str],
         wearable_devices: List[str],
         phone_number: Optional[str] = None,
+        client_surface: str = "web",
     ) -> UserDB:
         """
         Update user profile with onboarding data
@@ -155,21 +155,40 @@ class UserService:
                 if updated_user is None:
                     raise Exception(f"User not found with ID: {user_id}")
 
-                # Send onboarding welcome SMS (once)
-                if normalized_phone_number and not getattr(user, "sms_welcome_sent_at", None):
+                # Send desktop onboarding copilot welcome SMS (once)
+                if (
+                    client_surface == "desktop"
+                    and normalized_phone_number
+                    and not getattr(user, "sms_welcome_sent_at", None)
+                ):
                     try:
-                        sent = await send_onboarding_welcome(normalized_phone_number, name)
-                        if sent:
+                        from services.sms_onboarding_service import sms_onboarding_service
+
+                        onboarding_result = await sms_onboarding_service.send_desktop_welcome(
+                            user_id=user_id,
+                            phone_number=normalized_phone_number,
+                            full_name=name,
+                        )
+                        if onboarding_result.get("sent"):
+                            sent_at = datetime.now(timezone.utc)
                             await session.execute(
                                 update(UserDB)
                                 .where(UserDB.id == user_id)
-                                .values(sms_welcome_sent_at=datetime.now(timezone.utc))
+                                .values(sms_welcome_sent_at=sent_at)
                             )
                             await session.commit()
-                            updated_user.sms_welcome_sent_at = datetime.now(timezone.utc)
-                            logger.info(f"✅ Welcome SMS sent to {normalized_phone_number} for user {user_id}")
+                            updated_user.sms_welcome_sent_at = sent_at
+                            logger.info(
+                                "✅ Desktop copilot welcome SMS sent to %s for user %s",
+                                normalized_phone_number,
+                                user_id,
+                            )
                     except Exception as sms_exc:
-                        logger.warning(f"⚠️ Failed to send welcome SMS for user {user_id}: {sms_exc}")
+                        logger.warning(
+                            "⚠️ Failed to send desktop copilot welcome SMS for user %s: %s",
+                            user_id,
+                            sms_exc,
+                        )
 
                 logger.info(f"✅ Successfully updated onboarding for user: {user_id}")
                 return updated_user

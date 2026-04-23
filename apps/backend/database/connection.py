@@ -393,6 +393,11 @@ async def _run_migrations(session):
         # SMS chatbot: channel column on conversations + user timezone
         ("ai_conversations", "channel", "ALTER TABLE ai_conversations ADD COLUMN channel TEXT NOT NULL DEFAULT 'app'"),
         ("users", "timezone", "ALTER TABLE users ADD COLUMN timezone TEXT"),
+        ("sms_preferences", "daily_narrative_enabled", "ALTER TABLE sms_preferences ADD COLUMN daily_narrative_enabled INTEGER NOT NULL DEFAULT 1"),
+        ("sms_preferences", "interrupts_enabled", "ALTER TABLE sms_preferences ADD COLUMN interrupts_enabled INTEGER NOT NULL DEFAULT 1"),
+        ("sms_preferences", "allowed_interrupt_kinds", "ALTER TABLE sms_preferences ADD COLUMN allowed_interrupt_kinds TEXT NOT NULL DEFAULT 'distraction_spiral'"),
+        ("sms_preferences", "max_interrupts_per_day", "ALTER TABLE sms_preferences ADD COLUMN max_interrupts_per_day INTEGER NOT NULL DEFAULT 2"),
+        ("sms_preferences", "min_hours_between_interrupts", "ALTER TABLE sms_preferences ADD COLUMN min_hours_between_interrupts INTEGER NOT NULL DEFAULT 4"),
     ]
     
     for table, column, sql in migrations:
@@ -667,11 +672,64 @@ async def _run_migrations(session):
                 quiet_hours_start TEXT,
                 quiet_hours_end TEXT,
                 max_proactive_per_day INTEGER NOT NULL DEFAULT 1,
-                allowed_triggers TEXT NOT NULL DEFAULT 'eod_recap',
+                allowed_triggers TEXT NOT NULL DEFAULT '',
+                daily_narrative_enabled INTEGER NOT NULL DEFAULT 1,
+                interrupts_enabled INTEGER NOT NULL DEFAULT 1,
+                allowed_interrupt_kinds TEXT NOT NULL DEFAULT 'distraction_spiral',
+                max_interrupts_per_day INTEGER NOT NULL DEFAULT 2,
+                min_hours_between_interrupts INTEGER NOT NULL DEFAULT 4,
                 last_proactive_sent_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
+        (
+            "sms_copilot_events",
+            """
+            CREATE TABLE IF NOT EXISTS sms_copilot_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                conversation_id TEXT,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'candidate',
+                score REAL NOT NULL DEFAULT 0,
+                confidence REAL NOT NULL DEFAULT 0,
+                novelty_score REAL NOT NULL DEFAULT 0,
+                actionability_score REAL NOT NULL DEFAULT 0,
+                dedupe_key TEXT NOT NULL,
+                suppression_reason TEXT,
+                trigger_window_start DATETIME,
+                trigger_window_end DATETIME,
+                headline TEXT,
+                body TEXT,
+                metrics_json TEXT,
+                response_options_json TEXT,
+                assistant_message_id TEXT,
+                user_reply_message_id TEXT,
+                provider_message_id TEXT,
+                sent_at DATETIME,
+                replied_at DATETIME,
+                acted_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(conversation_id) REFERENCES ai_conversations(id) ON DELETE SET NULL
+            )
+            """,
+        ),
+        (
+            "behavior_baseline_snapshots",
+            """
+            CREATE TABLE IF NOT EXISTS behavior_baseline_snapshots (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                metric_key TEXT NOT NULL,
+                lookback_days INTEGER NOT NULL DEFAULT 14,
+                baseline_json TEXT NOT NULL,
+                computed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """,
         ),
@@ -777,6 +835,10 @@ async def _run_migrations(session):
         ("idx_heart_rate_rollups_user_bucket_source", "CREATE UNIQUE INDEX IF NOT EXISTS idx_heart_rate_rollups_user_bucket_source ON heart_rate_1m_rollups (user_id, bucket_start, source_preference)"),
         # SMS chatbot: unique SMS conversation per user
         ("idx_ai_conversations_user_sms_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_conversations_user_sms_unique ON ai_conversations (user_id) WHERE channel = 'sms'"),
+        ("idx_sms_copilot_events_user_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS idx_sms_copilot_events_user_dedupe ON sms_copilot_events (user_id, dedupe_key)"),
+        ("idx_sms_copilot_events_user_status_created", "CREATE INDEX IF NOT EXISTS idx_sms_copilot_events_user_status_created ON sms_copilot_events (user_id, status, created_at)"),
+        ("idx_sms_copilot_events_user_kind_created", "CREATE INDEX IF NOT EXISTS idx_sms_copilot_events_user_kind_created ON sms_copilot_events (user_id, kind, created_at)"),
+        ("idx_behavior_baselines_user_metric_computed", "CREATE INDEX IF NOT EXISTS idx_behavior_baselines_user_metric_computed ON behavior_baseline_snapshots (user_id, metric_key, computed_at)"),
         ("idx_report_schedules_user_status", "CREATE INDEX IF NOT EXISTS idx_report_schedules_user_status ON report_schedules (user_id, status)"),
         ("idx_report_schedules_next_run", "CREATE INDEX IF NOT EXISTS idx_report_schedules_next_run ON report_schedules (status, next_run_at)"),
         ("idx_report_runs_schedule_created", "CREATE INDEX IF NOT EXISTS idx_report_runs_schedule_created ON report_runs (schedule_id, created_at)"),

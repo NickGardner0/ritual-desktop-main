@@ -63,10 +63,13 @@ class SendblueServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call["headers"]["sb-api-key-id"], "test-key")
         self.assertEqual(call["headers"]["sb-api-secret-key"], "test-secret")
 
-    def test_build_onboarding_welcome_text_includes_core_examples(self):
-        text = sendblue_service.build_onboarding_welcome_text("Nick")
+    def test_get_ritual_vcard_url_returns_none_without_public_backend_url(self):
+        with patch.object(sendblue_service, "BACKEND_PUBLIC_URL", ""):
+            self.assertIsNone(sendblue_service.get_ritual_vcard_url())
 
-        self.assertIn("Welcome to Ritual, Nick.", text)
-        self.assertIn("30mg caffeine", text)
-        self.assertIn("45 min workout", text)
-        self.assertIn("Overview and Metrics", text)
+    def test_get_ritual_vcard_url_builds_expected_path(self):
+        with patch.object(sendblue_service, "BACKEND_PUBLIC_URL", "https://api.ritual.test/"):
+            self.assertEqual(
+                sendblue_service.get_ritual_vcard_url(),
+                "https://api.ritual.test/api/contact/ritual.vcf",
+            )

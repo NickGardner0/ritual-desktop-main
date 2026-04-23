@@ -317,7 +317,7 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'updateSmsPreferences',
-      description: 'Update the user\'s SMS chatbot preferences. Use when the user wants to change proactive messaging, quiet hours, or notification settings — e.g. "turn off proactive messages", "set quiet hours 10pm-8am", "send me morning briefings too", "stop sending me recaps".',
+      description: 'Update the user\'s SMS copilot preferences. Use when the user wants to change proactive messaging, daily narratives, interrupt behavior, quiet hours, or notification settings.',
       parameters: {
         type: 'object',
         properties: {
@@ -326,6 +326,11 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           quietHoursEnd: { type: 'string', description: 'End of quiet hours in HH:MM format (e.g. "08:00"). Set to null to remove.' },
           allowedTriggers: { type: 'string', description: 'Comma-separated trigger types to allow. Options: "eod_recap" (end-of-day recap), "morning_briefing", "streak_alert" (celebrate milestones), "missed_habit_nudge" (gentle reminders), "weekly_milestone" (weekly highlights). Example: "eod_recap,streak_alert,missed_habit_nudge"' },
           maxProactivePerDay: { type: 'number', description: 'Maximum proactive messages per day (default 1, max 3)' },
+          dailyNarrativeEnabled: { type: 'boolean', description: 'Enable or disable the end-of-day daily narrative SMS.' },
+          interruptsEnabled: { type: 'boolean', description: 'Enable or disable high-confidence copilot interrupts.' },
+          allowedInterruptKinds: { type: 'string', description: 'Comma-separated interrupt kinds to allow. Current option: "distraction_spiral".' },
+          maxInterruptsPerDay: { type: 'number', description: 'Maximum copilot interrupts per day (default 2, max 3).' },
+          minHoursBetweenInterrupts: { type: 'number', description: 'Minimum hours between copilot interrupts (default 4, min 1, max 24).' },
         },
         required: [],
       },

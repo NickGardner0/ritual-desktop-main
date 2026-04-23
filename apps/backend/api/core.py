@@ -176,6 +176,7 @@ def create_core_router(
                 tracking_interests=onboarding_data.tracking_interests,
                 wearable_devices=onboarding_data.wearable_devices,
                 phone_number=onboarding_data.phone_number,
+                client_surface=onboarding_data.client_surface or "web",
             )
             logger.info("Onboarding updated successfully for user %s", current_user["id"])
             return user_db_to_profile(user)

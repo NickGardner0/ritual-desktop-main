@@ -3,7 +3,7 @@ User-related Pydantic models for API requests/responses
 """
 
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import datetime
 
 class OnboardingData(BaseModel):
@@ -15,6 +15,7 @@ class OnboardingData(BaseModel):
     tracking_interests: List[str]
     wearable_devices: List[str]
     phone_number: Optional[str] = None
+    client_surface: Literal["desktop", "web"] | None = "web"
 
 class UserProfile(BaseModel):
     """User profile response"""
@@ -33,4 +34,3 @@ class UserProfile(BaseModel):
     
     class Config:
         from_attributes = True
-

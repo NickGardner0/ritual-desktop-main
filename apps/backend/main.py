@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from typing import Optional, Dict, Any
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -438,6 +438,9 @@ app.include_router(proactive_sms_router)
 from api.sms_preferences import create_sms_preferences_router
 app.include_router(create_sms_preferences_router(get_current_user=get_current_user))
 
+from api.sms_copilot import create_sms_copilot_router
+app.include_router(create_sms_copilot_router())
+
 from api.vcard import router as vcard_router
 app.include_router(vcard_router)
 
@@ -758,6 +761,58 @@ async def _report_scheduler_loop() -> None:
         await asyncio.sleep(900)
 
 
+async def _sms_copilot_loop() -> None:
+    """Run narrow deterministic copilot checks every five minutes."""
+    from sqlalchemy import select
+    from database.models import UserDB
+
+    await asyncio.sleep(45)
+    logger.info("📲 SMS copilot loop started (runs every 5 minutes)")
+
+    while True:
+        candidate_count = 0
+        sent_count = 0
+        try:
+            from services.sms_copilot_dispatch_service import sms_copilot_dispatch_service
+            from services.sms_copilot_signal_service import sms_copilot_signal_service
+
+            now_utc = datetime.now(timezone.utc)
+
+            async with get_db_session() as session:
+                result = await session.execute(
+                    select(UserDB.id).where(
+                        UserDB.phone_number.isnot(None),
+                        UserDB.onboarding_completed.is_(True),
+                    )
+                )
+                user_ids = [row[0] for row in result.all()]
+
+            for user_id in user_ids:
+                candidates = await sms_copilot_signal_service.evaluate_user(
+                    user_id=user_id,
+                    now_utc=now_utc,
+                )
+                candidate_count += len(candidates)
+                for candidate in candidates:
+                    event = await sms_copilot_dispatch_service.dispatch_candidate(candidate)
+                    if event.status == "sent":
+                        sent_count += 1
+
+            if candidate_count or sent_count:
+                logger.info(
+                    "📲 SMS copilot tick complete: candidates=%d sent=%d users=%d",
+                    candidate_count,
+                    sent_count,
+                    len(user_ids),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ SMS copilot loop failed: %s", exc)
+
+        await asyncio.sleep(300)
+
+
 async def _post_startup_initialization() -> None:
     """Run nonessential startup work after readiness is available."""
     logger = logging.getLogger("uvicorn")
@@ -805,8 +860,10 @@ async def _post_startup_initialization() -> None:
     if ENABLE_INTERNAL_SCHEDULER:
         app.state.scheduler_task = asyncio.create_task(_internal_scheduler_loop())
         app.state.report_scheduler_task = asyncio.create_task(_report_scheduler_loop())
+        app.state.sms_copilot_task = asyncio.create_task(_sms_copilot_loop())
         logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
         logger.info("📨 Report scheduler started")
+        logger.info("📲 SMS copilot scheduler started")
     else:
         logger.info("⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)")
 
@@ -835,6 +892,7 @@ async def startup_event():
     app.state.startup_maintenance_task = None
     app.state.scheduler_task = None
     app.state.report_scheduler_task = None
+    app.state.sms_copilot_task = None
     if ENABLE_STARTUP_MAINTENANCE_TASK:
         app.state.startup_maintenance_task = asyncio.create_task(
             _delayed_post_startup_initialization()
@@ -862,7 +920,8 @@ async def shutdown_event():
     startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
     scheduler_task = getattr(app.state, "scheduler_task", None)
     report_scheduler_task = getattr(app.state, "report_scheduler_task", None)
-    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task, scheduler_task, report_scheduler_task] if t is not None]
+    sms_copilot_task = getattr(app.state, "sms_copilot_task", None)
+    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task, scheduler_task, report_scheduler_task, sms_copilot_task] if t is not None]
     for task in tasks:
         task.cancel()
     if tasks:

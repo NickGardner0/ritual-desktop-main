@@ -1330,6 +1330,49 @@ export interface SmsChatResponse {
   tool_calls_made: string[];
 }
 
+type SmsToolExecution = {
+  name: string;
+  result: string;
+};
+
+function buildFallbackSmsLogReply(parsed: Record<string, unknown>): string | null {
+  const habitName = typeof parsed.habit_name === 'string' ? parsed.habit_name : '';
+  if (!habitName) return null;
+  const amount = parsed.amount;
+  const amountText = amount !== null && amount !== undefined ? `: ${amount}` : '';
+  return `Logged ${habitName}${amountText}.`;
+}
+
+function maybeBuildDeterministicSmsLogReply(toolExecutions: SmsToolExecution[]): string | null {
+  if (!toolExecutions.some((execution) => execution.name === 'logHabit')) {
+    return null;
+  }
+
+  const allowedToolNames = new Set(['listHabits', 'createHabit', 'logHabit']);
+  if (toolExecutions.some((execution) => !allowedToolNames.has(execution.name))) {
+    return null;
+  }
+
+  const latestLogExecution = [...toolExecutions].reverse().find((execution) => execution.name === 'logHabit');
+  if (!latestLogExecution) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(latestLogExecution.result);
+    if (!parsed || typeof parsed !== 'object' || parsed.error) {
+      return null;
+    }
+    if (typeof parsed.sms_confirmation === 'string' && parsed.sms_confirmation.trim()) {
+      return parsed.sms_confirmation.trim();
+    }
+    return buildFallbackSmsLogReply(parsed);
+  } catch (error) {
+    console.warn('⚠️ Failed to parse logHabit SMS confirmation payload:', error);
+    return null;
+  }
+}
+
 /**
  * Handle an SMS chat message. Runs the same tool-calling loop as the
  * in-app chat orchestrator but in non-streaming mode with the SMS
@@ -1419,6 +1462,7 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
     }
 
     const toolCallsMade: string[] = [];
+    const smsToolExecutions: SmsToolExecution[] = [];
 
     // Tool execution context — SMS doesn't send screen search data
     const toolCtx: ToolExecutionContext = {
@@ -1465,6 +1509,10 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
       );
 
       for (const { toolCall, result } of toolCallResults) {
+        smsToolExecutions.push({
+          name: toolCall.function.name,
+          result,
+        });
         apiMessages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -1485,7 +1533,8 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
       console.log(`📱 [${elapsed(t0)}] OpenAI follow-up #${iterations} done`);
     }
 
-    const finalText = assistantMessage.content || 'Sorry, I couldn\'t process that. Try again?';
+    const deterministicSmsReply = maybeBuildDeterministicSmsLogReply(smsToolExecutions);
+    const finalText = deterministicSmsReply || assistantMessage.content || 'Sorry, I couldn\'t process that. Try again?';
     const abArm = isSmsV2PromptActive() ? 'v2' : 'v1';
     const messages = splitSmsSegments(finalText);
 
