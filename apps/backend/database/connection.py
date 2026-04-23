@@ -804,6 +804,18 @@ async def _run_migrations(session):
             )
             """,
         ),
+        (
+            "user_ui_preferences",
+            """
+            CREATE TABLE IF NOT EXISTS user_ui_preferences (
+                user_id TEXT PRIMARY KEY,
+                habit_text_color TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """,
+        ),
     ]
 
     for table_name, sql in create_table_sql:
